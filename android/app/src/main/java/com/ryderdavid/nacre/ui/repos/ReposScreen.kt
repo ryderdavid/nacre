@@ -49,7 +49,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -147,7 +146,7 @@ fun ReposScreen(onOpen: (Repo) -> Unit, onPair: () -> Unit) {
                             .thenByDescending { g -> g.members.sumOf { it.activeRuns } > 0 }
                             .thenByDescending { it.home.lastUpdated }
                     )
-                PullToRefreshBox(isRefreshing = state.loading, onRefresh = vm::refresh, modifier = Modifier.padding(pad).fillMaxSize()) {
+                Box(Modifier.padding(pad).fillMaxSize()) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 320.dp),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),

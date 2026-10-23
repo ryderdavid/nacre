@@ -33,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -45,7 +44,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -66,6 +64,7 @@ import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
+import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.PriorityPill
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -181,12 +180,12 @@ private val REFINE_SUGGESTIONS = listOf(
 )
 
 /** Ask Claude to improve the bead, then review a field-by-field diff before applying. */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun RefineSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit) {
     val state by vm.refine.collectAsState()
     var instruction by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    HandleDismissSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(AiIcon, null, tint = MaterialTheme.colorScheme.primary)
@@ -197,7 +196,7 @@ fun RefineSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onD
             when (val s = state) {
                 RefineState.Idle, is RefineState.Failed -> {
                     if (!claudeReady) {
-                        Text("Add your Claude API key in Settings to use this.", color = MaterialTheme.colorScheme.error)
+                        Text("Pair a computer, or add a Claude API key, in Settings to use this.", color = MaterialTheme.colorScheme.error)
                         return@Column
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -209,7 +208,10 @@ fun RefineSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onD
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
-                    if (s is RefineState.Failed) Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                    if (s is RefineState.Failed) {
+                        Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                        if (s.offerApiKey) TextButton(onClick = vm::useApiKey) { Text("Use my Claude API key instead") }
+                    }
                     Button(onClick = { vm.requestRefine(instruction) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                         Icon(AiIcon, null); Spacer(Modifier.width(8.dp)); Text("Ask Claude")
                     }
@@ -313,7 +315,7 @@ val RUN_MODELS = listOf("" to "Default", "opus" to "Opus", "sonnet" to "Sonnet",
  * Configure and send a bead to Claude Code. [targets] are the computers that have this
  * repository; with more than one, the user picks where it runs.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RunLaunchSheet(
     issue: Issue,
@@ -332,7 +334,7 @@ fun RunLaunchSheet(
     var instructions by rememberSaveable { mutableStateOf("") }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    HandleDismissSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
             Text("Run with Claude Code", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)

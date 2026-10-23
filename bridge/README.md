@@ -50,7 +50,8 @@ internal/config     config file, token, Tailscale address
 internal/discovery  .beads repo discovery
 internal/bd         bd CLI wrapper (argv only, 30 s timeout, per-repo write lock)
 internal/repos      repo registry, 2 s issue cache, counts
-internal/claude     claude argv + stream-json → RunEvent parser
+internal/claude     claude argv (runs and headless calls) + stream-json → RunEvent parser
+internal/assist     one-shot `claude -p` calls for the app's Refine, Draft and assistant
 internal/prompt     prompt template rendering
 internal/runs       run queue, processes (own process group), persistence
 internal/sse        SSE writer + broker
@@ -67,3 +68,8 @@ Runs still active when nacred stops are marked failed on the next start.
   for `nacred`; allow it (or remove `~/Documents` from `scan_roots`).
 - Child `claude` processes get nacred's environment minus Claude Code session markers
   (`CLAUDECODE`, `CLAUDE_CODE_*`), so starting nacred from inside a Claude Code session is safe.
+- `/v1/repos/{repo}/claude/{json,stream}` run the app's Claude features on this computer's Claude
+  subscription, so the phone needs no API key. They are sandboxed with `--safe-mode` and
+  `--permission-prompts none`, and the board assistant gets only read-only `bd` commands: it
+  returns the changes it wants as proposals, and the app applies the ones the user approves through
+  the ordinary issue routes. See `docs/API.md` (AssistRequest).

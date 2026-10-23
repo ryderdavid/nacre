@@ -9,7 +9,8 @@ import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.claude.BeadContext
 import com.ryderdavid.nacre.data.claude.ChildDraft
-import com.ryderdavid.nacre.data.claude.ClaudeService
+import com.ryderdavid.nacre.data.claude.ClaudeBackends
+import com.ryderdavid.nacre.data.claude.ClaudeUnavailableException
 import com.ryderdavid.nacre.data.claude.RefineProposal
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.Comment
@@ -18,6 +19,7 @@ import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.UpdateIssue
+import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,7 +32,8 @@ sealed interface RefineState {
     data object Idle : RefineState
     data object Thinking : RefineState
     data class Ready(val proposal: RefineProposal) : RefineState
-    data class Failed(val message: String) : RefineState
+    /** [offerApiKey] when the user could get further by switching to the Claude API. */
+    data class Failed(val message: String, val offerApiKey: Boolean = false) : RefineState
 }
 
 /** One computer a bead can be sent to. */
@@ -41,7 +44,7 @@ data class RefineSelection(val fields: Set<String>, val children: Set<Int>)
 
 class BeadDetailViewModel(
     private val repo: NacreRepository,
-    private val claude: ClaudeService,
+    private val backends: ClaudeBackends,
     private val settings: SettingsStore,
     val repoKey: String,
     val beadId: String,
@@ -136,8 +139,8 @@ class BeadDetailViewModel(
         val cur = issue.value ?: return@launch
         val ix = index.value ?: return@launch
         refine.value = RefineState.Thinking
+        val s = settings.current()
         refine.value = try {
-            val s = settings.current()
             val parent = ix.byId[cur.parent]
             val ctx = BeadContext(
                 repoName = repo.repo(repoKey)?.name ?: repoKey,
@@ -148,10 +151,17 @@ class BeadDetailViewModel(
                 siblingTitles = parent?.let { p -> ix.childrenOf(p.id).filter { it.id != cur.id }.map { "${it.id} ${it.title}" } }.orEmpty(),
                 childTitles = ix.childrenOf(cur.id).map { "${it.id} ${it.title}" },
             )
-            RefineState.Ready(claude.refine(s, ctx, instruction))
+            RefineState.Ready(backends.of(s).refine(repoKey, ctx, instruction))
+        } catch (e: ClaudeUnavailableException) {
+            RefineState.Failed(e.message ?: "Claude isn't available right now", e.offerApiKey && s.apiKeyConfigured)
         } catch (e: Exception) {
             RefineState.Failed(e.message ?: "Claude couldn't refine this bead")
         }
+    }
+
+    /** Switches the Claude features to this phone's API key, after the Mac let us down. */
+    fun useApiKey() = viewModelScope.launch {
+        settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) }
     }
 
     fun dismissRefine() {

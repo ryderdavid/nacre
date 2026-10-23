@@ -5,8 +5,11 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.ryderdavid.nacre.data.NacreRepository
+import com.ryderdavid.nacre.data.claude.ApiBackend
 import com.ryderdavid.nacre.data.claude.BoardAssistant
+import com.ryderdavid.nacre.data.claude.ClaudeBackends
 import com.ryderdavid.nacre.data.claude.ClaudeService
+import com.ryderdavid.nacre.data.claude.MacBackend
 import com.ryderdavid.nacre.data.claude.RepoBoardTools
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import com.ryderdavid.nacre.notify.RunNotifier
@@ -27,6 +30,12 @@ class AppContainer(app: Application) {
         .build()
     val repository = NacreRepository(settings, http, scope)
     val claude = ClaudeService()
+
+    /** Refine, Draft and the assistant, on the Mac's subscription or this phone's key. */
+    val backends = ClaudeBackends(
+        api = ApiBackend(claude) { settings.current() },
+        mac = MacBackend(repository) { settings.current() },
+    )
     val notifier = RunNotifier(app, repository, settings, scope)
 
     /** One assistant conversation per board, kept for the life of the process. */
@@ -34,7 +43,7 @@ class AppContainer(app: Application) {
 
     fun assistant(repoKey: String, repoName: String): BoardAssistant = synchronized(assistants) {
         assistants.getOrPut(repoKey) {
-            BoardAssistant(claude, { settings.current() }, RepoBoardTools(repository, repoKey, repoName), scope)
+            BoardAssistant(backends, { settings.current() }, RepoBoardTools(repository, repoKey, repoName), scope)
         }
     }
 }

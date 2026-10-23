@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
@@ -76,7 +77,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -162,9 +162,19 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId
             val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
             Scaffold(
                 modifier = Modifier.then(if (wide) Modifier.width(listPane.dp) else Modifier.weight(1f)).nestedScroll(scroll.nestedScrollConnection),
-                topBar = { LargeTopAppBar(title = { Text("Runs") }, scrollBehavior = scroll) },
+                topBar = {
+                    LargeTopAppBar(
+                        title = { Text("Runs") },
+                        actions = {
+                            IconButton(onClick = vm::refresh, enabled = !refreshing) {
+                                Icon(Icons.Rounded.Refresh, "Refresh the list of runs")
+                            }
+                        },
+                        scrollBehavior = scroll,
+                    )
+                },
             ) { pad ->
-                PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.padding(pad).fillMaxSize()) {
+                Box(Modifier.padding(pad).fillMaxSize()) {
                     if (runs.isEmpty()) MessageState(
                         Icons.Rounded.Terminal, "No runs yet",
                         "Open a bead and tap “Run with Claude Code” to send it to your Mac.",

@@ -123,7 +123,7 @@ fun BeadDetail(
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
 ) {
-    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.claude, it.settings, repoKey, beadId) }
+    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
     val index by vm.index.collectAsState()
     val comments by vm.comments.collectAsState()

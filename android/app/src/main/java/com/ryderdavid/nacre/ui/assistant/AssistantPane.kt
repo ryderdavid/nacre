@@ -66,6 +66,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
 import com.ryderdavid.nacre.data.claude.ChatItem
 import com.ryderdavid.nacre.data.claude.ChatItem.ToolCall.State as S
 import com.ryderdavid.nacre.ui.common.AiIcon
@@ -73,7 +75,9 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.MessageState
 import com.ryderdavid.nacre.ui.theme.MonoFamily
+import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.theme.Nacre
+import kotlinx.coroutines.launch
 
 private val SUGGESTIONS = listOf(
     "What should I work on next?",
@@ -100,6 +104,7 @@ fun AssistantPane(
     val busy by assistant.busy.collectAsState()
     val auto by assistant.autoApprove.collectAsState()
     val prefs by container.settings.settings.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
     var input by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
 
@@ -152,7 +157,15 @@ fun AssistantPane(
         },
     ) { pad ->
         when {
-            prefs?.claudeConfigured == false -> MessageState(AiIcon, "Add your Claude API key", "The board assistant uses your own Claude API key, set in Settings.", modifier = Modifier.padding(pad))
+            prefs?.claudeConfigured == false -> if (prefs?.claudeRunner == AppSettings.RUNNER_MAC) MessageState(
+                AiIcon, "Pair a computer first",
+                "The assistant runs on your Mac's Claude subscription. Pair a computer in Settings, or add a Claude API key there.",
+                modifier = Modifier.padding(pad),
+            ) else MessageState(
+                AiIcon, "Add your Claude API key",
+                "The board assistant uses your own Claude API key, set in Settings.",
+                modifier = Modifier.padding(pad),
+            )
             items.isEmpty() -> EmptyAssistant(Modifier.padding(pad)) { assistant.send(it) }
             else -> LazyColumn(
                 state = list,
@@ -167,10 +180,15 @@ fun AssistantPane(
                         is ChatItem.Thinking -> ThinkingRow(item)
                         is ChatItem.ToolCall -> ToolRow(item, onApprove = { assistant.decide(item.id, true) }, onDecline = { assistant.decide(item.id, false) }, onOpenBead = onOpenBead)
                         is ChatItem.Error -> Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp)) {
-                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
-                                Spacer(Modifier.width(8.dp))
-                                Text(item.text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
+                            Column(Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(item.text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                if (item.offerApiKey) TextButton(
+                                    onClick = { scope.launch { container.settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) } } },
+                                ) { Text("Use my Claude API key instead") }
                             }
                         }
                     }
@@ -227,6 +245,7 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 }
 
 private fun toolTitle(name: String) = when (name) {
+    "bd" -> "Read the board on the Mac"
     "list_beads" -> "Looked at beads"
     "get_bead" -> "Read bead"
     "update_bead" -> "Edit bead"

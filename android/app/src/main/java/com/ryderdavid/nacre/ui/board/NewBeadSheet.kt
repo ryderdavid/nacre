@@ -17,17 +17,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,14 +40,17 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.friendly
+import com.ryderdavid.nacre.data.settings.AppSettings
+import com.ryderdavid.nacre.data.claude.ClaudeUnavailableException
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.ui.bead.TYPES
 import com.ryderdavid.nacre.ui.common.AiIcon
+import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultParent: String?, onDismiss: () -> Unit, onCreated: (Issue) -> Unit) {
     val container = LocalContainer.current
@@ -65,19 +66,23 @@ fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultP
     var drafting by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var offerApiKey by remember { mutableStateOf(false) }
 
     fun draft() = scope.launch {
-        drafting = true; error = null
+        drafting = true; error = null; offerApiKey = false
         try {
             val s = container.settings.current()
             val rough = listOf(title, description).filter { it.isNotBlank() }.joinToString("\n\n")
-            val d = container.claude.draft(
-                s, repoName, rough,
+            val d = container.backends.of(s).draft(
+                repoKey, repoName, rough,
                 parentTitle = parent?.let { p -> index?.byId?.get(p)?.title },
                 existingTitles = index?.issues?.filterNot { it.isClosed }?.map { "${it.id} ${it.title}" }.orEmpty(),
             )
             title = d.title; description = d.description; acceptance = d.acceptance_criteria; design = d.design
             type = d.issue_type.takeIf { it in TYPES } ?: "task"; priority = d.priority.coerceIn(0, 4); labels = d.labels
+        } catch (e: ClaudeUnavailableException) {
+            error = e.message
+            offerApiKey = e.offerApiKey && container.settings.current().apiKeyConfigured
         } catch (e: Exception) {
             error = e.message
         } finally {
@@ -104,7 +109,7 @@ fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultP
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    HandleDismissSheet(onDismiss) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState()),
         ) {
@@ -130,6 +135,9 @@ fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultP
                 Spacer(Modifier.width(8.dp))
                 Text(if (drafting) "Claude is drafting…" else "Draft with Claude")
             }
+            if (offerApiKey) TextButton(
+                onClick = { scope.launch { container.settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) } } },
+            ) { Text("Use my Claude API key instead") }
 
             Text("Type", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

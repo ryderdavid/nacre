@@ -214,17 +214,33 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
                 }
             }
 
-            item { Header("Claude API") }
+            item { Header("Refine, Draft and the assistant") }
+            item {
+                Labeled("Run Claude on", runnerHint(p)) {
+                    Segmented(
+                        listOf(AppSettings.RUNNER_MAC to "My Mac", AppSettings.RUNNER_API to "API key"),
+                        p.claudeRunner,
+                    ) { v -> vm.update { it.copy(claudeRunner = v) } }
+                }
+            }
             item {
                 ListItem(
                     leadingContent = { Icon(Icons.Rounded.Key, null) },
                     headlineContent = { Text("API key") },
-                    supportingContent = { Text(if (p.claudeConfigured) "sk-ant-…" + p.anthropicKey.takeLast(4) + " · stored encrypted on this phone" else "Needed for Refine, Draft and the board assistant") },
+                    supportingContent = {
+                        Text(
+                            when {
+                                p.apiKeyConfigured -> "sk-ant-…" + p.anthropicKey.takeLast(4) + " · stored encrypted on this phone"
+                                p.onMac -> "Optional while Claude runs on your Mac; a fallback when it is offline"
+                                else -> "Needed for Refine, Draft and the board assistant"
+                            }
+                        )
+                    },
                     trailingContent = { Icon(Icons.Rounded.Edit, "Change key") },
                     modifier = Modifier.clickable { editKey = true },
                 )
             }
-            if (p.claudeConfigured) item {
+            if (p.apiKeyConfigured) item {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledTonalButton(onClick = vm::testKey) { Text("Test key") }
                     keyStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 12.dp)) }
@@ -301,6 +317,16 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
             ConfirmPairDialog(req, pair = vm::pair, onDone = { confirm = null; onPendingHandled() })
         }
     }
+}
+
+/** Why the chosen runner will or won't work right now. */
+private fun runnerHint(p: AppSettings): String = when {
+    p.claudeRunner == AppSettings.RUNNER_MAC && !p.bridgeConfigured ->
+        "No computer paired yet, so these use the API key below."
+    p.claudeRunner == AppSettings.RUNNER_MAC ->
+        "Claude Code runs them on your Mac, on your Claude subscription. No API key needed."
+    p.apiKeyConfigured -> "The Claude API bills your key for each use."
+    else -> "The Claude API bills your key for each use — add one below."
 }
 
 @Composable

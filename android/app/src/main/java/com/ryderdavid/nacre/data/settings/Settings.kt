@@ -41,6 +41,8 @@ data class AppSettings(
     /** Per repository (git remote): computer last chosen to run beads on. */
     val runHosts: Map<String, String> = emptyMap(),
     val anthropicKey: String = "",
+    /** Where Refine, Draft and the board assistant run: [RUNNER_MAC] or [RUNNER_API]. */
+    val claudeRunner: String = RUNNER_MAC,
     val claudeModel: String = DEFAULT_MODEL,
     val claudeEffort: String = "medium",
     val runMode: String = "auto",
@@ -55,10 +57,26 @@ data class AppSettings(
 ) {
     val bridgeConfigured get() = hosts.isNotEmpty()
     fun host(id: String) = hosts.firstOrNull { it.id == id }
-    val claudeConfigured get() = anthropicKey.isNotBlank()
+
+    /**
+     * True when Claude runs on a paired computer, spending Ryder's
+     * subscription. Choosing the Mac without one paired falls back to the API
+     * key, so the choice never leaves the features dead.
+     */
+    val onMac get() = claudeRunner == RUNNER_MAC && bridgeConfigured
+    val apiKeyConfigured get() = anthropicKey.isNotBlank()
+
+    /** True when the Claude features can work at all. */
+    val claudeConfigured get() = onMac || apiKeyConfigured
 
     companion object {
         const val DEFAULT_MODEL = "claude-opus-5-5"
+
+        /** `claude -p` on a paired computer, on Ryder's Claude subscription. */
+        const val RUNNER_MAC = "mac"
+
+        /** The Claude API, billed per use against the key on this phone. */
+        const val RUNNER_API = "api"
     }
 }
 
@@ -73,6 +91,7 @@ class SettingsStore(private val context: Context) {
         val homeHosts = stringPreferencesKey("home_hosts_json")
         val runHosts = stringPreferencesKey("run_hosts_json")
         val apiKey = stringPreferencesKey("anthropic_key_enc")
+        val runner = stringPreferencesKey("claude_runner")
         val model = stringPreferencesKey("claude_model")
         val effort = stringPreferencesKey("claude_effort")
         val runMode = stringPreferencesKey("run_mode")
@@ -108,6 +127,7 @@ class SettingsStore(private val context: Context) {
             homeHosts = stringMap(p[K.homeHosts]),
             runHosts = stringMap(p[K.runHosts]),
             anthropicKey = p[K.apiKey]?.let(Secrets::decrypt).orEmpty(),
+            claudeRunner = p[K.runner] ?: AppSettings.RUNNER_MAC,
             claudeModel = p[K.model] ?: AppSettings.DEFAULT_MODEL,
             claudeEffort = p[K.effort] ?: "medium",
             runMode = p[K.runMode] ?: "auto",
@@ -169,6 +189,7 @@ class SettingsStore(private val context: Context) {
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current())
         context.dataStore.edit {
+            it[K.runner] = next.claudeRunner
             it[K.model] = next.claudeModel
             it[K.effort] = next.claudeEffort
             it[K.runMode] = next.runMode

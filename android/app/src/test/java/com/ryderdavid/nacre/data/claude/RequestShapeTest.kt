@@ -25,7 +25,7 @@ class RequestShapeTest {
 
     @Test fun strictToolsListEveryPropertyAsRequired() {
         val params = ClaudeService.baseParams(settings, "system", 64000)
-            .tools(BoardAssistant.TOOL_DEFS.map { ToolUnion.ofTool(it) })
+            .tools(BOARD_TOOLS.map { ToolUnion.ofTool(it.toTool()) })
             .addUserMessage("hi")
             .build()
         val tools = body(params)["tools"]!!.jsonArray

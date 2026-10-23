@@ -23,6 +23,7 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
@@ -120,7 +121,8 @@ func serve(cfg *config.Config, listenFlag string) error {
 	registry.ActiveRuns = manager.ActiveCount
 	go registry.Rescan() // warm the repo list
 
-	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Broker: broker, Log: logger}
+	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
+	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Broker: broker, Log: logger}
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()

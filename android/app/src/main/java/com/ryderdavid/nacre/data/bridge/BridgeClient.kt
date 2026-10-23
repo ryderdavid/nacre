@@ -1,5 +1,7 @@
 package com.ryderdavid.nacre.data.bridge
 
+import com.ryderdavid.nacre.data.model.AssistRequest
+import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Health
@@ -44,6 +46,18 @@ sealed interface StreamMessage {
     data class RunChanged(val run: Run) : StreamMessage
     data class RepoChanged(val repoId: String) : StreamMessage
     data object Open : StreamMessage
+}
+
+/** Messages from a streamed `claude -p` turn on the computer. */
+sealed interface AssistMessage {
+    /** One line of the Mac's own transcript: a thought, a bd command, its output. */
+    data class Event(val event: RunEvent) : AssistMessage
+
+    /** The finished answer. */
+    data class Done(val result: AssistResult) : AssistMessage
+
+    /** Claude or nacred gave up; [error] is already phrased for a person. */
+    data class Failed(val error: String) : AssistMessage
 }
 
 /** Thin typed client for nacred. One instance per (url, token). */
@@ -96,6 +110,45 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun run(id: String): RunDetail = get("/v1/runs/$id")
     suspend fun cancel(id: String): Run = send<Reason, Run>("POST", "/v1/runs/$id/cancel", Reason())
     suspend fun followUp(id: String, message: String, mode: String?): Run = send("POST", "/v1/runs/$id/followup", FollowUp(message, mode))
+
+    /** One Refine or Draft call on this computer's Claude subscription. */
+    suspend fun claudeJson(repo: String, req: AssistRequest): AssistResult = send("POST", "/v1/repos/$repo/claude/json", req)
+
+    /** One board-assistant turn on this computer, streamed as it runs. */
+    fun claudeStream(repo: String, req: AssistRequest): Flow<AssistMessage> = callbackFlow {
+        val body: RequestBody = json.encodeToString(req).toRequestBody(JSON)
+        val request = Request.Builder().url(url("/v1/repos/$repo/claude/stream")).post(body)
+            .header("Accept", "text/event-stream").build()
+        val source = EventSources.createFactory(streamHttp).newEventSource(request, object : EventSourceListener() {
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                val msg = runCatching {
+                    when (type) {
+                        "done" -> AssistMessage.Done(json.decodeFromString<AssistResult>(data))
+                        "error" -> AssistMessage.Failed(json.decodeFromString<ErrorBody>(data).error.ifBlank { "Claude failed on the computer" })
+                        else -> AssistMessage.Event(json.decodeFromString<RunEvent>(data))
+                    }
+                }.getOrNull() ?: return
+                trySend(msg)
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                close()
+            }
+
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                close(t ?: streamError(response))
+            }
+        })
+        awaitClose { source.cancel() }
+    }
+
+    /** A streaming POST that answered with an error instead of events. */
+    private fun streamError(response: Response?): Throwable {
+        val code = response?.code ?: 0
+        val body = response?.let { runCatching { it.body?.string() }.getOrNull() }.orEmpty()
+        val err = runCatching { json.decodeFromString<ErrorBody>(body) }.getOrNull()
+        return BridgeException(err?.error?.takeIf { it.isNotBlank() } ?: "The computer stopped answering (${code.takeIf { it != 0 } ?: "no response"})", code = code)
+    }
 
     /** Live transcript of one run; replays events after [after] first. */
     fun runStream(id: String, after: Long = 0): Flow<StreamMessage> = sse("/v1/runs/$id/stream?after=$after")

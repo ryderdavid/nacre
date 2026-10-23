@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Repo and run ids are only unique on one computer, so the app addresses them as
@@ -165,7 +166,17 @@ data class Health(
     @SerialName("claude_version") val claudeVersion: String = "",
     val repos: Int = 0,
     @SerialName("active_runs") val activeRuns: Int = 0,
-)
+    /** Optional capabilities this computer reports; see [Features]. */
+    val features: List<String> = emptyList(),
+) {
+    /** True when this computer can run Refine, Draft and the assistant itself. */
+    val runsClaude get() = Features.CLAUDE in features
+}
+
+object Features {
+    /** nacred can run the app's Claude features headless on its own subscription. */
+    const val CLAUDE = "claude"
+}
 
 // ---- request bodies ----
 
@@ -205,4 +216,33 @@ data class RunRequest(
     val model: String? = null,
     val instructions: String? = null,
     val worktree: Boolean? = null,
+)
+
+/**
+ * Asks a computer to answer one prompt with `claude -p` on its own Claude
+ * subscription. The app sends the prompt, the system prompt and the JSON
+ * schema, so both ways of reaching Claude return the same shapes.
+ */
+@Serializable
+data class AssistRequest(
+    val prompt: String,
+    val system: String = "",
+    val schema: JsonObject? = null,
+    val model: String = "",
+    val effort: String = "",
+    /** Continues an earlier assistant conversation. */
+    @SerialName("session_id") val sessionId: String = "",
+    /** Lets the call run read-only bd commands in the repository. */
+    @SerialName("bd_reads") val bdReads: Boolean = false,
+    /** Keeps the session so the next turn can resume it. */
+    val keep: Boolean = false,
+)
+
+/** What one [AssistRequest] produced. */
+@Serializable
+data class AssistResult(
+    @SerialName("session_id") val sessionId: String = "",
+    val output: JsonObject? = null,
+    val text: String = "",
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
 )

@@ -17,6 +17,7 @@ class RepoBoardTools(
     private val repoKey: String,
     override val repoName: String,
 ) : BoardTools {
+    override val boardKey get() = repoKey
 
     private fun index(): BoardIndex = repo.board(repoKey).value.data?.index
         ?: throw IllegalStateException("The board hasn't loaded yet")

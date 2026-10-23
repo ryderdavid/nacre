@@ -94,7 +94,7 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.1.0","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","repos":n,"active_runs":n}` |
+| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","repos":n,"active_runs":n,"features":["claude"]}` |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -106,6 +106,8 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
 | DELETE | `/v1/repos/{repo}/deps?issue_id=&depends_on_id=` | – | `{"ok":true}` |
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |
+| POST | `/v1/repos/{repo}/claude/json` | AssistRequest | `{"session_id","output":{…},"text","cost_usd"}` |
+| POST | `/v1/repos/{repo}/claude/stream` | AssistRequest | SSE (below) |
 | GET | `/v1/runs[?repo={repo}&issue={id}&active=1]` | – | `{"runs":[Run]}` newest first |
 | GET | `/v1/runs/{run}` | – | `{"run":Run,"events":[RunEvent]}` |
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
@@ -131,7 +133,31 @@ Long text fields are passed via flags (not a shell), so any content is safe.
 `{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)"}`
 All fields optional; defaults come from config.
 
+### AssistRequest
+`{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
+"session_id": "", "bd_reads": false, "keep": false}`
+
+Runs one `claude -p` in the repo on **this computer's Claude subscription**, which is how the app's
+Refine, Draft and board-assistant features work without an API key on the phone. The app owns the
+prompt, the system prompt and the JSON schema, so both of its backends return the same shapes.
+
+The call is sandboxed: `--safe-mode` (no hooks, MCP servers, CLAUDE.md, skills or plugins),
+`--permission-prompts none` so nothing can block on a prompt nobody can answer, and no tools at all
+unless `bd_reads` is set — which grants only read-only `bd` subcommands
+(`bd list|show|comments|ready|blocked|stats|search|stale|orphans|dep tree`). Writes are refused:
+the assistant returns the changes it wants as proposals and the app applies the approved ones
+through the routes above, so every change still goes through the user. `keep` saves the session so
+the next turn can continue it with `session_id` (`--resume`).
+
+`output` is the answer validated against `schema` (the CLI's `structured_output`); `text` is the raw
+final message. A failure is a 502 with `{"error"}` carrying Claude's own wording.
+
 ### SSE
+`/v1/repos/{repo}/claude/stream`: `event: event` + RunEvent JSON for each step as it happens
+(thinking, the `bd` commands and their output), then exactly one terminal message — `event: done`
+with the same body as `/claude/json`, or `event: error` with `{"error"}`. Keep-alive `: ping`
+every 15 s. Progress is dropped rather than buffered without limit if the client falls behind.
+
 `/v1/runs/{run}/stream`: first replays stored events with `seq > after`, then sends the current
 `event: run` snapshot, then streams live ones.
 Each message: `id: <seq>`, `event: event`, `data: <RunEvent JSON>`. Whenever run metadata changes

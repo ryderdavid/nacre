@@ -1,37 +1,23 @@
 package com.ryderdavid.nacre.data.claude
 
-import com.anthropic.core.JsonValue
-import com.anthropic.helpers.MessageAccumulator
-import com.anthropic.models.messages.ContentBlockParam
-import com.anthropic.models.messages.MessageParam
-import com.anthropic.models.messages.OutputConfig
-import com.anthropic.models.messages.StopReason
-import com.anthropic.models.messages.ThinkingConfigAdaptive
-import com.anthropic.models.messages.Tool
-import com.anthropic.models.messages.ToolResultBlockParam
-import com.ryderdavid.nacre.data.claude.ClaudeService.Companion.toJsonString
 import com.ryderdavid.nacre.data.settings.AppSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
 /** The app side of the assistant's tools: reads run freely, writes only after approval. */
 interface BoardTools {
+    /** The repo key this board lives under, used to reach its computer. */
+    val boardKey: String
     val repoName: String
     suspend fun listBeads(lane: String?, query: String?, limit: Int): String
     suspend fun getBead(id: String): String
@@ -61,41 +47,35 @@ sealed interface ChatItem {
         enum class State { RUNNING, NEEDS_APPROVAL, DONE, FAILED, REJECTED }
         val isWrite get() = name in WRITE_TOOLS
     }
-    data class Error(val text: String, override val key: String = UUID.randomUUID().toString()) : ChatItem
-}
 
-/** One user message answering [ids] in order; any without a result are marked not run. */
-internal fun toolResults(ids: List<String>, results: Map<String, Pair<String, Boolean>>): MessageParam {
-    val blocks = ids.map { id ->
-        val (content, isError) = results[id] ?: ("Not run: the step was interrupted before this tool call ran." to true)
-        ContentBlockParam.ofToolResult(ToolResultBlockParam.builder().toolUseId(id).content(content).isError(isError).build())
-    }
-    // All results go back in one user message so parallel tool use keeps working.
-    return MessageParam.builder().role(MessageParam.Role.USER).contentOfBlockParams(blocks).build()
+    /**
+     * Something went wrong. [offerApiKey] marks the failures the user can fix
+     * by running Claude on this phone's API key instead.
+     */
+    data class Error(
+        val text: String,
+        val offerApiKey: Boolean = false,
+        override val key: String = UUID.randomUUID().toString(),
+    ) : ChatItem
 }
-
-/** The message that repairs [history] when its last assistant turn asked for tools nobody answered. */
-internal fun answerDanglingToolUse(history: List<MessageParam>): MessageParam? {
-    val last = history.lastOrNull() ?: return null
-    if (last.role() != MessageParam.Role.ASSISTANT) return null
-    val ids = last.content().blockParams().orElse(emptyList()).mapNotNull { b -> b.toolUse().orElse(null)?.id() }
-    return if (ids.isEmpty()) null else toolResults(ids, emptyMap())
-}
-
-internal val WRITE_TOOLS = setOf("update_bead", "create_bead", "close_bead", "add_comment", "add_dependency", "run_in_claude_code")
 
 /**
- * A conversation with Claude about one board. Runs a manual tool loop over streaming
- * requests; write tools pause for the user's approval unless [autoApprove] is on.
+ * A conversation with Claude about one board. [backends] decides each new
+ * conversation's home — the Claude API with this phone's key, or Claude Code
+ * on the board's own computer — and the loop below is the same either way:
+ * Claude asks for tools, write tools wait for the user's approval unless
+ * [autoApprove] is on, and the app makes every change itself.
  */
 class BoardAssistant(
-    private val service: ClaudeService,
+    private val backends: ClaudeBackends,
     private val settings: suspend () -> AppSettings,
     private val tools: BoardTools,
     private val scope: CoroutineScope,
 ) {
-    private val history = mutableListOf<MessageParam>()
     private val approvals = mutableMapOf<String, CompletableDeferred<Boolean>>()
+
+    private var session: AssistantSession? = null
+    private var runner: ClaudeRunner? = null
 
     private val _items = MutableStateFlow<List<ChatItem>>(emptyList())
     val items: StateFlow<List<ChatItem>> = _items.asStateFlow()
@@ -106,19 +86,45 @@ class BoardAssistant(
     val autoApprove = MutableStateFlow(false)
     private var job: Job? = null
 
+    // Which entry each kind of streamed output is currently appending to.
+    private var textKey: String? = null
+    private var thinkKey: String? = null
+
+    private val sink = object : TurnSink {
+        override fun newBlock() {
+            textKey = null
+            thinkKey = null
+        }
+
+        override fun text(delta: String) {
+            textKey = appendText(textKey, delta)
+        }
+
+        override fun thinking(delta: String) {
+            thinkKey = appendThinking(thinkKey, delta)
+        }
+
+        override fun aside(id: String, name: String, summary: String) {
+            _items.update { it + ChatItem.ToolCall(id, name, summary, JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING) }
+        }
+
+        override fun asideDone(id: String, result: String, isError: Boolean) {
+            setState(id, if (isError) ChatItem.ToolCall.State.FAILED else ChatItem.ToolCall.State.DONE, result)
+        }
+    }
+
     fun send(text: String) {
         if (text.isBlank() || _busy.value) return
-        closeDanglingToolUse()
-        _items.update { it + ChatItem.User(text.trim()) }
-        history += MessageParam.builder().role(MessageParam.Role.USER).content(text.trim()).build()
-        job = scope.launch { loop() }
+        val said = text.trim()
+        _items.update { it + ChatItem.User(said) }
+        job = scope.launch { converse(TurnInput.Say(said)) }
     }
 
     fun stop() {
         job?.cancel()
         approvals.values.forEach { it.complete(false) }
         _busy.value = false
-        _items.update { list -> list.map { if (it is ChatItem.Assistant && it.streaming) it.copy(streaming = false) else if (it is ChatItem.Thinking && it.streaming) it.copy(streaming = false) else it } }
+        finishStreaming()
     }
 
     fun decide(toolId: String, approve: Boolean) {
@@ -131,75 +137,57 @@ class BoardAssistant(
 
     fun clear() {
         stop()
-        history.clear()
+        session?.reset()
         _items.value = emptyList()
     }
 
-    private suspend fun loop() {
+    /** The session for the backend the user has chosen; switching starts a new thread. */
+    private suspend fun sessionFor(): AssistantSession {
+        val backend = backends.of(settings())
+        val current = session
+        if (current != null && runner == backend.runner) return current
+        if (current != null) {
+            current.reset()
+            _items.update { it + ChatItem.Error("Now asking Claude on ${backend.runner.label.lowercase()}. This starts a new conversation.") }
+        }
+        val fresh = backend.session(AssistantBoard(tools.boardKey, tools.repoName, system = ::systemPrompt))
+        session = fresh
+        runner = backend.runner
+        return fresh
+    }
+
+    private suspend fun converse(first: TurnInput) {
         _busy.value = true
         try {
-            val s = settings()
-            val client = service.client(s.anthropicKey)
+            val session = sessionFor()
+            var input = first
             repeat(MAX_TURNS) {
-                val params = ClaudeService.baseParams(s, systemPrompt(), 64000)
-                    .thinking(ThinkingConfigAdaptive.builder().display(ThinkingConfigAdaptive.Display.SUMMARIZED).build())
-                    .outputConfig(OutputConfig.builder().effort(ClaudeService.effortOf(s.claudeEffort)).build())
-                    .tools(TOOL_DEFS.map { com.anthropic.models.messages.ToolUnion.ofTool(it) })
-                    .messages(history.toList())
-                    .build()
-
-                val acc = MessageAccumulator.create()
-                var textKey: String? = null
-                var thinkKey: String? = null
-                withContext(Dispatchers.IO) {
-                    ClaudeService.call {
-                        client.messages().createStreaming(params).use { stream ->
-                            stream.stream().forEach { event ->
-                                ensureActive()
-                                acc.accumulate(event)
-                                event.contentBlockStart().ifPresent { textKey = null; thinkKey = null }
-                                event.contentBlockDelta().ifPresent { d ->
-                                    d.delta().text().ifPresent { t -> textKey = appendText(textKey, t.text()) }
-                                    d.delta().thinking().ifPresent { t -> thinkKey = appendThinking(thinkKey, t.thinking()) }
-                                }
-                            }
-                        }
-                    }
-                }
+                val result = session.turn(input, sink)
                 finishStreaming()
-                val msg = acc.message()
-                history += msg.toParam()
-
-                val stop = msg.stopReason().orElse(null)
-                val calls = msg.content().mapNotNull { it.toolUse().orElse(null) }
-                // Every tool_use must be answered by a tool_result in the next message, or the
-                // API rejects the whole conversation from then on. Calls are only executed after
-                // a normal tool_use stop; on any other stop (or if this step is interrupted) the
-                // unanswered ones are recorded as not run.
-                val results = LinkedHashMap<String, Pair<String, Boolean>>()
-                try {
-                    if (stop == StopReason.TOOL_USE) for (call in calls) {
-                        val input = runCatching {
-                            ClaudeService.json.parseToJsonElement(call._input().toJsonString()).jsonObject
-                        }.getOrNull()
-                        val item = ChatItem.ToolCall(call.id(), call.name(), summarize(call.name(), input), input ?: JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING)
-                        _items.update { it + item }
-                        results[call.id()] = execute(item, input)
-                    }
-                } finally {
-                    if (calls.isNotEmpty()) history += toolResults(calls.map { it.id() }, results)
+                when (result.stop) {
+                    TurnStop.DONE -> return
+                    TurnStop.REFUSAL -> return error("Claude declined this request.")
+                    TurnStop.TOO_LONG -> return error("Claude ran out of room before finishing.")
+                    TurnStop.CALLS -> Unit
                 }
-
-                when (stop) {
-                    StopReason.TOOL_USE -> Unit
-                    StopReason.REFUSAL -> { error("Claude declined this request."); return }
-                    StopReason.MAX_TOKENS -> { error("Claude ran out of room before finishing."); return }
-                    else -> return
+                val answers = mutableListOf<ToolAnswer>()
+                for (call in result.calls) {
+                    val item = ChatItem.ToolCall(
+                        call.id, call.name, summarize(call.name, call.input),
+                        call.input ?: JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING,
+                    )
+                    _items.update { it + item }
+                    val (content, isError) = execute(item, call.input)
+                    answers += ToolAnswer(call.id, call.name, content, isError)
                 }
+                input = TurnInput.Answers(answers)
             }
             error("Stopped after $MAX_TURNS steps. Ask me to continue if needed.")
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: ClaudeUnavailableException) {
+            finishStreaming()
+            error(e.message ?: "Claude isn't available right now", offerApiKey = e.offerApiKey && settings().apiKeyConfigured)
         } catch (e: Exception) {
             finishStreaming()
             error(e.message ?: "Something went wrong")
@@ -208,15 +196,13 @@ class BoardAssistant(
         }
     }
 
-    private fun closeDanglingToolUse() {
-        answerDanglingToolUse(history)?.let { history += it }
-    }
-
     private suspend fun execute(item: ChatItem.ToolCall, input: JsonObject?): Pair<String, Boolean> {
         if (input == null) return finish(item, "INVALID_JSON: the tool input was not valid JSON. Re-issue the call.", failed = true)
         val missing = REQUIRED[item.name].orEmpty().filter { input[it] == null || (input[it] as? JsonPrimitive)?.content.isNullOrBlank() }
         if (missing.isNotEmpty()) return finish(item, "Missing required field(s): ${missing.joinToString()}", failed = true)
 
+        // Nothing that changes a bead happens without the user saying yes here,
+        // whichever backend asked for it.
         if (item.isWrite && !autoApprove.value) {
             val gate = CompletableDeferred<Boolean>()
             approvals[item.id] = gate
@@ -276,6 +262,8 @@ class BoardAssistant(
     }
 
     private fun finishStreaming() {
+        textKey = null
+        thinkKey = null
         _items.update { list ->
             list.mapNotNull {
                 when {
@@ -287,8 +275,8 @@ class BoardAssistant(
         }
     }
 
-    private fun error(text: String) {
-        _items.update { it + ChatItem.Error(text) }
+    private fun error(text: String, offerApiKey: Boolean = false) {
+        _items.update { it + ChatItem.Error(text, offerApiKey) }
     }
 
     private fun systemPrompt() = """
@@ -305,16 +293,6 @@ class BoardAssistant(
         // Large requests ("start everything that's ready") take many tool steps.
         private const val MAX_TURNS = 40
 
-        private val REQUIRED = mapOf(
-            "get_bead" to listOf("id"),
-            "update_bead" to listOf("id"),
-            "create_bead" to listOf("title"),
-            "close_bead" to listOf("id"),
-            "add_comment" to listOf("id", "text"),
-            "add_dependency" to listOf("issue_id", "depends_on_id"),
-            "run_in_claude_code" to listOf("id"),
-        )
-
         fun summarize(name: String, input: JsonObject?): String {
             fun s(k: String) = (input?.get(k) as? JsonPrimitive)?.takeUnless { it.content == "null" }?.content
             return when (name) {
@@ -329,82 +307,5 @@ class BoardAssistant(
                 else -> ""
             }
         }
-
-        private fun str(desc: String) = mapOf("type" to "string", "description" to desc)
-        private fun nullable(type: String, desc: String) = mapOf("anyOf" to listOf(mapOf("type" to type), mapOf("type" to "null")), "description" to desc)
-
-        private fun tool(name: String, description: String, required: List<String>, props: Map<String, Any>): Tool =
-            Tool.builder()
-                .name(name)
-                .description(description)
-                .strict(true)
-                .eagerInputStreaming(true)
-                .inputSchema(
-                    Tool.InputSchema.builder()
-                        .properties(Tool.InputSchema.Properties.builder().apply { props.forEach { (k, v) -> putAdditionalProperty(k, JsonValue.from(v)) } }.build())
-                        .required(required)
-                        .putAdditionalProperty("additionalProperties", JsonValue.from(false))
-                        .build()
-                )
-                .build()
-
-        val TOOL_DEFS: List<Tool> = listOf(
-            tool(
-                "list_beads", "List beads on this board as compact lines (id, lane, priority, type, title, blockers). Use lane to narrow down and query for text search.",
-                listOf("lane", "query", "limit"),
-                mapOf(
-                    "lane" to nullable("string", "ready | doing | blocked | later | done | open (everything not done), or null for all"),
-                    "query" to nullable("string", "Text to match in id, title, labels and description, or null"),
-                    "limit" to nullable("integer", "Maximum rows, default 50"),
-                ),
-            ),
-            tool("get_bead", "Get one bead in full: fields, dependencies, children and comments.", listOf("id"), mapOf("id" to str("Bead id"))),
-            tool(
-                "update_bead", "Change fields of a bead. Pass null for fields to leave unchanged. labels replaces the whole set. Requires the user's approval.",
-                listOf("id", "title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "labels"),
-                mapOf(
-                    "id" to str("Bead id"),
-                    "title" to nullable("string", "New title"),
-                    "description" to nullable("string", "New description (markdown)"),
-                    "design" to nullable("string", "New design notes"),
-                    "acceptance_criteria" to nullable("string", "New acceptance criteria"),
-                    "notes" to nullable("string", "New notes"),
-                    "status" to nullable("string", "open | in_progress | blocked | deferred"),
-                    "priority" to nullable("integer", "0-4"),
-                    "issue_type" to nullable("string", "bug | feature | task | chore | epic | decision | spike"),
-                    "assignee" to nullable("string", "Assignee name"),
-                    "labels" to mapOf("anyOf" to listOf(mapOf("type" to "array", "items" to mapOf("type" to "string")), mapOf("type" to "null"))),
-                ),
-            ),
-            tool(
-                "create_bead", "Create a new bead. Requires the user's approval.",
-                listOf("title", "description", "issue_type", "priority", "parent", "acceptance_criteria", "labels"),
-                mapOf(
-                    "title" to str("Imperative title under 80 characters"),
-                    "description" to str("Why and what (markdown)"),
-                    "issue_type" to str("bug | feature | task | chore | epic | decision | spike"),
-                    "priority" to mapOf("type" to "integer", "description" to "0-4"),
-                    "parent" to nullable("string", "Parent bead id, e.g. an epic"),
-                    "acceptance_criteria" to str("Testable acceptance criteria, or empty"),
-                    "labels" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
-                ),
-            ),
-            tool("close_bead", "Close a bead as done. Requires the user's approval.", listOf("id", "reason"), mapOf("id" to str("Bead id"), "reason" to nullable("string", "One-line close reason"))),
-            tool("add_comment", "Add a comment to a bead. Requires the user's approval.", listOf("id", "text"), mapOf("id" to str("Bead id"), "text" to str("Comment text (markdown)"))),
-            tool(
-                "add_dependency", "Record that one bead waits on (is blocked by) another. Requires the user's approval.",
-                listOf("issue_id", "depends_on_id"),
-                mapOf("issue_id" to str("The bead that waits"), "depends_on_id" to str("The bead it waits on")),
-            ),
-            tool(
-                "run_in_claude_code", "Dispatch a bead to Claude Code on Ryder's Mac Studio to do the work. Requires the user's approval.",
-                listOf("id", "instructions"),
-                mapOf("id" to str("Bead id"), "instructions" to nullable("string", "Extra instructions for the coding agent")),
-            ),
-        )
     }
 }
-
-/** Labels may arrive as a JSON array in update/create inputs. */
-internal fun JsonObject.stringList(key: String): List<String>? =
-    (this[key] as? kotlinx.serialization.json.JsonArray)?.jsonArray?.map { it.jsonPrimitive.content }

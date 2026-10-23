@@ -34,6 +34,9 @@ type Result struct {
 	DurationMS int64
 	NumTurns   int
 	SessionID  string
+	// Structured is the answer validated against --json-schema, when one was
+	// given (the CLI's "structured_output" field).
+	Structured json.RawMessage
 }
 
 // Parsed is what one stream-json line contributes to a run. Events have no
@@ -55,12 +58,13 @@ type rawMessage struct {
 	// string on system notices such as permission_denied.
 	Message json.RawMessage `json:"message"`
 	// result
-	IsError      bool     `json:"is_error"`
-	Result       string   `json:"result"`
-	TotalCostUSD float64  `json:"total_cost_usd"`
-	DurationMS   int64    `json:"duration_ms"`
-	NumTurns     int      `json:"num_turns"`
-	Errors       []string `json:"errors"`
+	IsError      bool            `json:"is_error"`
+	Result       string          `json:"result"`
+	TotalCostUSD float64         `json:"total_cost_usd"`
+	DurationMS   int64           `json:"duration_ms"`
+	NumTurns     int             `json:"num_turns"`
+	Errors       []string        `json:"errors"`
+	Structured   json.RawMessage `json:"structured_output"`
 	// system/api_retry etc.
 	Attempt int    `json:"attempt"`
 	Error   string `json:"error"`
@@ -162,6 +166,7 @@ func ParseLine(line []byte) (Parsed, error) {
 		p.Result = &Result{
 			Subtype: m.Subtype, IsError: m.IsError, Text: text, CostUSD: m.TotalCostUSD,
 			DurationMS: m.DurationMS, NumTurns: m.NumTurns, SessionID: m.SessionID,
+			Structured: m.Structured,
 		}
 		p.Events = append(p.Events, api.RunEvent{Kind: api.KindResult, Text: text, IsError: api.Bool(m.IsError)})
 	}

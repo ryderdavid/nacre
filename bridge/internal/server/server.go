@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
@@ -36,6 +37,7 @@ type Server struct {
 	Repos  *repos.Registry
 	BD     *bd.Client
 	Runs   *runs.Manager
+	Assist *assist.Runner
 	Broker *sse.Broker
 	Log    *log.Logger
 
@@ -62,6 +64,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/deps", s.addDep)
 	mux.HandleFunc("DELETE /v1/repos/{repo}/deps", s.removeDep)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/runs", s.startRun)
+	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
+	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)
 	mux.HandleFunc("GET /v1/runs/{run}", s.getRun)
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)
@@ -253,7 +257,20 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"host_id": h.ID, "host_name": h.Name,
 		"bd_version": bdv, "claude_version": cv,
 		"repos": s.Repos.Count(), "active_runs": s.Runs.ActiveCount(""),
+		"features": s.features(),
 	})
+}
+
+// features lists optional capabilities, so the app can offer only what this
+// computer can actually do (and an older nacred simply reports none).
+func (s *Server) features() []string {
+	f := []string{}
+	if s.Assist != nil && s.Assist.Available() {
+		// Refine, Draft and the board assistant can run here on this
+		// computer's Claude subscription.
+		f = append(f, api.FeatureClaude)
+	}
+	return f
 }
 
 // ShortHostname strips a trailing ".local".

@@ -41,7 +41,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -205,7 +204,7 @@ fun BoardScreen(
                             if (boardWide) StatStrip(ui, filter, onLane = { scrollTo = it }, onNeedsYou = vm::toggleNeedsYou, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                             EpicChips(ui, filter, onEpic = vm::setEpic, onNeedsYou = if (boardWide) null else vm::toggleNeedsYou, modifier = Modifier.padding(vertical = 4.dp))
                             FilterSummary(filter, vm::clearFilters)
-                            PullToRefreshBox(isRefreshing = state.loading, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
+                            Box(Modifier.fillMaxSize()) {
                                 val open: (com.ryderdavid.nacre.data.model.Issue) -> Unit = { i ->
                                     if (canPane) pane = if (pane == i.id) null else i.id else onOpenBead(i.id)
                                 }

@@ -104,34 +104,13 @@ class ClaudeService {
 
     /** Ask Claude to improve a bead; returns a field-level proposal the user reviews. */
     suspend fun refine(s: AppSettings, ctx: BeadContext, instruction: String): RefineProposal = withContext(Dispatchers.IO) {
-        val prompt = buildString {
-            appendLine("Improve this bead from the \"${ctx.repoName}\" beads (bd) issue tracker according to the request below.")
-            appendLine()
-            appendLine("<request>${instruction.ifBlank { "Make this bead clear and ready for an agent to pick up: a crisp title, a description that says why and what, and testable acceptance criteria." }}</request>")
-            appendLine()
-            appendLine(ctx.render())
-            appendLine()
-            appendLine("Return only fields you are changing; use null for everything you leave as is. Keep the author's facts, ids, paths and decisions; do not invent requirements. Write in plain, direct markdown. Propose children only when the request asks to split or break down the work. In `summary`, say in one or two sentences what you changed and why.")
-        }
-        val text = structured(s, SYSTEM_EDITOR, prompt, refineSchema, maxTokens = 16000)
+        val text = structured(s, Prompts.EDITOR, Prompts.refine(ctx, instruction), refineSchema, maxTokens = 16000)
         json.decodeFromString<RefineProposal>(text)
     }
 
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(s: AppSettings, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft = withContext(Dispatchers.IO) {
-        val prompt = buildString {
-            appendLine("Turn this quick note into a well-formed bead for the \"$repoName\" beads (bd) issue tracker.")
-            appendLine()
-            appendLine("<note>$rough</note>")
-            parentTitle?.let { appendLine("It will be a child of: $it") }
-            if (existingTitles.isNotEmpty()) {
-                appendLine("Existing open beads (avoid duplicating them):")
-                existingTitles.take(60).forEach { appendLine("- $it") }
-            }
-            appendLine()
-            appendLine("Choose issue_type from bug, feature, task, chore, epic, decision, spike. Priority is 0 (critical) to 4 (backlog); default 2. Keep the title under 80 characters and imperative. Only add acceptance criteria and design notes you can justify from the note; leave them empty otherwise. Labels: at most 3, lowercase, only if clearly useful.")
-        }
-        val text = structured(s, SYSTEM_EDITOR, prompt, draftSchema, maxTokens = 8000)
+        val text = structured(s, Prompts.EDITOR, Prompts.draft(repoName, rough, parentTitle, existingTitles), draftSchema, maxTokens = 8000)
         json.decodeFromString<BeadDraft>(text)
     }
 
@@ -153,8 +132,6 @@ class ClaudeService {
 
     companion object {
         internal val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
-
-        const val SYSTEM_EDITOR = "You are an expert engineering lead who writes beads (issues) for the bd issue tracker. Beads are read by coding agents and by the owner, so they must be specific, self-contained and testable. You never pad or invent facts."
 
         /** Refusal fallbacks for models that support the server-side "default" mode. */
         private val FALLBACK_MODELS = setOf("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1")

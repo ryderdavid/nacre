@@ -26,6 +26,10 @@ const (
 	KindStatus     = "status"
 )
 
+// FeatureClaude is reported in /v1/health when this computer can run the
+// app's Claude features (Refine, Draft, the board assistant) headless.
+const FeatureClaude = "claude"
+
 // Modes is the set of permission modes accepted for runs (claude --permission-mode).
 var Modes = []string{"auto", "acceptEdits", "plan", "bypassPermissions", "dontAsk"}
 

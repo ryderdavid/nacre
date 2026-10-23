@@ -2,9 +2,12 @@ package com.ryderdavid.nacre.data
 
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.MoveAction
+import com.ryderdavid.nacre.data.bridge.AssistMessage
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.bridge.StreamMessage
+import com.ryderdavid.nacre.data.model.AssistRequest
+import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.Issue
@@ -364,6 +367,14 @@ class NacreRepository(
      * Starts a run of [issueId] in the repo [repoKey] (which may be another computer's
      * copy of the board's repository). A 404 there means that copy lacks the bead.
      */
+    // ---------- Claude on a paired computer ----------
+
+    /** Runs one Refine or Draft call on [key]'s computer, on its Claude subscription. */
+    suspend fun claudeJson(key: String, req: AssistRequest): AssistResult = clientFor(key).claudeJson(Keys.id(key), req)
+
+    /** Runs one board-assistant turn on [key]'s computer, streamed as it goes. */
+    fun claudeStream(key: String, req: AssistRequest): Flow<AssistMessage> = clientFor(key).claudeStream(Keys.id(key), req)
+
     suspend fun startRun(repoKey: String, issueId: String, req: RunRequest): Run {
         val p = pairedFor(repoKey)
         val run = try {
