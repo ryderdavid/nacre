@@ -279,6 +279,27 @@ func (r *Registry) List(refresh bool) []api.Repo {
 	return out
 }
 
+// Ref identifies a discovered repo. Unlike Summary it carries no counts, so
+// it can be read without touching the issue cache.
+type Ref struct {
+	ID   string
+	Name string
+	Path string
+}
+
+// Refs returns the discovered repos, scanning the disk lazily. It never calls
+// bd, so a caller polling on a timer cannot be stalled by a slow repo.
+func (r *Registry) Refs() []Ref {
+	r.ensureScanned(false)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Ref, 0, len(r.list))
+	for _, e := range r.list {
+		out = append(out, Ref{ID: e.id, Name: e.name, Path: e.path})
+	}
+	return out
+}
+
 // IssueTitle returns the cached title of an issue, if known.
 func (r *Registry) IssueTitle(id, issueID string) string {
 	e, err := r.lookup(id)
