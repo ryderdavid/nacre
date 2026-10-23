@@ -30,9 +30,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
-/** The app side of the assistant's tools: reads run freely, writes only after approval. */
+/** The app side of the assistant's tools on one board: reads run freely, writes only after approval. */
 interface BoardTools {
-    val repoName: String
+    val boardKey: String
+    val boardName: String
     suspend fun listBeads(lane: String?, query: String?, limit: Int): String
     suspend fun getBead(id: String): String
     suspend fun updateBead(id: String, fields: JsonObject): String
@@ -41,6 +42,33 @@ interface BoardTools {
     suspend fun addComment(id: String, text: String): String
     suspend fun addDependency(issueId: String, dependsOnId: String): String
     suspend fun runInClaudeCode(id: String, instructions: String?): String
+}
+
+/**
+ * Picks the board a tool call acts on. A conversation either covers one board
+ * ([SingleBoard]) or every board on the boards screen ([AllBoardsRouter]); in the
+ * second case the tools gain a `board` argument and a way to list the boards.
+ */
+interface BoardRouter {
+    /** The board, when the conversation is about exactly one; null when it spans all of them. */
+    val only: BoardTools?
+
+    /** The board named [board]; throws with the choices when the name is missing or unclear. */
+    suspend fun resolve(board: String?): BoardTools
+
+    /** The boards the assistant can reach, as compact lines. */
+    suspend fun listBoards(query: String?): String
+
+    /** Beads from [board], or from every board when it is null. */
+    suspend fun listBeads(board: String?, lane: String?, query: String?, limit: Int): String
+}
+
+/** A conversation about one board, where no tool call names a board. */
+class SingleBoard(private val tools: BoardTools) : BoardRouter {
+    override val only get() = tools
+    override suspend fun resolve(board: String?) = tools
+    override suspend fun listBoards(query: String?) = tools.boardName
+    override suspend fun listBeads(board: String?, lane: String?, query: String?, limit: Int) = tools.listBeads(lane, query, limit)
 }
 
 sealed interface ChatItem {
@@ -56,6 +84,8 @@ sealed interface ChatItem {
         val input: JsonObject,
         val state: State,
         val result: String = "",
+        /** The board the call acts on; empty until a cross-board call resolves its board. */
+        val boardKey: String = "",
         override val key: String = id,
     ) : ChatItem {
         enum class State { RUNNING, NEEDS_APPROVAL, DONE, FAILED, REJECTED }
@@ -85,15 +115,19 @@ internal fun answerDanglingToolUse(history: List<MessageParam>): MessageParam? {
 internal val WRITE_TOOLS = setOf("update_bead", "create_bead", "close_bead", "add_comment", "add_dependency", "run_in_claude_code")
 
 /**
- * A conversation with Claude about one board. Runs a manual tool loop over streaming
- * requests; write tools pause for the user's approval unless [autoApprove] is on.
+ * A conversation with Claude about one board, or about every board at once — [router]
+ * decides which. Runs a manual tool loop over streaming requests; write tools pause
+ * for the user's approval unless [autoApprove] is on.
  */
 class BoardAssistant(
     private val service: ClaudeService,
     private val settings: suspend () -> AppSettings,
-    private val tools: BoardTools,
+    private val router: BoardRouter,
     private val scope: CoroutineScope,
 ) {
+    private val everyBoard = router.only == null
+    private val toolUnions by lazy { toolDefs(everyBoard).map { com.anthropic.models.messages.ToolUnion.ofTool(it) } }
+
     private val history = mutableListOf<MessageParam>()
     private val approvals = mutableMapOf<String, CompletableDeferred<Boolean>>()
 
@@ -144,7 +178,7 @@ class BoardAssistant(
                 val params = ClaudeService.baseParams(s, systemPrompt(), 64000)
                     .thinking(ThinkingConfigAdaptive.builder().display(ThinkingConfigAdaptive.Display.SUMMARIZED).build())
                     .outputConfig(OutputConfig.builder().effort(ClaudeService.effortOf(s.claudeEffort)).build())
-                    .tools(TOOL_DEFS.map { com.anthropic.models.messages.ToolUnion.ofTool(it) })
+                    .tools(toolUnions)
                     .messages(history.toList())
                     .build()
 
@@ -182,7 +216,10 @@ class BoardAssistant(
                         val input = runCatching {
                             ClaudeService.json.parseToJsonElement(call._input().toJsonString()).jsonObject
                         }.getOrNull()
-                        val item = ChatItem.ToolCall(call.id(), call.name(), summarize(call.name(), input), input ?: JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING)
+                        val item = ChatItem.ToolCall(
+                            call.id(), call.name(), summarize(call.name(), input), input ?: JsonObject(emptyMap()),
+                            ChatItem.ToolCall.State.RUNNING, boardKey = router.only?.boardKey.orEmpty(),
+                        )
                         _items.update { it + item }
                         results[call.id()] = execute(item, input)
                     }
@@ -229,21 +266,35 @@ class BoardAssistant(
         }
         return try {
             fun s(k: String) = (input[k] as? JsonPrimitive)?.takeUnless { it.content == "null" }?.content
+            val board = s("board")
             val out = when (item.name) {
-                "list_beads" -> tools.listBeads(s("lane"), s("query"), (input["limit"] as? JsonPrimitive)?.intOrNull ?: 50)
-                "get_bead" -> tools.getBead(s("id")!!)
-                "update_bead" -> tools.updateBead(s("id")!!, input)
-                "create_bead" -> tools.createBead(input)
-                "close_bead" -> tools.closeBead(s("id")!!, s("reason"))
-                "add_comment" -> tools.addComment(s("id")!!, s("text")!!)
-                "add_dependency" -> tools.addDependency(s("issue_id")!!, s("depends_on_id")!!)
-                "run_in_claude_code" -> tools.runInClaudeCode(s("id")!!, s("instructions"))
-                else -> return finish(item, "Unknown tool ${item.name}", failed = true)
+                "list_boards" -> router.listBoards(s("query"))
+                "list_beads" -> router.listBeads(board, s("lane"), s("query"), (input["limit"] as? JsonPrimitive)?.intOrNull ?: 50)
+                else -> {
+                    // Everything else works on exactly one board; resolving it can fail with advice.
+                    val tools = router.resolve(board)
+                    noteBoard(item.id, tools.boardKey)
+                    when (item.name) {
+                        "get_bead" -> tools.getBead(s("id")!!)
+                        "update_bead" -> tools.updateBead(s("id")!!, input)
+                        "create_bead" -> tools.createBead(input)
+                        "close_bead" -> tools.closeBead(s("id")!!, s("reason"))
+                        "add_comment" -> tools.addComment(s("id")!!, s("text")!!)
+                        "add_dependency" -> tools.addDependency(s("issue_id")!!, s("depends_on_id")!!)
+                        "run_in_claude_code" -> tools.runInClaudeCode(s("id")!!, s("instructions"))
+                        else -> return finish(item, "Unknown tool ${item.name}", failed = true)
+                    }
+                }
             }
             finish(item, out, failed = false)
         } catch (e: Exception) {
             finish(item, "Error: ${e.message}", failed = true)
         }
+    }
+
+    private fun noteBoard(id: String, key: String) {
+        if (key.isEmpty()) return
+        _items.update { list -> list.map { if (it is ChatItem.ToolCall && it.id == id) it.copy(boardKey = key) else it } }
     }
 
     private fun finish(item: ChatItem.ToolCall, result: String, failed: Boolean): Pair<String, Boolean> {
@@ -291,15 +342,24 @@ class BoardAssistant(
         _items.update { it + ChatItem.Error(text) }
     }
 
-    private fun systemPrompt() = """
-        You are the board assistant inside Nacre, Ryder's Android app for the beads (bd) issue tracker. You are working on the "${tools.repoName}" board.
+    private fun systemPrompt(): String {
+        val scope = router.only?.let { "You are working on the \"${it.boardName}\" board." }
+            ?: "You can see every beads board on Ryder's computers — one board per project — and you work across all of them."
+        val howTo = if (everyBoard)
+            "Call list_boards first to learn the board names, then pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board sweeps every board at once, which is the way to answer \"what's next everywhere\" questions. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board."
+        else
+            "Use the tools to look things up before answering; never guess ids."
+        val refer = if (everyBoard) "Refer to beads by id and title, and say which board each one is on." else "Refer to beads by id and title."
+        return """
+            You are the board assistant inside Nacre, Ryder's Android app for the beads (bd) issue tracker. $scope
 
-        Beads have an id, title, type (bug, feature, task, chore, epic, decision, spike), priority 0 (critical) to 4 (backlog), a status, labels, a parent (epics contain children) and "blocks" dependencies. The board shows lanes: ready (open, nothing open blocking it), doing (in progress), blocked (status blocked or waiting on an open blocker), later (deferred) and done (closed). A bead with the "human" label, or an open decision, needs Ryder.
+            Beads have an id, title, type (bug, feature, task, chore, epic, decision, spike), priority 0 (critical) to 4 (backlog), a status, labels, a parent (epics contain children) and "blocks" dependencies. A board shows lanes: ready (open, nothing open blocking it), doing (in progress), blocked (status blocked or waiting on an open blocker), later (deferred) and done (closed). A bead with the "human" label, or an open decision, needs Ryder.
 
-        Use the tools to look things up before answering; never guess ids. Changes you make through write tools are shown to Ryder for approval first, so propose concrete edits rather than asking whether to make them. Prefer a few well-aimed calls over many. run_in_claude_code dispatches a bead to Claude Code on Ryder's Mac Studio, which does the actual coding work there.
+            $howTo Changes you make through write tools are shown to Ryder for approval first, so propose concrete edits rather than asking whether to make them. Prefer a few well-aimed calls over many. run_in_claude_code dispatches a bead to Claude Code on Ryder's Mac Studio, which does the actual coding work there.
 
-        Answer in short, scannable markdown suited to a phone screen. Refer to beads by id and title.
-    """.trimIndent()
+            Answer in short, scannable markdown suited to a phone screen. $refer
+        """.trimIndent()
+    }
 
     companion object {
         // Large requests ("start everything that's ready") take many tool steps.
@@ -317,10 +377,11 @@ class BoardAssistant(
 
         fun summarize(name: String, input: JsonObject?): String {
             fun s(k: String) = (input?.get(k) as? JsonPrimitive)?.takeUnless { it.content == "null" }?.content
-            return when (name) {
+            val what = when (name) {
+                "list_boards" -> s("query")?.let { "\"$it\"" } ?: "all boards"
                 "list_beads" -> listOfNotNull(s("lane")?.let { "lane: $it" }, s("query")?.let { "\"$it\"" }).joinToString(" · ").ifEmpty { "all beads" }
                 "get_bead" -> s("id").orEmpty()
-                "update_bead" -> "${s("id")}: " + (input?.keys?.filter { it != "id" && s(it) != null || (it == "labels" && input[it] !is JsonPrimitive) }?.joinToString() ?: "")
+                "update_bead" -> "${s("id")}: " + (input?.keys?.filter { it != "id" && it != "board" && (s(it) != null || (it == "labels" && input[it] !is JsonPrimitive)) }?.joinToString() ?: "")
                 "create_bead" -> s("title").orEmpty()
                 "close_bead" -> listOfNotNull(s("id"), s("reason")).joinToString(" · ")
                 "add_comment" -> "${s("id")}: ${s("text")?.take(80)}"
@@ -328,12 +389,16 @@ class BoardAssistant(
                 "run_in_claude_code" -> s("id").orEmpty()
                 else -> ""
             }
+            // Cross-board calls name their board; say which one up front.
+            val board = s("board")?.takeUnless { name == "list_boards" }
+            return listOfNotNull(board, what.ifBlank { null }).joinToString(" · ")
         }
 
         private fun str(desc: String) = mapOf("type" to "string", "description" to desc)
         private fun nullable(type: String, desc: String) = mapOf("anyOf" to listOf(mapOf("type" to type), mapOf("type" to "null")), "description" to desc)
 
-        private fun tool(name: String, description: String, required: List<String>, props: Map<String, Any>): Tool =
+        /** Strict tools must list every property as required, so optional values use a nullable type. */
+        private fun tool(name: String, description: String, props: Map<String, Any>): Tool =
             Tool.builder()
                 .name(name)
                 .description(description)
@@ -342,26 +407,27 @@ class BoardAssistant(
                 .inputSchema(
                     Tool.InputSchema.builder()
                         .properties(Tool.InputSchema.Properties.builder().apply { props.forEach { (k, v) -> putAdditionalProperty(k, JsonValue.from(v)) } }.build())
-                        .required(required)
+                        .required(props.keys.toList())
                         .putAdditionalProperty("additionalProperties", JsonValue.from(false))
                         .build()
                 )
                 .build()
 
-        val TOOL_DEFS: List<Tool> = listOf(
-            tool(
-                "list_beads", "List beads on this board as compact lines (id, lane, priority, type, title, blockers). Use lane to narrow down and query for text search.",
-                listOf("lane", "query", "limit"),
+        private class Spec(val name: String, val description: String, val props: Map<String, Any>)
+
+        /** The tools that act on one board. Cross-board conversations prepend a `board` argument. */
+        private val BOARD_SPECS: List<Spec> = listOf(
+            Spec(
+                "list_beads", "List beads as compact lines (id, lane, priority, type, title, blockers). Use lane to narrow down and query for text search.",
                 mapOf(
                     "lane" to nullable("string", "ready | doing | blocked | later | done | open (everything not done), or null for all"),
                     "query" to nullable("string", "Text to match in id, title, labels and description, or null"),
                     "limit" to nullable("integer", "Maximum rows, default 50"),
                 ),
             ),
-            tool("get_bead", "Get one bead in full: fields, dependencies, children and comments.", listOf("id"), mapOf("id" to str("Bead id"))),
-            tool(
+            Spec("get_bead", "Get one bead in full: fields, dependencies, children and comments.", mapOf("id" to str("Bead id"))),
+            Spec(
                 "update_bead", "Change fields of a bead. Pass null for fields to leave unchanged. labels replaces the whole set. Requires the user's approval.",
-                listOf("id", "title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "labels"),
                 mapOf(
                     "id" to str("Bead id"),
                     "title" to nullable("string", "New title"),
@@ -376,9 +442,8 @@ class BoardAssistant(
                     "labels" to mapOf("anyOf" to listOf(mapOf("type" to "array", "items" to mapOf("type" to "string")), mapOf("type" to "null"))),
                 ),
             ),
-            tool(
+            Spec(
                 "create_bead", "Create a new bead. Requires the user's approval.",
-                listOf("title", "description", "issue_type", "priority", "parent", "acceptance_criteria", "labels"),
                 mapOf(
                     "title" to str("Imperative title under 80 characters"),
                     "description" to str("Why and what (markdown)"),
@@ -389,19 +454,37 @@ class BoardAssistant(
                     "labels" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
                 ),
             ),
-            tool("close_bead", "Close a bead as done. Requires the user's approval.", listOf("id", "reason"), mapOf("id" to str("Bead id"), "reason" to nullable("string", "One-line close reason"))),
-            tool("add_comment", "Add a comment to a bead. Requires the user's approval.", listOf("id", "text"), mapOf("id" to str("Bead id"), "text" to str("Comment text (markdown)"))),
-            tool(
-                "add_dependency", "Record that one bead waits on (is blocked by) another. Requires the user's approval.",
-                listOf("issue_id", "depends_on_id"),
+            Spec("close_bead", "Close a bead as done. Requires the user's approval.", mapOf("id" to str("Bead id"), "reason" to nullable("string", "One-line close reason"))),
+            Spec("add_comment", "Add a comment to a bead. Requires the user's approval.", mapOf("id" to str("Bead id"), "text" to str("Comment text (markdown)"))),
+            Spec(
+                "add_dependency", "Record that one bead waits on (is blocked by) another. Both beads must be on the same board. Requires the user's approval.",
                 mapOf("issue_id" to str("The bead that waits"), "depends_on_id" to str("The bead it waits on")),
             ),
-            tool(
+            Spec(
                 "run_in_claude_code", "Dispatch a bead to Claude Code on Ryder's Mac Studio to do the work. Requires the user's approval.",
-                listOf("id", "instructions"),
                 mapOf("id" to str("Bead id"), "instructions" to nullable("string", "Extra instructions for the coding agent")),
             ),
         )
+
+        private val LIST_BOARDS = Spec(
+            "list_boards",
+            "List every board (project) you can reach, with its bead counts, computers and path. Call this before anything else so you know the board names.",
+            mapOf("query" to nullable("string", "Text to match in the board name, path or git remote, or null for all boards")),
+        )
+
+        private fun boardParam(tool: String) =
+            if (tool == "list_beads") nullable("string", "Board name from list_boards, or null to sweep every board at once (a few rows from each)")
+            else str("Board name, exactly as list_boards reports it")
+
+        /**
+         * The tool definitions. With [everyBoard] the assistant can also list the boards,
+         * and every board-scoped tool takes the board it acts on.
+         */
+        fun toolDefs(everyBoard: Boolean): List<Tool> {
+            if (!everyBoard) return BOARD_SPECS.map { tool(it.name, it.description, it.props) }
+            return listOf(tool(LIST_BOARDS.name, LIST_BOARDS.description, LIST_BOARDS.props)) +
+                BOARD_SPECS.map { s -> tool(s.name, s.description, mapOf("board" to boardParam(s.name)) + s.props) }
+        }
     }
 }
 

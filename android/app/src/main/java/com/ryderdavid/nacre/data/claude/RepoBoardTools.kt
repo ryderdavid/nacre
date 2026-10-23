@@ -15,11 +15,11 @@ import kotlinx.serialization.json.intOrNull
 class RepoBoardTools(
     private val repo: NacreRepository,
     private val repoKey: String,
-    override val repoName: String,
+    override val boardName: String,
 ) : BoardTools {
+    override val boardKey get() = repoKey
 
-    private fun index(): BoardIndex = repo.board(repoKey).value.data?.index
-        ?: throw IllegalStateException("The board hasn't loaded yet")
+    private suspend fun index(): BoardIndex = repo.awaitBoard(repoKey).index
 
     private fun line(ix: BoardIndex, i: Issue): String {
         val blockers = ix.openBlockers(i)

@@ -40,6 +40,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ryderdavid.nacre.AppContainer
 import com.ryderdavid.nacre.ui.assistant.AssistantPane
+import com.ryderdavid.nacre.ui.assistant.AssistantTarget
 import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.board.BoardScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
@@ -56,6 +57,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class BoardRoute(val repoKey: String)
 @Serializable data class BeadRoute(val repoKey: String, val beadId: String)
 @Serializable data class AssistantRoute(val repoKey: String)
+@Serializable data object OrchestratorRoute
 @Serializable data object RunsRoute
 @Serializable data class RunRoute(val runKey: String)
 @Serializable data object SettingsRoute
@@ -113,7 +115,9 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     }
 
     val adaptive = currentWindowAdaptiveInfo()
-    val detailRoute = dest?.let { d -> d.hasRoute(BeadRoute::class) || d.hasRoute(RunRoute::class) || d.hasRoute(AssistantRoute::class) } == true
+    val detailRoute = dest?.let { d ->
+        d.hasRoute(BeadRoute::class) || d.hasRoute(RunRoute::class) || d.hasRoute(AssistantRoute::class) || d.hasRoute(OrchestratorRoute::class)
+    } == true
     val baseType = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
     val layoutType = if (detailRoute && baseType == NavigationSuiteType.NavigationBar) NavigationSuiteType.None else baseType
 
@@ -140,7 +144,13 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
         ) {
             NavHost(nav, startDestination = BoardsRoute) {
                 composable<BoardsRoute> {
-                    ReposScreen(onOpen = { nav.navigate(BoardRoute(it.key)) }, onPair = { nav.switchTab(SettingsRoute) })
+                    ReposScreen(
+                        onOpen = { nav.navigate(BoardRoute(it.key)) },
+                        onPair = { nav.switchTab(SettingsRoute) },
+                        onOpenAssistant = { nav.navigate(OrchestratorRoute) },
+                        onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
+                        onOpenRun = { nav.navigate(RunRoute(it)) },
+                    )
                 }
                 composable<BoardRoute> { e ->
                     val r = e.toRoute<BoardRoute>()
@@ -165,9 +175,17 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                 composable<AssistantRoute> { e ->
                     val r = e.toRoute<AssistantRoute>()
                     AssistantPane(
-                        r.repoKey, container.repository.repo(r.repoKey)?.name.orEmpty(), inPane = false,
+                        AssistantTarget.Board(r.repoKey, container.repository.repo(r.repoKey)?.name.orEmpty()), inPane = false,
                         onClose = { nav.popBackStack() },
-                        onOpenBead = { nav.navigate(BeadRoute(r.repoKey, it)) },
+                        onOpenBead = { _, bead -> nav.navigate(BeadRoute(r.repoKey, bead)) },
+                        onOpenRun = { nav.navigate(RunRoute(it)) },
+                    )
+                }
+                composable<OrchestratorRoute> {
+                    AssistantPane(
+                        AssistantTarget.AllBoards, inPane = false,
+                        onClose = { nav.popBackStack() },
+                        onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
                     )
                 }

@@ -260,6 +260,14 @@ class NacreRepository(
     fun board(key: String): StateFlow<Loadable<BoardSnapshot>> =
         boards.getOrPut(key) { MutableStateFlow(Loadable()) }.also { if (it.value.data == null && !it.value.loading) refreshBoard(key) }
 
+    /** The board's beads, fetching them first when this board hasn't been looked at yet. */
+    suspend fun awaitBoard(key: String): BoardSnapshot {
+        val flow = boards.getOrPut(key) { MutableStateFlow(Loadable()) }
+        flow.value.data?.let { return it }
+        refreshBoard(key).join()
+        return flow.value.data ?: throw BridgeException(flow.value.error ?: "Couldn't load that board")
+    }
+
     fun refreshBoard(key: String, quiet: Boolean = false) = scope.launch {
         val flow = boards.getOrPut(key) { MutableStateFlow(Loadable()) }
         if (!quiet) flow.update { it.copy(loading = true, error = null) }
