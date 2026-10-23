@@ -64,6 +64,24 @@ sealed interface ChatItem {
     data class Error(val text: String, override val key: String = UUID.randomUUID().toString()) : ChatItem
 }
 
+/** One user message answering [ids] in order; any without a result are marked not run. */
+internal fun toolResults(ids: List<String>, results: Map<String, Pair<String, Boolean>>): MessageParam {
+    val blocks = ids.map { id ->
+        val (content, isError) = results[id] ?: ("Not run: the step was interrupted before this tool call ran." to true)
+        ContentBlockParam.ofToolResult(ToolResultBlockParam.builder().toolUseId(id).content(content).isError(isError).build())
+    }
+    // All results go back in one user message so parallel tool use keeps working.
+    return MessageParam.builder().role(MessageParam.Role.USER).contentOfBlockParams(blocks).build()
+}
+
+/** The message that repairs [history] when its last assistant turn asked for tools nobody answered. */
+internal fun answerDanglingToolUse(history: List<MessageParam>): MessageParam? {
+    val last = history.lastOrNull() ?: return null
+    if (last.role() != MessageParam.Role.ASSISTANT) return null
+    val ids = last.content().blockParams().orElse(emptyList()).mapNotNull { b -> b.toolUse().orElse(null)?.id() }
+    return if (ids.isEmpty()) null else toolResults(ids, emptyMap())
+}
+
 internal val WRITE_TOOLS = setOf("update_bead", "create_bead", "close_bead", "add_comment", "add_dependency", "run_in_claude_code")
 
 /**
@@ -90,6 +108,7 @@ class BoardAssistant(
 
     fun send(text: String) {
         if (text.isBlank() || _busy.value) return
+        closeDanglingToolUse()
         _items.update { it + ChatItem.User(text.trim()) }
         history += MessageParam.builder().role(MessageParam.Role.USER).content(text.trim()).build()
         job = scope.launch { loop() }
@@ -151,27 +170,32 @@ class BoardAssistant(
                 val msg = acc.message()
                 history += msg.toParam()
 
-                when (msg.stopReason().orElse(null)) {
+                val stop = msg.stopReason().orElse(null)
+                val calls = msg.content().mapNotNull { it.toolUse().orElse(null) }
+                // Every tool_use must be answered by a tool_result in the next message, or the
+                // API rejects the whole conversation from then on. Calls are only executed after
+                // a normal tool_use stop; on any other stop (or if this step is interrupted) the
+                // unanswered ones are recorded as not run.
+                val results = LinkedHashMap<String, Pair<String, Boolean>>()
+                try {
+                    if (stop == StopReason.TOOL_USE) for (call in calls) {
+                        val input = runCatching {
+                            ClaudeService.json.parseToJsonElement(call._input().toJsonString()).jsonObject
+                        }.getOrNull()
+                        val item = ChatItem.ToolCall(call.id(), call.name(), summarize(call.name(), input), input ?: JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING)
+                        _items.update { it + item }
+                        results[call.id()] = execute(item, input)
+                    }
+                } finally {
+                    if (calls.isNotEmpty()) history += toolResults(calls.map { it.id() }, results)
+                }
+
+                when (stop) {
                     StopReason.TOOL_USE -> Unit
                     StopReason.REFUSAL -> { error("Claude declined this request."); return }
                     StopReason.MAX_TOKENS -> { error("Claude ran out of room before finishing."); return }
                     else -> return
                 }
-
-                val calls = msg.content().mapNotNull { it.toolUse().orElse(null) }
-                val results = calls.map { call ->
-                    val input = runCatching {
-                        ClaudeService.json.parseToJsonElement(call._input().toJsonString()).jsonObject
-                    }.getOrNull()
-                    val item = ChatItem.ToolCall(call.id(), call.name(), summarize(call.name(), input), input ?: JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING)
-                    _items.update { it + item }
-                    val (content, isError) = execute(item, input)
-                    ContentBlockParam.ofToolResult(
-                        ToolResultBlockParam.builder().toolUseId(call.id()).content(content).isError(isError).build()
-                    )
-                }
-                // All results go back in one user message so parallel tool use keeps working.
-                history += MessageParam.builder().role(MessageParam.Role.USER).contentOfBlockParams(results).build()
             }
             error("Stopped after $MAX_TURNS steps. Ask me to continue if needed.")
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -182,6 +206,10 @@ class BoardAssistant(
         } finally {
             _busy.value = false
         }
+    }
+
+    private fun closeDanglingToolUse() {
+        answerDanglingToolUse(history)?.let { history += it }
     }
 
     private suspend fun execute(item: ChatItem.ToolCall, input: JsonObject?): Pair<String, Boolean> {
@@ -274,7 +302,8 @@ class BoardAssistant(
     """.trimIndent()
 
     companion object {
-        private const val MAX_TURNS = 16
+        // Large requests ("start everything that's ready") take many tool steps.
+        private const val MAX_TURNS = 40
 
         private val REQUIRED = mapOf(
             "get_bead" to listOf("id"),
