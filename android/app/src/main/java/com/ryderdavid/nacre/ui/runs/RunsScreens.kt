@@ -1,0 +1,490 @@
+package com.ryderdavid.nacre.ui.runs
+
+import android.content.ClipData
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.RunEvent
+import com.ryderdavid.nacre.notify.RunNotifier
+import com.ryderdavid.nacre.ui.bead.RUN_MODES
+import com.ryderdavid.nacre.ui.common.BeadId
+import com.ryderdavid.nacre.ui.common.LoadingState
+import com.ryderdavid.nacre.ui.common.MarkdownText
+import com.ryderdavid.nacre.ui.common.MessageState
+import com.ryderdavid.nacre.ui.common.formatDuration
+import com.ryderdavid.nacre.ui.common.nacreViewModel
+import com.ryderdavid.nacre.ui.common.relativeTime
+import com.ryderdavid.nacre.ui.theme.MonoFamily
+import com.ryderdavid.nacre.ui.theme.Nacre
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+
+@Composable
+fun RunStatusIcon(status: String, modifier: Modifier = Modifier) {
+    when (status) {
+        "running" -> {
+            val t = rememberInfiniteTransition(label = "run")
+            val a by t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "a")
+            Icon(Icons.Rounded.Terminal, "Running", tint = Nacre.colors.running, modifier = modifier.alpha(a))
+        }
+        "queued" -> Icon(Icons.Rounded.Schedule, "Queued", tint = MaterialTheme.colorScheme.outline, modifier = modifier)
+        "succeeded" -> Icon(Icons.Rounded.CheckCircle, "Succeeded", tint = Nacre.colors.doing, modifier = modifier)
+        "cancelled" -> Icon(Icons.Rounded.Block, "Cancelled", tint = MaterialTheme.colorScheme.outline, modifier = modifier)
+        else -> Icon(Icons.Rounded.Error, "Failed", tint = MaterialTheme.colorScheme.error, modifier = modifier)
+    }
+}
+
+/** Width each run-screen pane keeps at minimum, and where the divider starts, in dp. */
+private const val MIN_LIST_PANE_DP = 280f
+private const val MIN_DETAIL_PANE_DP = 320f
+private const val DEFAULT_LIST_PANE_DP = 400f
+
+/** Clamp a dragged list-pane width so both panes keep their minimum inside [totalDp]. */
+internal fun clampListPaneWidth(widthDp: Float, totalDp: Float): Float =
+    widthDp.coerceIn(MIN_LIST_PANE_DP, (totalDp - MIN_DETAIL_PANE_DP).coerceAtLeast(MIN_LIST_PANE_DP))
+
+/** Runs list; on a wide screen the selected run's transcript sits beside it, behind a draggable divider. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RunsScreen(onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
+    val vm = nacreViewModel { RunsViewModel(it.repository) }
+    val runs by vm.runs.collectAsState()
+    val showComputer = vm.hosts.collectAsState().value.size > 1
+    val refreshing by vm.refreshing.collectAsState()
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var listPaneDp by rememberSaveable { mutableStateOf(DEFAULT_LIST_PANE_DP) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 760.dp
+        val density = LocalDensity.current.density
+        val totalDp = maxWidth.value
+        val listPane = clampListPaneWidth(listPaneDp, totalDp)
+        Row(Modifier.fillMaxSize()) {
+            val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+            Scaffold(
+                modifier = Modifier.then(if (wide) Modifier.width(listPane.dp) else Modifier.weight(1f)).nestedScroll(scroll.nestedScrollConnection),
+                topBar = { LargeTopAppBar(title = { Text("Runs") }, scrollBehavior = scroll) },
+            ) { pad ->
+                PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.padding(pad).fillMaxSize()) {
+                    if (runs.isEmpty()) MessageState(
+                        Icons.Rounded.Terminal, "No runs yet",
+                        "Open a bead and tap “Run with Claude Code” to send it to your Mac.",
+                    ) else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                        val active = runs.filter { it.isActive }
+                        val done = runs.filterNot { it.isActive }
+                        if (active.isNotEmpty()) {
+                            item { GroupLabel("Active") }
+                            items(active, key = { it.key }) { r -> RunRow(r, r.key == selected, showComputer) { if (wide) selected = r.key else onOpenRun(r.key) } }
+                        }
+                        if (done.isNotEmpty()) {
+                            item { GroupLabel("Recent") }
+                            items(done, key = { it.key }) { r -> RunRow(r, r.key == selected, showComputer) { if (wide) selected = r.key else onOpenRun(r.key) } }
+                        }
+                    }
+                }
+            }
+            if (wide) {
+                // start from the width on screen so a drag still moves after the window changed size
+                PaneDivider { dx -> listPaneDp = clampListPaneWidth(clampListPaneWidth(listPaneDp, totalDp) + dx / density, totalDp) }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    val sel = selected ?: runs.firstOrNull()?.id
+                    if (sel == null) MessageState(Icons.Rounded.Terminal, "Pick a run", null)
+                    else RunDetail(sel, inPane = true, onBack = {}, onOpenBead = onOpenBead)
+                }
+            }
+        }
+    }
+}
+
+/** The divider between the runs list and the transcript; drag it to re-split the width. */
+@Composable
+private fun PaneDivider(onDrag: (Float) -> Unit) {
+    val drag = rememberUpdatedState(onDrag)
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .width(16.dp)
+            .draggable(rememberDraggableState { drag.value(it) }, Orientation.Horizontal)
+            .semantics { contentDescription = "Resize panes" },
+        contentAlignment = Alignment.Center,
+    ) {
+        VerticalDivider()
+        Box(Modifier.size(width = 4.dp, height = 36.dp).background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
+    }
+}
+
+@Composable
+private fun GroupLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
+}
+
+@Composable
+private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+        leadingContent = { RunStatusIcon(r.status) },
+        overlineContent = {
+            Text(listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, r.issueId).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        headlineContent = { Text(r.issueTitle, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Column {
+                if (r.lastText.isNotBlank()) Text(r.lastText, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(relativeTime(r.createdAt), r.mode, RunNotifier.cost(r), r.toolCalls.takeIf { it > 0 }?.let { "$it tools" }).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        },
+    )
+}
+
+/** Live transcript of one Claude Code run. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
+    val vm = nacreViewModel(key = "run:$runKey") { RunViewModel(it.repository, runKey) }
+    val run by vm.run.collectAsState()
+    val entries by vm.transcript.collectAsState()
+    val error by vm.error.collectAsState()
+    val sending by vm.sending.collectAsState()
+    val list = rememberLazyListState()
+    var follow by remember { mutableStateOf(true) }
+    val posture = currentWindowAdaptiveInfo().windowPosture
+    val density = LocalDensity.current
+
+    LaunchedEffect(entries.size) {
+        if (follow && entries.isNotEmpty()) list.animateScrollToItem(entries.size)
+    }
+    LaunchedEffect(list.isScrollInProgress) {
+        if (list.isScrollInProgress) follow = !list.canScrollForward || list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == list.layoutInfo.totalItemsCount - 1
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { if (!inPane) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                title = {
+                    Column {
+                        Text(run?.issueId ?: "Run", style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily))
+                        Text(run?.issueTitle.orEmpty(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
+                actions = {
+                    run?.let { r -> if (r.repoId.isNotBlank()) IconButton(onClick = { onOpenBead(r.repoKey, r.issueId) }) { Icon(Icons.Rounded.Description, "Open bead") } }
+                },
+            )
+        },
+        bottomBar = {
+            val r = run
+            if (r != null) {
+                // On a half-folded phone lying flat, keep the controls on the lower half.
+                val tabletopMin = posture.hingeList.firstOrNull { !it.isVertical && it.isSeparating }?.let { with(density) { it.bounds.top.toDp() } }
+                Column(Modifier.then(if (posture.isTabletop && tabletopMin != null) Modifier.heightIn(min = 240.dp) else Modifier)) {
+                    if (posture.isTabletop) RunHeader(r, Modifier.padding(horizontal = 16.dp))
+                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp)
+                }
+            }
+        },
+    ) { pad ->
+        val r = run
+        if (r == null && error == null) return@Scaffold LoadingState(modifier = Modifier.padding(pad))
+        LazyColumn(
+            state = list,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(pad).fillMaxSize(),
+        ) {
+            if (r != null && !posture.isTabletop) item("header") { RunHeader(r) }
+            if (error != null) item("err") {
+                Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            items(entries, key = { it.key }) { e ->
+                when (e) {
+                    is Entry.Tool -> ToolEntry(e)
+                    is Entry.Single -> EventEntry(e.event)
+                }
+            }
+            if (r?.isActive == true) item("working") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LoadingIndicator(Modifier.size(32.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (r.status == "queued") "Waiting for a free slot on the Mac…" else "Claude is working…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), shape = RoundedCornerShape(20.dp), modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RunStatusIcon(r.status)
+                Spacer(Modifier.width(8.dp))
+                Text(r.status.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Text(listOfNotNull(r.hostName.ifBlank { null }, r.repoName).joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                listOfNotNull(
+                    RUN_MODES.firstOrNull { it.first == r.mode }?.second?.let { "$it mode" },
+                    r.model.ifBlank { null },
+                    if (r.worktree) "worktree" else null,
+                    r.durationMs.takeIf { it > 0 }?.let { formatDuration(it) },
+                    RunNotifier.cost(r),
+                    r.toolCalls.takeIf { it > 0 }?.let { "$it tool calls" },
+                    r.turns.takeIf { it > 1 }?.let { "$it prompts" },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
+            )
+            if (r.error.isNotBlank()) Text(r.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            if (r.resumeCommand.isNotBlank() && r.sessionId.isNotBlank()) {
+                FilledTonalButton(
+                    onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("resume", r.resumeCommand))) } },
+                    modifier = Modifier.padding(top = 10.dp),
+                ) {
+                    Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy “resume on Mac” command")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.navigationBarsPadding().imePadding().padding(12.dp)) {
+            if (r.isActive) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        r.lastText.ifBlank { "Working…" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    OutlinedButton(onClick = onCancel) { Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel") }
+                }
+            } else if (r.sessionId.isNotBlank()) {
+                var text by rememberSaveable(r.key) { mutableStateOf("") }
+                var mode by rememberSaveable(r.key) { mutableStateOf(r.mode.ifBlank { "auto" }) }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RUN_MODES.forEach { (key, label, _) -> FilterChip(selected = mode == key, onClick = { mode = key }, label = { Text(label) }) }
+                }
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
+                    OutlinedTextField(
+                        text, { text = it }, placeholder = { Text("Follow up with Claude") }, maxLines = 5,
+                        shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilledIconButton(onClick = { onFollowUp(text.trim(), mode); text = "" }, enabled = text.isNotBlank() && !sending, modifier = Modifier.size(52.dp)) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, "Send follow-up")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun toolIcon(tool: String): ImageVector = when (tool) {
+    "Bash", "BashOutput" -> Icons.Rounded.Terminal
+    "Edit", "MultiEdit", "Write", "NotebookEdit" -> Icons.Rounded.Edit
+    "Read" -> Icons.Rounded.Description
+    "Grep", "Glob", "LS" -> Icons.Rounded.Search
+    "Task", "Agent" -> Icons.Rounded.Hub
+    "WebFetch", "WebSearch" -> Icons.Rounded.Public
+    "TodoWrite", "TaskCreate", "TaskUpdate" -> Icons.Rounded.Checklist
+    else -> Icons.Rounded.Build
+}
+
+private val pretty = Json { prettyPrint = true }
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ToolEntry(e: Entry.Tool) {
+    var open by remember { mutableStateOf(false) }
+    val failed = e.result?.isError == true
+    Surface(
+        onClick = { open = !open },
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(toolIcon(e.use.tool), null, Modifier.size(16.dp), tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(e.use.tool, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    e.use.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFamily),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (open) 6 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                if (e.result == null) LoadingIndicator(Modifier.size(20.dp))
+            }
+            if (open) {
+                e.use.input?.let { input ->
+                    CodeBlock(runCatching { pretty.encodeToString(JsonElement.serializer(), input) }.getOrDefault(input.toString()), Modifier.padding(top = 8.dp))
+                }
+                e.result?.let { res ->
+                    Text(if (res.isError) "Error" else "Result", style = MaterialTheme.typography.labelSmall, color = if (res.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                    CodeBlock(res.text.ifBlank { "(no output)" })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlock(text: String, modifier: Modifier = Modifier) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape(10.dp), modifier = modifier.fillMaxWidth()) {
+        Text(
+            text.take(6000), style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFamily),
+            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(10.dp),
+        )
+    }
+}
+
+@Composable
+private fun EventEntry(e: RunEvent) {
+    when (e.kind) {
+        "user" -> {
+            var open by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Surface(
+                    onClick = { open = !open },
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
+                    modifier = Modifier.widthIn(max = 560.dp).animateContentSize(),
+                ) {
+                    Text(
+                        e.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = if (open) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        }
+        "text" -> MarkdownText(e.text, Modifier.fillMaxWidth())
+        "thinking" -> Text(e.text, style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        "system" -> Text(e.text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        "stderr" -> Text(e.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFamily), color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        "result" -> Surface(
+            color = if (e.isError) MaterialTheme.colorScheme.errorContainer else Nacre.colors.doing.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (e.isError) Icons.Rounded.Error else Icons.Rounded.CheckCircle, null, tint = if (e.isError) MaterialTheme.colorScheme.error else Nacre.colors.doing)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (e.isError) "Turn ended with an error" else "Turn complete", style = MaterialTheme.typography.titleSmall)
+                }
+                if (e.text.isNotBlank()) MarkdownText(e.text, Modifier.padding(top = 8.dp))
+            }
+        }
+        else -> Text(e.text, style = MaterialTheme.typography.bodySmall)
+    }
+}

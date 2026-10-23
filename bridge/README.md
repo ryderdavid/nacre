@@ -1,0 +1,69 @@
+# nacred
+
+The Mac-side bridge for Nacre. It discovers beads repositories, wraps the `bd` CLI, and runs
+Claude Code headless (`claude -p … --output-format stream-json`) for a bead, streaming the
+transcript over SSE. The HTTP contract is in [`../docs/API.md`](../docs/API.md).
+
+## Build, test, run
+
+```sh
+make build            # bin/nacred
+make test             # go vet + go test
+./bin/nacred serve    # or just ./bin/nacred
+./bin/nacred pair     # QR code + URL/token for the app
+```
+
+Subcommands: `serve` (default), `pair`, `token`, `version`, `install`, `uninstall`.
+Flags: `--config <path>` (default `~/.config/nacred/config.json`), `--listen host:port`.
+
+`make install` (or `nacred install`) copies the binary to `~/.local/bin/nacred`, writes
+`~/Library/LaunchAgents/com.ryderdavid.nacred.plist` (RunAtLoad + KeepAlive, PATH with
+`/opt/homebrew/bin` and `~/.local/bin`, logs to `~/Library/Logs/nacred.log`) and bootstraps it
+into `gui/$UID`. `nacred uninstall` boots it out and removes the plist.
+
+## Configuration
+
+Created on first run with a random token. Fields (defaults in brackets):
+
+| field | meaning |
+|---|---|
+| `listen` | `host:port`; empty = Tailscale IPv4 `:7420` (waits up to 60 s for Tailscale at boot), else `127.0.0.1:7420` |
+| `token` | bearer token (32 random bytes, base64url) |
+| `host_id` | stable random id for this computer (generated on first run); lets the app tell computers apart |
+| `host_name` | name shown in the app [the hostname] — e.g. "Work laptop" |
+| `scan_roots`, `scan_depth` | [`~/Code`, `~/Documents`, `~/Beads`], [4] |
+| `exclude` | directory basenames or `~/` paths to skip [node_modules, Library, .Trash, build, …, `~/.traycer`]; dot-directories are never descended, and `~/.beads` (home itself) is never a repo |
+| `extra_repos`, `hidden_repos` | repo roots to force in / hide |
+| `bd_path`, `claude_path` | resolved from PATH / standard locations |
+| `actor` | `bd --actor` for writes ["<git user.name> via Nacre"] |
+| `max_concurrent_runs` | [3]; extra runs stay queued |
+| `default_mode`, `default_model` | ["auto"], [""] |
+| `prompt_template` | `{{id}}`, `{{title}}`, `{{repo}}`, `{{instructions}}` placeholders |
+| `data_dir` | run history root [`~/Library/Application Support/nacred`] |
+
+## Layout
+
+```
+cmd/nacred          subcommands, wiring, pairing QR
+internal/api        JSON wire types
+internal/config     config file, token, Tailscale address
+internal/discovery  .beads repo discovery
+internal/bd         bd CLI wrapper (argv only, 30 s timeout, per-repo write lock)
+internal/repos      repo registry, 2 s issue cache, counts
+internal/claude     claude argv + stream-json → RunEvent parser
+internal/prompt     prompt template rendering
+internal/runs       run queue, processes (own process group), persistence
+internal/sse        SSE writer + broker
+internal/server     HTTP handlers, auth, request log
+internal/launchd    LaunchAgent install/uninstall
+```
+
+Run history lives in `<data_dir>/runs/<run id>/{meta.json,events.jsonl}`; the newest 200 runs are kept.
+Runs still active when nacred stops are marked failed on the next start.
+
+## Notes
+
+- When run under launchd, the first scan of `~/Documents` may trigger a macOS privacy prompt
+  for `nacred`; allow it (or remove `~/Documents` from `scan_roots`).
+- Child `claude` processes get nacred's environment minus Claude Code session markers
+  (`CLAUDECODE`, `CLAUDE_CODE_*`), so starting nacred from inside a Claude Code session is safe.

@@ -1,0 +1,463 @@
+// Package runs manages Claude Code runs: queueing under a concurrency limit,
+// launching `claude -p` processes, recording their stream-json output as
+// RunEvents, follow-ups via --resume, cancellation, and persistence so run
+// history survives restarts.
+package runs
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
+)
+
+// Errors returned by Manager methods.
+var (
+	ErrNotFound = errors.New("unknown run")
+	ErrConflict = errors.New("conflict")
+)
+
+// conflict wraps ErrConflict with a specific message.
+type conflict string
+
+func (c conflict) Error() string { return string(c) }
+func (c conflict) Unwrap() error { return ErrConflict }
+
+// Options configures a Manager.
+type Options struct {
+	Dir           string // run history directory
+	ClaudePath    string
+	MaxConcurrent int
+	Keep          int // number of runs to keep on disk (default 200)
+	// Notify publishes a global notification (event "run" with an api.Run).
+	// It may be called with internal locks held, so it must not block or
+	// call back into the Manager.
+	Notify func(event string, data any)
+	// RepoChanged is called when a run finishes (Claude may have edited beads).
+	RepoChanged func(repoID string)
+	Logger      *log.Logger
+}
+
+// StartRequest describes a new run.
+type StartRequest struct {
+	RepoID, RepoName, RepoPath string
+	IssueID, IssueTitle        string
+	Mode, Model                string
+	Worktree                   bool
+	Prompt                     string
+}
+
+// Filter selects runs in List.
+type Filter struct {
+	RepoID, IssueID string
+	ActiveOnly      bool
+}
+
+// Manager is safe for concurrent use.
+type Manager struct {
+	opts Options
+
+	mu      sync.Mutex
+	runs    map[string]*run
+	queue   []*run
+	running int
+	closing bool
+	wg      sync.WaitGroup // running processes
+}
+
+// New loads run history from opts.Dir. Runs that were active when the bridge
+// stopped are marked failed ("bridge restarted").
+func New(opts Options) (*Manager, error) {
+	if opts.MaxConcurrent <= 0 {
+		opts.MaxConcurrent = 3
+	}
+	if opts.Keep <= 0 {
+		opts.Keep = 200
+	}
+	if opts.Logger == nil {
+		opts.Logger = log.Default()
+	}
+	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
+		return nil, err
+	}
+	m := &Manager{opts: opts, runs: map[string]*run{}}
+	ids, err := listRunDirs(opts.Dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		dir := filepath.Join(opts.Dir, id)
+		meta, err := readMeta(dir)
+		if err != nil || meta.ID != id {
+			opts.Logger.Printf("runs: skipping %s: unreadable meta (%v)", id, err)
+			continue
+		}
+		r := newRun(meta, dir)
+		if meta.Active() {
+			r.mu.Lock()
+			r.ensureLoaded()
+			r.meta.Error = "bridge restarted"
+			r.meta.EndedAt = now()
+			r.setStatus(api.StatusFailed)
+			r.save()
+			r.mu.Unlock()
+		}
+		m.runs[id] = r
+	}
+	m.prune()
+	return m, nil
+}
+
+func now() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// Start creates and enqueues a run.
+func (m *Manager) Start(req StartRequest) (api.Run, error) {
+	t := time.Now()
+	id := newID(t)
+	meta := api.Run{
+		ID: id, RepoID: req.RepoID, RepoName: req.RepoName, RepoPath: req.RepoPath,
+		IssueID: req.IssueID, IssueTitle: req.IssueTitle, Status: api.StatusQueued,
+		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree,
+		CreatedAt: t.UTC().Format(time.RFC3339), Turns: 1,
+	}
+	r := newRun(meta, filepath.Join(m.opts.Dir, id))
+	if err := os.MkdirAll(r.dir, 0o700); err != nil {
+		return api.Run{}, fmt.Errorf("persist run: %w", err)
+	}
+	r.loaded = true
+	r.pending = &claude.Turn{
+		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model,
+		Worktree: req.Worktree, Name: "Nacre · " + req.IssueID,
+	}
+	r.mu.Lock()
+	r.addEvent(api.RunEvent{Kind: api.KindStatus, Status: api.StatusQueued})
+	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: req.Prompt})
+	err := r.save()
+	snap := r.meta
+	r.mu.Unlock()
+	if err != nil {
+		return api.Run{}, fmt.Errorf("persist run: %w", err)
+	}
+
+	m.mu.Lock()
+	m.runs[id] = r
+	m.queue = append(m.queue, r)
+	m.notify(snap) // before schedule, so "queued" is published before "running"
+	m.schedule()
+	m.mu.Unlock()
+	m.prune()
+	return m.snapshot(r), nil
+}
+
+// Followup sends message to the run's Claude session (claude --resume).
+// mode "" keeps the run's current mode.
+func (m *Manager) Followup(id, message, mode string) (api.Run, error) {
+	m.mu.Lock()
+	r := m.runs[id]
+	if r == nil {
+		m.mu.Unlock()
+		return api.Run{}, ErrNotFound
+	}
+	r.mu.Lock()
+	switch {
+	case r.meta.Active():
+		r.mu.Unlock()
+		m.mu.Unlock()
+		return api.Run{}, conflict("run is " + r.meta.Status + "; wait for it to finish before sending a follow-up")
+	case r.meta.SessionID == "":
+		r.mu.Unlock()
+		m.mu.Unlock()
+		return api.Run{}, conflict("run has no Claude session to resume")
+	}
+	r.ensureLoaded()
+	if mode != "" {
+		r.meta.Mode = mode
+	}
+	r.meta.Turns++
+	r.meta.Error = ""
+	r.meta.EndedAt = ""
+	r.cancelReq = false
+	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID}
+	r.setStatus(api.StatusQueued)
+	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: message})
+	_ = r.save()
+	snap := r.meta
+	r.mu.Unlock()
+	m.queue = append(m.queue, r)
+	m.notify(snap)
+	m.schedule()
+	m.mu.Unlock()
+	return m.snapshot(r), nil
+}
+
+// Cancel stops a queued or running run. Cancelling a finished run is a no-op
+// that returns the run unchanged.
+func (m *Manager) Cancel(id string) (api.Run, error) {
+	m.mu.Lock()
+	r := m.runs[id]
+	if r == nil {
+		m.mu.Unlock()
+		return api.Run{}, ErrNotFound
+	}
+	r.mu.Lock()
+	switch r.meta.Status {
+	case api.StatusQueued:
+		for i, q := range m.queue {
+			if q == r {
+				m.queue = append(m.queue[:i], m.queue[i+1:]...)
+				break
+			}
+		}
+		r.pending = nil
+		r.meta.Error = "cancelled"
+		r.meta.EndedAt = now()
+		r.setStatus(api.StatusCancelled)
+		_ = r.save()
+		snap := r.meta
+		r.mu.Unlock()
+		m.mu.Unlock()
+		m.notify(snap)
+		return snap, nil
+	case api.StatusRunning:
+		r.cancelReq = true
+		r.terminate()
+	}
+	snap := r.meta
+	r.mu.Unlock()
+	m.mu.Unlock()
+	return snap, nil
+}
+
+// Get returns a run and all its events.
+func (m *Manager) Get(id string) (api.Run, []api.RunEvent, error) {
+	r := m.get(id)
+	if r == nil {
+		return api.Run{}, nil, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	return r.meta, append([]api.RunEvent{}, r.events...), nil
+}
+
+// Run returns a run's metadata.
+func (m *Manager) Run(id string) (api.Run, error) {
+	r := m.get(id)
+	if r == nil {
+		return api.Run{}, ErrNotFound
+	}
+	return m.snapshot(r), nil
+}
+
+// List returns runs matching f, newest first.
+func (m *Manager) List(f Filter) []api.Run {
+	m.mu.Lock()
+	all := make([]*run, 0, len(m.runs))
+	for _, r := range m.runs {
+		all = append(all, r)
+	}
+	m.mu.Unlock()
+	out := []api.Run{}
+	for _, r := range all {
+		s := m.snapshot(r)
+		if (f.RepoID != "" && s.RepoID != f.RepoID) || (f.IssueID != "" && s.IssueID != f.IssueID) || (f.ActiveOnly && !s.Active()) {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out
+}
+
+// ActiveCount returns the number of queued or running runs for repoID ("" = all).
+func (m *Manager) ActiveCount(repoID string) int {
+	return len(m.List(Filter{RepoID: repoID, ActiveOnly: true}))
+}
+
+// Subscription delivers change signals for one run.
+type Subscription struct {
+	// C receives a value whenever new events or metadata are available.
+	C  <-chan struct{}
+	ch chan struct{}
+	r  *run
+}
+
+// Subscribe registers for change signals on run id.
+func (m *Manager) Subscribe(id string) (*Subscription, error) {
+	r := m.get(id)
+	if r == nil {
+		return nil, ErrNotFound
+	}
+	ch := make(chan struct{}, 1)
+	r.mu.Lock()
+	r.ensureLoaded()
+	r.subs[ch] = struct{}{}
+	r.mu.Unlock()
+	return &Subscription{C: ch, ch: ch, r: r}, nil
+}
+
+// Subscribers returns the number of open subscriptions on run id (diagnostics/tests).
+func (m *Manager) Subscribers(id string) int {
+	r := m.get(id)
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.subs)
+}
+
+// EventsAfter returns stored events with seq > after.
+func (s *Subscription) EventsAfter(after int64) []api.RunEvent {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	evs := s.r.events
+	i := sort.Search(len(evs), func(i int) bool { return evs[i].Seq > after })
+	return append([]api.RunEvent(nil), evs[i:]...)
+}
+
+// Meta returns the run metadata and its version (bumped on every significant change).
+func (s *Subscription) Meta() (api.Run, uint64) {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	return s.r.meta, s.r.metaVer
+}
+
+// Close unregisters the subscription.
+func (s *Subscription) Close() {
+	s.r.mu.Lock()
+	delete(s.r.subs, s.ch)
+	s.r.mu.Unlock()
+}
+
+// Shutdown terminates running processes and waits (bounded) for them to exit.
+func (m *Manager) Shutdown(timeout time.Duration) {
+	m.mu.Lock()
+	m.closing = true
+	m.queue = nil
+	for _, r := range m.runs {
+		r.mu.Lock()
+		if r.meta.Status == api.StatusRunning {
+			r.shutdownReq = true
+			r.terminate()
+		}
+		r.mu.Unlock()
+	}
+	m.mu.Unlock()
+	done := make(chan struct{})
+	go func() { m.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
+
+func (m *Manager) get(id string) *run {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.runs[id]
+}
+
+func (m *Manager) snapshot(r *run) api.Run {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.meta
+}
+
+func (m *Manager) notify(meta api.Run) {
+	if m.opts.Notify != nil {
+		m.opts.Notify("run", meta)
+	}
+}
+
+// schedule starts queued runs while below the concurrency limit. Caller holds m.mu.
+func (m *Manager) schedule() {
+	for !m.closing && m.running < m.opts.MaxConcurrent && len(m.queue) > 0 {
+		r := m.queue[0]
+		m.queue = m.queue[1:]
+		r.mu.Lock()
+		turn := r.pending
+		r.pending = nil
+		if turn == nil || r.meta.Status != api.StatusQueued {
+			r.mu.Unlock()
+			continue
+		}
+		cwd := r.meta.RepoPath
+		if turn.Resume != "" && r.meta.SessionCWD != "" {
+			if fi, err := os.Stat(r.meta.SessionCWD); err == nil && fi.IsDir() {
+				cwd = r.meta.SessionCWD
+			}
+		}
+		if r.meta.StartedAt == "" {
+			r.meta.StartedAt = now()
+		}
+		r.turnResult = nil
+		r.stderrTail = nil
+		r.setStatus(api.StatusRunning)
+		_ = r.save()
+		snap := r.meta
+		r.mu.Unlock()
+		m.running++
+		m.wg.Add(1)
+		go m.execute(r, *turn, cwd)
+		m.notify(snap)
+	}
+}
+
+// prune deletes the oldest finished runs beyond opts.Keep.
+func (m *Manager) prune() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.runs) <= m.opts.Keep {
+		return
+	}
+	ids := make([]string, 0, len(m.runs))
+	for id := range m.runs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids) // oldest first (ids are time-sortable)
+	excess := len(m.runs) - m.opts.Keep
+	for _, id := range ids {
+		if excess == 0 {
+			break
+		}
+		r := m.runs[id]
+		r.mu.Lock()
+		active := r.meta.Active()
+		dir := r.dir
+		r.mu.Unlock()
+		if active {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			m.opts.Logger.Printf("runs: prune %s: %v", id, err)
+			continue
+		}
+		delete(m.runs, id)
+		excess--
+	}
+}
+
+// shellQuote single-quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func resumeCommand(meta api.Run) string {
+	if meta.SessionID == "" {
+		return ""
+	}
+	dir := meta.SessionCWD
+	if dir == "" {
+		dir = meta.RepoPath
+	}
+	return fmt.Sprintf("cd %s && claude --resume %s", shellQuote(dir), meta.SessionID)
+}

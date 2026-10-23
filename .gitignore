@@ -1,6 +1,25 @@
-
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Agent worktrees for remote dispatches
+.claude/worktrees/
+
+# Build outputs
+build/
+dist/
+bridge/bin/
+
+# Gradle
+.gradle/
+.kotlin/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# macOS
+.DS_Store

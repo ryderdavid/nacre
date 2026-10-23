@@ -1,0 +1,415 @@
+package com.ryderdavid.nacre.data
+
+import com.ryderdavid.nacre.data.board.BoardIndex
+import com.ryderdavid.nacre.data.board.MoveAction
+import com.ryderdavid.nacre.data.bridge.BridgeClient
+import com.ryderdavid.nacre.data.bridge.BridgeException
+import com.ryderdavid.nacre.data.bridge.StreamMessage
+import com.ryderdavid.nacre.data.model.CreateIssue
+import com.ryderdavid.nacre.data.model.Health
+import com.ryderdavid.nacre.data.model.Issue
+import com.ryderdavid.nacre.data.model.Keys
+import com.ryderdavid.nacre.data.model.Repo
+import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.RunRequest
+import com.ryderdavid.nacre.data.model.UpdateIssue
+import com.ryderdavid.nacre.data.settings.Host
+import com.ryderdavid.nacre.data.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
+
+data class Loadable<T>(val data: T? = null, val loading: Boolean = false, val error: String? = null)
+
+data class BoardSnapshot(val repo: Repo, val index: BoardIndex)
+
+sealed interface Connection {
+    data object Unconfigured : Connection
+    data object Connecting : Connection
+    data class Online(val health: Health) : Connection
+    data class Offline(val reason: String) : Connection
+}
+
+/** A paired computer and how reaching it is going. */
+data class HostState(val host: Host, val connection: Connection) {
+    val online get() = connection is Connection.Online
+}
+
+/**
+ * One repository as the user sees it: the same git remote checked out on several
+ * computers is one group. The board shows [home]'s beads; runs may go to any member.
+ */
+data class RepoGroup(val id: String, val home: Repo, val members: List<Repo>) {
+    val isShared get() = members.size > 1
+}
+
+/** A user-visible notice raised by the data layer (shown as a snackbar). */
+data class Notice(val text: String, val undo: (suspend () -> Unit)? = null)
+
+/**
+ * Single source of truth for everything the app shows from the paired computers.
+ * Repos are addressed by key ("<host>~<repo id>", see [Keys]) because ids are only
+ * unique per computer.
+ */
+class NacreRepository(
+    private val settings: SettingsStore,
+    private val http: OkHttpClient,
+    private val scope: CoroutineScope,
+) {
+    private class Paired(val host: Host, val client: BridgeClient)
+
+    private val paired: StateFlow<Map<String, Paired>> = settings.settings
+        .map { s -> s.hosts }
+        .distinctUntilChanged()
+        .map { hosts -> hosts.associate { h -> h.id to Paired(h, BridgeClient(h.url, h.token, http)) } }
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    private val connections = MutableStateFlow<Map<String, Connection>>(emptyMap())
+
+    val hosts: StateFlow<List<HostState>> = combine(paired, connections) { p, c ->
+        p.values.map { HostState(it.host, c[it.host.id] ?: Connection.Connecting) }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** One summary for places that show a single status line. */
+    val connection: StateFlow<Connection> = hosts.map { hs ->
+        when {
+            hs.isEmpty() -> Connection.Unconfigured
+            hs.any { it.online } -> hs.first { it.online }.connection
+            hs.any { it.connection == Connection.Connecting } -> Connection.Connecting
+            else -> hs.first().connection
+        }
+    }.stateIn(scope, SharingStarted.Eagerly, Connection.Unconfigured)
+
+    private val repoLists = MutableStateFlow<Map<String, List<Repo>>>(emptyMap())
+    private val repoErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val reposLoading = MutableStateFlow(false)
+
+    /** Every repo on every computer, each tagged with its computer. */
+    val repos: StateFlow<Loadable<List<Repo>>> = combine(repoLists, repoErrors, reposLoading, paired) { lists, errs, loading, p -> reposState(lists, errs, loading, p) }
+        .stateIn(scope, SharingStarted.Eagerly, Loadable(loading = true))
+
+    private fun reposState(lists: Map<String, List<Repo>>, errs: Map<String, String>, loading: Boolean, p: Map<String, Paired>): Loadable<List<Repo>> {
+        val all = p.keys.flatMap { lists[it].orEmpty() }
+        val settled = p.keys.all { it in lists || it in errs }
+        return when {
+            p.isEmpty() -> Loadable(emptyList())
+            all.isEmpty() && !settled -> Loadable(null, loading = true)
+            all.isEmpty() && errs.isNotEmpty() -> Loadable(null, loading, errs.values.first())
+            else -> Loadable(all, loading)
+        }
+    }
+
+    /** Repos grouped by git remote; computer order (pairing order) breaks ties for the home. */
+    val groups: StateFlow<List<RepoGroup>> = combine(repos, settings.settings) { r, s ->
+        groupRepos(r.data.orEmpty(), s.hosts.map { it.id }, s.homeHosts)
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    private val boards = ConcurrentHashMap<String, MutableStateFlow<Loadable<BoardSnapshot>>>()
+
+    private val runLists = MutableStateFlow<Map<String, List<Run>>>(emptyMap())
+    val runs: StateFlow<List<Run>> = runLists.map { m -> m.values.flatten().sortedByDescending { it.createdAt } }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 8)
+    val notices: SharedFlow<Notice> = _notices
+
+    /** Fires the run whenever a run reaches a terminal state (for notifications). */
+    private val _finishedRuns = MutableSharedFlow<Run>(extraBufferCapacity = 8)
+    val finishedRuns: SharedFlow<Run> = _finishedRuns
+
+    private val eventJobs = ConcurrentHashMap<String, Job>()
+    @Volatile private var eventsWanted = false
+
+    init {
+        scope.launch {
+            var previous = emptySet<String>()
+            paired.collect { p ->
+                (previous - p.keys).forEach(::forget)
+                // Clients are rebuilt whenever the list of computers changes; restart their streams.
+                eventJobs.values.forEach { it.cancel() }
+                eventJobs.clear()
+                previous = p.keys
+                refreshRepos()
+                refreshRuns()
+                if (eventsWanted) startEvents()
+            }
+        }
+    }
+
+    private fun forget(hostId: String) {
+        repoLists.update { it - hostId }
+        repoErrors.update { it - hostId }
+        runLists.update { it - hostId }
+        connections.update { it - hostId }
+        boards.keys.filter { Keys.host(it) == hostId }.forEach { boards.remove(it) }
+    }
+
+    private fun pairedFor(key: String): Paired =
+        paired.value[Keys.host(key)] ?: throw BridgeException(if (paired.value.isEmpty()) "Pair with a computer in Settings first" else "That computer is no longer paired")
+
+    private fun clientFor(key: String) = pairedFor(key).client
+
+    fun hostName(hostId: String) = paired.value[hostId]?.host?.name.orEmpty()
+
+    fun notify(text: String, undo: (suspend () -> Unit)? = null) {
+        _notices.tryEmit(Notice(text, undo))
+    }
+
+    private fun Repo.tag(h: Host) = copy(hostId = h.id, hostName = h.name)
+    private fun Run.tag(h: Host) = copy(hostId = h.id, hostName = h.name)
+
+    // ---------- connection + live events ----------
+
+    /** Start the event streams (one per computer) while the app is in the foreground. */
+    fun startEvents() {
+        eventsWanted = true
+        paired.value.values.forEach { p ->
+            if (eventJobs[p.host.id]?.isActive == true) return@forEach
+            eventJobs[p.host.id] = scope.launch { followHost(p) }
+        }
+    }
+
+    fun stopEvents() {
+        eventsWanted = false
+        eventJobs.values.forEach { it.cancel() }
+        eventJobs.clear()
+    }
+
+    private suspend fun followHost(p: Paired) {
+        val id = p.host.id
+        var backoff = 1_000L
+        while (scope.isActive && paired.value[id] === p) {
+            try {
+                connections.update { it + (id to Connection.Connecting) }
+                val health = p.client.health()
+                connections.update { it + (id to Connection.Online(health)) }
+                if (health.hostId.isNotEmpty() && health.hostId != p.host.hostId) settings.setReportedHostId(id, health.hostId)
+                backoff = 1_000L
+                p.client.events().collect { msg ->
+                    when (msg) {
+                        is StreamMessage.RunChanged -> upsertRun(msg.run.tag(p.host))
+                        is StreamMessage.RepoChanged -> Keys.of(id, msg.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
+                        else -> Unit
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                connections.update { it + (id to Connection.Offline(e.friendly())) }
+            }
+            delay(backoff)
+            backoff = (backoff * 2).coerceAtMost(30_000L)
+        }
+    }
+
+    /** Checks a computer that is not paired yet (or re-checks one that is). */
+    suspend fun probe(url: String, token: String): Result<Health> = runCatching { BridgeClient(url, token, http).health() }
+
+    // ---------- repos ----------
+
+    fun refreshRepos(rescan: Boolean = false) = scope.launch {
+        val p = paired.value
+        if (p.isEmpty()) return@launch
+        reposLoading.value = true
+        p.values.map { h ->
+            async {
+                try {
+                    val list = h.client.repos(rescan).map { it.tag(h.host) }
+                    repoLists.update { it + (h.host.id to list) }
+                    repoErrors.update { it - h.host.id }
+                    if (connections.value[h.host.id] !is Connection.Online) {
+                        connections.update { it + (h.host.id to Connection.Online(Health(name = "nacred", hostName = h.host.name))) }
+                    }
+                } catch (e: Exception) {
+                    repoErrors.update { it + (h.host.id to "${h.host.name}: ${e.friendly()}") }
+                    connections.update { it + (h.host.id to Connection.Offline(e.friendly())) }
+                }
+            }
+        }.awaitAll()
+        reposLoading.value = false
+    }
+
+    fun repo(key: String): Repo? = repos.value.data?.firstOrNull { it.key == key } ?: boards[key]?.value?.data?.repo
+
+    fun groupOf(key: String): RepoGroup? = groups.value.firstOrNull { g -> g.members.any { it.key == key } }
+
+    /** Keys of the same repository on every computer (just [key] when it is on one). */
+    fun siblingKeys(key: String): Set<String> = groupOf(key)?.members?.map { it.key }?.toSet() ?: setOf(key)
+
+    suspend fun setHome(group: RepoGroup, hostId: String) = settings.setHomeHost(group.id, hostId)
+
+    // ---------- boards ----------
+
+    fun board(key: String): StateFlow<Loadable<BoardSnapshot>> =
+        boards.getOrPut(key) { MutableStateFlow(Loadable()) }.also { if (it.value.data == null && !it.value.loading) refreshBoard(key) }
+
+    fun refreshBoard(key: String, quiet: Boolean = false) = scope.launch {
+        val flow = boards.getOrPut(key) { MutableStateFlow(Loadable()) }
+        if (!quiet) flow.update { it.copy(loading = true, error = null) }
+        try {
+            val p = pairedFor(key)
+            val b = p.client.board(Keys.id(key))
+            val repo = b.repo.tag(p.host)
+            flow.value = Loadable(BoardSnapshot(repo, BoardIndex(b.issues)))
+            repoLists.update { m -> m + (p.host.id to m[p.host.id].orEmpty().map { if (it.id == repo.id) repo else it }) }
+        } catch (e: Exception) {
+            flow.update { it.copy(loading = false, error = e.friendly()) }
+        }
+    }
+
+    private fun patchLocal(key: String, issue: Issue) {
+        boards[key]?.update { l ->
+            val snap = l.data ?: return@update l
+            val list = snap.index.issues.let { all -> if (all.any { it.id == issue.id }) all.map { if (it.id == issue.id) issue else it } else all + issue }
+            l.copy(data = snap.copy(index = BoardIndex(list)))
+        }
+    }
+
+    fun issue(key: String, id: String): Issue? = boards[key]?.value?.data?.index?.byId?.get(id)
+
+    /** Optimistic drag-and-drop move with undo. */
+    fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {
+        val before = issue
+        val optimistic = when (action) {
+            is MoveAction.SetStatus -> issue.copy(status = action.status)
+            MoveAction.Close -> issue.copy(status = "closed", closedAt = java.time.Instant.now().toString())
+            is MoveAction.SetPriority -> issue.copy(priority = action.priority)
+            is MoveAction.SetType -> issue.copy(type = action.type)
+        }
+        patchLocal(key, optimistic)
+        try {
+            val c = clientFor(key)
+            val repoId = Keys.id(key)
+            val saved = when (action) {
+                is MoveAction.SetStatus -> c.update(repoId, issue.id, UpdateIssue(status = action.status))
+                MoveAction.Close -> c.close(repoId, issue.id)
+                is MoveAction.SetPriority -> c.update(repoId, issue.id, UpdateIssue(priority = action.priority))
+                is MoveAction.SetType -> c.update(repoId, issue.id, UpdateIssue(type = action.type))
+            }
+            patchLocal(key, saved)
+            val what = when (action) {
+                is MoveAction.SetStatus -> "Moved ${issue.id} to ${action.status.replace('_', ' ')}"
+                MoveAction.Close -> "Closed ${issue.id}"
+                is MoveAction.SetPriority -> "${issue.id} is now P${action.priority}"
+                is MoveAction.SetType -> "${issue.id} is now a ${action.type}"
+            }
+            notify(what) { restore(key, before) }
+        } catch (e: Exception) {
+            patchLocal(key, before)
+            notify("Couldn't move ${issue.id}: ${e.friendly()}")
+        }
+    }
+
+    private suspend fun restore(key: String, before: Issue) {
+        val c = clientFor(key)
+        val repoId = Keys.id(key)
+        val now = issue(key, before.id)
+        val saved = if (before.isClosed) c.close(repoId, before.id, before.closeReason.ifBlank { null })
+        else {
+            if (now?.isClosed == true) c.reopen(repoId, before.id)
+            c.update(repoId, before.id, UpdateIssue(status = before.status, priority = before.priority, type = before.type))
+        }
+        patchLocal(key, saved)
+    }
+
+    suspend fun update(key: String, id: String, body: UpdateIssue): Issue =
+        clientFor(key).update(Keys.id(key), id, body).also { patchLocal(key, it) }
+
+    suspend fun create(key: String, body: CreateIssue): Issue =
+        clientFor(key).create(Keys.id(key), body).also { patchLocal(key, it) }
+
+    suspend fun close(key: String, id: String, reason: String?): Issue = clientFor(key).close(Keys.id(key), id, reason).also { patchLocal(key, it) }
+    suspend fun reopen(key: String, id: String): Issue = clientFor(key).reopen(Keys.id(key), id).also { patchLocal(key, it) }
+    suspend fun detail(key: String, id: String) = clientFor(key).detail(Keys.id(key), id).also { patchLocal(key, it.issue) }
+    suspend fun comment(key: String, id: String, text: String) = clientFor(key).comment(Keys.id(key), id, text)
+    suspend fun addDep(key: String, issue: String, dependsOn: String, type: String = "blocks") {
+        clientFor(key).addDep(Keys.id(key), issue, dependsOn, type); refreshBoard(key, quiet = true)
+    }
+    suspend fun removeDep(key: String, issue: String, dependsOn: String) {
+        clientFor(key).removeDep(Keys.id(key), issue, dependsOn); refreshBoard(key, quiet = true)
+    }
+
+    // ---------- runs ----------
+
+    fun refreshRuns() = scope.launch {
+        paired.value.values.map { p ->
+            async { runCatching { p.client.runs() }.onSuccess { list -> runLists.update { it + (p.host.id to list.map { r -> r.tag(p.host) }) } } }
+        }.awaitAll()
+    }
+
+    private fun upsertRun(run: Run) {
+        val prev = runLists.value[run.hostId]?.firstOrNull { it.id == run.id }
+        runLists.update { m -> m + (run.hostId to (listOf(run) + m[run.hostId].orEmpty().filterNot { it.id == run.id })) }
+        if (prev?.isActive == true && !run.isActive) _finishedRuns.tryEmit(run)
+    }
+
+    /**
+     * Starts a run of [issueId] in the repo [repoKey] (which may be another computer's
+     * copy of the board's repository). A 404 there means that copy lacks the bead.
+     */
+    suspend fun startRun(repoKey: String, issueId: String, req: RunRequest): Run {
+        val p = pairedFor(repoKey)
+        val run = try {
+            p.client.startRun(Keys.id(repoKey), issueId, req)
+        } catch (e: BridgeException) {
+            if (e.code == 404) throw BridgeException("$issueId isn't in ${p.host.name}'s copy of these beads. Sync the beads to it first, or run it on another computer.", e.detail, 404)
+            throw e
+        }
+        return run.tag(p.host).also(::upsertRun)
+    }
+
+    suspend fun cancelRun(key: String): Run { val p = pairedFor(key); return p.client.cancel(Keys.id(key)).tag(p.host).also(::upsertRun) }
+    suspend fun followUp(key: String, message: String, mode: String?): Run {
+        val p = pairedFor(key); return p.client.followUp(Keys.id(key), message, mode).tag(p.host).also(::upsertRun)
+    }
+
+    suspend fun runDetail(key: String): BridgeClient.RunDetail {
+        val p = pairedFor(key)
+        val d = p.client.run(Keys.id(key))
+        return d.copy(run = d.run.tag(p.host))
+    }
+
+    fun runStream(key: String, after: Long): Flow<StreamMessage> {
+        val p = pairedFor(key)
+        return p.client.runStream(Keys.id(key), after).map { if (it is StreamMessage.RunChanged) StreamMessage.RunChanged(it.run.tag(p.host)) else it }
+    }
+
+    fun noteRun(run: Run) = upsertRun(run)
+}
+
+/**
+ * Groups repos that share a git remote. Members are listed in pairing order of their
+ * computers; the home is the member on the computer chosen in [homeHosts], else the first.
+ */
+fun groupRepos(repos: List<Repo>, hostOrder: List<String>, homeHosts: Map<String, String>): List<RepoGroup> {
+    val order = hostOrder.withIndex().associate { (i, id) -> id to i }
+    return repos.groupBy { it.groupId }.map { (id, members) ->
+        val sorted = members.sortedBy { order[it.hostId] ?: Int.MAX_VALUE }
+        val home = sorted.firstOrNull { it.hostId == homeHosts[id] } ?: sorted.first()
+        RepoGroup(id, home, sorted)
+    }
+}
+
+fun Throwable.friendly(): String = when (this) {
+    is BridgeException -> message.orEmpty()
+    is java.net.ConnectException, is java.net.SocketTimeoutException, is java.net.UnknownHostException, is java.net.NoRouteToHostException ->
+        "Can't reach that computer. Check Tailscale and that nacred is running."
+    else -> message ?: javaClass.simpleName
+}

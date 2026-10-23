@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Nacre" parent="Theme.Material3.DynamicColors.DayNight.NoActionBar">
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+    </style>
+    <style name="Theme.Nacre.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Nacre</item>
+    </style>
+</resources>
