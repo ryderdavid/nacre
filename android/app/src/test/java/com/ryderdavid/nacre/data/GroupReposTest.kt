@@ -43,4 +43,15 @@ class GroupReposTest {
         assertEquals("c1", Keys.host(k))
         assertEquals("3f9a1c0b2d4e", Keys.id(k))
     }
+
+    @Test fun oneCheckoutPerComputer() {
+        val g = groupRepos(
+            listOf(
+                Repo(id = "wt", name = "app", path = "/x/app-feature", gitRemote = "github.com/me/app", hostId = studio),
+                Repo(id = "main", name = "app", path = "/x/app", gitRemote = "github.com/me/app", hostId = studio),
+            ),
+            listOf(studio), emptyMap(),
+        ).single()
+        assertEquals(listOf("main"), g.members.map { it.id })
+    }
 }

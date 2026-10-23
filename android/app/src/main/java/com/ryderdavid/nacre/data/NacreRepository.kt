@@ -419,7 +419,10 @@ class NacreRepository(
  */
 fun groupRepos(repos: List<Repo>, hostOrder: List<String>, homeHosts: Map<String, String>): List<RepoGroup> {
     val order = hostOrder.withIndex().associate { (i, id) -> id to i }
-    return repos.groupBy { it.groupId }.map { (id, members) ->
+    return repos.groupBy { it.groupId }.map { (id, all) ->
+        // One checkout per computer: extra clones or worktrees on the same machine
+        // would read as separate computers, so keep the shortest path (the main checkout).
+        val members = all.groupBy { it.hostId }.values.map { same -> same.minBy { it.path.length } }
         val sorted = members.sortedBy { order[it.hostId] ?: Int.MAX_VALUE }
         val home = sorted.firstOrNull { it.hostId == homeHosts[id] } ?: sorted.first()
         RepoGroup(id, home, sorted)

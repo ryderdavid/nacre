@@ -100,3 +100,20 @@ func TestRepoID(t *testing.T) {
 		t.Fatal("RepoID not stable/unique")
 	}
 }
+
+func TestScanSkipsLinkedWorktrees(t *testing.T) {
+	root := t.TempDir()
+	main := filepath.Join(root, "app")
+	wt := filepath.Join(root, "app-feature")
+	mkRepo(t, main, wt)
+	if err := os.MkdirAll(filepath.Join(main, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+main+"/.git/worktrees/app-feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Scan(Options{Roots: []string{root}, Depth: 2})
+	if len(got) != 1 || got[0] != main {
+		t.Fatalf("Scan = %v, want only the main checkout %s", got, main)
+	}
+}

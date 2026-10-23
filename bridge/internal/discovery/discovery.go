@@ -125,11 +125,20 @@ func walk(dir string, depth, maxDepth int, m matcher, found map[string]bool) {
 	if err != nil {
 		return // permission denied, vanished, etc.
 	}
+	hasBeads, linkedWorktree := false, false
 	for _, e := range entries {
-		if e.Name() == ".beads" && e.IsDir() {
-			found[dir] = true
-			break
+		switch {
+		case e.Name() == ".beads" && e.IsDir():
+			hasBeads = true
+		case e.Name() == ".git" && e.Type().IsRegular():
+			// A linked git worktree (e.g. one an agent made for a run) has a .git
+			// file pointing at the main checkout; it is a temporary copy of a repo
+			// that is already listed, so it is not a board of its own.
+			linkedWorktree = true
 		}
+	}
+	if hasBeads && !linkedWorktree {
+		found[dir] = true
 	}
 	if depth >= maxDepth {
 		return
