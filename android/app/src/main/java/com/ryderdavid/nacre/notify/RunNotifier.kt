@@ -23,6 +23,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
+/**
+ * Runs that justify keeping [RunWatcherService] alive. Adopted runs are left out on
+ * purpose: the Mac only watches an agent's own session, which may be a terminal someone
+ * leaves open for hours, so treating one as work in progress would pin a foreground
+ * service to an idle window.
+ */
+internal fun runsWorthWatching(runs: List<Run>): List<Run> = runs.filter { it.isNacreWork }
+
+/**
+ * Whether a run that just reached a terminal state should be announced. An adopted run is
+ * never announced: nothing finished for us when a person quits their own session, and the
+ * notification would claim a result Nacre never asked for.
+ */
+internal fun shouldAnnounceFinish(run: Run, notifyRuns: Boolean, appInForeground: Boolean): Boolean =
+    notifyRuns && !appInForeground && !run.isAdopted
+
 /** Posts run-finished notifications and keeps [RunWatcherService] alive while runs are active. */
 class RunNotifier(
     private val context: Context,
@@ -36,12 +52,12 @@ class RunNotifier(
         createChannels()
         scope.launch {
             repository.finishedRuns.collect { run ->
-                if (!foreground && settings.current().notifyRuns) postFinished(run)
+                if (shouldAnnounceFinish(run, settings.current().notifyRuns, foreground)) postFinished(run)
             }
         }
         scope.launch {
             repository.runs.collect { runs ->
-                if (runs.any { it.isActive } && foreground && !RunWatcherService.running) {
+                if (runsWorthWatching(runs).isNotEmpty() && foreground && !RunWatcherService.running) {
                     withContext(Dispatchers.Main) { runCatching { RunWatcherService.start(context) } }
                 }
             }

@@ -1,5 +1,8 @@
 // Package claude knows how to invoke the Claude Code CLI headless and how to
-// translate its `--output-format stream-json --verbose` output into RunEvents.
+// translate a session into RunEvents from either of its two encodings: the
+// `--output-format stream-json --verbose` output of a run nacred started
+// (streamjson.go), or the on-disk transcript of a session it did not
+// (transcript.go).
 package claude
 
 import (

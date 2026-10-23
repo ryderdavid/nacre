@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// NamePrefix is the --name prefix nacred gives the sessions it launches, so
+// that they can be told apart from agent-owned sessions in Claude Code's
+// session registry.
+const NamePrefix = "Nacre · "
+
 // Turn describes one `claude -p` invocation.
 type Turn struct {
 	Prompt   string

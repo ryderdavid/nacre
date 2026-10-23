@@ -25,12 +25,14 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/server"
+	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
 )
@@ -119,6 +121,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 		return fmt.Errorf("load runs: %w", err)
 	}
 	registry.ActiveRuns = manager.ActiveCount
+	registry.AdoptedRuns = manager.AdoptedCount
 	go registry.Rescan() // warm the repo list
 
 	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
@@ -126,6 +129,13 @@ func serve(cfg *config.Config, listenFlag string) error {
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
+	if cfg.AdoptSessions {
+		go adoptSessions(baseCtx, cfg, registry, manager, logger)
+	} else {
+		// End adopted runs left active by an earlier start that had adoption
+		// enabled; nothing will report their sessions as finished now.
+		manager.SyncAdopted(nil)
+	}
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
@@ -158,6 +168,37 @@ func serve(cfg *config.Config, listenFlag string) error {
 		return err
 	}
 	return nil
+}
+
+// adoptSessions watches Claude Code's session registry so that sessions an
+// agent started on its own show up as read-only adopted runs (NAC-j5z).
+func adoptSessions(ctx context.Context, cfg *config.Config, registry *repos.Registry, manager *runs.Manager, logger *log.Logger) {
+	w := sessions.New(sessions.Options{
+		Dir:           sessions.DefaultDir(config.Home()),
+		Projects:      sessions.DefaultProjectsDir(config.Home()),
+		Interval:      cfg.AdoptInterval(),
+		OwnNamePrefix: claude.NamePrefix,
+		Repos: func() []sessions.Repo {
+			refs := registry.Refs()
+			out := make([]sessions.Repo, len(refs))
+			for i, ref := range refs {
+				out[i] = sessions.Repo(ref)
+			}
+			return out
+		},
+		Beads: func(repoID string) []sessions.Bead {
+			_, issues, err := registry.Issues(repoID)
+			if err != nil {
+				return nil
+			}
+			return sessions.ParseBeads(issues)
+		},
+		Owned:  manager.OwnsSession,
+		Sync:   manager.SyncAdopted,
+		Logger: logger,
+	})
+	logger.Printf("adopting agent-owned Claude Code sessions from %s", sessions.DefaultDir(config.Home()))
+	w.Run(ctx)
 }
 
 // pair prints the pairing deep link as a terminal QR code and as text.

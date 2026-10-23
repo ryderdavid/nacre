@@ -27,6 +27,8 @@ data class Repo(
     val counts: Counts = Counts(),
     @SerialName("last_updated") val lastUpdated: String = "",
     @SerialName("active_runs") val activeRuns: Int = 0,
+    /** Live agent-owned sessions nacred only watches here; not counted by [activeRuns]. */
+    @SerialName("adopted_runs") val adoptedRuns: Int = 0,
     val error: String = "",
     /** Normalized origin remote, e.g. "github.com/owner/repo"; "" if none. */
     @SerialName("git_remote") val gitRemote: String = "",
@@ -133,6 +135,19 @@ data class Run(
     @SerialName("result_text") val resultText: String = "",
     val error: String = "",
     @SerialName("resume_command") val resumeCommand: String = "",
+    /** [ORIGIN_ADOPTED] for a session an agent started itself; absent means Nacre dispatched the run. */
+    val origin: String = "",
+    /** Tool that owns an adopted session ("claude-code"); absent means Claude Code. */
+    val agent: String = "",
+    /** The name the agent gave its session; the only human label an adopted run has. */
+    @SerialName("session_name") val sessionName: String = "",
+    /** The agent's own process on the Mac. Shown, never signalled: it is not nacred's child. */
+    @SerialName("owner_pid") val ownerPid: Int = 0,
+    /** [ACTIVITY_WORKING], [ACTIVITY_IDLE] or [ACTIVITY_ENDED] on an adopted run, "" otherwise. */
+    val activity: String = "",
+    /** Null means "allowed": the bridge only sends these to say an action is refused outright. */
+    @SerialName("can_cancel") val canCancel: Boolean? = null,
+    @SerialName("can_followup") val canFollowup: Boolean? = null,
     /** Set by the app: which paired computer ran this. */
     @Transient val hostId: String = "",
     @Transient val hostName: String = "",
@@ -140,7 +155,34 @@ data class Run(
     val isActive get() = status == "queued" || status == "running"
     val key get() = Keys.of(hostId, id)
     val repoKey get() = Keys.of(hostId, repoId)
+
+    /** A session an agent started on its own, which the Mac only watches (see docs/API.md). */
+    val isAdopted get() = origin == ORIGIN_ADOPTED
+
+    /**
+     * Work Nacre asked for and is waiting on. Adopted runs are excluded everywhere this
+     * decides whether something is "in progress for us": nobody asked for them from here,
+     * and they may be a terminal a person leaves open for hours.
+     */
+    val isNacreWork get() = isActive && !isAdopted
+
+    /** Cancel is offered while the run is active unless the bridge says it is refused. */
+    val showsCancel get() = isActive && canCancel != false
+
+    /** A follow-up needs a finished run with a session to resume, and the bridge's permission. */
+    val showsFollowUp get() = !isActive && sessionId.isNotBlank() && canFollowup != false
+
+    /** The `cd … && claude --resume …` line to pick this session up by hand, when there is one. */
+    val takeoverCommand get() = resumeCommand.takeIf { it.isNotBlank() && sessionId.isNotBlank() }
 }
+
+/** `origin` of a run the Mac only watches; see "Adopted runs" in docs/API.md. */
+const val ORIGIN_ADOPTED = "adopted"
+
+/** `activity` of an adopted run: finer-grained than `status`, which stays one of the five. */
+const val ACTIVITY_WORKING = "working"
+const val ACTIVITY_IDLE = "idle"
+const val ACTIVITY_ENDED = "ended"
 
 @Serializable
 data class RunEvent(

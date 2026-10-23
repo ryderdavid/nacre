@@ -36,12 +36,12 @@ class RunWatcherService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         running = true
         val repo = (application as NacreApp).container.repository
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, ongoing(repo.runs.value.filter { it.isActive }), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, ongoing(runsWorthWatching(repo.runs.value)), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         repo.startEvents()
         watch?.cancel()
         watch = scope.launch {
             repo.runs.collectLatest { runs ->
-                val active = runs.filter { it.isActive }
+                val active = runsWorthWatching(runs)
                 if (active.isEmpty()) {
                     delay(1500) // let a follow-up or queued run show up before giving up
                     stopSelf()

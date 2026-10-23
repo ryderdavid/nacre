@@ -40,6 +40,8 @@ Created on first run with a random token. Fields (defaults in brackets):
 | `default_mode`, `default_model` | ["auto"], [""] |
 | `prompt_template` | `{{id}}`, `{{title}}`, `{{repo}}`, `{{instructions}}` placeholders |
 | `data_dir` | run history root [`~/Library/Application Support/nacred`] |
+| `adopt_sessions` | [false] watch Claude Code's session registry and mirror agent-started sessions as read-only adopted runs |
+| `adopt_poll_seconds` | [10] how often the session registry is polled |
 
 ## Layout
 
@@ -54,13 +56,25 @@ internal/claude     claude argv (runs and headless calls) + stream-json → RunE
 internal/assist     one-shot `claude -p` calls for the app's Refine, Draft and assistant
 internal/prompt     prompt template rendering
 internal/runs       run queue, processes (own process group), persistence
+internal/sessions   Claude Code session registry watcher (adopted runs)
 internal/sse        SSE writer + broker
 internal/server     HTTP handlers, auth, request log
 internal/launchd    LaunchAgent install/uninstall
 ```
 
 Run history lives in `<data_dir>/runs/<run id>/{meta.json,events.jsonl}`; the newest 200 runs are kept.
-Runs still active when nacred stops are marked failed on the next start.
+Runs still active when nacred stops are marked failed on the next start — except adopted runs,
+whose processes nacred never owned; those are re-resolved against the live session registry instead.
+
+With `adopt_sessions` on, nacred also watches `~/.claude/sessions/` for Claude Code sessions an
+agent started on its own, maps each one to a discovered repo (resolving a git worktree to its main
+checkout) and links it to the bead the agent moved: by session name, then by the `bd` command found
+in the session transcript, then by bd's claim state. A session is only adopted while its process is
+genuinely alive (pid plus process start time, so a reused pid cannot resurrect a dead record), and
+nacred's own sessions are skipped. Adopted runs are read-only: cancel and follow-up both answer
+409, `can_cancel`/`can_followup` say so up front, and `resume_command` is the take-over affordance
+instead. They are counted by `Repo.adopted_runs`, never by `active_runs`, and `GET /v1/runs` omits
+them unless asked (`?include=adopted`). See docs/API.md, "Adopted runs".
 
 ## Notes
 

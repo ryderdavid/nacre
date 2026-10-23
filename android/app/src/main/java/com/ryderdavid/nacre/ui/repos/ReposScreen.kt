@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terminal
@@ -239,6 +240,8 @@ private fun SummaryTile(label: String, n: Int, modifier: Modifier, highlight: Bo
 private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOpen: () -> Unit, onPin: () -> Unit, onHide: () -> Unit) {
     val r = g.home
     val activeRuns = g.members.sumOf { it.activeRuns }
+    // Sessions an agent started itself: the Mac watches them, it does not run them.
+    val adoptedRuns = g.members.sumOf { it.adoptedRuns }
     var menu by remember { mutableStateOf(false) }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -250,12 +253,18 @@ private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOp
                 Text(r.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (pinned) Icon(Icons.Rounded.PushPin, "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
                 Spacer(Modifier.weight(1f))
-                if (activeRuns > 0) {
+                if (activeRuns > 0 || adoptedRuns > 0) {
                     Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(8.dp)) {
                         Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Terminal, null, Modifier.size(14.dp))
+                            Icon(if (activeRuns > 0) Icons.Rounded.Terminal else Icons.Rounded.SmartToy, null, Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("$activeRuns running", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                listOfNotNull(
+                                    activeRuns.takeIf { it > 0 }?.let { "$it running" },
+                                    adoptedRuns.takeIf { it > 0 }?.let { "$it agent" },
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                         }
                     }
                 }

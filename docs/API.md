@@ -27,7 +27,8 @@ user's own subscription login.
   "counts": {"open": 3, "in_progress": 1, "blocked": 0, "deferred": 0, "closed": 12,
              "pinned": 0, "hooked": 0, "total": 16},
   "last_updated": "2026-07-18T11:38:59Z",   // max updated_at across issues, "" if none
-  "active_runs": 1,
+  "active_runs": 1,              // runs nacred dispatched and is running for this repo
+  "adopted_runs": 2,             // live agent-owned sessions nacred is only watching; omitted when 0
   "error": "",                    // non-empty when bd failed for this repo (repo still listed)
   "git_remote": "github.com/ryderdavid/nacre", // normalized origin URL, "" if none or a local path
   "git_branch": "main"            // current branch, "" when detached or not a git repo
@@ -71,6 +72,35 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 }
 ```
 
+A run nacred dispatched carries exactly the fields above. An **adopted** run — a session an agent
+started on its own, which nacred only watches (see [Adopted runs](#adopted-runs)) — adds these.
+Every one of them is omitted for a dispatched run, so a client written against the fields above
+gets back byte-for-byte what it got before adopted runs existed:
+
+```json
+{
+  "origin": "adopted",             // "adopted"; absent means nacred dispatched the run
+  "agent": "claude-code",          // tool that owns the session; absent means Claude Code
+  "session_name": "fix-the-parser", // the name the agent gave its session, as Claude Code recorded it
+  "owner_pid": 54321,              // the process that owns the session — not a child of nacred
+  "activity": "working",           // "working" | "idle" | "ended"; reported beside status, see below
+  "can_cancel": false,             // absent means allowed
+  "can_followup": false            // absent means allowed
+}
+```
+
+`activity` is reported **beside** `status`, not inside it: `status` stays one of the five values
+above so existing status handling keeps working, and an adopted session that is alive but parked
+waiting for input is `"status": "running"` with `"activity": "idle"`. `"ended"` means the owning
+process is gone, which nacred reports as `"status": "succeeded"` with no `error` — nobody reports a
+result for a session nacred did not run, so the status means "over, nothing failed on our side" and
+`activity` carries the truth.
+
+`can_cancel` and `can_followup` are **absent** on a dispatched run and `false` on an adopted one.
+Treat an absent flag as `true`: it means "no restriction beyond the usual status rules", which are
+unchanged (cancelling a finished run is still a no-op 200; a follow-up while a run is active is
+still a 409).
+
 ### RunEvent
 ```json
 {"seq": 12, "ts": "…", "kind": "text", "text": "…"}
@@ -94,7 +124,7 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.1.0","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","repos":n,"active_runs":n,"features":["claude"]}` |
+| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","repos":n,"active_runs":n,"features":["claude"]}` — `active_runs` excludes adopted runs |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -108,11 +138,11 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |
 | POST | `/v1/repos/{repo}/claude/json` | AssistRequest | `{"session_id","output":{…},"text","cost_usd"}` |
 | POST | `/v1/repos/{repo}/claude/stream` | AssistRequest | SSE (below) |
-| GET | `/v1/runs[?repo={repo}&issue={id}&active=1]` | – | `{"runs":[Run]}` newest first |
+| GET | `/v1/runs[?repo={repo}&issue={id}&active=1&include=adopted]` | – | `{"runs":[Run]}` newest first; adopted runs only with `include=adopted` |
 | GET | `/v1/runs/{run}` | – | `{"run":Run,"events":[RunEvent]}` |
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
-| POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200) |
-| POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id) |
+| POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200; **409 for an adopted run**) |
+| POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id; **409 for an adopted run**) |
 | GET | `/v1/events` | – | SSE: global `run` and `repo` notifications |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
@@ -128,6 +158,45 @@ Any subset of `{"title","description","design","acceptance_criteria","notes","st
 "issue_type","assignee","labels","parent"}`. `labels` replaces the full set (`--set-labels`).
 Setting `status` to `closed` uses `bd close`; changing a closed issue to another status reopens it first.
 Long text fields are passed via flags (not a shell), so any content is safe.
+
+### Adopted runs
+When `adopt_sessions` is enabled in nacred's config, nacred also watches Claude Code's own session
+registry (`~/.claude/sessions/`) and mirrors sessions an **agent started on its own** as runs with
+`"origin": "adopted"`. They are linked to the bead the agent moved; a session that moved none is
+reported with an empty `issue_id` rather than a guessed link. `agent` names the tool that owns the
+session (`claude-code` today), `session_name` and `owner_pid` identify it, and `activity` says
+whether it is working, parked or gone.
+
+**They are read-only, and the API says so explicitly.** nacred owns no process for an adopted run,
+so:
+
+- `POST /v1/runs/{run}/cancel` → **409**. Signalling the session would kill work nacred did not
+  start — in practice someone's live interactive terminal.
+- `POST /v1/runs/{run}/followup` → **409**. `claude -p --resume <session>` against a live session
+  forks it rather than continuing it, so the follow-up would land in a copy nobody is watching.
+- Both refusals carry the reason in `error`, and neither touches the run or the session.
+- `can_cancel` and `can_followup` are `false`, so a client knows this without having to try. A
+  client should hide both controls for a run with `"origin": "adopted"`, and should not treat such
+  a run as work in progress for notification or foreground-service purposes — the "run" may be a
+  terminal a human leaves open for hours.
+- **`resume_command` is the take-over affordance.** It is the one thing a client can usefully offer
+  for an adopted run: the `cd … && claude --resume <session_id>` line to run on the Mac to pick the
+  session up by hand, instead of nacred reaching into it.
+
+Adopted runs also stay out of nacred's own accounting: they never enter the queue, never occupy a
+`max_concurrent_runs` slot, and are **not** counted by `active_runs` on `Repo` or `/v1/health`,
+which keep meaning "runs nacred is doing". `Repo.adopted_runs` counts them separately, and is
+omitted when zero.
+
+Everything else works as usual: `GET /v1/runs/{run}` and `/v1/runs/{run}/stream` serve an adopted
+run by id, with the session's transcript as `RunEvent`s. Its first event is a `system` notice saying
+what was found, where, which signal linked it to a bead, and that it is read-only.
+
+**Listing is opt-in.** `GET /v1/runs` omits adopted runs unless `include=adopted` is passed, because
+a client that does not know about them would offer controls that cannot work. `include` takes a
+comma-separated list and ignores names it does not know, so `?include=adopted` is the only form that
+matters today. Fetching one by id is not gated: a client that was handed an adopted run's id can
+always follow it.
 
 ### RunRequest
 `{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)"}`

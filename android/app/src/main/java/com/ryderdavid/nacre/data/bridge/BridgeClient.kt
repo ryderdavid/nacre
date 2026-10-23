@@ -99,11 +99,13 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }
 
     suspend fun startRun(repo: String, id: String, req: RunRequest): Run = send("POST", "/v1/repos/$repo/issues/${enc(id)}/runs", req)
-    suspend fun runs(repo: String? = null, issue: String? = null, active: Boolean = false): List<Run> {
+    /** Adopted runs are listed only on request; an older bridge ignores the parameter. */
+    suspend fun runs(repo: String? = null, issue: String? = null, active: Boolean = false, adopted: Boolean = true): List<Run> {
         val u = url("/v1/runs").newBuilder().apply {
             repo?.let { addQueryParameter("repo", it) }
             issue?.let { addQueryParameter("issue", it) }
             if (active) addQueryParameter("active", "1")
+            if (adopted) addQueryParameter("include", "adopted")
         }.build()
         return call<Runs>(Request.Builder().url(u).build()).runs
     }

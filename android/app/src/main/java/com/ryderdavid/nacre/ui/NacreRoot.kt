@@ -89,6 +89,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
         else -> Tab.BOARDS
     }
     val runs by container.repository.runs.collectAsState()
+    // Counts agent-owned sessions too: the badge stands for what the Runs tab is showing.
     val activeRuns = runs.count { it.isActive }
     val snackbar = remember { SnackbarHostState() }
     var pendingPair by remember { mutableStateOf<PairRequest?>(null) }
