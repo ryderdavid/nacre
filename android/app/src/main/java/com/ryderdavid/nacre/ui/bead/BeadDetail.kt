@@ -91,6 +91,7 @@ import com.ryderdavid.nacre.ui.common.TypeLabel
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.common.typeIcon
+import com.ryderdavid.nacre.ui.runs.AgentChip
 import com.ryderdavid.nacre.ui.runs.RunStatusIcon
 import com.ryderdavid.nacre.ui.theme.Nacre
 import kotlinx.coroutines.launch
@@ -181,11 +182,21 @@ fun BeadDetail(
         floatingActionButton = {
             val i = issue
             if (i != null && !i.isClosed) {
-                val active = runs.firstOrNull { it.isActive }
+                // Prefer our own run: an agent's session can't be steered from here, so it must not
+                // take the place of the button that starts one.
+                val active = runs.firstOrNull { it.isNacreWork } ?: runs.firstOrNull { it.isActive }
                 ExtendedFloatingActionButton(
                     onClick = { if (active != null) onOpenRun(active.key) else showRun = true },
                     icon = { Icon(if (active != null) Icons.Rounded.Terminal else Icons.Rounded.PlayArrow, null) },
-                    text = { Text(if (active != null) "Claude is working…" else "Run with Claude Code") },
+                    text = {
+                        Text(
+                            when {
+                                active == null -> "Run with Claude Code"
+                                active.isAdopted -> "An agent is working…"
+                                else -> "Claude is working…"
+                            }
+                        )
+                    },
                 )
             }
         },
@@ -355,8 +366,12 @@ private fun DetailBody(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(r.lastText.ifBlank { r.status }, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${relativeTime(r.createdAt)} · ${r.mode}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            listOfNotNull(relativeTime(r.createdAt), r.mode.ifBlank { null }).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    if (r.isAdopted) AgentChip(r, Modifier.padding(start = 8.dp))
                 }
             }
         }

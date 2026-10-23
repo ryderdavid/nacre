@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Build
@@ -101,6 +102,9 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.data.model.ACTIVITY_ENDED
+import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
+import com.ryderdavid.nacre.data.model.ACTIVITY_WORKING
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.RunEvent
 import com.ryderdavid.nacre.notify.RunNotifier
@@ -217,6 +221,37 @@ private fun GroupLabel(text: String) {
     Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
 }
 
+/** How an adopted session is doing, in the app's words; null for a run Nacre dispatched. */
+internal fun activityLabel(activity: String): String? = when (activity) {
+    ACTIVITY_WORKING -> "working"
+    ACTIVITY_IDLE -> "waiting for input"
+    ACTIVITY_ENDED -> "session ended"
+    else -> null
+}
+
+/** The line shown under a transcript that is still going. */
+internal fun workingLabel(r: Run): String = when {
+    r.status == "queued" -> "Waiting for a free slot on the Mac…"
+    r.isAdopted && r.activity == ACTIVITY_IDLE -> "The agent's session is waiting for input on the Mac…"
+    r.isAdopted -> "An agent is working in this session…"
+    else -> "Claude is working…"
+}
+
+/** What to call a run: an adopted session may have moved no bead, and then has only its own name. */
+internal fun runTitle(r: Run): String = r.issueTitle.ifBlank { r.sessionName.ifBlank { if (r.isAdopted) "Agent session" else "Run" } }
+
+/** Marks a run nobody started from Nacre: an agent's own session, which the Mac only watches. */
+@Composable
+fun AgentChip(r: Run, modifier: Modifier = Modifier) {
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(8.dp), modifier = modifier) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.SmartToy, null, Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(listOfNotNull("Agent", activityLabel(r.activity)).joinToString(" · "), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
 @Composable
 private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
     ListItem(
@@ -224,9 +259,13 @@ private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: ()
         colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
         leadingContent = { RunStatusIcon(r.status) },
         overlineContent = {
-            Text(listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, r.issueId).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, r.issueId.ifBlank { null }).joinToString(" · "),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         },
-        headlineContent = { Text(r.issueTitle, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(runTitle(r), maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        trailingContent = { if (r.isAdopted) AgentChip(r) },
         supportingContent = {
             Column {
                 if (r.lastText.isNotBlank()) Text(r.lastText, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -266,12 +305,21 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
                 navigationIcon = { if (!inPane) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
                 title = {
                     Column {
-                        Text(run?.issueId ?: "Run", style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily))
-                        Text(run?.issueTitle.orEmpty(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // An adopted session that moved no bead has no id to show, only its own name.
+                        Text(run?.issueId?.ifBlank { null } ?: "Run", style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily))
+                        Text(
+                            run?.let { it.issueTitle.ifBlank { it.sessionName } }.orEmpty(),
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 },
                 actions = {
-                    run?.let { r -> if (r.repoId.isNotBlank()) IconButton(onClick = { onOpenBead(r.repoKey, r.issueId) }) { Icon(Icons.Rounded.Description, "Open bead") } }
+                    run?.let { r ->
+                        if (r.repoId.isNotBlank() && r.issueId.isNotBlank()) {
+                            IconButton(onClick = { onOpenBead(r.repoKey, r.issueId) }) { Icon(Icons.Rounded.Description, "Open bead") }
+                        }
+                    }
                 },
             )
         },
@@ -307,9 +355,12 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
             }
             if (r?.isActive == true) item("working") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LoadingIndicator(Modifier.size(32.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (r.status == "queued") "Waiting for a free slot on the Mac…" else "Claude is working…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // A parked agent session is alive but doing nothing; don't pretend it is thinking.
+                    if (!(r.isAdopted && r.activity == ACTIVITY_IDLE)) {
+                        LoadingIndicator(Modifier.size(32.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(workingLabel(r), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -326,6 +377,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
                 RunStatusIcon(r.status)
                 Spacer(Modifier.width(8.dp))
                 Text(r.status.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium)
+                if (r.isAdopted) AgentChip(r, Modifier.padding(start = 8.dp))
                 Spacer(Modifier.weight(1f))
                 Text(listOfNotNull(r.hostName.ifBlank { null }, r.repoName).joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -338,16 +390,23 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
                     RunNotifier.cost(r),
                     r.toolCalls.takeIf { it > 0 }?.let { "$it tool calls" },
                     r.turns.takeIf { it > 1 }?.let { "$it prompts" },
+                    r.sessionName.takeIf { r.isAdopted && it.isNotBlank() },
+                    r.ownerPid.takeIf { it > 0 }?.let { "pid $it" },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
             )
             if (r.error.isNotBlank()) Text(r.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-            if (r.resumeCommand.isNotBlank() && r.sessionId.isNotBlank()) {
+            if (r.isAdopted) Text(
+                "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+            )
+            r.takeoverCommand?.let { command ->
+                val label = if (r.isAdopted) "Copy “take over on Mac” command" else "Copy “resume on Mac” command"
                 FilledTonalButton(
-                    onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("resume", r.resumeCommand))) } },
+                    onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(if (r.isAdopted) "take over" else "resume", command))) } },
                     modifier = Modifier.padding(top = 10.dp),
                 ) {
-                    Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy “resume on Mac” command")
+                    Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(label)
                 }
             }
         }
@@ -361,13 +420,17 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
             if (r.isActive) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        r.lastText.ifBlank { "Working…" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        r.lastText.ifBlank { workingLabel(r) }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(12.dp))
-                    OutlinedButton(onClick = onCancel) { Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel") }
+                    // Cancel is hidden, not disabled, when the Mac refuses it: there is no process of ours to stop.
+                    if (r.showsCancel) {
+                        Spacer(Modifier.width(12.dp))
+                        OutlinedButton(onClick = onCancel) { Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel") }
+                    }
                 }
-            } else if (r.sessionId.isNotBlank()) {
+                if (r.isAdopted) ReadOnlyNote()
+            } else if (r.showsFollowUp) {
                 var text by rememberSaveable(r.key) { mutableStateOf("") }
                 var mode by rememberSaveable(r.key) { mutableStateOf(r.mode.ifBlank { "auto" }) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -383,9 +446,21 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                         Icon(Icons.AutoMirrored.Rounded.Send, "Send follow-up")
                     }
                 }
+            } else if (r.isAdopted) {
+                ReadOnlyNote()
             }
         }
     }
+}
+
+/** Why an adopted run has no controls, and what to do instead. */
+@Composable
+private fun ReadOnlyNote() {
+    Text(
+        "Read-only: copy the take-over command above to pick this session up on the Mac.",
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp), textAlign = TextAlign.Center,
+    )
 }
 
 private fun toolIcon(tool: String): ImageVector = when (tool) {

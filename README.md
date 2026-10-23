@@ -33,6 +33,20 @@ Run `nacred` on each Mac (`cd bridge && make install`, set `host_name` in its co
 
 A repository checked out on more than one computer (same git `origin`, SSH host aliases resolved) shows as **one board**. Its *home* computer — first paired, or chosen from the board's menu under *Beads from* — is where the board's beads are read and edited. *Run with Claude Code* then offers **Run on** with each computer that has the checkout, so heavy work can go to the Studio and lighter work to the laptop. A run on a computer whose copy of the beads lacks that bead fails with a clear message: sync the beads (git or a Dolt remote) first.
 
+## Agent sessions
+
+When `adopt_sessions` is on in `nacred`'s config, the Mac also watches Claude Code sessions an **agent
+started on its own** — claiming a bead from the terminal, say — and Nacre lists them in the Runs tab
+beside its own, marked **Agent** with what the session is doing (*working*, *waiting for input*,
+*session ended*). The transcript, cost and bead link are all there.
+
+They are read-only, because the Mac owns no process for them: there is no *Cancel* and no follow-up
+box, signalling someone's live terminal or resuming it would fork their work. *Copy “take over on
+Mac” command* is the way in — it puts the `claude --resume` line on the clipboard. For the same
+reason an agent session never posts a run-finished notification and never keeps the foreground
+watcher service alive: quitting a terminal you left open for an afternoon is not a run of ours
+finishing.
+
 ## The board
 
 Lanes are derived from bd, as in the static Thought Catalog board:
