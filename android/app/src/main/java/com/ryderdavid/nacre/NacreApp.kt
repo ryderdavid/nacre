@@ -5,12 +5,14 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.ryderdavid.nacre.data.NacreRepository
+import com.ryderdavid.nacre.data.claude.AllBoardsRouter
 import com.ryderdavid.nacre.data.claude.ApiBackend
 import com.ryderdavid.nacre.data.claude.BoardAssistant
 import com.ryderdavid.nacre.data.claude.ClaudeBackends
 import com.ryderdavid.nacre.data.claude.ClaudeService
 import com.ryderdavid.nacre.data.claude.MacBackend
 import com.ryderdavid.nacre.data.claude.RepoBoardTools
+import com.ryderdavid.nacre.data.claude.SingleBoard
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import com.ryderdavid.nacre.notify.RunNotifier
 import kotlinx.coroutines.CoroutineScope
@@ -38,13 +40,27 @@ class AppContainer(app: Application) {
     )
     val notifier = RunNotifier(app, repository, settings, scope)
 
-    /** One assistant conversation per board, kept for the life of the process. */
+    /**
+     * One assistant conversation per board plus the cross-board one, kept for the life
+     * of the process. Repo keys are "<host>~<repo id>", so [ALL_BOARDS] can't collide.
+     */
     private val assistants = mutableMapOf<String, BoardAssistant>()
 
     fun assistant(repoKey: String, repoName: String): BoardAssistant = synchronized(assistants) {
         assistants.getOrPut(repoKey) {
-            BoardAssistant(backends, { settings.current() }, RepoBoardTools(repository, repoKey, repoName), scope)
+            BoardAssistant(backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope)
         }
+    }
+
+    /** The conversation on the boards screen, which reaches every board at once. */
+    fun orchestrator(): BoardAssistant = synchronized(assistants) {
+        assistants.getOrPut(ALL_BOARDS) {
+            BoardAssistant(backends, { settings.current() }, AllBoardsRouter(repository, settings), scope)
+        }
+    }
+
+    private companion object {
+        const val ALL_BOARDS = "@all-boards"
     }
 }
 

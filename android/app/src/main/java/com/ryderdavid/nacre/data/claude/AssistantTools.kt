@@ -84,7 +84,7 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
         write = true, required = listOf("id", "text"),
     ),
     ToolSpec(
-        "add_dependency", "Record that one bead waits on (is blocked by) another. Requires the user's approval.",
+        "add_dependency", "Record that one bead waits on (is blocked by) another. Both beads must be on the same board. Requires the user's approval.",
         mapOf("issue_id" to str("The bead that waits"), "depends_on_id" to str("The bead it waits on")),
         write = true, required = listOf("issue_id", "depends_on_id"),
     ),
@@ -95,6 +95,31 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
         write = true, required = listOf("id"),
     ),
 )
+
+/** Lists the boards; only offered when one conversation spans every board. */
+val LIST_BOARDS = ToolSpec(
+    "list_boards",
+    "List every board (project) you can reach, with its bead counts, computers and path. Call this before anything else so you know the board names.",
+    mapOf("query" to nullable("string", "Text to match in the board name, path or git remote, or null for all boards")),
+    write = false,
+)
+
+/**
+ * The tools for one conversation. Across every board the assistant can also list the
+ * boards, and every board-scoped tool takes the board it acts on.
+ */
+fun assistantTools(everyBoard: Boolean): List<ToolSpec> {
+    if (!everyBoard) return BOARD_TOOLS
+    return listOf(LIST_BOARDS) + BOARD_TOOLS.map { spec ->
+        if (spec.name == "list_beads") spec.copy(
+            description = spec.description.replace("on this board ", ""),
+            props = mapOf("board" to nullable("string", "Board name from list_boards, or null to sweep every board at once (a few rows from each)")) + spec.props,
+        ) else spec.copy(
+            props = mapOf("board" to str("Board name, exactly as list_boards reports it")) + spec.props,
+            required = listOf("board") + spec.required,
+        )
+    }
+}
 
 /** Tools that change beads, and so can only run once the user approves them. */
 internal val WRITE_TOOLS: Set<String> = BOARD_TOOLS.filter { it.write }.map { it.name }.toSet()

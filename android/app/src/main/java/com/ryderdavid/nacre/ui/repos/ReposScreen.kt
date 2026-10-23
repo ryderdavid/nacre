@@ -8,8 +8,12 @@ import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +22,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,10 +33,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terminal
@@ -40,6 +46,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
@@ -50,7 +57,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +70,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,8 +82,12 @@ import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.settings.SettingsStore
+import com.ryderdavid.nacre.ui.assistant.AssistantPane
+import com.ryderdavid.nacre.ui.assistant.AssistantTarget
+import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
+import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MessageState
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
@@ -95,10 +111,30 @@ class ReposViewModel(private val repo: NacreRepository, private val settings: Se
     fun unhideAll() = viewModelScope.launch { settings.update { s -> s.copy(hiddenRepos = emptySet()) } }
 }
 
+/** Width the assistant pane and the boards list each keep at minimum, in dp. */
+private const val MIN_ASSISTANT_PANE_DP = 320f
+private const val MIN_BOARDS_PANE_DP = 360f
+private const val DEFAULT_ASSISTANT_PANE_DP = 420f
+
+/** Clamp a dragged assistant-pane width so the boards list keeps its minimum inside [totalDp]. */
+internal fun clampAssistantPaneWidth(widthDp: Float, totalDp: Float): Float =
+    widthDp.coerceIn(MIN_ASSISTANT_PANE_DP, (totalDp - MIN_BOARDS_PANE_DP).coerceAtLeast(MIN_ASSISTANT_PANE_DP))
+
+/**
+ * Every project's board. The chat bar at the bottom opens the assistant over all of
+ * them at once; on a wide screen it sits beside the list instead of replacing it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReposScreen(onOpen: (Repo) -> Unit, onPair: () -> Unit) {
+fun ReposScreen(
+    onOpen: (Repo) -> Unit,
+    onPair: () -> Unit,
+    onOpenAssistant: () -> Unit,
+    onOpenBead: (repoKey: String, beadId: String) -> Unit,
+    onOpenRun: (String) -> Unit,
+) {
     val vm = nacreViewModel { ReposViewModel(it.repository, it.settings) }
+    val container = LocalContainer.current
     val state by vm.repos.collectAsState()
     val groups by vm.groups.collectAsState()
     val hosts by vm.hosts.collectAsState()
@@ -106,85 +142,163 @@ fun ReposScreen(onOpen: (Repo) -> Unit, onPair: () -> Unit) {
     val prefs by vm.prefs.collectAsState(initial = null)
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
+    var assistantPane by rememberSaveable { mutableStateOf(false) }
+    var paneDp by rememberSaveable { mutableStateOf(DEFAULT_ASSISTANT_PANE_DP) }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = {
-                    Column {
-                        Text("Boards")
-                        ConnectionLine(hosts)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
-                        Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search boards")
-                    }
-                    IconButton(onClick = vm::refresh) { Icon(Icons.Rounded.Refresh, "Rescan your computers for beads repos") }
-                },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { pad ->
-        val p = prefs ?: return@Scaffold
-        when {
-            !p.bridgeConfigured -> MessageState(
-                Icons.Rounded.Lan, "Connect a computer",
-                "Nacre talks to nacred on your Macs over Tailscale. Run `nacred pair` on one and scan the code.",
-                "Pair a computer", onPair, Modifier.padding(pad),
-            )
-            state.data == null && state.error != null -> ErrorState(state.error!!, vm::refresh, Modifier.padding(pad))
-            state.data == null -> LoadingState("Finding beads on your computers…", Modifier.padding(pad))
-            else -> {
-                val shown = groups.filter { it.id !in p.hiddenRepos }
-                val visible = shown
-                    .filter { g -> hostFilter == null || g.members.any { it.hostId == hostFilter } }
-                    .filter { g -> query.isBlank() || g.home.name.contains(query, true) || g.home.path.contains(query, true) || g.home.gitRemote.contains(query, true) }
-                    .sortedWith(
-                        compareByDescending<RepoGroup> { it.id in p.pinnedRepos }
-                            .thenByDescending { g -> g.members.sumOf { it.activeRuns } > 0 }
-                            .thenByDescending { it.home.lastUpdated }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 760.dp
+        val density = LocalDensity.current.density
+        val totalDp = maxWidth.value
+        LaunchedEffect(wide) { if (!wide) assistantPane = false }
+        val paneShown = wide && assistantPane
+        // Ask now, read the answer in the conversation: beside the list when there's room, else full screen.
+        val ask: (String) -> Unit = { message ->
+            if (message.isNotBlank()) container.orchestrator().send(message)
+            if (wide) assistantPane = true else onOpenAssistant()
+        }
+
+        Row(Modifier.fillMaxSize()) {
+            Scaffold(
+                modifier = Modifier.weight(1f).nestedScroll(scroll.nestedScrollConnection),
+                topBar = {
+                    LargeTopAppBar(
+                        title = {
+                            Column {
+                                Text("Boards")
+                                ConnectionLine(hosts)
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                                Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search boards")
+                            }
+                            IconButton(onClick = { if (paneShown) assistantPane = false else ask("") }) {
+                                Icon(AiIcon, "Ask Claude about every board")
+                            }
+                            IconButton(onClick = vm::refresh) { Icon(Icons.Rounded.Refresh, "Rescan your computers for beads repos") }
+                        },
+                        scrollBehavior = scroll,
                     )
-                Box(Modifier.padding(pad).fillMaxSize()) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 320.dp),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        if (searching) item(span = { GridItemSpan(maxLineSpan) }) {
-                            OutlinedTextField(query, { query = it }, placeholder = { Text("Filter boards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }) { Summary(shown) }
-                        if (hosts.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected = hostFilter == null, onClick = { hostFilter = null }, label = { Text("All computers") })
-                                hosts.forEach { h ->
-                                    FilterChip(
-                                        selected = hostFilter == h.host.id,
-                                        onClick = { hostFilter = if (hostFilter == h.host.id) null else h.host.id },
-                                        label = { Text(h.host.name) },
-                                        leadingIcon = { Dot(if (h.online) Nacre.colors.doing else MaterialTheme.colorScheme.outline) },
+                },
+                bottomBar = {
+                    if (!paneShown && prefs?.bridgeConfigured == true) OrchestratorBar(claudeReady = prefs?.claudeConfigured == true, onAsk = ask)
+                },
+            ) { pad ->
+                val p = prefs ?: return@Scaffold
+                when {
+                    !p.bridgeConfigured -> MessageState(
+                        Icons.Rounded.Lan, "Connect a computer",
+                        "Nacre talks to nacred on your Macs over Tailscale. Run `nacred pair` on one and scan the code.",
+                        "Pair a computer", onPair, Modifier.padding(pad),
+                    )
+                    state.data == null && state.error != null -> ErrorState(state.error!!, vm::refresh, Modifier.padding(pad))
+                    state.data == null -> LoadingState("Finding beads on your computers…", Modifier.padding(pad))
+                    else -> {
+                        val shown = groups.filter { it.id !in p.hiddenRepos }
+                        val visible = shown
+                            .filter { g -> hostFilter == null || g.members.any { it.hostId == hostFilter } }
+                            .filter { g -> query.isBlank() || g.home.name.contains(query, true) || g.home.path.contains(query, true) || g.home.gitRemote.contains(query, true) }
+                            .sortedWith(
+                                compareByDescending<RepoGroup> { it.id in p.pinnedRepos }
+                                    .thenByDescending { g -> g.members.sumOf { it.activeRuns } > 0 }
+                                    .thenByDescending { it.home.lastUpdated }
+                            )
+                        Box(Modifier.padding(pad).fillMaxSize()) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 320.dp),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                if (searching) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    OutlinedTextField(query, { query = it }, placeholder = { Text("Filter boards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                }
+                                item(span = { GridItemSpan(maxLineSpan) }) { Summary(shown) }
+                                if (hosts.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        FilterChip(selected = hostFilter == null, onClick = { hostFilter = null }, label = { Text("All computers") })
+                                        hosts.forEach { h ->
+                                            FilterChip(
+                                                selected = hostFilter == h.host.id,
+                                                onClick = { hostFilter = if (hostFilter == h.host.id) null else h.host.id },
+                                                label = { Text(h.host.name) },
+                                                leadingIcon = { Dot(if (h.online) Nacre.colors.doing else MaterialTheme.colorScheme.outline) },
+                                            )
+                                        }
+                                    }
+                                }
+                                items(visible, key = { it.id }) { g ->
+                                    RepoCard(
+                                        g, showComputers = hosts.size > 1, pinned = g.id in p.pinnedRepos,
+                                        onOpen = { onOpen(g.home) }, onPin = { vm.togglePin(g.id) }, onHide = { vm.hide(g.id) },
                                     )
                                 }
+                                if (p.hiddenRepos.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    TextButton(onClick = vm::unhideAll) { Text("Show ${p.hiddenRepos.size} hidden board${if (p.hiddenRepos.size == 1) "" else "s"}") }
+                                }
                             }
-                        }
-                        items(visible, key = { it.id }) { g ->
-                            RepoCard(
-                                g, showComputers = hosts.size > 1, pinned = g.id in p.pinnedRepos,
-                                onOpen = { onOpen(g.home) }, onPin = { vm.togglePin(g.id) }, onHide = { vm.hide(g.id) },
-                            )
-                        }
-                        if (p.hiddenRepos.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                            TextButton(onClick = vm::unhideAll) { Text("Show ${p.hiddenRepos.size} hidden board${if (p.hiddenRepos.size == 1) "" else "s"}") }
                         }
                     }
                 }
             }
+            if (paneShown) {
+                // Start from the width on screen so a drag still moves after the window changed size.
+                PaneDivider { dx -> paneDp = clampAssistantPaneWidth(clampAssistantPaneWidth(paneDp, totalDp) - dx / density, totalDp) }
+                Box(Modifier.width(clampAssistantPaneWidth(paneDp, totalDp).dp).fillMaxHeight()) {
+                    AssistantPane(
+                        AssistantTarget.AllBoards, inPane = true,
+                        onClose = { assistantPane = false }, onOpenBead = onOpenBead, onOpenRun = onOpenRun,
+                    )
+                }
+            }
         }
+    }
+}
+
+/** The cross-board chat bar: ask about any project without opening its board first. */
+@Composable
+private fun OrchestratorBar(claudeReady: Boolean, onAsk: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                enabled = claudeReady,
+                placeholder = { Text(if (claudeReady) "Ask Claude about any board" else "Add your Claude API key in Settings") },
+                leadingIcon = { Icon(AiIcon, null) },
+                maxLines = 4,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            FilledIconButton(
+                onClick = { onAsk(text); text = "" },
+                enabled = claudeReady,
+                modifier = Modifier.size(52.dp),
+            ) {
+                if (text.isBlank()) Icon(AiIcon, "Open the assistant") else Icon(Icons.AutoMirrored.Rounded.Send, "Send")
+            }
+        }
+    }
+}
+
+/** The divider between the boards list and the assistant; drag it to re-split the width. */
+@Composable
+private fun PaneDivider(onDrag: (Float) -> Unit) {
+    Box(
+        Modifier.fillMaxHeight().width(16.dp)
+            .draggable(rememberDraggableState { onDrag(it) }, Orientation.Horizontal)
+            .semantics { contentDescription = "Resize panes" },
+        contentAlignment = Alignment.Center,
+    ) {
+        VerticalDivider()
+        Box(Modifier.size(width = 4.dp, height = 36.dp).background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
     }
 }
 
@@ -240,8 +354,6 @@ private fun SummaryTile(label: String, n: Int, modifier: Modifier, highlight: Bo
 private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOpen: () -> Unit, onPin: () -> Unit, onHide: () -> Unit) {
     val r = g.home
     val activeRuns = g.members.sumOf { it.activeRuns }
-    // Sessions an agent started itself: the Mac watches them, it does not run them.
-    val adoptedRuns = g.members.sumOf { it.adoptedRuns }
     var menu by remember { mutableStateOf(false) }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -253,18 +365,12 @@ private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOp
                 Text(r.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (pinned) Icon(Icons.Rounded.PushPin, "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
                 Spacer(Modifier.weight(1f))
-                if (activeRuns > 0 || adoptedRuns > 0) {
+                if (activeRuns > 0) {
                     Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(8.dp)) {
                         Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (activeRuns > 0) Icons.Rounded.Terminal else Icons.Rounded.SmartToy, null, Modifier.size(14.dp))
+                            Icon(Icons.Rounded.Terminal, null, Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(
-                                listOfNotNull(
-                                    activeRuns.takeIf { it > 0 }?.let { "$it running" },
-                                    adoptedRuns.takeIf { it > 0 }?.let { "$it agent" },
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
+                            Text("$activeRuns running", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }

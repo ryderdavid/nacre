@@ -57,7 +57,7 @@ class ApprovalTest {
     /** Records what the app was actually asked to change. */
     private class RecordingTools : BoardTools {
         override val boardKey = "c1~nacre"
-        override val repoName = "Nacre"
+        override val boardName = "Nacre"
         val writes = mutableListOf<String>()
 
         override suspend fun listBeads(lane: String?, query: String?, limit: Int) = "NAC-1 [ready] P2 task — Something"
@@ -72,7 +72,7 @@ class ApprovalTest {
 
     private fun assistant(session: AssistantSession, tools: BoardTools, settings: AppSettings = AppSettings(hosts = listOf(HOST))): BoardAssistant {
         val backend = FakeBackend(ClaudeRunner.MAC, session)
-        return BoardAssistant(ClaudeBackends(backend, backend), { settings }, tools, scope)
+        return BoardAssistant(ClaudeBackends(backend, backend), { settings }, SingleBoard(tools), scope)
     }
 
     private suspend fun BoardAssistant.awaitPending(): ChatItem.ToolCall = withTimeout(TIMEOUT) {
@@ -183,7 +183,7 @@ class ApprovalTest {
         val mac = FakeBackend(ClaudeRunner.MAC, session)
         val backends = ClaudeBackends(api, mac)
         var settings = AppSettings(hosts = listOf(HOST))
-        val a = BoardAssistant(backends, { settings }, tools, scope)
+        val a = BoardAssistant(backends, { settings }, SingleBoard(tools), scope)
 
         a.send("hello")
         a.awaitFinished()

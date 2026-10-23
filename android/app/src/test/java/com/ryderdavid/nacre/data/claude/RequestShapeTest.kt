@@ -23,27 +23,47 @@ class RequestShapeTest {
     private fun body(b: com.anthropic.models.messages.MessageCreateParams): JsonObject =
         Json.parseToJsonElement(jsonMapper().writeValueAsString(b._body())).jsonObject
 
-    @Test fun strictToolsListEveryPropertyAsRequired() {
+    private fun toolsBody(everyBoard: Boolean): JsonArray {
         val params = ClaudeService.baseParams(settings, "system", 64000)
-            .tools(BOARD_TOOLS.map { ToolUnion.ofTool(it.toTool()) })
+            .tools(assistantTools(everyBoard).map { ToolUnion.ofTool(it.toTool()) })
             .addUserMessage("hi")
             .build()
-        val tools = body(params)["tools"]!!.jsonArray
-        assertEquals(8, tools.size)
-        for (t in tools) {
-            val o = t.jsonObject
-            assertTrue(o["strict"]!!.jsonPrimitive.boolean, "${o["name"]} strict")
-            assertTrue(o["eager_input_streaming"]!!.jsonPrimitive.boolean)
-            val schema = o["input_schema"]!!.jsonObject
-            assertEquals("false", schema["additionalProperties"].toString())
-            val props = schema["properties"]!!.jsonObject.keys
-            val required = schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
-            assertEquals(props, required, "${o["name"]} requires all properties")
+        return body(params)["tools"]!!.jsonArray
+    }
+
+    @Test fun strictToolsListEveryPropertyAsRequired() {
+        for (everyBoard in listOf(false, true)) {
+            val tools = toolsBody(everyBoard)
+            assertEquals(if (everyBoard) 9 else 8, tools.size, "tool count")
+            for (t in tools) {
+                val o = t.jsonObject
+                assertTrue(o["strict"]!!.jsonPrimitive.boolean, "${o["name"]} strict")
+                assertTrue(o["eager_input_streaming"]!!.jsonPrimitive.boolean)
+                val schema = o["input_schema"]!!.jsonObject
+                assertEquals("false", schema["additionalProperties"].toString())
+                val props = schema["properties"]!!.jsonObject.keys
+                val required = schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+                assertEquals(props, required, "${o["name"]} requires all properties")
+            }
         }
-        val raw = body(params)
-        assertEquals("\"default\"", raw["fallbacks"].toString())
+        val params = ClaudeService.baseParams(settings, "system", 64000).addUserMessage("hi").build()
+        assertEquals("\"default\"", body(params)["fallbacks"].toString())
         assertTrue(params._headers().values("anthropic-beta").contains("server-side-fallback-2026-07-01"))
     }
+
+    @Test fun onlyTheCrossBoardToolsNameABoard() {
+        val single = toolsBody(everyBoard = false).associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject }
+        assertEquals(emptySet(), single.keys.filter { "board" in single.getValue(it).props() }.toSet())
+        assertTrue("list_boards" !in single.keys, "one board needs no board list")
+
+        val every = toolsBody(everyBoard = true).associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject }
+        assertEquals(single.keys + "list_boards", every.keys)
+        for ((name, tool) in every) {
+            assertEquals(name != "list_boards", "board" in tool.props(), "$name takes a board")
+        }
+    }
+
+    private fun JsonObject.props(): Set<String> = this["input_schema"]!!.jsonObject["properties"]!!.jsonObject.keys
 
     @Test fun refineSchemaIsStrictObject() {
         val params = ClaudeService.baseParams(settings, "system", 16000)

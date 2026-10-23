@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.ui.assistant.AssistantPane
+import com.ryderdavid.nacre.ui.assistant.AssistantTarget
 import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.ErrorState
@@ -227,7 +228,10 @@ fun BoardScreen(
                                 Box(Modifier.width(paneWidth.width).fillMaxHeight()) {
                                     val current = pane
                                     when {
-                                        current == PANE_ASSISTANT -> AssistantPane(repoKey, repo?.name ?: "", inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun)
+                                        current == PANE_ASSISTANT -> AssistantPane(
+                                            AssistantTarget.Board(repoKey, repo?.name ?: ""), inPane = true,
+                                            onClose = { pane = null }, onOpenBead = { _, id -> pane = id }, onOpenRun = onOpenRun,
+                                        )
                                         current != null -> BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun)
                                     }
                                 }

@@ -2,7 +2,7 @@
 
 A native Android (Material You) kanban for [beads](https://github.com/steveyegge/beads) issue trackers, built for foldables, with Claude in two roles:
 
-- **Claude API on the phone** (your API key): refine a bead with a reviewable field-by-field diff, turn a rough note into a full bead, and a board assistant that can read the board and propose edits, new beads and dependencies. You approve every change.
+- **Claude API on the phone** (your API key): refine a bead with a reviewable field-by-field diff, turn a rough note into a full bead, and a board assistant that can read the board and propose edits, new beads and dependencies. The chat bar on the boards screen is the same assistant over every project at once: ask about one of them, or line up work across them. You approve every change.
 - **Claude Code on the Mac Studio** (your subscription): send a bead to `nacred`, which runs `claude -p` in that repo. The live transcript streams to the phone; you can cancel, send follow-ups, or copy a `claude --resume` command to take over on the Mac.
 
 ```
@@ -61,7 +61,7 @@ Beads labelled `human`, and open decisions, are marked **Needs you** and sort fi
 
 Long-press a card to drag it. On the unfolded screen you drop it on a column. On the cover screen a dock of lanes slides up to drop onto. Every move can be undone from the snackbar. You can also group by priority or type instead of workflow; dropping then changes that field.
 
-Unfolded, beads and the assistant open in a side pane. Drag the divider to resize it; on a separating hinge the pane snaps to the hinge. Run transcripts keep their controls on the lower half in tabletop posture.
+Unfolded, beads and the assistant — the board's own, or the cross-project one from the boards screen — open in a side pane. Drag the divider to resize it; on a separating hinge the pane snaps to the hinge. Run transcripts keep their controls on the lower half in tabletop posture.
 
 ## Development
 

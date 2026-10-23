@@ -79,7 +79,13 @@ import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.theme.Nacre
 import kotlinx.coroutines.launch
 
-private val SUGGESTIONS = listOf(
+/** Which conversation the pane shows: one board, or every board at once. */
+sealed interface AssistantTarget {
+    data class Board(val repoKey: String, val repoName: String) : AssistantTarget
+    data object AllBoards : AssistantTarget
+}
+
+private val BOARD_SUGGESTIONS = listOf(
     "What should I work on next?",
     "Triage what's blocked",
     "Summarize this board",
@@ -88,18 +94,36 @@ private val SUGGESTIONS = listOf(
     "Break down the biggest open epic",
 )
 
+private val ALL_BOARDS_SUGGESTIONS = listOf(
+    "What should I work on next, anywhere?",
+    "Which projects are stuck?",
+    "What needs my decision on any board?",
+    "Summarize every board in a few lines",
+    "Where is the same work filed twice?",
+    "Pick the ready beads worth running tonight",
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AssistantPane(
-    repoKey: String,
-    repoName: String,
+    target: AssistantTarget,
     inPane: Boolean,
     onClose: () -> Unit,
-    onOpenBead: (String) -> Unit,
+    onOpenBead: (repoKey: String, beadId: String) -> Unit,
     onOpenRun: (String) -> Unit,
 ) {
     val container = LocalContainer.current
-    val assistant = remember(repoKey) { container.assistant(repoKey, repoName.ifBlank { container.repository.repo(repoKey)?.name ?: repoKey }) }
+    val everyBoard = target is AssistantTarget.AllBoards
+    val boardName = when (target) {
+        is AssistantTarget.Board -> target.repoName.ifBlank { container.repository.repo(target.repoKey)?.name ?: target.repoKey }
+        AssistantTarget.AllBoards -> "Every board"
+    }
+    val assistant = remember(target) {
+        when (target) {
+            is AssistantTarget.Board -> container.assistant(target.repoKey, boardName)
+            AssistantTarget.AllBoards -> container.orchestrator()
+        }
+    }
     val items by assistant.items.collectAsState()
     val busy by assistant.busy.collectAsState()
     val auto by assistant.autoApprove.collectAsState()
@@ -123,7 +147,7 @@ fun AssistantPane(
                 title = {
                     Column {
                         Text("Ask Claude")
-                        Text(repoName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(boardName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
                 actions = {
@@ -140,7 +164,7 @@ fun AssistantPane(
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        placeholder = { Text("Ask about this board") },
+                        placeholder = { Text(if (everyBoard) "Ask about any board" else "Ask about this board") },
                         maxLines = 5,
                         shape = RoundedCornerShape(24.dp),
                         modifier = Modifier.weight(1f),
@@ -166,7 +190,7 @@ fun AssistantPane(
                 "The board assistant uses your own Claude API key, set in Settings.",
                 modifier = Modifier.padding(pad),
             )
-            items.isEmpty() -> EmptyAssistant(Modifier.padding(pad)) { assistant.send(it) }
+            items.isEmpty() -> EmptyAssistant(everyBoard, Modifier.padding(pad)) { assistant.send(it) }
             else -> LazyColumn(
                 state = list,
                 contentPadding = PaddingValues(16.dp),
@@ -178,7 +202,12 @@ fun AssistantPane(
                         is ChatItem.User -> UserBubble(item.text)
                         is ChatItem.Assistant -> MarkdownText(item.text.ifEmpty { "…" }, Modifier.fillMaxWidth())
                         is ChatItem.Thinking -> ThinkingRow(item)
-                        is ChatItem.ToolCall -> ToolRow(item, onApprove = { assistant.decide(item.id, true) }, onDecline = { assistant.decide(item.id, false) }, onOpenBead = onOpenBead)
+                        is ChatItem.ToolCall -> ToolRow(
+                            item,
+                            onApprove = { assistant.decide(item.id, true) },
+                            onDecline = { assistant.decide(item.id, false) },
+                            onOpenBead = { id -> onOpenBead(item.boardKey, id) },
+                        )
                         is ChatItem.Error -> Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp)) {
                             Column(Modifier.padding(12.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -203,19 +232,21 @@ fun AssistantPane(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyAssistant(modifier: Modifier, onAsk: (String) -> Unit) {
+private fun EmptyAssistant(everyBoard: Boolean, modifier: Modifier, onAsk: (String) -> Unit) {
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(AiIcon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(12.dp))
-        Text("Your board, with Claude", style = MaterialTheme.typography.titleLarge)
+        Text(if (everyBoard) "Every board, with Claude" else "Your board, with Claude", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Claude can read every bead here and propose edits, new beads and dependencies. You approve each change.",
+            if (everyBoard) "Claude can read the beads on all of your projects, answer questions about any one of them, and line up work across them. You approve each change."
+            else "Claude can read every bead here and propose edits, new beads and dependencies. You approve each change.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp).widthIn(max = 420.dp),
         )
         Spacer(Modifier.height(20.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            SUGGESTIONS.forEach { s -> SuggestionChip(onClick = { onAsk(s) }, label = { Text(s) }, icon = { Icon(Icons.Rounded.Lightbulb, null, Modifier.size(16.dp)) }) }
+            val suggestions = if (everyBoard) ALL_BOARDS_SUGGESTIONS else BOARD_SUGGESTIONS
+            suggestions.forEach { s -> SuggestionChip(onClick = { onAsk(s) }, label = { Text(s) }, icon = { Icon(Icons.Rounded.Lightbulb, null, Modifier.size(16.dp)) }) }
         }
     }
 }
@@ -246,6 +277,7 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 
 private fun toolTitle(name: String) = when (name) {
     "bd" -> "Read the board on the Mac"
+    "list_boards" -> "Looked at the boards"
     "list_beads" -> "Looked at beads"
     "get_bead" -> "Read bead"
     "update_bead" -> "Edit bead"
@@ -307,7 +339,7 @@ private fun ToolRow(item: ChatItem.ToolCall, onApprove: () -> Unit, onDecline: (
                 )
             }
             val beadId = (item.input["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            if (open && beadId != null && item.state == S.DONE) {
+            if (open && beadId != null && item.boardKey.isNotEmpty() && item.state == S.DONE) {
                 androidx.compose.material3.TextButton(onClick = { onOpenBead(beadId) }) { Text("Open $beadId") }
             }
         }
