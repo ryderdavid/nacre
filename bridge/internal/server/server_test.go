@@ -17,6 +17,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
+	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 )
 
@@ -186,5 +187,57 @@ func TestRunStreamReplayAndDisconnect(t *testing.T) {
 			t.Fatal("stream handler did not release its subscription after disconnect")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestListRunsHidesAdoptedUnlessIncluded(t *testing.T) {
+	cfg := &config.Config{Token: "tok"}
+	mgr, err := runs.New(runs.Options{Dir: t.TempDir(), ClaudePath: "/nonexistent/claude",
+		Logger: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.SyncAdopted([]sessions.Session{{
+		Record: sessions.Record{PID: 99, SessionID: "sess-agent", CWD: "/code/Nacre",
+			StartedAt: time.Now().UnixMilli()},
+		Repo:    sessions.Repo{ID: "rid", Name: "Nacre", Path: "/code/Nacre"},
+		IssueID: "NAC-7",
+	}})
+	s := &Server{Config: cfg, Repos: repos.New(func() []string { return nil }, bd.New("/x", "")),
+		BD: bd.New("/x", ""), Runs: mgr, Broker: sse.NewBroker(), Log: log.New(io.Discard, "", 0)}
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	runsIn := func(query string) []any {
+		t.Helper()
+		resp, body := do(t, "GET", ts.URL+"/v1/runs"+query, "tok")
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET /v1/runs%s: %d", query, resp.StatusCode)
+		}
+		list, _ := body["runs"].([]any)
+		return list
+	}
+	// An app that does not know about adopted runs would offer cancel and
+	// follow-up for a session nacred cannot control, so they are opt-in.
+	if got := runsIn(""); len(got) != 0 {
+		t.Fatalf("GET /v1/runs = %v, want no adopted runs", got)
+	}
+	for _, q := range []string{"?include=adopted", "?include=adopted,future", "?include=future,adopted"} {
+		got := runsIn(q)
+		if len(got) != 1 {
+			t.Fatalf("GET /v1/runs%s = %v", q, got)
+		}
+		run := got[0].(map[string]any)
+		if run["origin"] != "adopted" || run["issue_id"] != "NAC-7" || run["status"] != "running" {
+			t.Fatalf("run = %v", run)
+		}
+	}
+	if got := runsIn("?include=other"); len(got) != 0 {
+		t.Fatalf("?include=other = %v", got)
+	}
+	// Fetching one by id still works: only the listing is opt-in.
+	id := mgr.List(runs.Filter{IncludeAdopted: true})[0].ID
+	if resp, _ := do(t, "GET", ts.URL+"/v1/runs/"+id, "tok"); resp.StatusCode != 200 {
+		t.Fatalf("GET /v1/runs/%s: %d", id, resp.StatusCode)
 	}
 }

@@ -67,7 +67,8 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
   "result_text": "final result text of the latest turn",
   "error": "",
   "resume_command": "cd '/Users/ryder/Code/GanttGen' && claude --resume <session_id>",
-  "session_cwd": "/Users/ryder/Code/GanttGen"   // cwd Claude reported at init (differs for worktree runs); omitted until init
+  "session_cwd": "/Users/ryder/Code/GanttGen",  // cwd Claude reported at init (differs for worktree runs); omitted until init
+  "origin": "adopted"                           // only on adopted runs (see below); absent for runs nacred dispatched
 }
 ```
 
@@ -106,7 +107,7 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
 | DELETE | `/v1/repos/{repo}/deps?issue_id=&depends_on_id=` | – | `{"ok":true}` |
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |
-| GET | `/v1/runs[?repo={repo}&issue={id}&active=1]` | – | `{"runs":[Run]}` newest first |
+| GET | `/v1/runs[?repo={repo}&issue={id}&active=1&include=adopted]` | – | `{"runs":[Run]}` newest first; adopted runs only with `include=adopted` |
 | GET | `/v1/runs/{run}` | – | `{"run":Run,"events":[RunEvent]}` |
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
 | POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200) |
@@ -126,6 +127,20 @@ Any subset of `{"title","description","design","acceptance_criteria","notes","st
 "issue_type","assignee","labels","parent"}`. `labels` replaces the full set (`--set-labels`).
 Setting `status` to `closed` uses `bd close`; changing a closed issue to another status reopens it first.
 Long text fields are passed via flags (not a shell), so any content is safe.
+
+### Adopted runs
+When `adopt_sessions` is enabled in nacred's config, nacred also watches Claude Code's own session
+registry (`~/.claude/sessions/`) and mirrors sessions an **agent started on its own** as runs with
+`"origin": "adopted"` (the field is absent for runs nacred dispatched). They are linked to the bead
+the agent moved; a session that moved none is reported with an empty `issue_id`.
+
+nacred owns no process for an adopted run, so it is read-only: `cancel` and `followup` both answer
+409, and `resume_command` is the way to take the session over on the Mac. Adopted runs never occupy
+a concurrency slot and are not counted by `active_runs`.
+
+They are **opt-in**: `GET /v1/runs` omits them unless `include=adopted` is passed, because a client
+that does not know about them would offer controls that cannot work. `GET /v1/runs/{run}` and its
+stream serve an adopted run by id as normal.
 
 ### RunRequest
 `{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)"}`

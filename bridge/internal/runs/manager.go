@@ -59,7 +59,16 @@ type StartRequest struct {
 type Filter struct {
 	RepoID, IssueID string
 	ActiveOnly      bool
+	// IncludeAdopted adds adopted runs (agent-owned Claude Code sessions) to
+	// the result. They are excluded by default: a client that does not know
+	// about them would offer cancel and follow-up for a session nacred cannot
+	// control, and would count it as work nacred is doing.
+	IncludeAdopted bool
 }
+
+// adoptedRefusal prefixes the conflicts returned for operations that are not
+// safe against a session nacred does not own.
+const adoptedRefusal = "run is an adopted Claude Code session that nacred does not own"
 
 // Manager is safe for concurrent use.
 type Manager struct {
@@ -71,10 +80,16 @@ type Manager struct {
 	running int
 	closing bool
 	wg      sync.WaitGroup // running processes
+	// adopted indexes adopted runs by Claude Code session id, so a registry
+	// rescan or a bridge restart finds the existing run instead of adopting
+	// the same session a second time.
+	adopted map[string]string
 }
 
 // New loads run history from opts.Dir. Runs that were active when the bridge
-// stopped are marked failed ("bridge restarted").
+// stopped are marked failed ("bridge restarted") — except adopted runs, whose
+// processes nacred never owned: a restart says nothing about them, so they are
+// left active for SyncAdopted to re-resolve against the live session registry.
 func New(opts Options) (*Manager, error) {
 	if opts.MaxConcurrent <= 0 {
 		opts.MaxConcurrent = 3
@@ -88,7 +103,7 @@ func New(opts Options) (*Manager, error) {
 	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	m := &Manager{opts: opts, runs: map[string]*run{}}
+	m := &Manager{opts: opts, runs: map[string]*run{}, adopted: map[string]string{}}
 	ids, err := listRunDirs(opts.Dir)
 	if err != nil {
 		return nil, err
@@ -101,7 +116,12 @@ func New(opts Options) (*Manager, error) {
 			continue
 		}
 		r := newRun(meta, dir)
-		if meta.Active() {
+		switch {
+		case meta.Adopted():
+			if meta.SessionID != "" {
+				m.adopted[meta.SessionID] = id
+			}
+		case meta.Active():
 			r.mu.Lock()
 			r.ensureLoaded()
 			r.meta.Error = "bridge restarted"
@@ -135,7 +155,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	r.loaded = true
 	r.pending = &claude.Turn{
 		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model,
-		Worktree: req.Worktree, Name: "Nacre · " + req.IssueID,
+		Worktree: req.Worktree, Name: claude.NamePrefix + req.IssueID,
 	}
 	r.mu.Lock()
 	r.addEvent(api.RunEvent{Kind: api.KindStatus, Status: api.StatusQueued})
@@ -168,6 +188,10 @@ func (m *Manager) Followup(id, message, mode string) (api.Run, error) {
 	}
 	r.mu.Lock()
 	switch {
+	case r.meta.Adopted():
+		r.mu.Unlock()
+		m.mu.Unlock()
+		return api.Run{}, conflict(adoptedRefusal + "; resuming it would fork the agent's session")
 	case r.meta.Active():
 		r.mu.Unlock()
 		m.mu.Unlock()
@@ -208,6 +232,11 @@ func (m *Manager) Cancel(id string) (api.Run, error) {
 		return api.Run{}, ErrNotFound
 	}
 	r.mu.Lock()
+	if r.meta.Adopted() {
+		r.mu.Unlock()
+		m.mu.Unlock()
+		return api.Run{}, conflict(adoptedRefusal + "; signalling it would kill work nacred did not start")
+	}
 	switch r.meta.Status {
 	case api.StatusQueued:
 		for i, q := range m.queue {
@@ -271,13 +300,18 @@ func (m *Manager) List(f Filter) []api.Run {
 		if (f.RepoID != "" && s.RepoID != f.RepoID) || (f.IssueID != "" && s.IssueID != f.IssueID) || (f.ActiveOnly && !s.Active()) {
 			continue
 		}
+		if s.Adopted() && !f.IncludeAdopted {
+			continue
+		}
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
 }
 
-// ActiveCount returns the number of queued or running runs for repoID ("" = all).
+// ActiveCount returns the number of queued or running runs for repoID
+// ("" = all). Adopted runs are not counted: they occupy no concurrency slot
+// and are not work nacred is doing.
 func (m *Manager) ActiveCount(repoID string) int {
 	return len(m.List(Filter{RepoID: repoID, ActiveOnly: true}))
 }
@@ -443,6 +477,11 @@ func (m *Manager) prune() {
 		}
 		delete(m.runs, id)
 		excess--
+	}
+	for sid, id := range m.adopted {
+		if m.runs[id] == nil {
+			delete(m.adopted, sid)
+		}
 	}
 }
 

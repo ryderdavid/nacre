@@ -53,6 +53,15 @@ type Config struct {
 	// PromptTemplate supports {{id}}, {{title}}, {{repo}} and {{instructions}}.
 	PromptTemplate string `json:"prompt_template"`
 
+	// AdoptSessions enables watching Claude Code's session registry so that
+	// sessions an agent started on its own are adopted as read-only runs
+	// (NAC-j5z). Off by default; even when on, adopted runs are only listed
+	// to clients that ask for them (GET /v1/runs?include=adopted).
+	AdoptSessions bool `json:"adopt_sessions"`
+	// AdoptPollSeconds is how often the session registry is polled. 0 uses
+	// the watcher's own default.
+	AdoptPollSeconds int `json:"adopt_poll_seconds,omitempty"`
+
 	// DataDir holds run history. Default ~/Library/Application Support/nacred.
 	DataDir string `json:"data_dir,omitempty"`
 
@@ -187,6 +196,15 @@ func (c *Config) fillDefaults() {
 	if c.PromptTemplate == "" {
 		c.PromptTemplate = DefaultPromptTemplate
 	}
+}
+
+// AdoptInterval returns the configured session-registry poll period, or 0 to
+// use the watcher's default.
+func (c *Config) AdoptInterval() time.Duration {
+	if c.AdoptPollSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(c.AdoptPollSeconds) * time.Second
 }
 
 // RunsDir is where run history is stored.

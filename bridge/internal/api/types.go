@@ -26,6 +26,18 @@ const (
 	KindStatus     = "status"
 )
 
+// Run origins.
+const (
+	// OriginNacre marks a run nacred dispatched and owns the process of. It
+	// is the default, and is omitted from the wire.
+	OriginNacre = "nacre"
+	// OriginAdopted marks a Claude Code session an agent started on its own,
+	// which nacred found in Claude Code's session registry and only observes.
+	// nacred owns no process for it, so it cannot be cancelled and cannot
+	// take a follow-up.
+	OriginAdopted = "adopted"
+)
+
 // Modes is the set of permission modes accepted for runs (claude --permission-mode).
 var Modes = []string{"auto", "acceptEdits", "plan", "bypassPermissions", "dontAsk"}
 
@@ -101,10 +113,17 @@ type Run struct {
 	// SessionCWD is the working directory Claude reported at session init
 	// (differs from RepoPath for worktree runs). Extension to API.md.
 	SessionCWD string `json:"session_cwd,omitempty"`
+	// Origin is OriginAdopted for an agent-owned session nacred only watches.
+	// Empty (and absent from the wire) means OriginNacre.
+	Origin string `json:"origin,omitempty"`
 }
 
 // Active reports whether the run is queued or running.
 func (r *Run) Active() bool { return r.Status == StatusQueued || r.Status == StatusRunning }
+
+// Adopted reports whether the run mirrors an agent-owned Claude Code session
+// rather than a process nacred started.
+func (r *Run) Adopted() bool { return r.Origin == OriginAdopted }
 
 // RunEvent is one entry in a run's transcript.
 type RunEvent struct {

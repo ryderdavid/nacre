@@ -82,8 +82,23 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	list := s.Runs.List(runs.Filter{RepoID: q.Get("repo"), IssueID: q.Get("issue"), ActiveOnly: q.Get("active") == "1"})
+	list := s.Runs.List(runs.Filter{
+		RepoID: q.Get("repo"), IssueID: q.Get("issue"), ActiveOnly: q.Get("active") == "1",
+		IncludeAdopted: includes(q.Get("include"), "adopted"),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"runs": list})
+}
+
+// includes reports whether a comma-separated ?include= list names want.
+// Adopted runs are opt-in: a client that does not ask for them must not be
+// handed sessions it would offer to cancel but nacred cannot control.
+func includes(list, want string) bool {
+	for _, v := range strings.Split(list, ",") {
+		if strings.TrimSpace(v) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
