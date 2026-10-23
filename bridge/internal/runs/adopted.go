@@ -108,11 +108,12 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 	}
 	ts := started.UTC().Format(time.RFC3339)
 	meta := api.Run{
-		ID: id, Origin: api.OriginAdopted,
+		ID: id, Origin: api.OriginAdopted, Agent: api.AgentClaudeCode,
 		RepoID: s.Repo.ID, RepoName: s.Repo.Name, RepoPath: s.Repo.Path,
 		IssueID: s.IssueID, IssueTitle: s.IssueTitle,
-		Status: api.StatusRunning, Mode: "", Model: "",
+		Status: api.StatusRunning, Activity: adoptedActivity(s), Mode: "", Model: "",
 		SessionID: s.SessionID, SessionCWD: s.CWD,
+		SessionName: s.Name, OwnerPID: s.PID,
 		CreatedAt: ts, StartedAt: ts, Turns: 1,
 	}
 	r := newRun(meta, filepath.Join(m.opts.Dir, id))
@@ -147,6 +148,20 @@ func (m *Manager) refreshAdopted(r *run, s sessions.Session) (api.Run, bool) {
 		r.meta.SessionCWD = s.CWD
 		changed = true
 	}
+	if s.Name != "" && s.Name != r.meta.SessionName {
+		r.meta.SessionName = s.Name
+		changed = true
+	}
+	// A session that was resumed runs under a new pid; the record is per-pid,
+	// so the reading is authoritative and the stored one is stale.
+	if s.PID != 0 && s.PID != r.meta.OwnerPID {
+		r.meta.OwnerPID = s.PID
+		changed = true
+	}
+	if act := adoptedActivity(s); act != r.meta.Activity {
+		r.meta.Activity = act
+		changed = true
+	}
 	if !r.meta.Active() {
 		// The pid was gone for a poll (or the bridge restarted while it was)
 		// and is back: the session outlived the report of its ending.
@@ -174,10 +189,24 @@ func (m *Manager) endAdopted(r *run) (api.Run, bool) {
 	}
 	r.ensureLoaded()
 	r.meta.EndedAt = now()
+	r.meta.Activity = api.ActivityEnded
 	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: "session ended: the Claude Code process is no longer running"})
 	r.setStatus(api.StatusSucceeded)
 	_ = r.save()
 	return r.meta, true
+}
+
+// adoptedActivity maps what the session registry says about a live session
+// onto the Activity vocabulary. Claude Code marks a parked session "idle"
+// itself, so that reading is taken as given and anything else alive counts as
+// working. The finer distinction the design also allows — alive but quiet for
+// a while — needs the session's last transcript write, which belongs with the
+// transcript adapter that owns it (NAC-j5z.2's DeriveSessionStatus), not here.
+func adoptedActivity(s sessions.Session) string {
+	if s.Idle() {
+		return api.ActivityIdle
+	}
+	return api.ActivityWorking
 }
 
 // adoptedNotice is the first event of an adopted run: what was found, where,

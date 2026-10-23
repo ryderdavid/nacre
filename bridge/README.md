@@ -70,8 +70,10 @@ agent started on its own, maps each one to a discovered repo (resolving a git wo
 checkout) and links it to the bead the agent moved: by session name, then by the `bd` command found
 in the session transcript, then by bd's claim state. A session is only adopted while its process is
 genuinely alive (pid plus process start time, so a reused pid cannot resurrect a dead record), and
-nacred's own sessions are skipped. Adopted runs are read-only — no cancel, no follow-up — and
-`GET /v1/runs` omits them unless asked (`?include=adopted`).
+nacred's own sessions are skipped. Adopted runs are read-only: cancel and follow-up both answer
+409, `can_cancel`/`can_followup` say so up front, and `resume_command` is the take-over affordance
+instead. They are counted by `Repo.adopted_runs`, never by `active_runs`, and `GET /v1/runs` omits
+them unless asked (`?include=adopted`). See docs/API.md, "Adopted runs".
 
 ## Notes
 

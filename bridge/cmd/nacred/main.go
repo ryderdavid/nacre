@@ -120,6 +120,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 		return fmt.Errorf("load runs: %w", err)
 	}
 	registry.ActiveRuns = manager.ActiveCount
+	registry.AdoptedRuns = manager.AdoptedCount
 	go registry.Rescan() // warm the repo list
 
 	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Broker: broker, Log: logger}

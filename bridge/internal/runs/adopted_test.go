@@ -4,7 +4,9 @@ import (
 	"errors"
 	"io"
 	"log"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -210,5 +212,145 @@ func TestOwnsSessionCoversDispatchedRuns(t *testing.T) {
 	}
 	if m.OwnsSession("") || m.OwnsSession("sess-other") {
 		t.Fatal("OwnsSession matched a session nacred never started")
+	}
+}
+
+func TestAdoptedRunCarriesOriginAgentAndCapabilityFlags(t *testing.T) {
+	m := quietManager(t, t.TempDir())
+	s := agentSession("sess-agent", "NAC-7")
+	m.SyncAdopted([]sessions.Session{s})
+	got := m.List(Filter{IncludeAdopted: true})[0]
+
+	if got.Origin != api.OriginAdopted || got.Agent != api.AgentClaudeCode {
+		t.Fatalf("origin/agent = %q/%q", got.Origin, got.Agent)
+	}
+	if got.SessionName != "nacre-eb" || got.OwnerPID != 4242 {
+		t.Fatalf("session name %q, owner pid %d: a client must be able to name the session it cannot control",
+			got.SessionName, got.OwnerPID)
+	}
+	// Alive and not parked, but still one of the five statuses clients key on.
+	if got.Status != api.StatusRunning || got.Activity != api.ActivityWorking {
+		t.Fatalf("status/activity = %q/%q", got.Status, got.Activity)
+	}
+	if got.CanCancel == nil || *got.CanCancel || got.CanFollowup == nil || *got.CanFollowup {
+		t.Fatalf("capability flags = %v/%v, want both present and false", got.CanCancel, got.CanFollowup)
+	}
+
+	// Claude Code parks the session: still running, now idle.
+	parked := s
+	parked.Status = "idle"
+	m.SyncAdopted([]sessions.Session{parked})
+	if idle := m.List(Filter{IncludeAdopted: true})[0]; idle.Status != api.StatusRunning || idle.Activity != api.ActivityIdle {
+		t.Fatalf("parked run = %q/%q", idle.Status, idle.Activity)
+	}
+	// A resumed session runs under a new pid; the registry reading wins.
+	moved := s
+	moved.PID, moved.Name = 4343, "nacre-eb-2"
+	m.SyncAdopted([]sessions.Session{moved})
+	if again := m.List(Filter{IncludeAdopted: true})[0]; again.OwnerPID != 4343 || again.SessionName != "nacre-eb-2" {
+		t.Fatalf("after resume = pid %d, name %q", again.OwnerPID, again.SessionName)
+	}
+	// And the process going away is activity, not an error.
+	m.SyncAdopted(nil)
+	if ended := m.List(Filter{IncludeAdopted: true})[0]; ended.Activity != api.ActivityEnded || ended.Error != "" {
+		t.Fatalf("ended run = %q (error %q)", ended.Activity, ended.Error)
+	}
+}
+
+func TestDispatchedRunOmitsTheAdoptedFields(t *testing.T) {
+	m, err := New(Options{Dir: t.TempDir(), ClaudePath: fakeClaude(t), MaxConcurrent: 1,
+		Logger: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := m.Start(StartRequest{RepoID: "rid", RepoPath: t.TempDir(), IssueID: "X-1", Prompt: "do it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := waitStatus(t, m, r.ID, api.StatusSucceeded, api.StatusFailed)
+	// The flags are absent, not true: a run nacred dispatched must serialize
+	// exactly as it did before adopted runs existed.
+	if got.Origin != "" || got.Agent != "" || got.Activity != "" || got.SessionName != "" || got.OwnerPID != 0 {
+		t.Fatalf("dispatched run carries adopted-only fields: %+v", got)
+	}
+	if got.CanCancel != nil || got.CanFollowup != nil {
+		t.Fatalf("capability flags = %v/%v, want nil so they stay off the wire", got.CanCancel, got.CanFollowup)
+	}
+	if n := m.AdoptedCount(""); n != 0 {
+		t.Fatalf("AdoptedCount = %d, want 0: nacred started this one itself", n)
+	}
+}
+
+func TestAdoptedCountIsSeparateFromActiveCount(t *testing.T) {
+	m, err := New(Options{Dir: t.TempDir(), ClaudePath: fakeClaude(t), MaxConcurrent: 2,
+		Logger: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One run nacred owns, still running, plus two sessions it only watches.
+	own, err := m.Start(StartRequest{RepoID: "rid", RepoPath: t.TempDir(), IssueID: "X-1", Prompt: "SLEEP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = m.Cancel(own.ID); m.Shutdown(2 * time.Second) })
+	waitStatus(t, m, own.ID, api.StatusRunning)
+	m.SyncAdopted([]sessions.Session{agentSession("sess-a", "NAC-7"), agentSession("sess-b", "")})
+
+	// active_runs keeps its meaning: work nacred is doing, and nothing else.
+	if n := m.ActiveCount(""); n != 1 {
+		t.Fatalf("ActiveCount = %d, want 1 (only the dispatched run)", n)
+	}
+	if n := m.ActiveCount("rid"); n != 1 {
+		t.Fatalf("repo ActiveCount = %d, want 1", n)
+	}
+	if n := m.AdoptedCount(""); n != 2 {
+		t.Fatalf("AdoptedCount = %d, want 2", n)
+	}
+	if n := m.AdoptedCount("rid"); n != 2 {
+		t.Fatalf("repo AdoptedCount = %d, want 2", n)
+	}
+	if n := m.AdoptedCount("other"); n != 0 {
+		t.Fatalf("AdoptedCount(other) = %d, want 0", n)
+	}
+	// Ended sessions stop counting, the same way finished runs do.
+	m.SyncAdopted(nil)
+	if n := m.AdoptedCount(""); n != 0 {
+		t.Fatalf("AdoptedCount after the sessions ended = %d, want 0", n)
+	}
+}
+
+// TestCancelNeverSignalsAnAdoptedSession pins the guarantee behind the 409:
+// not just that nacred refuses, but that the agent's process is untouched.
+func TestCancelNeverSignalsAnAdoptedSession(t *testing.T) {
+	victim := exec.Command("/bin/sh", "-c", "sleep 30")
+	if err := victim.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = victim.Process.Kill(); _, _ = victim.Process.Wait() }()
+
+	m := quietManager(t, t.TempDir())
+	s := agentSession("sess-agent", "NAC-7")
+	s.PID = victim.Process.Pid
+	m.SyncAdopted([]sessions.Session{s})
+	got := m.List(Filter{IncludeAdopted: true})[0]
+	_, before, _ := m.Get(got.ID)
+
+	if _, err := m.Cancel(got.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Cancel = %v, want a conflict", err)
+	}
+	if _, err := m.Followup(got.ID, "carry on", ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Followup = %v, want a conflict", err)
+	}
+	// SIGTERM to a human's interactive session is the thing being prevented.
+	if err := victim.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("the agent's process was signalled: %v", err)
+	}
+	// And the refusal leaves no trace on the run either.
+	after := m.List(Filter{IncludeAdopted: true})[0]
+	if after.Status != api.StatusRunning || after.EndedAt != "" || after.Error != "" {
+		t.Fatalf("refused cancel changed the run: %+v", after)
+	}
+	if _, evs, _ := m.Get(got.ID); len(evs) != len(before) {
+		t.Fatalf("refused cancel wrote %d events", len(evs)-len(before))
 	}
 }

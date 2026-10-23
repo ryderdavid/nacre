@@ -50,6 +50,10 @@ type Registry struct {
 	scan       Scanner
 	bd         *bd.Client
 	ActiveRuns func(repoID string) int // optional
+	// AdoptedRuns counts agent-owned sessions nacred only watches (optional).
+	// It is kept apart from ActiveRuns so active_runs keeps meaning "runs
+	// nacred is doing".
+	AdoptedRuns func(repoID string) int
 
 	mu        sync.Mutex
 	list      []*entry
@@ -353,6 +357,9 @@ func (r *Registry) summary(e *entry) api.Repo {
 	}
 	if r.ActiveRuns != nil {
 		rp.ActiveRuns = r.ActiveRuns(e.id)
+	}
+	if r.AdoptedRuns != nil {
+		rp.AdoptedRuns = r.AdoptedRuns(e.id)
 	}
 	return rp
 }

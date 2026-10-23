@@ -34,6 +34,9 @@ type run struct {
 }
 
 func newRun(meta api.Run, dir string) *run {
+	// Derived, not stored: a run loaded from a meta file written before the
+	// capability flags existed still reports them correctly.
+	meta.SetCapabilities()
 	return &run{meta: meta, dir: dir, nextSeq: 1, subs: map[chan struct{}]struct{}{}}
 }
 
@@ -64,6 +67,7 @@ func (r *run) addEvent(ev api.RunEvent) {
 // changed marks a significant metadata change (status, session, cost, error).
 func (r *run) changed() {
 	r.meta.ResumeCommand = resumeCommand(r.meta)
+	r.meta.SetCapabilities()
 	r.metaVer++
 	r.signal()
 }
