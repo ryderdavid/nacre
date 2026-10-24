@@ -86,6 +86,13 @@ func (m *Manager) create(ctx context.Context, repo, path, branch, base string) (
 	if err != nil {
 		return Workspace{}, err
 	}
+	if gitx.BranchExists(ctx, repo, branch) {
+		// An existing branch (nacred restarted, or the bead is starting
+		// again) started where it meets base, not at base's head now.
+		if mb, err := gitx.Run(ctx, repo, "merge-base", branch, base); err == nil && mb != "" {
+			base = mb
+		}
+	}
 	for _, wt := range wts {
 		if wt.Branch == branch {
 			if samePath(wt.Path, path) {

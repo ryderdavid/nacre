@@ -18,23 +18,28 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
+	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
+	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/server"
 	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
+	"github.com/ryderdavid/nacre/bridge/internal/workspace"
 )
 
 func main() {
@@ -79,10 +84,12 @@ func main() {
 			cp = "" // keep the plist minimal when using the default
 		}
 		err = launchd.Install(launchd.DefaultPaths(config.Home()), cp, os.Stdout)
+	case "round":
+		err = runRound(cfg, fs.Args(), os.Stdout)
 	case "uninstall":
 		err = launchd.Uninstall(launchd.DefaultPaths(config.Home()), os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates] [--config path] [--listen host:port]\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates|round] [--config path] [--listen host:port]\n", cmd)
 		os.Exit(2)
 	}
 	if err != nil {
@@ -118,11 +125,21 @@ func serve(cfg *config.Config, listenFlag string) error {
 	broker := sse.NewBroker()
 	client := bd.New(cfg.BdPath, cfg.Actor)
 	registry := repos.New(scanner(cfg), client)
+	// Rounds hear about their runs through the run notifications. They are
+	// created after the run manager, so the hook is bound late.
+	var roundsRef atomic.Pointer[rounds.Manager]
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
 		StallAfter:     cfg.StallAfter(),
-		Notify:         broker.Publish,
+		Notify: func(event string, data any) {
+			broker.Publish(event, data)
+			if run, ok := data.(api.Run); ok {
+				if rm := roundsRef.Load(); rm != nil {
+					rm.OnRun(run)
+				}
+			}
+		},
 		RepoChanged: func(repoID string) {
 			registry.Invalidate(repoID)
 			broker.Publish("repo", map[string]string{"repo_id": repoID})
@@ -137,7 +154,33 @@ func serve(cfg *config.Config, listenFlag string) error {
 	go registry.Rescan() // warm the repo list
 
 	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
-	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Broker: broker, Log: logger}
+	workspaces := &workspace.Manager{Root: cfg.WorktreesDir()}
+	roundsMgr, err := rounds.New(rounds.Options{
+		Dir: cfg.RoundsDir(), Runs: manager, Beads: client, Headless: assistant,
+		Gates: gates.NewRunner(cfg.MaxConcurrentGates), Workspaces: workspaces,
+		Repo: func(id string) (string, string, error) {
+			rp, err := registry.Summary(id)
+			if err != nil {
+				return "", "", err
+			}
+			return rp.Name, rp.Path, nil
+		},
+		Mode: cfg.DefaultMode, Model: cfg.DefaultModel,
+		BudgetUSD: cfg.RoundBudgetUSD, TimeLimitMinutes: cfg.RoundTimeLimitMinutes,
+		Notify: broker.Publish,
+		RepoChanged: func(repoID string) {
+			registry.Invalidate(repoID)
+			broker.Publish("repo", map[string]string{"repo_id": repoID})
+		},
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("load rounds: %w", err)
+	}
+	roundsRef.Store(roundsMgr)
+	roundsMgr.Start()
+	go sweepWorktrees(workspaces, registry, roundsMgr, logger)
+	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Broker: broker, Log: logger}
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
@@ -173,6 +216,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	}
 	logger.Printf("shutting down")
 	cancelBase()
+	roundsMgr.Shutdown(5 * time.Second)
 	manager.Shutdown(8 * time.Second)
 	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -238,4 +282,16 @@ func pair(cfg *config.Config, listenFlag string) error {
 	})
 	fmt.Printf("\nScan with Nacre, or enter manually:\n  URL:   %s\n  Token: %s\n\n  %s\n", base, cfg.Token, link)
 	return nil
+}
+
+// sweepWorktrees removes worktrees left by rounds that have landed or no
+// longer exist, once the repo list is known.
+func sweepWorktrees(ws *workspace.Manager, registry *repos.Registry, rm *rounds.Manager, logger *log.Logger) {
+	paths := map[string]string{}
+	for _, rp := range registry.List(false) {
+		paths[rp.ID] = rp.Path
+	}
+	for _, dir := range ws.Sweep(context.Background(), paths, rm.Alive) {
+		logger.Printf("rounds: removed leftover worktree %s", dir)
+	}
 }

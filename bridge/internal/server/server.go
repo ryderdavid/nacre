@@ -23,6 +23,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
+	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
@@ -38,6 +39,8 @@ type Server struct {
 	BD     *bd.Client
 	Runs   *runs.Manager
 	Assist *assist.Runner
+	// Rounds is nil until nacred has started rounds.
+	Rounds *rounds.Manager
 	Broker *sse.Broker
 	Log    *log.Logger
 
@@ -74,6 +77,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/runs/{run}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/{run}/followup", s.followupRun)
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("POST /v1/repos/{repo}/rounds", s.createRound)
+	mux.HandleFunc("GET /v1/rounds", s.listRounds)
+	mux.HandleFunc("GET /v1/rounds/{round}", s.getRound)
+	mux.HandleFunc("GET /v1/rounds/{round}/stream", s.streamRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/answers", s.answerRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/plan", s.editRoundPlan)
+	mux.HandleFunc("POST /v1/rounds/{round}/limits", s.setRoundLimits)
+	mux.HandleFunc("POST /v1/rounds/{round}/land", s.landRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/cancel", s.cancelRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/resume", s.resumeRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/beads/{id}/retry", s.retryRoundBead)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such route: "+r.Method+" "+r.URL.Path, "")
 	})
@@ -169,6 +183,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, runs.ErrNotFound):
 		writeError(w, http.StatusNotFound, "unknown run", "")
 	case errors.Is(err, runs.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, rounds.ErrNotFound):
+		writeError(w, http.StatusNotFound, "unknown round", "")
+	case errors.Is(err, rounds.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error(), "")
 	case errors.As(err, &be) && be.NotFound:
 		writeError(w, http.StatusNotFound, be.Message, be.Detail())

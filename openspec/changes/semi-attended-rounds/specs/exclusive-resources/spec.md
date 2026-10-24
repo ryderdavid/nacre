@@ -18,12 +18,17 @@ in the round's queue without counting against concurrency, and SHALL start when 
 - **THEN** NAC-6 waits until NAC-5's turn ends, then starts with the lease
 
 ### Requirement: Leases end
-A lease SHALL be released when the holding run's turn ends for any reason, and SHALL be revoked when the
-holding run is flagged stalled.
+A bead SHALL hold its leases from the start of its first turn until it is verified or parked, because its
+verification may use the resource too, and SHALL release them then. A stalled holder SHALL be stopped and
+resumed once, and parked if it stalls again, which releases its leases.
+
+#### Scenario: Released after verification
+- **WHEN** the bead holding the emulator passes verification
+- **THEN** the lease is released and the next waiting bead may take it
 
 #### Scenario: Stalled holder
-- **WHEN** the run holding the emulator is flagged stalled
-- **THEN** the lease is revoked and the next waiting run may take it
+- **WHEN** the run holding the emulator stalls a second time
+- **THEN** its bead is parked, the lease is released, and the next waiting bead may take it
 
 ### Requirement: Runs are told their resource
 A run holding a lease SHALL receive the resource's identity in its prompt and environment

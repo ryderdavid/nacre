@@ -51,9 +51,13 @@ type Config struct {
 	// MaxConcurrentGates bounds how many gate and build commands (nacre.yaml)
 	// run at once on this computer, across single runs and rounds. Builds,
 	// not agents, are what a machine runs out of. Default 2; a laptop sets 1.
-	MaxConcurrentGates int    `json:"max_concurrent_gates,omitempty"`
-	DefaultMode        string `json:"default_mode"`
-	DefaultModel       string `json:"default_model"`
+	MaxConcurrentGates int `json:"max_concurrent_gates,omitempty"`
+	// RoundBudgetUSD and RoundTimeLimitMinutes are the limits a new round
+	// gets unless it sets its own. Defaults 25 and 240.
+	RoundBudgetUSD        float64 `json:"round_budget_usd,omitempty"`
+	RoundTimeLimitMinutes int     `json:"round_time_limit_minutes,omitempty"`
+	DefaultMode           string  `json:"default_mode"`
+	DefaultModel          string  `json:"default_model"`
 	// PromptTemplate supports {{id}}, {{title}}, {{repo}} and {{instructions}}.
 	PromptTemplate string `json:"prompt_template"`
 
@@ -253,12 +257,20 @@ func (c *Config) AdoptInterval() time.Duration {
 }
 
 // RunsDir is where run history is stored.
-func (c *Config) RunsDir() string {
+func (c *Config) RunsDir() string { return filepath.Join(c.dataDir(), "runs") }
+
+// RoundsDir holds round state.
+func (c *Config) RoundsDir() string { return filepath.Join(c.dataDir(), "rounds") }
+
+// WorktreesDir holds the worktrees rounds work in.
+func (c *Config) WorktreesDir() string { return filepath.Join(c.dataDir(), "worktrees") }
+
+func (c *Config) dataDir() string {
 	d := c.DataDir
 	if d == "" {
 		d = filepath.Join(Home(), "Library", "Application Support", "nacred")
 	}
-	return filepath.Join(Expand(d), "runs")
+	return Expand(d)
 }
 
 // Save writes the config atomically with 0600 permissions.

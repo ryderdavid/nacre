@@ -13,12 +13,19 @@ make test             # go vet + go test
 ./bin/nacred pair     # QR code + URL/token for the app
 ```
 
-Subcommands: `serve` (default), `pair`, `token`, `version`, `install`, `uninstall`, `gates`.
+Subcommands: `serve` (default), `pair`, `token`, `version`, `install`, `uninstall`, `gates`, `round`.
 
 `nacred gates [dir] [--build] [--skip-final] [--only name] [--json]` runs a repository's
 `nacre.yaml` gates (see `docs/API.md`) exactly as nacred does when it checks work: from the
 repository root found at or above `dir`, with the file's `env`, timeout and output tail. It exits 1 if
 anything fails, printing the end of the failing output. Agents should run it before handing work over.
+
+`nacred round start [--repo dir|name] [--epic ID] [--budget USD] [--minutes N] BEAD...` hands several
+beads to the local nacred as a round: it reviews them together, works each on its own branch, checks
+and merges them, and finishes on one commit that passes the gates and builds. `nacred round status
+[ROUND]`, `answer ROUND QUESTION ANSWER`, `land`, `cancel`, `resume`, `retry ROUND BEAD`, `limits` and
+`gc` (remove worktrees of finished rounds) manage rounds. A Claude Code session asked to finish several
+beads should start a round rather than do them inline.
 Flags: `--config <path>` (default `~/.config/nacred/config.json`), `--listen host:port`.
 
 `make install` (or `nacred install`) copies the binary to `~/.local/bin/nacred`, writes
@@ -42,6 +49,7 @@ Created on first run with a random token. Fields (defaults in brackets):
 | `bd_path`, `claude_path` | resolved from PATH / standard locations |
 | `actor` | `bd --actor` for writes ["<git user.name> via Nacre"] |
 | `max_concurrent_runs` | [3]; extra runs stay queued |
+| `round_budget_usd`, `round_time_limit_minutes` | [25], [240] default limits for a new round; a round pauses at either |
 | `max_concurrent_gates` | [2] gate and build commands (`nacre.yaml`) running at once on this computer, across single runs and rounds; set 1 on a laptop |
 | `default_mode`, `default_model` | ["auto"], [""] |
 | `prompt_template` | `{{id}}`, `{{title}}`, `{{repo}}`, `{{instructions}}` placeholders |
@@ -61,6 +69,9 @@ internal/bd         bd CLI wrapper (argv only, 30 s timeout, per-repo write lock
 internal/repos      repo registry, 2 s issue cache, counts
 internal/repoconfig nacre.yaml: gates, build, env, version bump, resources, landing
 internal/gates      runs gate and build commands (timeout, process group, output tail, computer-wide limit)
+internal/gitx       the git nacred runs itself: worktrees, merges, resets, fast-forwards, pushes
+internal/workspace  round worktrees outside the repo on nacre/r/<round>/integration and nacre/r/<round>/<bead>
+internal/rounds     rounds: pre-flight, scheduling, verification, follow-ups, merging, landing, leases
 internal/claude     claude argv (runs and headless calls) + stream-json → RunEvent parser
 internal/assist     one-shot `claude -p` calls for the app's Refine, Draft and assistant
 internal/prompt     prompt template rendering

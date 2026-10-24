@@ -159,8 +159,9 @@ refusals and keeps history changes in one audited place.
 
 ### 9. Resources are leases
 `resources` names exclusive resources; a run declares what it needs (from the plan, or a bead label
-like `needs:emulator`). nacred holds at most one lease per resource; waiting runs queue. Leases are
-released when the run's turn ends, and expire with the stall window so a hung run can't hold one forever.
+like `needs:emulator`). nacred holds at most one lease per resource; waiting beads queue. A bead holds its leases until it
+is verified or parked, since its verification may use the resource too; a bead that stalls is resumed
+once and parked the second time, so a hung run can't hold one for long.
 The resource's identity (e.g. the emulator serial) is passed to the run in its prompt and environment.
 
 ### 10. Finishing and landing

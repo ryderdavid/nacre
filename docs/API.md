@@ -313,6 +313,67 @@ until the client disconnects. Keep-alive comment `: ping` every 15 s. Honors `La
 `/v1/events`: `event: run` + Run JSON on any run change; `event: repo` + `{"repo_id":"…"}` after
 any write through the bridge and whenever a run finishes (Claude may have edited beads).
 
+## Rounds
+A round carries several beads in one repository from a pre-flight review to one commit that passes
+the repository's `nacre.yaml` gates and builds (see `openspec/changes/semi-attended-rounds`). It runs
+on the computer that has the repository, without any client connected.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, or a bead is in another active round |
+| GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
+| GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |
+| GET | `/v1/rounds/{round}/stream[?after=seq]` | – | SSE: `event: event` (RoundEvent, `id: seq`) for log entries after `after`, and `event: round` (Round) whenever it changes; honours `Last-Event-ID` |
+| POST | `/v1/rounds/{round}/answers` | `{"question_id","answer"}` | `Round` |
+| POST | `/v1/rounds/{round}/plan` | `{"unlink":[["NAC-2","NAC-1"]], "accept_dependencies":[["NAC-2","NAC-1"]]}` | `Round`; unlink only before the bead starts |
+| POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round paused by a limit resumes |
+| POST | `/v1/rounds/{round}/land` | – | `Round`; 409 unless `ready_to_land` |
+| POST | `/v1/rounds/{round}/cancel` | – | `Round` (branches are kept) |
+| POST | `/v1/rounds/{round}/resume` | – | `Round`; 409 unless `paused` |
+| POST | `/v1/rounds/{round}/beads/{id}/retry` | – | `Round`; puts a parked or skipped bead back |
+
+`/v1/events` also carries `event: round` with the Round on every change.
+
+### Round
+```jsonc
+{
+  "id": "rdtnf62ywld", "repo_id": "…", "repo_name": "Nacre", "repo_path": "/Users/ryder/Code/Nacre",
+  "epic": "",                       // set when started from an epic
+  "state": "implementing",          // planning | needs_decision | implementing | integrating | ready_to_land | landed | cancelled | paused
+  "paused_from": "", "pause_reason": "",
+  "target": "main", "base": "bd299b7…",          // branch it started from and lands on; commit it started at
+  "branch": "nacre/r/rdtnf62ywld/integration", "workspace": "…/worktrees/<repo>/rdtnf62ywld/integration",
+  "beads": [{
+    "id": "NAC-1", "title": "…", "type": "feature", "priority": 2,
+    "state": "running",             // waiting | running | verifying | integrating | integrated | parked | skipped
+    "after": ["NAC-0"],             // round beads it waits for (bd dependencies and the plan's orderings)
+    "needs": ["emulator"],          // exclusive resources it leases
+    "branch": "nacre/r/…/NAC-1", "workspace": "…", "base": "…", "run_id": "r_…",
+    "fix_attempts": 0, "stalls": 0, "verification": {…}, "merge_commit": "",
+    "reason": "",                   // why it was parked or skipped
+    "human_check": "",              // what only a person can verify; such beads stay open
+    "closed": false
+  }],
+  "plan": {"summary": "…", "beads": [{"id","areas","files","depends_on","needs","human_check"}],
+           "findings": [{"id":"f1","kind":"overlap","beads":["NAC-1","NAC-2"],"branch":"","files":[],"text":"…","accepted":false,"unlinked":false}],
+           "cost_usd": 0.4},
+  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":""}],
+  "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…"}, // the merge in progress, if any
+  "budget_usd": 25, "spent_usd": 3.1, "time_limit_minutes": 240, "mode": "auto", "model": "",
+  "run_ids": ["r_…"],               // every run the round started
+  "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
+  "final_commit": "", "version": "0.3.3 -> 0.4.0", "artifacts": ["…/rounds/<id>/artifacts/app-release.apk"],
+  "landed_commit": "", "pushed": false, "auto_land": false, "error": ""
+}
+```
+Finding kinds: `contradiction` and `ambiguity` (asked as questions), `overlap` and `ordering` (become
+`after` sequencing), `shared-artifact` (runs are told to leave it alone), `unmerged-work` (asked: merge
+the branch into the round first, ignore it, or stop).
+
+### RoundEvent
+`{"seq", "ts", "kind", "bead", "text", "commit", "gates":[GateResult]}`; kind is one of `state`,
+`plan`, `question`, `answer`, `bead`, `verify`, `merge`, `conflict`, `gates`, `build`, `land`, `note`.
+
 ## Several computers
 Each computer runs its own nacred. `host_id` is a stable random id generated on first run (stored in
 the config file), and `host_name` is the display name (`host_name` in the config, else the hostname).
