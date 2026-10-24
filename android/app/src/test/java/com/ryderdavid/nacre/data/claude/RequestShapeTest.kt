@@ -34,7 +34,7 @@ class RequestShapeTest {
     @Test fun strictToolsListEveryPropertyAsRequired() {
         for (everyBoard in listOf(false, true)) {
             val tools = toolsBody(everyBoard)
-            assertEquals(if (everyBoard) 9 else 8, tools.size, "tool count")
+            assertEquals(if (everyBoard) 10 else 9, tools.size, "tool count")
             for (t in tools) {
                 val o = t.jsonObject
                 assertTrue(o["strict"]!!.jsonPrimitive.boolean, "${o["name"]} strict")

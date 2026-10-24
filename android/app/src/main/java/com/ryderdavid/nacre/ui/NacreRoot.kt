@@ -45,6 +45,7 @@ import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.board.BoardScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.repos.ReposScreen
+import com.ryderdavid.nacre.ui.rounds.RoundDetail
 import com.ryderdavid.nacre.ui.runs.RunDetail
 import com.ryderdavid.nacre.ui.runs.RunsScreen
 import com.ryderdavid.nacre.ui.settings.PairRequest
@@ -60,12 +61,14 @@ import kotlinx.serialization.Serializable
 @Serializable data object OrchestratorRoute
 @Serializable data object RunsRoute
 @Serializable data class RunRoute(val runKey: String)
+@Serializable data class RoundRoute(val roundKey: String)
 @Serializable data object SettingsRoute
 
 /** Something the activity was opened with: a pairing link or a run notification. */
 sealed interface DeepLink {
     data class Pair(val request: PairRequest) : DeepLink
     data class OpenRun(val runKey: String) : DeepLink
+    data class OpenRound(val roundKey: String) : DeepLink
 }
 
 private enum class Tab { BOARDS, RUNS, SETTINGS }
@@ -86,13 +89,15 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val entry by nav.currentBackStackEntryAsState()
     val dest = entry?.destination
     val tab = when {
-        dest?.hasRoute(RunsRoute::class) == true || dest?.hasRoute(RunRoute::class) == true -> Tab.RUNS
+        dest?.hasRoute(RunsRoute::class) == true || dest?.hasRoute(RunRoute::class) == true || dest?.hasRoute(RoundRoute::class) == true -> Tab.RUNS
         dest?.hasRoute(SettingsRoute::class) == true -> Tab.SETTINGS
         else -> Tab.BOARDS
     }
     val runs by container.repository.runs.collectAsState()
     // Counts agent-owned sessions too: the badge stands for what the Runs tab is showing.
-    val activeRuns = runs.count { it.isActive && it.inRunsList }
+    val rounds by container.repository.rounds.collectAsState()
+    // Rounds waiting on a decision or a landing count too: they need a look.
+    val activeRuns = runs.count { it.isActive && it.inRunsList } + rounds.count { it.needsYou }
     val snackbar = remember { SnackbarHostState() }
     var pendingPair by remember { mutableStateOf<PairRequest?>(null) }
 
@@ -110,6 +115,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
         when (deepLink) {
             is DeepLink.Pair -> { pendingPair = deepLink.request; nav.switchTab(SettingsRoute) }
             is DeepLink.OpenRun -> nav.navigate(RunRoute(deepLink.runKey))
+            is DeepLink.OpenRound -> nav.navigate(RoundRoute(deepLink.roundKey))
             null -> Unit
         }
         if (deepLink != null) onDeepLinkHandled()
@@ -117,7 +123,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
 
     val adaptive = currentWindowAdaptiveInfo()
     val detailRoute = dest?.let { d ->
-        d.hasRoute(BeadRoute::class) || d.hasRoute(RunRoute::class) || d.hasRoute(AssistantRoute::class) || d.hasRoute(OrchestratorRoute::class)
+        d.hasRoute(BeadRoute::class) || d.hasRoute(RunRoute::class) || d.hasRoute(RoundRoute::class) || d.hasRoute(AssistantRoute::class) || d.hasRoute(OrchestratorRoute::class)
     } == true
     val baseType = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
     val layoutType = if (detailRoute && baseType == NavigationSuiteType.NavigationBar) NavigationSuiteType.None else baseType
@@ -162,6 +168,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                         onOpenAssistant = { nav.navigate(AssistantRoute(r.repoKey)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
                         onSwitchBoard = { key -> nav.navigate(BoardRoute(key)) { popUpTo<BoardRoute> { inclusive = true } } },
+                        onOpenRound = { nav.navigate(RoundRoute(it)) },
                     )
                 }
                 composable<BeadRoute> { e ->
@@ -191,11 +198,23 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                     )
                 }
                 composable<RunsRoute> {
-                    RunsScreen(onOpenRun = { nav.navigate(RunRoute(it)) }, onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) })
+                    RunsScreen(
+                        onOpenRun = { nav.navigate(RunRoute(it)) },
+                        onOpenRound = { nav.navigate(RoundRoute(it)) },
+                        onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
+                    )
                 }
                 composable<RunRoute> { e ->
                     val r = e.toRoute<RunRoute>()
                     RunDetail(r.runKey, inPane = false, onBack = { nav.popBackStack() }, onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) })
+                }
+                composable<RoundRoute> { e ->
+                    val r = e.toRoute<RoundRoute>()
+                    RoundDetail(
+                        r.roundKey, inPane = false, onBack = { nav.popBackStack() },
+                        onOpenRun = { nav.navigate(RunRoute(it)) },
+                        onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
+                    )
                 }
                 composable<SettingsRoute> {
                     SettingsScreen(pending = pendingPair, onPendingHandled = { pendingPair = null })

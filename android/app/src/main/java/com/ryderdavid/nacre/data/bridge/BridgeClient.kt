@@ -8,6 +8,9 @@ import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.StartRound
+import com.ryderdavid.nacre.data.model.RoundEvent
+import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.RunEvent
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.UpdateIssue
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -45,7 +49,14 @@ sealed interface StreamMessage {
     data class Event(val event: RunEvent) : StreamMessage
     data class RunChanged(val run: Run) : StreamMessage
     data class RepoChanged(val repoId: String) : StreamMessage
+    data class RoundChanged(val round: Round) : StreamMessage
     data object Open : StreamMessage
+}
+
+/** Messages from `/v1/rounds/{id}/stream`. */
+sealed interface RoundMessage {
+    data class Event(val event: RoundEvent) : RoundMessage
+    data class Changed(val round: Round) : RoundMessage
 }
 
 /** Messages from a streamed `claude -p` turn on the computer. */
@@ -125,6 +136,54 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun run(id: String): RunDetail = get("/v1/runs/$id")
     suspend fun cancel(id: String): Run = send<Reason, Run>("POST", "/v1/runs/$id/cancel", Reason())
     suspend fun followUp(id: String, message: String, mode: String?): Run = send("POST", "/v1/runs/$id/followup", FollowUp(message, mode))
+
+    // ---- rounds ----
+
+    @Serializable private data class Rounds(val rounds: List<Round>)
+    @Serializable data class RoundDetail(val round: Round, val events: List<RoundEvent> = emptyList())
+    @Serializable private data class Answer(@SerialName("question_id") val questionId: String, val answer: String)
+    @Serializable private data class PlanEdit(
+        val unlink: List<List<String>> = emptyList(),
+        @SerialName("accept_dependencies") val acceptDependencies: List<List<String>> = emptyList(),
+    )
+    @Serializable private data class Limits(@SerialName("budget_usd") val budgetUsd: Double = 0.0, @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0)
+
+    suspend fun rounds(): List<Round> = get<Rounds>("/v1/rounds").rounds
+    suspend fun round(id: String): RoundDetail = get("/v1/rounds/${enc(id)}")
+    suspend fun startRound(repo: String, body: StartRound): Round = send("POST", "/v1/repos/$repo/rounds", body)
+    suspend fun answer(id: String, questionId: String, answer: String): Round = send("POST", "/v1/rounds/${enc(id)}/answers", Answer(questionId, answer))
+    suspend fun editPlan(id: String, unlink: List<Pair<String, String>> = emptyList(), accept: List<Pair<String, String>> = emptyList()): Round =
+        send("POST", "/v1/rounds/${enc(id)}/plan", PlanEdit(unlink.map { listOf(it.first, it.second) }, accept.map { listOf(it.first, it.second) }))
+    suspend fun setLimits(id: String, budgetUsd: Double, minutes: Int): Round = send("POST", "/v1/rounds/${enc(id)}/limits", Limits(budgetUsd, minutes))
+    suspend fun land(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/land", Reason())
+    suspend fun cancelRound(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/cancel", Reason())
+    suspend fun resumeRound(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/resume", Reason())
+    suspend fun retryBead(id: String, bead: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/beads/${enc(bead)}/retry", Reason())
+
+    /** A round's log after [after], then its changes live. */
+    fun roundStream(id: String, after: Long = 0): Flow<RoundMessage> = callbackFlow {
+        val req = Request.Builder().url(url("/v1/rounds/${enc(id)}/stream?after=$after")).header("Accept", "text/event-stream").build()
+        val source = EventSources.createFactory(streamHttp).newEventSource(req, object : EventSourceListener() {
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                val msg = runCatching {
+                    when (type) {
+                        "round" -> RoundMessage.Changed(json.decodeFromString<Round>(data))
+                        else -> RoundMessage.Event(json.decodeFromString<RoundEvent>(data))
+                    }
+                }.getOrNull() ?: return
+                trySend(msg)
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                close()
+            }
+
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                close(t ?: streamError(response))
+            }
+        })
+        awaitClose { source.cancel() }
+    }
 
     /** One Refine or Draft call on this computer's Claude subscription. */
     suspend fun claudeJson(repo: String, req: AssistRequest): AssistResult = send("POST", "/v1/repos/$repo/claude/json", req)
@@ -232,6 +291,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
                     when (type) {
                         "run" -> StreamMessage.RunChanged(json.decodeFromString<Run>(data))
                         "repo" -> StreamMessage.RepoChanged(json.decodeFromString<JsonObject>(data)["repo_id"]!!.jsonPrimitive.content)
+                        "round" -> StreamMessage.RoundChanged(json.decodeFromString<Round>(data))
                         else -> StreamMessage.Event(json.decodeFromString<RunEvent>(data))
                     }
                 }.getOrNull() ?: return

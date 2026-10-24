@@ -69,6 +69,7 @@ class ApprovalTest {
         override suspend fun addComment(id: String, text: String) = "Commented".also { writes += "comment $id" }
         override suspend fun addDependency(issueId: String, dependsOnId: String) = "Linked".also { writes += "dep" }
         override suspend fun runInClaudeCode(id: String, instructions: String?) = "Started".also { writes += "run $id" }
+        override suspend fun startRound(ids: List<String>, budgetUsd: Double?) = "Round started".also { writes += "round ${ids.joinToString(",")} $budgetUsd" }
     }
 
     private fun assistant(session: AssistantSession, tools: BoardTools, settings: AppSettings = AppSettings(hosts = listOf(HOST))): BoardAssistant {
@@ -109,6 +110,24 @@ class ApprovalTest {
         val answers = (session.inputs.last() as TurnInput.Answers).answers
         assertEquals("Closed: NAC-1", answers.single().content)
         assertTrue(!answers.single().isError)
+    }
+
+    @Test fun aRoundIsProposedAndStartsOnlyOnceApproved() = runBlocking {
+        val tools = RecordingTools()
+        val ids = kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("NAC-1"), kotlinx.serialization.json.JsonPrimitive("NAC-2")))
+        val session = ScriptedSession(listOf(ToolRequest("p0", "start_round", buildJsonObject { put("ids", ids); put("budget_usd", 12.0) })))
+        val a = assistant(session, tools)
+
+        a.send("finish NAC-1 and NAC-2")
+        val pending = a.awaitPending()
+        assertEquals("start_round", pending.name)
+        assertTrue(pending.isWrite, "starting a round spends the subscription, so it waits for approval")
+        assertEquals("NAC-1, NAC-2", pending.summary)
+        assertEquals(emptyList(), tools.writes)
+
+        a.decide(pending.id, true)
+        a.awaitFinished()
+        assertEquals(listOf("round NAC-1,NAC-2 12.0"), tools.writes)
     }
 
     @Test fun aDeclinedWriteNeverTouchesTheBoard() = runBlocking {

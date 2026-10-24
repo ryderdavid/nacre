@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,6 +71,7 @@ import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.nacreViewModel
+import com.ryderdavid.nacre.ui.rounds.StartRoundSheet
 import kotlinx.coroutines.launch
 
 private const val PANE_ASSISTANT = "@assistant"
@@ -83,6 +85,7 @@ fun BoardScreen(
     onOpenAssistant: () -> Unit,
     onOpenRun: (String) -> Unit,
     onSwitchBoard: (String) -> Unit,
+    onOpenRound: (String) -> Unit,
 ) {
     val vm = nacreViewModel(key = "board:$repoKey") { BoardViewModel(it.repository, repoKey) }
     val group by vm.group.collectAsState()
@@ -96,6 +99,7 @@ fun BoardScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var newBead by rememberSaveable { mutableStateOf(false) }
+    var startRound by rememberSaveable { mutableStateOf(false) }
     var pane by rememberSaveable { mutableStateOf<String?>(null) }
     var scrollTo by remember { mutableStateOf<Lane?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
@@ -159,6 +163,12 @@ fun BoardScreen(
                             text = { Text("Show all done beads") },
                             leadingIcon = { if (showAll) Icon(Icons.Rounded.Check, null) else Spacer(Modifier.size(24.dp)) },
                             onClick = { menu = false; vm.showAllDone.value = !showAll },
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Work several beads until done") },
+                            leadingIcon = { Icon(Icons.Rounded.RocketLaunch, null) },
+                            onClick = { menu = false; startRound = true },
                         )
                         DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.refresh() })
                     }
@@ -244,6 +254,11 @@ fun BoardScreen(
         }
     }
 
+    if (startRound && ui != null) StartRoundSheet(
+        repo = repo, index = ui.snapshot.index,
+        onDismiss = { startRound = false },
+        onStarted = { key -> startRound = false; onOpenRound(key) },
+    )
     if (newBead && ui != null) NewBeadSheet(
         repoKey, repo?.name.orEmpty(), ui.snapshot.index,
         defaultParent = filter.epic.takeIf { it.isNotEmpty() && it != com.ryderdavid.nacre.data.board.BoardFilter.NO_EPIC },

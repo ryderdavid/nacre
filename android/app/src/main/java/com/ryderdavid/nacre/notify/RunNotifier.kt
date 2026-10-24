@@ -16,6 +16,12 @@ import com.ryderdavid.nacre.MainActivity
 import com.ryderdavid.nacre.R
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.BEAD_PARKED
+import com.ryderdavid.nacre.data.model.ROUND_LANDED
+import com.ryderdavid.nacre.data.model.ROUND_PAUSED
+import com.ryderdavid.nacre.data.model.ROUND_READY
+import com.ryderdavid.nacre.data.model.ROUND_NEEDS_DECISION
+import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +49,28 @@ internal fun runsWorthWatching(runs: List<Run>): List<Run> = runs.filter { it.is
 internal fun newlyStalled(runs: List<Run>, announced: Set<String>): List<Run> =
     runs.filter { it.stalled && it.isNacreWork && it.key !in announced }
 
+/** A notification about a round. */
+data class RoundNotice(val title: String, val body: String)
+
+/**
+ * What, if anything, a round change should announce: a decision needed, a bead parked, a pause,
+ * ready to land. Each fires once, on the change into it.
+ */
+internal fun roundNotice(before: Round?, after: Round): RoundNotice? {
+    val beads = after.beads.joinToString(", ") { it.id }
+    if (before?.state != after.state) when (after.state) {
+        ROUND_NEEDS_DECISION -> return RoundNotice("A round needs your decision", after.openQuestions.firstOrNull()?.text ?: "Beads $beads")
+        ROUND_READY -> return RoundNotice("Ready to land", "One commit with $beads passes every gate and the build. Land it on ${after.target}.")
+        ROUND_PAUSED -> return RoundNotice("A round paused", after.pauseReason.ifBlank { "Beads $beads" })
+        ROUND_LANDED -> return RoundNotice("Round landed", "${after.target} is at ${after.landedCommit.take(7)}${if (after.pushed) " and pushed" else ""}.")
+    }
+    val parkedBefore = before?.beads.orEmpty().filter { it.state == BEAD_PARKED }.map { it.id }.toSet()
+    after.beads.firstOrNull { it.state == BEAD_PARKED && it.id !in parkedBefore }?.let {
+        return RoundNotice("${it.id} was parked", it.reason.ifBlank { "The rest of the round carries on without it." })
+    }
+    return null
+}
+
 internal fun shouldAnnounceFinish(run: Run, notifyRuns: Boolean, appInForeground: Boolean): Boolean =
     notifyRuns && !appInForeground && !run.isAdopted
 
@@ -63,6 +91,11 @@ class RunNotifier(
         scope.launch {
             repository.finishedRuns.collect { run ->
                 if (shouldAnnounceFinish(run, settings.current().notifyRuns, foreground)) postFinished(run)
+            }
+        }
+        scope.launch {
+            repository.roundChanges.collect { (before, after) ->
+                if (settings.current().notifyRuns) roundNotice(before, after)?.let { postRound(after, it) }
             }
         }
         scope.launch {
@@ -91,6 +124,24 @@ class RunNotifier(
         nm.createNotificationChannel(NotificationChannel(CH_STUCK, "Runs that may be stuck", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "When a Claude Code run has printed nothing for a long time"
         })
+        nm.createNotificationChannel(NotificationChannel(CH_ROUNDS, "Rounds that need you", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "When a round needs a decision, parks a bead, pauses, or is ready to land"
+        })
+    }
+
+    private fun postRound(round: Round, notice: RoundNotice) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val n = NotificationCompat.Builder(context, CH_ROUNDS)
+            .setSmallIcon(R.drawable.ic_stat_nacre)
+            .setContentTitle(notice.title)
+            .setContentText(notice.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notice.body))
+            .setSubText(listOfNotNull(round.hostName.ifBlank { null }, round.repoName).joinToString(" · "))
+            .setContentIntent(openRound(context, round.key))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        NotificationManagerCompat.from(context).notify((round.key + notice.title).hashCode(), n)
     }
 
     private fun postStalled(run: Run) {
@@ -133,6 +184,16 @@ class RunNotifier(
         const val CH_DONE = "runs_done"
         const val CH_STUCK = "runs_stuck"
         const val EXTRA_RUN = "nacre.run_id"
+        const val EXTRA_ROUND = "nacre.round_id"
+        const val CH_ROUNDS = "rounds"
+
+        fun openRound(context: Context, roundKey: String): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_ROUND, roundKey)
+            }
+            return PendingIntent.getActivity(context, roundKey.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
 
         fun cost(run: Run): String? = if (run.costUsd > 0) String.format(Locale.US, "$%.2f", run.costUsd) else null
 

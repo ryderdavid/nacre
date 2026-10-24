@@ -291,6 +291,7 @@ private fun toolTitle(name: String) = when (name) {
     "add_comment" -> "Comment"
     "add_dependency" -> "Add dependency"
     "run_in_claude_code" -> "Run in Claude Code"
+    "start_round" -> "Work these until done"
     else -> name
 }
 

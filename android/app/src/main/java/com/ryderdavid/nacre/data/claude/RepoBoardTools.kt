@@ -110,6 +110,13 @@ class RepoBoardTools(
         return "$issueId now waits on $dependsOnId."
     }
 
+    override suspend fun startRound(ids: List<String>, budgetUsd: Double?): String {
+        if (ids.isEmpty()) return "Name at least one bead."
+        val round = repo.startRound(repoKey, ids, budgetUsd)
+        return "Started round ${round.id} with ${ids.joinToString(", ")} on ${round.hostName.ifBlank { "the computer" }}, budget $" +
+            String.format(java.util.Locale.US, "%.2f", round.budgetUsd) + ". It reviews the beads together first and asks Ryder if they disagree. Ryder can follow it in the Runs tab."
+    }
+
     override suspend fun runInClaudeCode(id: String, instructions: String?): String {
         val run = repo.startRun(repoKey, id, RunRequest(instructions = instructions?.ifBlank { null }))
         return "Started Claude Code run ${run.id} for $id on ${run.hostName.ifBlank { "the computer" }} (${run.status}). Ryder can follow it in the Runs tab."

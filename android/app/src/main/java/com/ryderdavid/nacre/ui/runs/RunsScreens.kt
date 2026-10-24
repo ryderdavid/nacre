@@ -117,6 +117,8 @@ import com.ryderdavid.nacre.ui.common.MessageState
 import com.ryderdavid.nacre.ui.common.formatDuration
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
+import com.ryderdavid.nacre.ui.rounds.RoundDetail
+import com.ryderdavid.nacre.ui.rounds.RoundRow
 import com.ryderdavid.nacre.ui.theme.MonoFamily
 import com.ryderdavid.nacre.ui.theme.Nacre
 import kotlinx.coroutines.launch
@@ -142,6 +144,9 @@ fun RunStatusIcon(status: String, modifier: Modifier = Modifier, stalled: Boolea
     }
 }
 
+/** Marks a round's key in the Runs screen's selection, which otherwise holds a run key. */
+private const val ROUND_PREFIX = "round:"
+
 /** Width each run-screen pane keeps at minimum, and where the divider starts, in dp. */
 private const val MIN_LIST_PANE_DP = 280f
 private const val MIN_DETAIL_PANE_DP = 320f
@@ -154,9 +159,10 @@ internal fun clampListPaneWidth(widthDp: Float, totalDp: Float): Float =
 /** Runs list; on a wide screen the selected run's transcript sits beside it, behind a draggable divider. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RunsScreen(onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
+fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
     val vm = nacreViewModel { RunsViewModel(it.repository) }
     val runs by vm.runs.collectAsState()
+    val rounds by vm.rounds.collectAsState()
     val showComputer = vm.hosts.collectAsState().value.size > 1
     val refreshing by vm.refreshing.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -184,10 +190,17 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId
                 },
             ) { pad ->
                 Box(Modifier.padding(pad).fillMaxSize()) {
-                    if (runs.isEmpty()) MessageState(
+                    if (runs.isEmpty() && rounds.isEmpty()) MessageState(
                         Icons.Rounded.Terminal, "No runs yet",
-                        "Open a bead and tap “Run with Claude Code” to send it to your Mac.",
+                        "Open a bead and tap “Run with Claude Code” to send it to your Mac, or pick several on a board with “Work several beads until done”.",
                     ) else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                        val shownRounds = rounds.filter { it.isActive } + rounds.filterNot { it.isActive }.take(3)
+                        if (shownRounds.isNotEmpty()) {
+                            item { GroupLabel("Rounds") }
+                            items(shownRounds, key = { "round:" + it.key }) { r ->
+                                RoundRow(r, ROUND_PREFIX + r.key == selected, showComputer) { if (wide) selected = ROUND_PREFIX + r.key else onOpenRound(r.key) }
+                            }
+                        }
                         val active = runs.filter { it.isActive }
                         val done = runs.filterNot { it.isActive }
                         if (active.isNotEmpty()) {
@@ -205,9 +218,17 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId
                 // start from the width on screen so a drag still moves after the window changed size
                 PaneDivider { dx -> listPaneDp = clampListPaneWidth(clampListPaneWidth(listPaneDp, totalDp) + dx / density, totalDp) }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
-                    val sel = selected ?: runs.firstOrNull()?.id
-                    if (sel == null) MessageState(Icons.Rounded.Terminal, "Pick a run", null)
-                    else RunDetail(sel, inPane = true, onBack = {}, onOpenBead = onOpenBead)
+                    val sel = selected ?: rounds.firstOrNull { it.needsYou }?.let { ROUND_PREFIX + it.key } ?: runs.firstOrNull()?.key
+                    // Keep the first pick: a round that stops needing you shouldn't swap the pane.
+                    LaunchedEffect(sel) { if (selected == null && sel != null) selected = sel }
+                    when {
+                        sel == null -> MessageState(Icons.Rounded.Terminal, "Pick a run", null)
+                        sel.startsWith(ROUND_PREFIX) -> RoundDetail(
+                            sel.removePrefix(ROUND_PREFIX), inPane = true, onBack = {},
+                            onOpenRun = { selected = it }, onOpenBead = onOpenBead,
+                        )
+                        else -> RunDetail(sel, inPane = true, onBack = {}, onOpenBead = onOpenBead)
+                    }
                 }
             }
         }

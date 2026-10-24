@@ -60,12 +60,12 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 
 ## 9. App
 
-- [ ] 9.1 Models and BridgeClient/NacreRepository calls for rounds; round events in the event stream — G-app
-- [ ] 9.2 Multi-select on boards and "Work these until done" (disabled without `nacre.yaml`), computer and budget choice — G-app
-- [ ] 9.3 Rounds list and round screen (bead states, spend, live integration log, links to runs) — G-app
-- [ ] 9.4 Decisions sheet: questions with suggested answers, plan ordering, reorder and unlink — G-app
-- [ ] 9.5 Land screen with confirmation; notifications for decision needed, bead parked, paused, ready to land — G-app
-- [ ] 9.6 Assistant `start_round` write tool — G-app, G-build
+- [x] 9.1 Models and BridgeClient/NacreRepository calls for rounds; round events in the event stream — G-app
+- [x] 9.2 Multi-select on boards and "Work these until done" (disabled without `nacre.yaml`), computer and budget choice — G-app
+- [x] 9.3 Rounds list and round screen (bead states, spend, live integration log, links to runs) — G-app
+- [x] 9.4 Decisions sheet: questions with suggested answers, plan ordering, reorder and unlink — G-app
+- [x] 9.5 Land screen with confirmation; notifications for decision needed, bead parked, paused, ready to land — G-app
+- [x] 9.6 Assistant `start_round` write tool — G-app, G-build
 
 ## 10. Proving it
 

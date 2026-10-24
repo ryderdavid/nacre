@@ -71,7 +71,7 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
                         StreamMessage.Open -> { live.value = true; error.value = null; backoff = 1_000L }
                         is StreamMessage.Event -> if (events.value.none { it.seq == msg.event.seq }) events.value = events.value + msg.event
                         is StreamMessage.RunChanged -> { run.value = msg.run; repo.noteRun(msg.run) }
-                        is StreamMessage.RepoChanged -> Unit
+                        is StreamMessage.RepoChanged, is StreamMessage.RoundChanged -> Unit
                     }
                 }
             } catch (e: Exception) {
@@ -99,11 +99,13 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
 class RunsViewModel(private val repo: NacreRepository) : ViewModel() {
     val runs: StateFlow<List<Run>> = repo.runs.map { list -> list.filter { it.inRunsList } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, repo.runs.value.filter { it.inRunsList })
+    val rounds = repo.rounds
     val hosts = repo.hosts
     val refreshing = MutableStateFlow(false)
 
     fun refresh() = viewModelScope.launch {
         refreshing.value = true
+        repo.refreshRounds()
         repo.refreshRuns().join()
         refreshing.value = false
     }

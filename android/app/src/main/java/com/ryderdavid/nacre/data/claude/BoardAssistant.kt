@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.intOrNull
 import java.util.UUID
 
@@ -27,6 +29,9 @@ interface BoardTools {
     suspend fun addComment(id: String, text: String): String
     suspend fun addDependency(issueId: String, dependsOnId: String): String
     suspend fun runInClaudeCode(id: String, instructions: String?): String
+
+    /** Hands several beads to the board's computer as one round. */
+    suspend fun startRound(ids: List<String>, budgetUsd: Double?): String = "Rounds aren't available on this board."
 }
 
 /**
@@ -264,7 +269,13 @@ class BoardAssistant(
     private suspend fun execute(item: ChatItem.ToolCall, input: JsonObject?): Pair<String, Boolean> {
         if (input == null) return finish(item, "INVALID_JSON: the tool input was not valid JSON. Re-issue the call.", failed = true)
         val required = toolSpecs.firstOrNull { it.name == item.name }?.required.orEmpty()
-        val missing = required.filter { input[it] == null || (input[it] as? JsonPrimitive)?.content.isNullOrBlank() }
+        val missing = required.filter {
+            when (val v = input[it]) {
+                null -> true
+                is JsonArray -> v.isEmpty()
+                else -> (v as? JsonPrimitive)?.content.isNullOrBlank()
+            }
+        }
         if (missing.isNotEmpty()) return finish(item, "Missing required field(s): ${missing.joinToString()}", failed = true)
 
         // Nothing that changes a bead happens without the user saying yes here,
@@ -297,6 +308,10 @@ class BoardAssistant(
                         "add_comment" -> tools.addComment(s("id")!!, s("text")!!)
                         "add_dependency" -> tools.addDependency(s("issue_id")!!, s("depends_on_id")!!)
                         "run_in_claude_code" -> tools.runInClaudeCode(s("id")!!, s("instructions"))
+                        "start_round" -> tools.startRound(
+                            (input["ids"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty(),
+                            (input["budget_usd"] as? JsonPrimitive)?.doubleOrNull,
+                        )
                         else -> return finish(item, "Unknown tool ${item.name}", failed = true)
                     }
                 }
@@ -363,7 +378,7 @@ class BoardAssistant(
         val scope = router.only?.let { "You are working on the \"${it.boardName}\" board." }
             ?: "You can see every beads board on Ryder's computers — one board per project — and you work across all of them."
         val howTo = if (everyBoard)
-            "Call list_boards first: it costs nothing and gives every board's exact name and bead counts (open, in progress, blocked, done) without reading any board. Read those counts, decide which few boards actually matter to the question, and only then call list_beads with that board's exact name — each board you read is a fetch over Ryder's network, so read the boards you need, not all of them. Pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board is a last resort: it reads at most ${AllBoardsRouter.MAX_BOARDS_SWEPT} boards, skips hidden ones, and ends with a note naming what it didn't read — when that note says the sweep was cut short, tell Ryder so rather than presenting a partial answer as complete. A board marked hidden in list_boards is one Ryder has tucked away: leave it out unless Ryder names it, and then use it like any other. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board."
+            "Call list_boards first: it costs nothing and gives every board's exact name and bead counts (open, in progress, blocked, done) without reading any board. Read those counts, decide which few boards actually matter to the question, and only then call list_beads with that board's exact name — each board you read is a fetch over Ryder's network, so read the boards you need, not all of them. Pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board is a last resort: it reads at most ${AllBoardsRouter.MAX_BOARDS_SWEPT} boards, skips hidden ones, and ends with a note naming what it didn't read — when that note says the sweep was cut short, tell Ryder so rather than presenting a partial answer as complete. A board marked hidden in list_boards is one Ryder has tucked away: leave it out unless Ryder names it, and then use it like any other. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board, or, when Ryder wants several beads on one board finished together, propose start_round with them."
         else
             "Use the tools to look things up before answering; never guess ids."
         val refer = if (everyBoard) "Refer to beads by id and title, and say which board each one is on." else "Refer to beads by id and title."
@@ -372,7 +387,7 @@ class BoardAssistant(
 
             Beads have an id, title, type (bug, feature, task, chore, epic, decision, spike), priority 0 (critical) to 4 (backlog), a status, labels, a parent (epics contain children) and "blocks" dependencies. A board shows lanes: ready (open, nothing open blocking it), doing (in progress), blocked (status blocked or waiting on an open blocker), later (deferred) and done (closed). A bead with the "human" label, or an open decision, needs Ryder.
 
-            $howTo Changes you make through write tools are shown to Ryder for approval first, so propose concrete edits rather than asking whether to make them. Prefer a few well-aimed calls over many. run_in_claude_code dispatches a bead to Claude Code on Ryder's Mac Studio, which does the actual coding work there.
+            $howTo Changes you make through write tools are shown to Ryder for approval first, so propose concrete edits rather than asking whether to make them. Prefer a few well-aimed calls over many. run_in_claude_code dispatches one bead to Claude Code on Ryder's Mac Studio, which does the coding there. When Ryder asks for several beads to be worked until they're done, propose start_round with them instead: the computer reviews them together, asks Ryder only where they disagree, works each on its own branch, checks and merges them into one commit that passes the gates and builds.
 
             Answer in short, scannable markdown suited to a phone screen. $refer
         """.trimIndent()
@@ -399,6 +414,7 @@ class BoardAssistant(
                 "add_comment" -> "${s("id")}: ${s("text")?.take(80)}"
                 "add_dependency" -> "${s("issue_id")} waits on ${s("depends_on_id")}"
                 "run_in_claude_code" -> s("id").orEmpty()
+                "start_round" -> (input?.get("ids") as? JsonArray)?.joinToString(", ") { (it as? JsonPrimitive)?.content.orEmpty() }.orEmpty()
                 else -> ""
             }
             // Cross-board calls name their board; say which one up front.

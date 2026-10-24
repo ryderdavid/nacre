@@ -1,0 +1,512 @@
+package com.ryderdavid.nacre.ui.rounds
+
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MergeType
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.RocketLaunch
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.TravelExplore
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.data.model.BEAD_INTEGRATED
+import com.ryderdavid.nacre.data.model.BEAD_INTEGRATING
+import com.ryderdavid.nacre.data.model.BEAD_PARKED
+import com.ryderdavid.nacre.data.model.BEAD_RUNNING
+import com.ryderdavid.nacre.data.model.BEAD_SKIPPED
+import com.ryderdavid.nacre.data.model.BEAD_VERIFYING
+import com.ryderdavid.nacre.data.model.BEAD_WAITING
+import com.ryderdavid.nacre.data.model.FINDING_ORDERING
+import com.ryderdavid.nacre.data.model.FINDING_OVERLAP
+import com.ryderdavid.nacre.data.model.Question
+import com.ryderdavid.nacre.data.model.ROUND_CANCELLED
+import com.ryderdavid.nacre.data.model.ROUND_IMPLEMENTING
+import com.ryderdavid.nacre.data.model.ROUND_INTEGRATING
+import com.ryderdavid.nacre.data.model.ROUND_LANDED
+import com.ryderdavid.nacre.data.model.ROUND_NEEDS_DECISION
+import com.ryderdavid.nacre.data.model.ROUND_PAUSED
+import com.ryderdavid.nacre.data.model.ROUND_PLANNING
+import com.ryderdavid.nacre.data.model.ROUND_READY
+import com.ryderdavid.nacre.data.model.Round
+import com.ryderdavid.nacre.data.model.RoundBead
+import com.ryderdavid.nacre.data.model.RoundEvent
+import com.ryderdavid.nacre.ui.common.BeadId
+import com.ryderdavid.nacre.ui.common.LabelChip
+import com.ryderdavid.nacre.ui.common.LoadingState
+import com.ryderdavid.nacre.ui.common.MessageState
+import com.ryderdavid.nacre.ui.common.SectionHeader
+import com.ryderdavid.nacre.ui.common.nacreViewModel
+import com.ryderdavid.nacre.ui.common.relativeTime
+import com.ryderdavid.nacre.ui.theme.MonoFamily
+import com.ryderdavid.nacre.ui.theme.Nacre
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+/** What a round is doing, in the app's words. */
+fun roundStateLabel(state: String): String = when (state) {
+    ROUND_PLANNING -> "Reviewing the beads"
+    ROUND_NEEDS_DECISION -> "Needs your decision"
+    ROUND_IMPLEMENTING -> "Working"
+    ROUND_INTEGRATING -> "Merging"
+    ROUND_READY -> "Ready to land"
+    ROUND_LANDED -> "Landed"
+    ROUND_CANCELLED -> "Cancelled"
+    ROUND_PAUSED -> "Paused"
+    else -> state
+}
+
+/** What a bead in a round is doing. */
+fun beadStateLabel(state: String): String = when (state) {
+    BEAD_WAITING -> "Waiting"
+    BEAD_RUNNING -> "Working"
+    BEAD_VERIFYING -> "Checking"
+    BEAD_INTEGRATING -> "Verified, waiting to merge"
+    BEAD_INTEGRATED -> "Merged"
+    BEAD_PARKED -> "Parked"
+    BEAD_SKIPPED -> "Skipped"
+    else -> state
+}
+
+/** A one-line summary of where the round's beads are. */
+fun beadSummary(r: Round): String {
+    val merged = r.beads.count { it.state == BEAD_INTEGRATED }
+    val parked = r.beads.count { it.state == BEAD_PARKED || it.state == BEAD_SKIPPED }
+    return buildList {
+        add("$merged of ${r.beads.size} merged")
+        if (parked > 0) add("$parked parked")
+    }.joinToString(" · ")
+}
+
+fun usd(v: Double): String = String.format(Locale.US, "$%.2f", v)
+
+@Composable
+private fun stateColor(state: String): Color = when (state) {
+    ROUND_NEEDS_DECISION, ROUND_READY, ROUND_PAUSED -> Nacre.colors.needsYou
+    ROUND_LANDED -> Nacre.colors.doing
+    ROUND_CANCELLED -> MaterialTheme.colorScheme.outline
+    else -> Nacre.colors.running
+}
+
+private fun stateIcon(state: String): ImageVector = when (state) {
+    ROUND_PLANNING -> Icons.Rounded.TravelExplore
+    ROUND_NEEDS_DECISION -> Icons.Rounded.HelpOutline
+    ROUND_IMPLEMENTING -> Icons.Rounded.Terminal
+    ROUND_INTEGRATING -> Icons.AutoMirrored.Rounded.MergeType
+    ROUND_READY -> Icons.Rounded.RocketLaunch
+    ROUND_LANDED -> Icons.Rounded.CheckCircle
+    ROUND_PAUSED -> Icons.Rounded.Pause
+    else -> Icons.Rounded.Block
+}
+
+/** A round in the Runs list. */
+@Composable
+fun RoundRow(r: Round, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+        leadingContent = { Icon(stateIcon(r.state), roundStateLabel(r.state), tint = stateColor(r.state)) },
+        overlineContent = { Text(listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, "round").joinToString(" · "), maxLines = 1) },
+        headlineContent = { Text(r.beads.joinToString(", ") { it.id }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Text(
+                listOf(roundStateLabel(r.state), beadSummary(r), "${usd(r.spentUsd)} of ${usd(r.budgetUsd)}").joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        },
+        trailingContent = { if (r.needsYou) NeedsYouChip() },
+    )
+}
+
+@Composable
+private fun NeedsYouChip() {
+    Surface(color = Nacre.colors.needsYouContainer, contentColor = Nacre.colors.needsYou, shape = RoundedCornerShape(8.dp)) {
+        Text("Needs you", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+    }
+}
+
+/** One round: its state, decisions, beads, plan and log, with what Ryder can do about it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
+    val vm = nacreViewModel(key = "round:$roundKey") { RoundViewModel(it.repository, roundKey) }
+    val round by vm.round.collectAsState()
+    val events by vm.events.collectAsState()
+    val error by vm.error.collectAsState()
+    val busy by vm.busy.collectAsState()
+    var menu by remember { mutableStateOf(false) }
+    var confirmCancel by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { if (!inPane) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                title = {
+                    Column {
+                        Text(round?.let { "Round in ${it.repoName}" } ?: "Round", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        round?.let {
+                            Text(
+                                listOfNotNull(it.hostName.ifBlank { null }, it.id).joinToString(" · "),
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = MonoFamily,
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (round?.isActive == true) {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Round options") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Cancel round") }, onClick = { menu = false; confirmCancel = true })
+                        }
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        val r = round
+        when {
+            r == null && error != null -> MessageState(Icons.Rounded.Error, "Couldn't load the round", error, modifier = Modifier.padding(pad))
+            r == null -> LoadingState("Loading the round…", Modifier.padding(pad))
+            else -> LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item("status") { StatusCard(r, busy, onResume = vm::resume, onBudget = vm::setBudget) }
+                if (error != null) item("error") { Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (r.state == ROUND_NEEDS_DECISION || r.openQuestions.isNotEmpty()) items(r.openQuestions, key = { "q:" + it.id }) { q ->
+                    QuestionCard(q, busy) { vm.answer(q.id, it) }
+                }
+                if (r.state == ROUND_READY) item("land") { LandCard(r, busy, onLand = vm::land) }
+                if (r.state == ROUND_LANDED) item("landed") { LandedCard(r) }
+                item("beads-h") { SectionHeader("Beads") }
+                items(r.beads, key = { "b:" + it.id }) { b ->
+                    BeadRow(
+                        r, b, busy,
+                        onOpenBead = { onOpenBead(r.repoKey, b.id) },
+                        onOpenRun = { if (b.runId.isNotBlank()) onOpenRun(r.runKey(b.runId)) },
+                        onRetry = { vm.retry(b.id) },
+                        onUnlink = { from -> vm.unlink(b.id, from) },
+                    )
+                }
+                r.plan?.let { plan ->
+                    item("plan-h") { SectionHeader("Plan") }
+                    item("plan") { PlanCard(r, onAccept = { a, on -> vm.acceptDependency(a, on) }) }
+                }
+                item("log-h") { SectionHeader("What happened") }
+                items(events.asReversed(), key = { "e:" + it.seq }) { e -> EventRow(e) }
+            }
+        }
+    }
+
+    if (confirmCancel) AlertDialog(
+        onDismissRequest = { confirmCancel = false },
+        title = { Text("Cancel this round?") },
+        text = { Text("Running work stops. Each bead's branch stays, so nothing done so far is lost.") },
+        confirmButton = { TextButton(onClick = { confirmCancel = false; vm.cancel() }) { Text("Cancel round") } },
+        dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text("Keep it running") } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun StatusCard(r: Round, busy: Boolean, onResume: () -> Unit, onBudget: (Double) -> Unit) {
+    var raising by remember { mutableStateOf(false) }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(stateIcon(r.state), null, tint = stateColor(r.state), modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(roundStateLabel(r.state), style = MaterialTheme.typography.titleLarge)
+                    Text(beadSummary(r), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (r.pauseReason.isNotBlank()) Text(r.pauseReason, style = MaterialTheme.typography.bodyMedium)
+            if (r.error.isNotBlank()) Text(r.error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            val frac = if (r.budgetUsd > 0) (r.spentUsd / r.budgetUsd).toFloat().coerceIn(0f, 1f) else 0f
+            LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
+            Text(
+                listOfNotNull(
+                    "${usd(r.spentUsd)} of ${usd(r.budgetUsd)}",
+                    "from ${r.target} at ${r.base.take(7)}",
+                    r.startedAt.takeIf { it.isNotBlank() }?.let { "started ${relativeTime(it)}" },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (r.state == ROUND_PAUSED) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = onResume, enabled = !busy) { Text("Resume") }
+                OutlinedButton(onClick = { raising = true }, enabled = !busy) { Text("Raise budget") }
+            } else if (r.isActive) TextButton(onClick = { raising = true }, enabled = !busy) { Text("Change budget") }
+        }
+    }
+    if (raising) BudgetDialog(r.budgetUsd, onDismiss = { raising = false }, onSet = { raising = false; onBudget(it) })
+}
+
+@Composable
+private fun BudgetDialog(current: Double, onDismiss: () -> Unit, onSet: (Double) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(String.format(Locale.US, "%.0f", current + 10)) }
+    val value = text.toDoubleOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Round budget") },
+        text = {
+            OutlinedTextField(
+                value = text, onValueChange = { text = it }, singleLine = true, prefix = { Text("$") },
+                supportingText = { Text("A round paused by its budget carries on once it has room.") },
+                isError = value == null || value <= 0,
+            )
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null && value > 0) { Text("Set budget") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuestionCard(q: Question, busy: Boolean, onAnswer: (String) -> Unit) {
+    var custom by rememberSaveable(q.id) { mutableStateOf("") }
+    Surface(color = Nacre.colors.needsYouContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                when (q.kind) {
+                    "contradiction" -> "These beads disagree"
+                    "unmerged-work" -> "Work outside the round"
+                    else -> "This needs your call"
+                },
+                style = MaterialTheme.typography.labelLarge, color = Nacre.colors.needsYou,
+            )
+            Text(q.text, style = MaterialTheme.typography.bodyLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { q.beads.forEach { LabelChip(it) } }
+            q.options.forEach { opt ->
+                OutlinedButton(onClick = { onAnswer(opt) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(opt, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            if (q.kind != "unmerged-work") Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = custom, onValueChange = { custom = it }, placeholder = { Text("Or answer in your own words") },
+                    modifier = Modifier.weight(1f), singleLine = false, maxLines = 4,
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = { onAnswer(custom.trim()) }, enabled = !busy && custom.isNotBlank()) { Text("Answer") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
+    var confirm by remember { mutableStateOf(false) }
+    val closing = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isBlank() }
+    val checks = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isNotBlank() }
+    val parked = r.beads.filter { it.state == BEAD_PARKED || it.state == BEAD_SKIPPED }
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("One commit, every gate and the build pass", style = MaterialTheme.typography.titleMedium)
+            Text(
+                listOfNotNull("Commit ${r.finalCommit.take(7)}", r.version.ifBlank { null }?.let { "version $it" }, r.artifacts.firstOrNull()?.substringAfterLast('/')).joinToString(" · "),
+                style = MaterialTheme.typography.bodyMedium, fontFamily = MonoFamily,
+            )
+            if (closing.isNotEmpty()) Text("Closed: " + closing.joinToString(", ") { it.id }, style = MaterialTheme.typography.bodyMedium)
+            checks.forEach { Text("${it.id} stays open for you to verify: ${it.humanCheck}", style = MaterialTheme.typography.bodyMedium) }
+            if (parked.isNotEmpty()) Text("Not in this round: " + parked.joinToString(", ") { "${it.id} (${it.reason})" }, style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = { confirm = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.RocketLaunch, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Land on ${r.target}")
+            }
+        }
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("Land on ${r.target}?") },
+        text = {
+            Text("nacred moves ${r.target} to ${r.finalCommit.take(7)} and pushes it if the repository's nacre.yaml says to. If ${r.target} moved since the round started, it merges those changes in and runs the gates and build again first.")
+        },
+        confirmButton = { TextButton(onClick = { confirm = false; onLand() }) { Text("Land") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Not yet") } },
+    )
+}
+
+@Composable
+private fun LandedCard(r: Round) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("${r.target} is at ${r.landedCommit.take(7)}${if (r.pushed) " and pushed" else ""}", style = MaterialTheme.typography.titleMedium)
+            if (r.version.isNotBlank()) Text("Version ${r.version}", style = MaterialTheme.typography.bodyMedium)
+            r.artifacts.forEach { Text(it.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Unit, onOpenRun: () -> Unit, onRetry: () -> Unit, onUnlink: (String) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onOpenBead),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BeadStateIcon(b.state)
+                Spacer(Modifier.width(8.dp))
+                BeadId(b.id)
+                Spacer(Modifier.width(8.dp))
+                Text(beadStateLabel(b.state), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                if (b.runId.isNotBlank()) TextButton(onClick = onOpenRun) { Text("Run") }
+            }
+            Text(b.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+            val notes = buildList {
+                if (b.after.isNotEmpty() && b.state == BEAD_WAITING) add("After " + b.after.joinToString(", "))
+                if (b.needs.isNotEmpty()) add("Uses " + b.needs.joinToString(", "))
+                if (b.fixAttempts > 0) add("Sent back ${b.fixAttempts}×")
+                if (b.stalls > 0) add("Resumed after stalling")
+                if (b.mergeCommit.isNotBlank()) add("Merged at ${b.mergeCommit.take(7)}")
+            }
+            if (notes.isNotEmpty()) Text(notes.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (b.reason.isNotBlank()) Text(b.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            b.verification?.takeIf { !it.ok && it.reason.isNotBlank() && b.state != BEAD_PARKED }?.let {
+                Text("Last check: ${it.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (b.humanCheck.isNotBlank()) Text("Left for you: ${b.humanCheck}", style = MaterialTheme.typography.bodySmall, color = Nacre.colors.needsYou)
+            if (r.isActive) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (b.state == BEAD_PARKED || b.state == BEAD_SKIPPED) OutlinedButton(onClick = onRetry, enabled = !busy) { Text("Try again") }
+                if (b.state == BEAD_WAITING) b.after.forEach { from ->
+                    TextButton(onClick = { onUnlink(from) }, enabled = !busy) { Text("Don't wait for $from") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BeadStateIcon(state: String) {
+    val (icon, tint) = when (state) {
+        BEAD_INTEGRATED -> Icons.Rounded.CheckCircle to Nacre.colors.doing
+        BEAD_RUNNING -> Icons.Rounded.Terminal to Nacre.colors.running
+        BEAD_VERIFYING -> Icons.Rounded.FactCheck to Nacre.colors.running
+        BEAD_INTEGRATING -> Icons.AutoMirrored.Rounded.MergeType to Nacre.colors.running
+        BEAD_PARKED -> Icons.Rounded.Pause to Nacre.colors.needsYou
+        BEAD_SKIPPED -> Icons.Rounded.SkipNext to MaterialTheme.colorScheme.outline
+        else -> Icons.Rounded.Schedule to MaterialTheme.colorScheme.outline
+    }
+    Icon(icon, beadStateLabel(state), tint = tint, modifier = Modifier.size(20.dp))
+}
+
+@Composable
+private fun PlanCard(r: Round, onAccept: (String, String) -> Unit) {
+    val plan = r.plan ?: return
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (plan.summary.isNotBlank()) Text(plan.summary, style = MaterialTheme.typography.bodyMedium)
+            if (plan.findings.isEmpty()) Text("The beads don't get in each other's way.", style = MaterialTheme.typography.bodyMedium)
+            plan.findings.forEach { f ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "${findingLabel(f.kind)} · ${f.beads.joinToString(", ")}${if (f.branch.isNotBlank()) " · ${f.branch}" else ""}",
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(f.text, style = MaterialTheme.typography.bodySmall)
+                    if (f.kind == FINDING_ORDERING && f.beads.size == 2 && !f.accepted && r.isActive) TextButton(onClick = { onAccept(f.beads[1], f.beads[0]) }) {
+                        Text("Record ${f.beads[1]} depends on ${f.beads[0]} in bd")
+                    }
+                    if (f.kind == FINDING_OVERLAP && f.unlinked) Text("You said these can run side by side.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text("Review cost ${usd(plan.costUsd)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+fun findingLabel(kind: String): String = when (kind) {
+    "contradiction" -> "Contradiction"
+    "ambiguity" -> "Unclear"
+    "overlap" -> "Overlap, run one after the other"
+    "ordering" -> "Order"
+    "shared-artifact" -> "Shared, the round owns it"
+    "unmerged-work" -> "Unmerged work"
+    else -> kind
+}
+
+private val timeFmt = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
+
+@Composable
+private fun EventRow(e: RoundEvent) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Text(
+            runCatching { timeFmt.format(Instant.parse(e.ts)) }.getOrDefault(""),
+            style = MaterialTheme.typography.labelSmall, fontFamily = MonoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(44.dp).padding(top = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                (if (e.bead.isNotBlank()) "${e.bead}: " else "") + e.text,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            e.gates.filter { !it.ok }.forEach { g ->
+                Text("${g.name}: ${g.tail.lines().lastOrNull { it.isNotBlank() }.orEmpty()}", style = MaterialTheme.typography.labelSmall, fontFamily = MonoFamily, color = MaterialTheme.colorScheme.error, maxLines = 2)
+            }
+        }
+    }
+}
+
+/** Shown when no round is picked in the wide layout. */
+@Composable
+fun NoRoundSelected() = Box(Modifier.fillMaxSize()) { MessageState(Icons.Rounded.RocketLaunch, "Pick a round", null) }

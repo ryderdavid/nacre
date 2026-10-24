@@ -5,6 +5,7 @@ import com.ryderdavid.nacre.data.board.MoveAction
 import com.ryderdavid.nacre.data.bridge.AssistMessage
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.BridgeException
+import com.ryderdavid.nacre.data.bridge.RoundMessage
 import com.ryderdavid.nacre.data.bridge.StreamMessage
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
@@ -13,8 +14,10 @@ import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.Repo
+import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.RunRequest
+import com.ryderdavid.nacre.data.model.StartRound
 import com.ryderdavid.nacre.data.model.UpdateIssue
 import com.ryderdavid.nacre.data.settings.Host
 import com.ryderdavid.nacre.data.settings.SettingsStore
@@ -131,6 +134,16 @@ class NacreRepository(
     val runs: StateFlow<List<Run>> = runLists.map { m -> m.values.flatten().sortedByDescending { it.createdAt } }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    private val roundLists = MutableStateFlow<Map<String, List<Round>>>(emptyMap())
+
+    /** Every round on every computer, newest first. */
+    val rounds: StateFlow<List<Round>> = roundLists.map { m -> m.values.flatten().sortedByDescending { it.createdAt } }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Each round change as (before, after), for notifications. */
+    private val _roundChanges = MutableSharedFlow<Pair<Round?, Round>>(extraBufferCapacity = 16)
+    val roundChanges: SharedFlow<Pair<Round?, Round>> = _roundChanges
+
     private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 8)
     val notices: SharedFlow<Notice> = _notices
 
@@ -152,6 +165,7 @@ class NacreRepository(
                 previous = p.keys
                 refreshRepos()
                 refreshRuns()
+                refreshRounds()
                 if (eventsWanted) startEvents()
             }
         }
@@ -161,6 +175,7 @@ class NacreRepository(
         repoLists.update { it - hostId }
         repoErrors.update { it - hostId }
         runLists.update { it - hostId }
+        roundLists.update { it - hostId }
         connections.update { it - hostId }
         boards.keys.filter { Keys.host(it) == hostId }.forEach { boards.remove(it) }
     }
@@ -178,6 +193,7 @@ class NacreRepository(
 
     private fun Repo.tag(h: Host) = copy(hostId = h.id, hostName = h.name)
     private fun Run.tag(h: Host) = copy(hostId = h.id, hostName = h.name)
+    private fun Round.tag(h: Host) = copy(hostId = h.id, hostName = h.name)
 
     // ---------- connection + live events ----------
 
@@ -209,6 +225,7 @@ class NacreRepository(
                 p.client.events().collect { msg ->
                     when (msg) {
                         is StreamMessage.RunChanged -> upsertRun(msg.run.tag(p.host))
+                        is StreamMessage.RoundChanged -> upsertRound(msg.round.tag(p.host))
                         is StreamMessage.RepoChanged -> Keys.of(id, msg.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
                         else -> Unit
                     }
@@ -417,6 +434,56 @@ class NacreRepository(
     }
 
     fun noteRun(run: Run) = upsertRun(run)
+
+    // ---------- rounds ----------
+
+    /** Loads every computer's rounds; an older nacred without rounds simply has none. */
+    fun refreshRounds() = scope.launch {
+        paired.value.values.map { p ->
+            async { runCatching { p.client.rounds() }.onSuccess { list -> roundLists.update { it + (p.host.id to list.map { r -> r.tag(p.host) }) } } }
+        }.awaitAll()
+    }
+
+    private fun upsertRound(round: Round) {
+        val prev = roundLists.value[round.hostId]?.firstOrNull { it.id == round.id }
+        roundLists.update { m -> m + (round.hostId to (listOf(round) + m[round.hostId].orEmpty().filterNot { it.id == round.id })) }
+        _roundChanges.tryEmit(prev to round)
+    }
+
+    fun round(key: String): Round? = rounds.value.firstOrNull { it.key == key }
+
+    /** Starts a round of [beads] in [repoKey]'s repository on that computer. */
+    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null): Round {
+        val p = pairedFor(repoKey)
+        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd)).tag(p.host).also(::upsertRound)
+    }
+
+    suspend fun roundDetail(key: String): BridgeClient.RoundDetail {
+        val p = pairedFor(key)
+        val d = p.client.round(Keys.id(key))
+        return d.copy(round = d.round.tag(p.host)).also { upsertRound(it.round) }
+    }
+
+    fun roundStream(key: String, after: Long): Flow<RoundMessage> {
+        val p = pairedFor(key)
+        return p.client.roundStream(Keys.id(key), after).map {
+            if (it is RoundMessage.Changed) RoundMessage.Changed(it.round.tag(p.host)).also { c -> upsertRound(c.round) } else it
+        }
+    }
+
+    private suspend fun roundAction(key: String, f: suspend BridgeClient.(String) -> Round): Round {
+        val p = pairedFor(key)
+        return p.client.f(Keys.id(key)).tag(p.host).also(::upsertRound)
+    }
+
+    suspend fun answer(key: String, questionId: String, answer: String) = roundAction(key) { answer(it, questionId, answer) }
+    suspend fun unlink(key: String, bead: String, from: String) = roundAction(key) { editPlan(it, unlink = listOf(bead to from)) }
+    suspend fun acceptDependency(key: String, bead: String, on: String) = roundAction(key) { editPlan(it, accept = listOf(bead to on)) }
+    suspend fun setRoundLimits(key: String, budgetUsd: Double, minutes: Int = 0) = roundAction(key) { setLimits(it, budgetUsd, minutes) }
+    suspend fun land(key: String) = roundAction(key) { land(it) }
+    suspend fun cancelRound(key: String) = roundAction(key) { cancelRound(it) }
+    suspend fun resumeRound(key: String) = roundAction(key) { resumeRound(it) }
+    suspend fun retryBead(key: String, bead: String) = roundAction(key) { retryBead(it, bead) }
 }
 
 /**

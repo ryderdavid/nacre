@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private fun parse(intent: Intent?): DeepLink? {
         intent ?: return null
         intent.getStringExtra(RunNotifier.EXTRA_RUN)?.let { return DeepLink.OpenRun(it) }
+        intent.getStringExtra(RunNotifier.EXTRA_ROUND)?.let { return DeepLink.OpenRound(it) }
         return intent.dataString?.let(PairRequest::parse)?.let(DeepLink::Pair)
     }
 }

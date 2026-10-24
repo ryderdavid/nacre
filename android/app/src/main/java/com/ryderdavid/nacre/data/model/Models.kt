@@ -165,6 +165,15 @@ data class Run(
     val stalled: Boolean = false,
     /** When the stalled run last printed anything. */
     @SerialName("stalled_since") val stalledSince: String = "",
+    /** Set on runs a round started: its round, and "bead" or "integration". */
+    @SerialName("round_id") val roundId: String = "",
+    val kind: String = "",
+    /** The branch and worktree nacred made for a round run, and where the branch started. */
+    val branch: String = "",
+    val workspace: String = "",
+    val base: String = "",
+    /** nacred's own check of a round run's work, once its turn ended. */
+    val verification: Verification? = null,
     /** Null means "allowed": the bridge only sends these to say an action is refused outright. */
     @SerialName("can_cancel") val canCancel: Boolean? = null,
     @SerialName("can_followup") val canFollowup: Boolean? = null,
@@ -311,3 +320,192 @@ data class AssistResult(
     val text: String = "",
     @SerialName("cost_usd") val costUsd: Double = 0.0,
 )
+
+/** nacred's check that a round run's work is done: committed, on its branch, passing the gates. */
+@Serializable
+data class Verification(
+    val ok: Boolean = false,
+    val reason: String = "",
+    val uncommitted: List<String> = emptyList(),
+    val commits: Int = 0,
+    val gates: List<GateResult> = emptyList(),
+    val at: String = "",
+)
+
+/** One nacre.yaml gate or build command's outcome. */
+@Serializable
+data class GateResult(
+    val name: String = "",
+    val ok: Boolean = false,
+    @SerialName("exit_code") val exitCode: Int = 0,
+    @SerialName("timed_out") val timedOut: Boolean = false,
+    @SerialName("duration_ms") val durationMs: Long = 0,
+    val tail: String = "",
+    val error: String = "",
+)
+
+/**
+ * Several beads in one repository that nacred carries from a pre-flight review to one commit
+ * that passes the repository's gates and builds (docs/API.md, Rounds).
+ */
+@Serializable
+data class Round(
+    val id: String,
+    @SerialName("repo_id") val repoId: String = "",
+    @SerialName("repo_name") val repoName: String = "",
+    @SerialName("repo_path") val repoPath: String = "",
+    val epic: String = "",
+    val state: String = ROUND_PLANNING,
+    @SerialName("paused_from") val pausedFrom: String = "",
+    @SerialName("pause_reason") val pauseReason: String = "",
+    val target: String = "",
+    val base: String = "",
+    val branch: String = "",
+    val workspace: String = "",
+    val beads: List<RoundBead> = emptyList(),
+    val plan: Plan? = null,
+    val questions: List<Question> = emptyList(),
+    val integration: IntegrationStep? = null,
+    @SerialName("budget_usd") val budgetUsd: Double = 0.0,
+    @SerialName("spent_usd") val spentUsd: Double = 0.0,
+    @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0,
+    @SerialName("run_ids") val runIds: List<String> = emptyList(),
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("started_at") val startedAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("ended_at") val endedAt: String = "",
+    @SerialName("final_commit") val finalCommit: String = "",
+    val version: String = "",
+    val artifacts: List<String> = emptyList(),
+    @SerialName("landed_commit") val landedCommit: String = "",
+    val pushed: Boolean = false,
+    @SerialName("auto_land") val autoLand: Boolean = false,
+    val error: String = "",
+    /** Set by the app: which paired computer runs this round. */
+    @Transient val hostId: String = "",
+    @Transient val hostName: String = "",
+) {
+    val key get() = Keys.of(hostId, id)
+    val repoKey get() = Keys.of(hostId, repoId)
+    val isActive get() = state != ROUND_LANDED && state != ROUND_CANCELLED
+    val openQuestions get() = questions.filter { it.answer.isBlank() }
+    val needsYou get() = state == ROUND_NEEDS_DECISION || state == ROUND_READY || state == ROUND_PAUSED
+    fun runKey(runId: String) = Keys.of(hostId, runId)
+}
+
+@Serializable
+data class RoundBead(
+    val id: String,
+    val title: String = "",
+    val type: String = "",
+    val priority: Int = 2,
+    val state: String = BEAD_WAITING,
+    val after: List<String> = emptyList(),
+    val needs: List<String> = emptyList(),
+    val branch: String = "",
+    val workspace: String = "",
+    val base: String = "",
+    @SerialName("run_id") val runId: String = "",
+    @SerialName("fix_attempts") val fixAttempts: Int = 0,
+    val stalls: Int = 0,
+    val verification: Verification? = null,
+    @SerialName("merge_commit") val mergeCommit: String = "",
+    val reason: String = "",
+    @SerialName("human_check") val humanCheck: String = "",
+    val closed: Boolean = false,
+)
+
+@Serializable
+data class Plan(
+    val summary: String = "",
+    val beads: List<PlanBead> = emptyList(),
+    val findings: List<Finding> = emptyList(),
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
+)
+
+@Serializable
+data class PlanBead(
+    val id: String,
+    val areas: List<String> = emptyList(),
+    val files: List<String> = emptyList(),
+    @SerialName("depends_on") val dependsOn: List<String> = emptyList(),
+    val needs: List<String> = emptyList(),
+    @SerialName("human_check") val humanCheck: String = "",
+)
+
+@Serializable
+data class Finding(
+    val id: String = "",
+    val kind: String = "",
+    val beads: List<String> = emptyList(),
+    val branch: String = "",
+    val files: List<String> = emptyList(),
+    val text: String = "",
+    val accepted: Boolean = false,
+    val unlinked: Boolean = false,
+)
+
+@Serializable
+data class Question(
+    val id: String,
+    @SerialName("finding_id") val findingId: String = "",
+    val kind: String = "",
+    val beads: List<String> = emptyList(),
+    val branch: String = "",
+    val text: String = "",
+    val options: List<String> = emptyList(),
+    val answer: String = "",
+    @SerialName("answered_at") val answeredAt: String = "",
+)
+
+@Serializable
+data class IntegrationStep(
+    val bead: String = "",
+    val phase: String = "",
+    @SerialName("pre_merge") val preMerge: String = "",
+    @SerialName("run_id") val runId: String = "",
+    val attempts: Int = 0,
+    val problem: String = "",
+)
+
+/** One line of a round's log. */
+@Serializable
+data class RoundEvent(
+    val seq: Long = 0,
+    val ts: String = "",
+    val kind: String = "",
+    val bead: String = "",
+    val text: String = "",
+    val commit: String = "",
+    val gates: List<GateResult> = emptyList(),
+)
+
+/** POST /v1/repos/{repo}/rounds. */
+@Serializable
+data class StartRound(
+    val beads: List<String> = emptyList(),
+    val epic: String? = null,
+    @SerialName("budget_usd") val budgetUsd: Double? = null,
+    @SerialName("time_limit_minutes") val timeLimitMinutes: Int? = null,
+)
+
+const val ROUND_PLANNING = "planning"
+const val ROUND_NEEDS_DECISION = "needs_decision"
+const val ROUND_IMPLEMENTING = "implementing"
+const val ROUND_INTEGRATING = "integrating"
+const val ROUND_READY = "ready_to_land"
+const val ROUND_LANDED = "landed"
+const val ROUND_CANCELLED = "cancelled"
+const val ROUND_PAUSED = "paused"
+
+const val BEAD_WAITING = "waiting"
+const val BEAD_RUNNING = "running"
+const val BEAD_VERIFYING = "verifying"
+const val BEAD_INTEGRATING = "integrating"
+const val BEAD_INTEGRATED = "integrated"
+const val BEAD_PARKED = "parked"
+const val BEAD_SKIPPED = "skipped"
+
+const val FINDING_OVERLAP = "overlap"
+const val FINDING_ORDERING = "ordering"
+const val FINDING_UNMERGED = "unmerged-work"

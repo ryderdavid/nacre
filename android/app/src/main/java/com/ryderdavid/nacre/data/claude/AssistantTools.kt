@@ -94,6 +94,15 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
         mapOf("id" to str("Bead id"), "instructions" to nullable("string", "Extra instructions for the coding agent")),
         write = true, required = listOf("id"),
     ),
+    ToolSpec(
+        "start_round",
+        "Hand several beads on this board to its computer as one round: it reviews them together first, asks Ryder only where they disagree, works each on its own branch, checks each against the repository's gates, and merges them into one commit that passes the gates and builds. Use it when Ryder wants several beads worked until they're done. Requires the user's approval.",
+        mapOf(
+            "ids" to mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to "The bead ids to finish together"),
+            "budget_usd" to nullable("number", "Spending limit for the round in USD, or null for the computer's default"),
+        ),
+        write = true, required = listOf("ids"),
+    ),
 )
 
 /** Lists the boards; only offered when one conversation spans every board. */
