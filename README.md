@@ -50,6 +50,29 @@ reason an agent session never posts a run-finished notification and never keeps 
 watcher service alive: quitting a terminal you left open for an afternoon is not a run of ours
 finishing.
 
+## Rounds
+
+To get several beads done together, open a board's menu and choose **Work several beads until
+done**, pick the beads, and optionally a budget. That computer's `nacred` carries them as a
+**round**, without the phone attached:
+
+1. It reviews the beads together before any code is written. Where they genuinely disagree, the
+   round asks you, with suggested answers. Overlaps and orderings it sequences itself, and it asks
+   about unmerged branches that touch the same files.
+2. Each bead runs in its own worktree, on its own branch from the round's integration branch.
+   `nacred` checks it, not the agent: a clean tree, commits on the branch, and every gate in the
+   repository's `nacre.yaml`. When the check fails, it sends the same session back with exactly what
+   failed. A bead that can't be fixed is parked, and the rest carry on.
+3. It merges the beads one at a time, running the gates after each merge, and hands conflicts to
+   Claude with both beads' intent. It finishes with one version bump, every gate and the build on
+   one commit.
+4. **Land** fast-forwards `main` and pushes it.
+
+The Runs tab shows rounds first, with their decisions, beads, plan, spend and log. You get a
+notification when a round needs a decision, parks a bead, pauses or is ready to land. A Claude
+Code session in a terminal can start one too, with `nacred round start NAC-1 NAC-2 …`. A repository
+needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way rounds do.
+
 ## The board
 
 Lanes are derived from bd, as in the static Thought Catalog board:
