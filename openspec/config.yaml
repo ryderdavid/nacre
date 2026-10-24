@@ -1,0 +1,22 @@
+schema: spec-driven
+
+# Project context: constraints an agent can't infer from the code.
+context: |
+  Nacre is one developer's (Ryder's) system for driving Claude Code from an Android phone (Galaxy Z Fold).
+  Two parts: nacred, a Go bridge on each Mac (LaunchAgent, bearer token, reached over Tailscale) that wraps
+  the bd (beads) CLI and runs `claude -p --output-format stream-json`; and the Nacre app (Kotlin, Jetpack
+  Compose, Material 3 Expressive) that shows beads boards as kanbans and starts and watches runs.
+  Several computers can be paired; repositories are keyed "<host>~<id>" and grouped by git remote.
+  Claude Code work runs on Ryder's Claude subscription via nacred; the app's own Claude features can use
+  either that or an API key.
+  The API contract between the two lives in docs/API.md and both sides must change together.
+  Beads (bd 1.2.x) is the task tracker in every repository; prefer its primitives (dependencies, swarm,
+  gates, merge-slot, worktree) over inventing parallel ones.
+  Every behavior change ships with tests: Go tests for nacred, JVM unit tests for the app.
+
+rules:
+  proposal:
+    - State what is out of scope
+  tasks:
+    - Keep tasks small enough to land and test one at a time
+    - Name the gate commands each task must pass
