@@ -249,13 +249,11 @@ func assistantEvents(e transcriptEntry) []api.RunEvent {
 			if len(bytes.TrimSpace(input)) == 0 || bytes.Equal(bytes.TrimSpace(input), []byte("null")) {
 				input = json.RawMessage("{}")
 			}
-			summary := ToolSummary(b.Name, input)
-			if len(input) > MaxTranscriptToolInput {
-				input = json.RawMessage("{}")
-			}
+			// The input is kept whole here so an Observe hook sees the full
+			// command; TranscriptTail caps it before retaining the event.
 			evs = append(evs, api.RunEvent{
 				Kind: api.KindToolUse, Tool: b.Name, ToolID: b.ID,
-				Input: input, Text: summary,
+				Input: input, Text: ToolSummary(b.Name, input),
 			})
 		}
 	}
@@ -386,7 +384,8 @@ type TranscriptOptions struct {
 	// including them would mix subagent output into the main transcript.
 	IncludeSidechain bool
 	// Observe, if set, is called for every parsed entry before the sidechain
-	// filter and the retention cap. It lets a caller scan the full transcript
+	// filter, the tool-input cap and the retention cap. It lets a caller scan
+	// the full transcript
 	// — for instance for the `bd` command that links a session to a bead —
 	// without reading the file a second time.
 	Observe func(TranscriptParsed)
@@ -607,6 +606,9 @@ func (t *TranscriptTail) consume(line []byte) {
 		switch ev.Kind {
 		case api.KindToolUse:
 			t.state.ToolCalls++
+			if len(ev.Input) > MaxTranscriptToolInput {
+				ev.Input = json.RawMessage("{}")
+			}
 		case api.KindText:
 			t.state.LastText = OneLine(ev.Text, maxTranscriptLastText)
 		case api.KindUser:

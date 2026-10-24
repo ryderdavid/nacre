@@ -152,6 +152,9 @@ func (w *Watcher) sessions() []Session {
 		}
 		seen[rec.SessionID] = true
 		s := Session{Record: rec, Repo: repo, Transcript: transcriptPath(w.opts.Projects, rec.SessionID)}
+		// The tail is read first: the same pass collects the bd commands the
+		// link below resolves from.
+		w.tail(&s)
 		l, cached := w.links[rec.SessionID]
 		if !cached || l.issueID == "" {
 			l = w.link(rec, beads(repo.ID), s.Transcript, taken)
@@ -159,9 +162,11 @@ func (w *Watcher) sessions() []Session {
 		}
 		if l.issueID != "" {
 			taken[l.issueID] = true
+			// A linked session is never re-linked, so its mentions are no
+			// longer collected.
+			w.scan.forget(rec.SessionID)
 		}
 		s.IssueID, s.IssueTitle, s.LinkedBy = l.issueID, l.title, l.by
-		w.tail(&s)
 		out = append(out, s)
 	}
 	w.forget(seen)
@@ -193,14 +198,27 @@ func (w *Watcher) tail(s *Session) {
 	t := w.tails[s.SessionID]
 	if t == nil || t.Path() != s.Transcript {
 		// A session that moved between worktrees can switch files; the new
-		// one is read from the beginning.
-		t = claude.NewTranscriptTail(s.Transcript, claude.TranscriptOptions{MaxEvents: w.opts.MaxEvents})
-		w.tails[s.SessionID] = t
+		// one is read from the beginning, and so are the bd commands in it.
+		sid := s.SessionID
+		t = claude.NewTranscriptTail(s.Transcript, claude.TranscriptOptions{
+			MaxEvents: w.opts.MaxEvents,
+			Observe: func(p claude.TranscriptParsed) {
+				if w.links[sid].issueID == "" {
+					w.scan.observe(sid, p)
+				}
+			},
+		})
+		w.tails[sid] = t
+		w.scan.forget(sid)
 	}
 	fromStart := t.Offset() == 0
+	mark := w.scan.mark(s.SessionID)
 	d, err := t.Read()
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		w.opts.Logger.Printf("sessions: read transcript %s: %v", s.Transcript, err)
+	}
+	if d.Restarted {
+		w.scan.restart(s.SessionID, mark)
 	}
 	s.Events = d.Events
 	s.FromStart = fromStart || d.Restarted

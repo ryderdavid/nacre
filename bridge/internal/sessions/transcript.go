@@ -1,24 +1,15 @@
 package sessions
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-)
 
-// Limits on transcript scanning. A transcript grows for as long as its session
-// lives, so each pass reads only the bytes added since the previous one, and
-// stops after maxScanBytes to keep one poll bounded; the rest is read next
-// poll.
-const (
-	maxScanBytes = 8 << 20 // per scan pass
-	maxScanLine  = 1 << 20 // a longer entry cannot be a Bash tool call we care about
-	scanBufSize  = 256 << 10
+	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 // Weights of the bd commands that link a session to a bead, strongest last. A
@@ -78,112 +69,103 @@ type mention struct {
 	weight int
 }
 
-// scanner remembers how far each session's transcript has been read, so a
-// growing transcript is scanned once rather than once per poll.
+// scanner folds the bd commands seen in each session's transcript into the
+// strongest mention so far. It reads no files: the session's
+// claude.TranscriptTail hands it every parsed entry through
+// TranscriptOptions.Observe, so each transcript is read once per poll.
 type scanner struct {
 	state map[string]*scanState // by session id
 }
 
 type scanState struct {
-	path   string
-	offset int64 // bytes consumed, always at an entry boundary
-	best   mention
+	best mention
+	// pending are the mentions observed since the last call to best, oldest
+	// first. They are validated only then, against that poll's bd list, and
+	// are kept while no bd list is available to validate them.
+	pending []mention
 }
 
 func newScanner() *scanner { return &scanner{state: map[string]*scanState{}} }
 
-// forget drops a session's scan position, freeing it once the session is gone.
+// forget drops a session's scan state, freeing it once the session is gone.
 func (s *scanner) forget(sessionID string) { delete(s.state, sessionID) }
 
-// scan reads the part of path that has appeared since the last call and
-// returns the strongest bd mention seen in the transcript so far. valid
-// rejects ids that are not beads of the session's repo; when it is nil every
-// syntactically valid id is accepted.
-func (s *scanner) scan(sessionID, path string, valid func(string) bool) (string, bool) {
-	if path == "" {
-		return "", false
-	}
+func (s *scanner) get(sessionID string) *scanState {
 	st := s.state[sessionID]
-	if st == nil || st.path != path {
-		st = &scanState{path: path}
+	if st == nil {
+		st = &scanState{}
 		s.state[sessionID] = st
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return st.best.id, st.best.id != ""
+	return st
+}
+
+// observe records the bd mentions of one transcript entry.
+func (s *scanner) observe(sessionID string, p claude.TranscriptParsed) {
+	if ms := bdMentions(p); len(ms) > 0 {
+		st := s.get(sessionID)
+		st.pending = append(st.pending, ms...)
 	}
-	defer f.Close()
-	if fi, err := f.Stat(); err == nil && fi.Size() < st.offset {
-		st.offset, st.best = 0, mention{} // truncated or replaced
+}
+
+// mark returns a position in sessionID's pending mentions, for restart.
+func (s *scanner) mark(sessionID string) int {
+	if st := s.state[sessionID]; st != nil {
+		return len(st.pending)
 	}
-	if _, err := f.Seek(st.offset, io.SeekStart); err != nil {
-		return st.best.id, st.best.id != ""
+	return 0
+}
+
+// restart forgets everything observed before mark: the transcript was
+// truncated or replaced and has been read again from its beginning.
+func (s *scanner) restart(sessionID string, mark int) {
+	if st := s.state[sessionID]; st != nil {
+		st.best = mention{}
+		st.pending = st.pending[min(mark, len(st.pending)):]
 	}
-	rd := bufio.NewReaderSize(f, scanBufSize)
-	read := int64(0)
-	for read < maxScanBytes {
-		line, err := rd.ReadBytes('\n')
-		if err != nil {
-			break // partial final line: leave the offset before it
-		}
-		read += int64(len(line))
-		st.offset += int64(len(line))
-		if len(line) > maxScanLine {
+}
+
+// best folds the pending mentions into the session's strongest one and
+// returns it. A later mention of at least the current weight replaces it.
+// valid rejects ids that are not beads of the session's repo; when it is nil
+// every syntactically valid id is accepted.
+func (s *scanner) best(sessionID string, valid func(string) bool) (string, bool) {
+	st := s.state[sessionID]
+	if st == nil {
+		return "", false
+	}
+	for _, m := range st.pending {
+		if m.weight < st.best.weight {
 			continue
 		}
-		for _, m := range bdMentions(line) {
-			if m.weight < st.best.weight {
-				continue
-			}
-			if valid != nil && !valid(m.id) {
-				continue
-			}
-			st.best = m
+		if valid != nil && !valid(m.id) {
+			continue
 		}
+		st.best = m
 	}
+	st.pending = nil
 	return st.best.id, st.best.id != ""
 }
 
-// transcriptEntry is the fragment of a transcript entry the scan needs. The
-// on-disk format carries many entry types; the only interesting ones are
-// assistant turns whose message content holds a Bash tool call.
-type transcriptEntry struct {
-	Type        string `json:"type"`
-	IsSidechain bool   `json:"isSidechain"`
-	Message     struct {
-		Content json.RawMessage `json:"content"`
-	} `json:"message"`
-}
-
-type contentBlock struct {
-	Type  string `json:"type"`
-	Name  string `json:"name"`
-	Input struct {
-		Command string `json:"command"`
-	} `json:"input"`
-}
-
-// bdMentions returns the bead ids mentioned by bd commands in one transcript
-// entry. Subagent turns (isSidechain) are ignored: they are a different agent
-// working on something else in the same file.
-func bdMentions(line []byte) []mention {
-	if !bytes.Contains(line, []byte("bd ")) {
+// bdMentions returns the bead ids mentioned by bd commands in one parsed
+// transcript entry: the Bash tool calls of an assistant turn. Subagent turns
+// (sidechain) are ignored: they are a different agent working on something
+// else in the same file.
+func bdMentions(p claude.TranscriptParsed) []mention {
+	if !p.Assistant || p.Sidechain {
 		return nil
-	}
-	var ent transcriptEntry
-	if json.Unmarshal(line, &ent) != nil || ent.IsSidechain || ent.Type != "assistant" {
-		return nil
-	}
-	var blocks []contentBlock
-	if json.Unmarshal(ent.Message.Content, &blocks) != nil {
-		return nil // a plain-string content block carries no tool call
 	}
 	var out []mention
-	for _, b := range blocks {
-		if b.Type != "tool_use" || b.Name != "Bash" || b.Input.Command == "" {
+	for _, ev := range p.Events {
+		if ev.Kind != api.KindToolUse || ev.Tool != "Bash" || !bytes.Contains(ev.Input, []byte("bd")) {
 			continue
 		}
-		out = append(out, commandMentions(b.Input.Command)...)
+		var in struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(ev.Input, &in) != nil || in.Command == "" {
+			continue
+		}
+		out = append(out, commandMentions(in.Command)...)
 	}
 	return out
 }

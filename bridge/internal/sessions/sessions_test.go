@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 // fakeProcs is a ProcTable with hand-written process start times.
@@ -239,12 +242,22 @@ func transcriptLine(cmd string, sidechain bool) string {
 	return string(data) + "\n"
 }
 
+// parsed runs one transcript line through the parser the transcript tail uses.
+func parsed(t *testing.T, line string) claude.TranscriptParsed {
+	t.Helper()
+	p, err := claude.ParseTranscriptEntry([]byte(line))
+	if err != nil {
+		t.Fatalf("parse %q: %v", line, err)
+	}
+	return p
+}
+
 func TestBdMentionsIgnoresEverythingElse(t *testing.T) {
-	if got := bdMentions([]byte(transcriptLine("bd show NAC-9", false))); len(got) != 1 {
+	if got := bdMentions(parsed(t, transcriptLine("bd show NAC-9", false))); len(got) != 1 {
 		t.Fatalf("assistant Bash call = %+v", got)
 	}
 	// Subagent turns live in the same file but are a different agent's work.
-	if got := bdMentions([]byte(transcriptLine("bd update NAC-9 --claim", true))); got != nil {
+	if got := bdMentions(parsed(t, transcriptLine("bd update NAC-9 --claim", true))); got != nil {
 		t.Errorf("sidechain = %+v, want none", got)
 	}
 	for _, line := range []string{
@@ -252,59 +265,65 @@ func TestBdMentionsIgnoresEverythingElse(t *testing.T) {
 		`{"type":"cost-state","totalCostUSD":0.5}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"I will bd show NAC-9"}]}}`,
 		`{"type":"assistant","message":{"content":"bd show NAC-9"}}`,
-		`not json at all, bd show NAC-9`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"command":"bd show NAC-9"}}]}}`,
 	} {
-		if got := bdMentions([]byte(line)); got != nil {
+		if got := bdMentions(parsed(t, line)); got != nil {
 			t.Errorf("%s\n = %+v, want none", line, got)
 		}
 	}
+	// A command too big for the tail to retain is still seen whole.
+	big := strings.Repeat("x", claude.MaxTranscriptToolInput) + " && bd close NAC-9"
+	if got := bdMentions(parsed(t, transcriptLine(big, false))); len(got) != 1 || got[0].id != "NAC-9" {
+		t.Errorf("long command = %+v", got)
+	}
 }
 
-func TestScannerIsIncrementalAndPrefersTheStrongestSignal(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.jsonl")
-	mustWrite(t, path, transcriptLine("bd show NAC-1", false))
+// observeLines feeds transcript lines to the scanner as the tail would.
+func observeLines(t *testing.T, s *scanner, sid string, lines ...string) {
+	t.Helper()
+	for _, l := range lines {
+		s.observe(sid, parsed(t, l))
+	}
+}
+
+func TestScannerPrefersTheStrongestSignal(t *testing.T) {
 	s := newScanner()
 	valid := func(id string) bool { return id == "NAC-1" || id == "NAC-2" }
 
-	if id, ok := s.scan("sid", path, valid); !ok || id != "NAC-1" {
-		t.Fatalf("first scan = %q,%v", id, ok)
+	observeLines(t, s, "sid", transcriptLine("bd show NAC-1", false))
+	if id, ok := s.best("sid", valid); !ok || id != "NAC-1" {
+		t.Fatalf("first = %q,%v", id, ok)
 	}
-	off := s.state["sid"].offset
-	if off == 0 {
-		t.Fatal("scan did not record a position")
+	// Nothing new: the best so far is kept.
+	if id, _ := s.best("sid", valid); id != "NAC-1" {
+		t.Fatalf("again = %q, want NAC-1", id)
 	}
-	// Re-scanning without new bytes neither re-reads nor forgets.
-	if id, _ := s.scan("sid", path, valid); id != "NAC-1" || s.state["sid"].offset != off {
-		t.Fatalf("re-scan = %q at %d, want NAC-1 at %d", id, s.state["sid"].offset, off)
-	}
-
-	// A claim appearing later outranks the earlier read, and only the new
-	// bytes are read.
-	appendTo(t, path, transcriptLine("bd update NAC-2 --claim", false))
-	if id, ok := s.scan("sid", path, valid); !ok || id != "NAC-2" {
+	// A claim appearing later outranks the earlier read.
+	observeLines(t, s, "sid", transcriptLine("bd update NAC-2 --claim", false))
+	if id, ok := s.best("sid", valid); !ok || id != "NAC-2" {
 		t.Fatalf("after claim = %q,%v", id, ok)
 	}
 	// A weaker signal afterwards does not displace it.
-	appendTo(t, path, transcriptLine("bd show NAC-1", false))
-	if id, _ := s.scan("sid", path, valid); id != "NAC-2" {
+	observeLines(t, s, "sid", transcriptLine("bd show NAC-1", false))
+	if id, _ := s.best("sid", valid); id != "NAC-2" {
 		t.Fatalf("after later read = %q, want NAC-2", id)
 	}
 	// An id that is not a bead of this repo is never trusted.
-	appendTo(t, path, transcriptLine("bd update OTHER-1 --claim", false))
-	if id, _ := s.scan("sid", path, valid); id != "NAC-2" {
+	observeLines(t, s, "sid", transcriptLine("bd update OTHER-1 --claim", false))
+	if id, _ := s.best("sid", valid); id != "NAC-2" {
 		t.Fatalf("unvalidated id = %q, want NAC-2", id)
 	}
-	// A half-written final entry is left for the next pass.
-	appendTo(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"bd close NA`)
-	before := s.state["sid"].offset
-	s.scan("sid", path, valid)
-	if s.state["sid"].offset != before {
-		t.Fatalf("consumed a partial entry: %d -> %d", before, s.state["sid"].offset)
+	// A restarted transcript forgets what came before it, but not what was
+	// read from it since.
+	mark := s.mark("sid")
+	observeLines(t, s, "sid", transcriptLine("bd show NAC-1", false))
+	s.restart("sid", mark)
+	if id, _ := s.best("sid", valid); id != "NAC-1" {
+		t.Fatalf("after restart = %q, want NAC-1", id)
 	}
 
-	if id, ok := s.scan("other", "", valid); ok || id != "" {
-		t.Fatalf("no transcript = %q,%v", id, ok)
+	if id, ok := s.best("other", valid); ok || id != "" {
+		t.Fatalf("nothing observed = %q,%v", id, ok)
 	}
 	s.forget("sid")
 	if _, ok := s.state["sid"]; ok {
@@ -368,14 +387,20 @@ func TestLinkPrecedence(t *testing.T) {
 		{ID: "NAC-3", Title: "claimed per bd", Status: "in_progress", StartedAt: start.Add(10 * time.Second).UTC().Format(time.RFC3339)},
 	}
 
-	w := New(Options{Projects: projects, Procs: fakeProcs{}, Logger: log.New(io.Discard, "", 0)})
+	newWatcher := func() *Watcher {
+		w := New(Options{Projects: projects, Procs: fakeProcs{}, Logger: log.New(io.Discard, "", 0)})
+		// The transcript's bd commands reach link through the tail's pass.
+		w.tail(&Session{Record: record(1, sid, "/code/Nacre", "", start), Transcript: transcript})
+		return w
+	}
+	w := newWatcher()
 	// (a) The session name wins when it names a real bead.
 	rec := record(1, sid, "/code/Nacre", "Nacre · NAC-1", start)
 	if got := w.link(rec, beads, transcript, nil); got.issueID != "NAC-1" || got.by != LinkName || got.title != "named" {
 		t.Fatalf("name link = %+v", got)
 	}
 	// (b) Otherwise the bd command the agent actually ran.
-	w = New(Options{Projects: projects, Procs: fakeProcs{}, Logger: log.New(io.Discard, "", 0)})
+	w = newWatcher()
 	rec.Name = "nacre-eb" // a derived name, matching no bead
 	if got := w.link(rec, beads, transcript, nil); got.issueID != "NAC-2" || got.by != LinkTranscript {
 		t.Fatalf("transcript link = %+v", got)
@@ -396,11 +421,18 @@ func TestLinkPrecedence(t *testing.T) {
 	if got := w.link(rec, beads[:2], "", nil); got.issueID != "" || got.by != "" {
 		t.Fatalf("no signal = %+v", got)
 	}
-	// With no bd list an id cannot be validated, so no link is made.
-	w = New(Options{Projects: projects, Procs: fakeProcs{}, Logger: log.New(io.Discard, "", 0)})
-	rec.Name = "Nacre · NAC-1"
+	// With no bd list an id cannot be validated, so no link is made...
+	w = newWatcher()
 	if got := w.link(rec, nil, transcript, nil); got.issueID != "" {
 		t.Fatalf("no beads = %+v", got)
+	}
+	// ...and the bd commands already read wait for one.
+	if got := w.link(rec, beads, transcript, nil); got.issueID != "NAC-2" || got.by != LinkTranscript {
+		t.Fatalf("once bd answers = %+v", got)
+	}
+	rec.Name = "Nacre · NAC-1"
+	if got := w.link(rec, nil, transcript, nil); got.issueID != "" {
+		t.Fatalf("no beads, named = %+v", got)
 	}
 }
 
@@ -570,5 +602,66 @@ func TestLastActiveFallsBackToTheSessionStart(t *testing.T) {
 	s.LastWrite = entry.Add(time.Minute)
 	if !s.LastActive().Equal(s.LastWrite) {
 		t.Fatalf("last active = %v, want the last write %v", s.LastActive(), s.LastWrite)
+	}
+}
+
+// The bd command that links a session comes out of the same transcript read
+// that produces its run events: on the poll where the claim is appended, the
+// session carries both the claim's tool_use event and the link it implies.
+func TestPollLinksFromTheSharedTranscriptPass(t *testing.T) {
+	dir, projects, repoPath := t.TempDir(), t.TempDir(), t.TempDir()
+	pdir := filepath.Join(projects, "-repo")
+	if err := os.MkdirAll(pdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-2 * time.Minute).Truncate(time.Second)
+	agent := record(31, "aaaaaaaa-0000-0000-0000-000000000031", repoPath, "repo-eb", start)
+	writeRecord(t, dir, agent)
+	path := filepath.Join(pdir, agent.SessionID+".jsonl")
+	mustWrite(t, path, transcriptLine("bd update OTHER-1 --claim", false))
+
+	var got []Session
+	w := New(Options{
+		Dir: dir, Projects: projects, Procs: fakeProcs{31: start},
+		MainCheckout: func(string) string { return "" },
+		Repos:        func() []Repo { return []Repo{{ID: "r1", Name: "repo", Path: repoPath}} },
+		// NAC-9 was claimed long before the session, so bd's claim state
+		// cannot link it; only the transcript can.
+		Beads: func(string) []Bead {
+			return []Bead{
+				{ID: "NAC-7", Title: "Seven", Status: "open"},
+				{ID: "NAC-9", Title: "Nine", Status: "in_progress", StartedAt: start.Add(-time.Hour).UTC().Format(time.RFC3339)},
+			}
+		},
+		Sync:   func(live []Session) { got = live },
+		Logger: log.New(io.Discard, "", 0),
+	})
+	w.Poll()
+	if len(got) != 1 || got[0].IssueID != "" {
+		t.Fatalf("an id that is not a bead linked: %+v", got)
+	}
+
+	// A read, then a claim: the claim wins, on the very poll that reads it.
+	appendTo(t, path, transcriptLine("bd show NAC-9", false)+transcriptLine("cd x && bd update NAC-7 --claim", false))
+	w.Poll()
+	s := got[0]
+	if s.IssueID != "NAC-7" || s.LinkedBy != LinkTranscript || s.IssueTitle != "Seven" {
+		t.Fatalf("link = %q by %q (%q)", s.IssueID, s.LinkedBy, s.IssueTitle)
+	}
+	if len(s.Events) != 2 || s.Events[1].Kind != "tool_use" || !strings.Contains(s.Events[1].Text, "bd update NAC-7") {
+		t.Fatalf("events = %+v", s.Events)
+	}
+	fi, _ := os.Stat(path)
+	if off := w.tails[agent.SessionID].Offset(); off != fi.Size() {
+		t.Fatalf("tail at %d of %d bytes", off, fi.Size())
+	}
+	// Linked, the session's mentions are no longer collected.
+	if len(w.scan.state) != 0 {
+		t.Fatalf("scan state kept after linking: %+v", w.scan.state)
+	}
+	appendTo(t, path, transcriptLine("bd update NAC-9 --claim", false))
+	w.Poll()
+	if got[0].IssueID != "NAC-7" || len(w.scan.state) != 0 {
+		t.Fatalf("after link: %q, %d scan states", got[0].IssueID, len(w.scan.state))
 	}
 }

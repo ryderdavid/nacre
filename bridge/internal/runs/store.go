@@ -102,9 +102,53 @@ func appendEvent(dir string, evs ...api.RunEvent) error {
 	return f.Close()
 }
 
+// writeEvents replaces a run's event log with evs atomically: the new log is
+// written and synced to a temporary file, then renamed over the old one, so a
+// crash leaves either the old log or the new one, never a half-written mix.
+func writeEvents(dir string, evs []api.RunEvent) error {
+	var data []byte
+	for _, ev := range evs {
+		line, err := json.Marshal(ev)
+		if err != nil {
+			return err
+		}
+		data = append(append(data, line...), '\n')
+	}
+	tmp := filepath.Join(dir, eventsFile+".tmp")
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, eventsFile))
+}
+
+// eventsSize is the size in bytes of a run's event log, 0 if it has none.
+func eventsSize(dir string) int64 {
+	fi, err := os.Stat(filepath.Join(dir, eventsFile))
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
 // readEvents loads a run's events, skipping corrupt lines (e.g. a torn final
-// write after a crash).
-func readEvents(dir string) ([]api.RunEvent, error) {
+// write after a crash). keep > 0 holds only the newest keep events while
+// reading, so an oversized log costs bounded memory.
+func readEvents(dir string, keep int) ([]api.RunEvent, error) {
 	f, err := os.Open(filepath.Join(dir, eventsFile))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -121,11 +165,17 @@ func readEvents(dir string) ([]api.RunEvent, error) {
 			var ev api.RunEvent
 			if json.Unmarshal(line, &ev) == nil && ev.Seq > 0 {
 				out = append(out, ev)
+				if keep > 0 && len(out) >= 2*keep {
+					out = append(out[:0], out[len(out)-keep:]...)
+				}
 			}
 		}
 		if err != nil {
 			break
 		}
+	}
+	if keep > 0 && len(out) > keep {
+		out = append([]api.RunEvent(nil), out[len(out)-keep:]...)
 	}
 	return out, nil
 }

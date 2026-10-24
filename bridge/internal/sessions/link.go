@@ -26,6 +26,9 @@ type linkResult struct {
 // another session in this pass, so the weakest signal cannot attach one bead
 // to two sessions.
 //
+// The transcript is not read here: the bd commands in it were collected by the
+// session's transcript tail, so link must run after this poll's tail read.
+//
 // A session that resolves to nothing returns an empty result: it is reported
 // as repo activity with no bead rather than linked to a guess.
 func (w *Watcher) link(rec Record, beads []Bead, transcript string, taken map[string]bool) linkResult {
@@ -51,10 +54,13 @@ func (w *Watcher) link(rec Record, beads []Bead, transcript string, taken map[st
 		}
 	}
 
-	// (b) The bd commands the agent actually ran. This is a causal link, not
-	// a correlation: the id came out of the command that moved the bead.
-	if id, ok := w.scan.scan(rec.SessionID, transcript, valid); ok {
-		return finish(id, LinkTranscript)
+	// (b) The bd commands the agent actually ran, as the transcript tail saw
+	// them. This is a causal link, not a correlation: the id came out of the
+	// command that moved the bead.
+	if transcript != "" {
+		if id, ok := w.scan.best(rec.SessionID, valid); ok {
+			return finish(id, LinkTranscript)
+		}
 	}
 
 	// (c) bd's own claim state: the most recently claimed bead in this repo
