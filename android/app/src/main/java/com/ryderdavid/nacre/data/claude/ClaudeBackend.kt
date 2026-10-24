@@ -37,7 +37,10 @@ interface ClaudeBackend {
     val runner: ClaudeRunner
 
     /** Improve one bead; the result is reviewed field by field before anything is saved. */
-    suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String): RefineProposal
+    suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal
+
+    /** Answer a question about one bead. Nothing is changed and nothing is proposed. */
+    suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String
 
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft

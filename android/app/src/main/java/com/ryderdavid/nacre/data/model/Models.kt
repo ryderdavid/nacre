@@ -308,6 +308,8 @@ data class AssistRequest(
     @SerialName("session_id") val sessionId: String = "",
     /** Lets the call run read-only bd commands in the repository. */
     @SerialName("bd_reads") val bdReads: Boolean = false,
+    /** Also lets the call read the repository's files and git history. */
+    @SerialName("read_repo") val readRepo: Boolean = false,
     /** Keeps the session so the next turn can resume it. */
     val keep: Boolean = false,
 )

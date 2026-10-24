@@ -48,6 +48,15 @@ func TestAssistRequestValidation(t *testing.T) {
 	if h, _ := (assistRequest{Prompt: "x", BdReads: true}).headless(); len(h.AllowedTools) == 0 {
 		t.Error("bd_reads granted no tools")
 	}
+	// Reading the repository is its own opt-in, and still never writes.
+	if h, _ := (assistRequest{Prompt: "x"}).headless(); h.ReadRepo {
+		t.Error("repo reads granted without read_repo")
+	}
+	h, _ := (assistRequest{Prompt: "x", BdReads: true, ReadRepo: true}).headless()
+	args := strings.Join(h.Args(), " ")
+	if !h.ReadRepo || !strings.Contains(args, "Read,Grep,Glob") || strings.Contains(args, "Edit") || strings.Contains(args, "Write") {
+		t.Errorf("read_repo call got %q", args)
+	}
 }
 
 // assistServer serves one repo (a temp dir) with a fake claude binary that

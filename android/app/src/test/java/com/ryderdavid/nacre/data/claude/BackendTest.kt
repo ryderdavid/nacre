@@ -169,7 +169,8 @@ class BackendTest {
     }
 
     private class StubBackend(override val runner: ClaudeRunner) : ClaudeBackend {
-        override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String) = RefineProposal()
+        override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>) = RefineProposal()
+        override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String) = ""
         override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>) = BeadDraft("x")
         override suspend fun reviseDraft(repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String, parentTitle: String?, existingTitles: List<String>) = current
         override fun session(board: AssistantBoard) = throw UnsupportedOperationException()

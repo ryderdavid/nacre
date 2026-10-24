@@ -26,8 +26,11 @@ class ApiBackend(
 ) : ClaudeBackend {
     override val runner = ClaudeRunner.API
 
-    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String): RefineProposal =
-        service.refine(settings(), ctx, instruction)
+    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal =
+        service.refine(settings(), ctx, instruction, history)
+
+    override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String =
+        service.ask(settings(), ctx, history, question)
 
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         service.draft(settings(), repoName, rough, parentTitle, existingTitles)

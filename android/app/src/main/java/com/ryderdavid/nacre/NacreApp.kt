@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre
 
+import com.ryderdavid.nacre.data.claude.BeadChats
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -39,6 +40,9 @@ class AppContainer(app: Application) {
         mac = MacBackend(repository) { settings.current() },
     )
     val notifier = RunNotifier(app, repository, settings, scope)
+
+    /** Each bead's chat with Claude, kept until Ryder starts a new conversation. */
+    val beadChats = BeadChats(java.io.File(app.filesDir, "bead-chats.json"), scope)
 
     /**
      * One assistant conversation per board plus the cross-board one, kept for the life

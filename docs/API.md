@@ -274,7 +274,7 @@ All fields optional; defaults come from config.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
-"session_id": "", "bd_reads": false, "keep": false}`
+"session_id": "", "bd_reads": false, "read_repo": false, "keep": false}`
 
 Runs one `claude -p` in the repo on **this computer's Claude subscription**, which is how the app's
 Refine, Draft and board-assistant features work without an API key on the phone. The app owns the
@@ -283,7 +283,9 @@ prompt, the system prompt and the JSON schema, so both of its backends return th
 The call is sandboxed: `--safe-mode` (no hooks, MCP servers, CLAUDE.md, skills or plugins),
 `--permission-prompts none` so nothing can block on a prompt nobody can answer, and no tools at all
 unless `bd_reads` is set — which grants only read-only `bd` subcommands
-(`bd list|show|comments|ready|blocked|stats|search|stale|orphans|dep tree`). Writes are refused:
+(`bd list|show|comments|ready|blocked|stats|search|stale|orphans|dep tree`). `read_repo` also lets
+it read the repository: `Read`, `Grep`, `Glob` and read-only `git log|diff|show|status|branch` and
+`ls`; the bead chat's Ask mode uses it to answer questions about the code. Writes are refused:
 the assistant returns the changes it wants as proposals and the app applies the approved ones
 through the routes above, so every change still goes through the user. `keep` saves the session so
 the next turn can continue it with `session_id` (`--resume`).

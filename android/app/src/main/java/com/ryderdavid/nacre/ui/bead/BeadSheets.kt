@@ -18,34 +18,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,19 +46,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.ryderdavid.nacre.data.claude.RefineProposal
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.settings.AppSettings
-import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
-import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.PriorityPill
 import com.ryderdavid.nacre.ui.theme.Nacre
 
@@ -168,138 +157,6 @@ fun CloseDialog(id: String, onDismiss: () -> Unit, onClose: (String) -> Unit) {
         confirmButton = { Button(onClick = { onClose(reason) }) { Text("Close bead") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-private val REFINE_SUGGESTIONS = listOf(
-    "Make it agent-ready",
-    "Write acceptance criteria",
-    "Tighten the description",
-    "Split into subtasks",
-    "Add design notes",
-    "Suggest priority and type",
-)
-
-/** Ask Claude to improve the bead, then review a field-by-field diff before applying. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
-@Composable
-fun RefineSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit) {
-    val state by vm.refine.collectAsState()
-    var instruction by rememberSaveable { mutableStateOf("") }
-    HandleDismissSheet(onDismiss) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(AiIcon, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("Refine with Claude", style = MaterialTheme.typography.titleLarge)
-            }
-            Spacer(Modifier.height(12.dp))
-            when (val s = state) {
-                RefineState.Idle, is RefineState.Failed -> {
-                    if (!claudeReady) {
-                        Text("Pair a computer, or add a Claude API key, in Settings to use this.", color = MaterialTheme.colorScheme.error)
-                        return@Column
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        REFINE_SUGGESTIONS.forEach { sug -> SuggestionChip(onClick = { instruction = sug }, label = { Text(sug) }) }
-                    }
-                    OutlinedTextField(
-                        instruction, { instruction = it },
-                        placeholder = { Text("What should change? Leave empty to make it agent-ready.") },
-                        minLines = 2,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                    if (s is RefineState.Failed) {
-                        Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                        if (s.offerApiKey) TextButton(onClick = vm::useApiKey) { Text("Use my Claude API key instead") }
-                    }
-                    Button(onClick = { vm.requestRefine(instruction) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                        Icon(AiIcon, null); Spacer(Modifier.width(8.dp)); Text("Ask Claude")
-                    }
-                }
-                RefineState.Thinking -> Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    LoadingIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Claude is reading ${issue.id}…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                is RefineState.Ready -> ProposalReview(s.proposal, issue, onApply = { sel -> vm.applyRefine(s.proposal, sel, onDismiss) }, onRetry = vm::dismissRefine)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProposalReview(p: RefineProposal, issue: Issue, onApply: (RefineSelection) -> Unit, onRetry: () -> Unit) {
-    val changes = buildList {
-        if (p.title != null && p.title != issue.title) add(Triple("title", "Title", issue.title to p.title))
-        if (p.description != null && p.description != issue.description) add(Triple("description", "Description", issue.description to p.description))
-        if (p.acceptance_criteria != null && p.acceptance_criteria != issue.acceptance) add(Triple("acceptance_criteria", "Acceptance criteria", issue.acceptance to p.acceptance_criteria))
-        if (p.design != null && p.design != issue.design) add(Triple("design", "Design", issue.design to p.design))
-        if (p.notes != null && p.notes != issue.notes) add(Triple("notes", "Notes", issue.notes to p.notes))
-        if (p.priority != null && p.priority != issue.priority) add(Triple("priority", "Priority", "P${issue.priority}" to "P${p.priority}"))
-        if (p.issue_type != null && p.issue_type != issue.type) add(Triple("issue_type", "Type", issue.type to p.issue_type))
-        if (p.labels != null && p.labels.toSet() != issue.labels.toSet()) add(Triple("labels", "Labels", issue.labels.joinToString() to p.labels.joinToString()))
-    }
-    var fields by remember { mutableStateOf(changes.map { it.first }.toSet()) }
-    var children by remember { mutableStateOf(p.children.indices.toSet()) }
-
-    Column(Modifier.verticalScroll(rememberScrollState())) {
-        if (p.summary.isNotBlank()) Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Text(p.summary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(14.dp))
-        }
-        if (changes.isEmpty() && p.children.isEmpty()) {
-            Text("Claude didn't propose any changes.", modifier = Modifier.padding(vertical = 16.dp))
-        }
-        changes.forEach { (key, label, diff) ->
-            val on = key in fields
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                onClick = { fields = if (on) fields - key else fields + key },
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = on, onCheckedChange = { fields = if (on) fields - key else fields + key })
-                        Text(label, style = MaterialTheme.typography.titleSmall)
-                    }
-                    if (diff.first.isNotBlank()) Text(
-                        diff.first.take(600), style = MaterialTheme.typography.bodySmall.copy(textDecoration = TextDecoration.LineThrough),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 6, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-                    Surface(color = Nacre.colors.doing.copy(alpha = 0.12f), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                        MarkdownText(diff.second, Modifier.padding(10.dp))
-                    }
-                }
-            }
-        }
-        if (p.children.isNotEmpty()) {
-            Text("New child beads", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
-            p.children.forEachIndexed { i, c ->
-                val on = i in children
-                Row(
-                    Modifier.fillMaxWidth().clickable { children = if (on) children - i else children + i }.padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Checkbox(checked = on, onCheckedChange = { children = if (on) children - i else children + i })
-                    Column(Modifier.weight(1f).padding(top = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            PriorityPill(c.priority.coerceIn(0, 4)); Spacer(Modifier.width(6.dp))
-                            Text(c.issue_type.uppercase(), style = MaterialTheme.typography.labelSmall, color = Nacre.colors.type(c.issue_type))
-                        }
-                        Text(c.title, style = MaterialTheme.typography.bodyLarge)
-                        if (c.description.isNotBlank()) Text(c.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Ask again") }
-            Button(onClick = { onApply(RefineSelection(fields, children)) }, enabled = fields.isNotEmpty() || children.isNotEmpty(), modifier = Modifier.weight(1f)) {
-                Text("Apply ${fields.size + children.size}")
-            }
-        }
-    }
 }
 
 val RUN_MODES = listOf(

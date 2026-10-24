@@ -7,11 +7,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.board.BoardIndex
+import com.ryderdavid.nacre.data.claude.BeadChatItem
+import com.ryderdavid.nacre.data.claude.BeadChats
 import com.ryderdavid.nacre.data.claude.BeadContext
+import com.ryderdavid.nacre.data.claude.ChatMode
+import com.ryderdavid.nacre.data.claude.turns
 import com.ryderdavid.nacre.data.claude.ChildDraft
 import com.ryderdavid.nacre.data.claude.ClaudeBackends
-import com.ryderdavid.nacre.data.claude.ClaudeUnavailableException
-import com.ryderdavid.nacre.data.claude.RefineProposal
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.CreateIssue
@@ -28,14 +30,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-sealed interface RefineState {
-    data object Idle : RefineState
-    data object Thinking : RefineState
-    data class Ready(val proposal: RefineProposal) : RefineState
-    /** [offerApiKey] when the user could get further by switching to the Claude API. */
-    data class Failed(val message: String, val offerApiKey: Boolean = false) : RefineState
-}
-
 /** One computer a bead can be sent to. */
 data class RunTarget(val repo: Repo, val online: Boolean)
 
@@ -46,6 +40,7 @@ class BeadDetailViewModel(
     private val repo: NacreRepository,
     private val backends: ClaudeBackends,
     private val settings: SettingsStore,
+    private val chats: BeadChats,
     val repoKey: String,
     val beadId: String,
 ) : ViewModel() {
@@ -78,7 +73,12 @@ class BeadDetailViewModel(
 
     val comments = MutableStateFlow<List<Comment>>(emptyList())
     val busy = MutableStateFlow(false)
-    val refine = MutableStateFlow<RefineState>(RefineState.Idle)
+
+    private val chatKey = BeadChats.key(repoKey, beadId)
+    val chat = chats.items(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, chats.current(chatKey))
+    val chatThinking = chats.thinking(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val chatFailure = chats.failure(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val chatMode = chats.mode.stateIn(viewModelScope, SharingStarted.Eagerly, ChatMode.REFINE)
 
     init {
         load()
@@ -133,29 +133,47 @@ class BeadDetailViewModel(
         onStarted(run)
     }
 
-    // ---- Claude: refine ----
+    // ---- Claude: ask and refine, in one thread per bead ----
 
-    fun requestRefine(instruction: String) = viewModelScope.launch {
-        val cur = issue.value ?: return@launch
-        val ix = index.value ?: return@launch
-        refine.value = RefineState.Thinking
-        val s = settings.current()
-        refine.value = try {
-            val parent = ix.byId[cur.parent]
-            val ctx = BeadContext(
-                repoName = repo.repo(repoKey)?.name ?: repoKey,
-                id = cur.id, title = cur.title, type = cur.type, priority = cur.priority, status = cur.status,
-                labels = cur.labels, description = cur.description, design = cur.design,
-                acceptance = cur.acceptance, notes = cur.notes,
-                parentTitle = parent?.let { "${it.id} ${it.title}" },
-                siblingTitles = parent?.let { p -> ix.childrenOf(p.id).filter { it.id != cur.id }.map { "${it.id} ${it.title}" } }.orEmpty(),
-                childTitles = ix.childrenOf(cur.id).map { "${it.id} ${it.title}" },
-            )
-            RefineState.Ready(backends.of(s).refine(repoKey, ctx, instruction))
-        } catch (e: ClaudeUnavailableException) {
-            RefineState.Failed(e.message ?: "Claude isn't available right now", e.offerApiKey && s.apiKeyConfigured)
-        } catch (e: Exception) {
-            RefineState.Failed(e.message ?: "Claude couldn't refine this bead")
+    fun setChatMode(mode: ChatMode) = chats.setMode(mode)
+    fun newConversation() = chats.clear(chatKey)
+
+    /**
+     * Send [text] in [mode]. Ask gets an answer and can change nothing; Refine
+     * gets a proposal that waits in the thread for Ryder to apply. An empty
+     * Refine message means "make it agent-ready".
+     */
+    fun sendChat(text: String, mode: ChatMode) {
+        val message = text.trim()
+        if (message.isEmpty() && mode == ChatMode.ASK) return
+        send(BeadChatItem.Mine(message, mode), retrying = false)
+    }
+
+    fun retryChat() {
+        chatFailure.value?.let { send(it.retry, retrying = true) }
+    }
+
+    private fun send(message: BeadChatItem.Mine, retrying: Boolean) {
+        val cur = issue.value ?: return
+        val ix = index.value ?: return
+        val parent = ix.byId[cur.parent]
+        val ctx = BeadContext(
+            repoName = repo.repo(repoKey)?.name ?: repoKey,
+            id = cur.id, title = cur.title, type = cur.type, priority = cur.priority, status = cur.status,
+            labels = cur.labels, description = cur.description, design = cur.design,
+            acceptance = cur.acceptance, notes = cur.notes,
+            parentTitle = parent?.let { "${it.id} ${it.title}" },
+            siblingTitles = parent?.let { p -> ix.childrenOf(p.id).filter { it.id != cur.id }.map { "${it.id} ${it.title}" } }.orEmpty(),
+            childTitles = ix.childrenOf(cur.id).map { "${it.id} ${it.title}" },
+            comments = comments.value.map { "${it.author.ifBlank { "someone" }}: ${it.text}" },
+        )
+        chats.send(chatKey, message, retrying) { history ->
+            val backend = backends.of(settings.current())
+            val turns = history.turns()
+            when (message.mode) {
+                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.text))
+                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.text, turns))
+            }
         }
     }
 
@@ -164,11 +182,14 @@ class BeadDetailViewModel(
         settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) }
     }
 
-    fun dismissRefine() {
-        refine.value = RefineState.Idle
+    fun discardProposal(at: Int) {
+        val item = chat.value.getOrNull(at) as? BeadChatItem.Proposal ?: return
+        chats.set(chatKey, at, item.copy(outcome = BeadChatItem.Outcome.DISCARDED))
     }
 
-    fun applyRefine(p: RefineProposal, sel: RefineSelection, onDone: () -> Unit) = act("Applying changes") {
+    fun applyProposal(at: Int, sel: RefineSelection) = act("Applying changes") {
+        val item = chat.value.getOrNull(at) as? BeadChatItem.Proposal ?: return@act
+        val p = item.proposal
         fun <T> pick(key: String, v: T?) = if (key in sel.fields) v else null
         val update = UpdateIssue(
             title = pick("title", p.title), description = pick("description", p.description),
@@ -188,7 +209,6 @@ class BeadDetailViewModel(
         }
         val n = sel.fields.size + sel.children.size
         repo.notify("Applied $n change${if (n == 1) "" else "s"} from Claude")
-        refine.value = RefineState.Idle
-        onDone()
+        chats.set(chatKey, at, item.copy(outcome = BeadChatItem.Outcome.APPLIED, applied = n))
     }
 }

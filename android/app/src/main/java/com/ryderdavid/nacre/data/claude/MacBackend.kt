@@ -32,8 +32,13 @@ class MacBackend(
 ) : ClaudeBackend {
     override val runner = ClaudeRunner.MAC
 
-    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String): RefineProposal =
-        json(repoKey, Prompts.refine(ctx, instruction), ClaudeService.refineSchema)
+    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal =
+        json(repoKey, Prompts.refine(ctx, instruction, history), ClaudeService.refineSchema)
+
+    /** On the Mac an answer can come from the code too: the call may read the repository, never write. */
+    override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String =
+        json<AskReply>(repoKey, Prompts.ask(ctx, history, question, readsRepo = true), ClaudeService.askSchema, Prompts.ADVISOR, readRepo = true)
+            .answer.ifBlank { throw ClaudeException("The Mac answered without an answer. Try again.") }
 
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         json(repoKey, Prompts.draft(repoName, rough, parentTitle, existingTitles), ClaudeService.draftSchema)
@@ -46,14 +51,17 @@ class MacBackend(
     override fun session(board: AssistantBoard): AssistantSession = MacSession(repo, settings, board)
 
     /** One structured call, decoded with the same serializers as the API path. */
-    private suspend inline fun <reified T> json(repoKey: String, prompt: String, schema: Map<String, Any>): T {
+    private suspend inline fun <reified T> json(
+        repoKey: String, prompt: String, schema: Map<String, Any>,
+        system: String = Prompts.EDITOR, readRepo: Boolean = false,
+    ): T {
         val s = settings()
         val out = translate {
             repo.claudeJson(
                 repoKey,
                 AssistRequest(
-                    prompt = prompt, system = Prompts.EDITOR, schema = schema.toSchemaJson(),
-                    model = s.claudeModel, effort = s.claudeEffort,
+                    prompt = prompt, system = system, schema = schema.toSchemaJson(),
+                    model = s.claudeModel, effort = s.claudeEffort, bdReads = readRepo, readRepo = readRepo,
                 ),
             )
         }

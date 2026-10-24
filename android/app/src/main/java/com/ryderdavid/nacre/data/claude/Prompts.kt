@@ -14,14 +14,43 @@ object Prompts {
     private const val REFINE_DEFAULT =
         "Make this bead clear and ready for an agent to pick up: a crisp title, a description that says why and what, and testable acceptance criteria."
 
-    fun refine(ctx: BeadContext, instruction: String): String = buildString {
+    const val ADVISOR =
+        "You are an expert engineering lead answering questions about one bead (issue) in the bd issue tracker. You explain, assess and advise; you never change the bead. You are direct and specific, and you say so when the bead, its comments or the code don't settle a question."
+
+    fun refine(ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList()): String = buildString {
         appendLine("Improve this bead from the \"${ctx.repoName}\" beads (bd) issue tracker according to the request below.")
         appendLine()
+        conversation(history, "Earlier in this conversation about the bead (questions and answers may bear on the request):")
         appendLine("<request>${instruction.ifBlank { REFINE_DEFAULT }}</request>")
         appendLine()
         appendLine(ctx.render())
         appendLine()
         appendLine("Return only fields you are changing; use null for everything you leave as is. Keep the author's facts, ids, paths and decisions; do not invent requirements. Write in plain, direct markdown. Propose children only when the request asks to split or break down the work. In `summary`, say in one or two sentences what you changed and why.")
+    }
+
+    /**
+     * A question about a bead, answered in prose. [readsRepo] when the answer may
+     * come from reading the repository too, as it does on the Mac.
+     */
+    fun ask(ctx: BeadContext, history: List<DraftTurn>, question: String, readsRepo: Boolean): String = buildString {
+        appendLine("Ryder is asking about this bead from the \"${ctx.repoName}\" beads (bd) issue tracker.")
+        appendLine()
+        appendLine(ctx.render())
+        appendLine()
+        conversation(history, "Earlier in this conversation:")
+        appendLine("<question>$question</question>")
+        appendLine()
+        if (readsRepo) appendLine("You are in the repository the bead belongs to and may read its code, git history and other beads (read-only bd commands) when the question needs them. Look before you answer a question about the code; don't guess.")
+        appendLine("Answer the question in `answer`: short, scannable markdown for a phone screen, with ids, paths and names as they appear. Don't propose edits to the bead unless asked what you would change; Ryder switches to Refine mode to make changes.")
+    }
+
+    private fun StringBuilder.conversation(history: List<DraftTurn>, intro: String) {
+        if (history.isEmpty()) return
+        appendLine(intro)
+        appendLine("<conversation>")
+        history.takeLast(24).forEach { appendLine(if (it.fromUser) "<ryder>${it.text}</ryder>" else "<you>${it.text}</you>") }
+        appendLine("</conversation>")
+        appendLine()
     }
 
     fun draft(repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): String = buildString {

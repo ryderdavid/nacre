@@ -125,7 +125,7 @@ fun BeadDetail(
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
 ) {
-    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, repoKey, beadId) }
+    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
     val index by vm.index.collectAsState()
     val comments by vm.comments.collectAsState()
@@ -262,7 +262,7 @@ fun BeadDetail(
             onDismiss = { showDepPicker = false },
         ) { showDepPicker = false; vm.addBlocker(it.id) }
         if (showClose) CloseDialog(i.id, onDismiss = { showClose = false }) { showClose = false; vm.close(it) }
-        if (showRefine) RefineSheet(vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false; vm.dismissRefine() })
+        if (showRefine) BeadChatSheet(vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false })
         if (showRun) prefs?.let { p ->
             val targets by vm.runTargets.collectAsState()
             var initial by remember { mutableStateOf<String?>(null) }

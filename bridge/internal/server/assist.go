@@ -40,6 +40,9 @@ type assistRequest struct {
 	// BdReads lets the call run read-only bd commands in the repo. Without it
 	// the call gets no tools at all.
 	BdReads bool `json:"bd_reads"`
+	// ReadRepo also lets the call read the repository: files, search and
+	// read-only git. It can still write nothing.
+	ReadRepo bool `json:"read_repo"`
 	// Keep saves the session so the next turn can resume it.
 	Keep bool `json:"keep"`
 }
@@ -73,6 +76,7 @@ func (req assistRequest) headless() (claude.Headless, string) {
 	if req.BdReads {
 		h.AllowedTools = claude.BdReadTools
 	}
+	h.ReadRepo = req.ReadRepo
 	return h, ""
 }
 

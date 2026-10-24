@@ -49,6 +49,8 @@ data class BeadContext(
     val parentTitle: String?,
     val siblingTitles: List<String>,
     val childTitles: List<String>,
+    /** Recent comments as "author: text", oldest first. */
+    val comments: List<String> = emptyList(),
 )
 
 @Serializable
@@ -93,6 +95,10 @@ data class BeadDraft(
 /** One message in the chat that steers a draft. */
 data class DraftTurn(val fromUser: Boolean, val text: String) : java.io.Serializable
 
+/** Claude's answer to a question about a bead, asked in Ask mode. */
+@Serializable
+data class AskReply(val answer: String = "")
+
 /** Claude API access with the user's own key (Keystore-encrypted on device). */
 class ClaudeService {
     private var cached: Pair<String, AnthropicClient>? = null
@@ -110,9 +116,15 @@ class ClaudeService {
     }
 
     /** Ask Claude to improve a bead; returns a field-level proposal the user reviews. */
-    suspend fun refine(s: AppSettings, ctx: BeadContext, instruction: String): RefineProposal = withContext(Dispatchers.IO) {
-        val text = structured(s, Prompts.EDITOR, Prompts.refine(ctx, instruction), refineSchema, maxTokens = 16000)
+    suspend fun refine(s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList()): RefineProposal = withContext(Dispatchers.IO) {
+        val text = structured(s, Prompts.EDITOR, Prompts.refine(ctx, instruction, history), refineSchema, maxTokens = 16000)
         json.decodeFromString<RefineProposal>(text)
+    }
+
+    /** Answer a question about a bead without proposing any change to it. */
+    suspend fun ask(s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String): String = withContext(Dispatchers.IO) {
+        val text = structured(s, Prompts.ADVISOR, Prompts.ask(ctx, history, question, readsRepo = false), askSchema, maxTokens = 8000)
+        json.decodeFromString<AskReply>(text).answer.ifBlank { throw ClaudeException("Claude returned no answer") }
     }
 
     /** Expand a rough note into a complete new bead. */
@@ -216,6 +228,13 @@ class ClaudeService {
             ),
         )
 
+        val askSchema: Map<String, Any> = mapOf(
+            "type" to "object",
+            "additionalProperties" to false,
+            "required" to listOf("answer"),
+            "properties" to mapOf("answer" to mapOf("type" to "string", "description" to "The answer, in short markdown suited to a phone screen")),
+        )
+
         val refineSchema: Map<String, Any> = mapOf(
             "type" to "object",
             "additionalProperties" to false,
@@ -276,4 +295,5 @@ internal fun BeadContext.render(): String = buildString {
     parentTitle?.let { appendLine("<parent>$it</parent>") }
     if (siblingTitles.isNotEmpty()) appendLine("<siblings>\n${siblingTitles.take(40).joinToString("\n") { "- $it" }}\n</siblings>")
     if (childTitles.isNotEmpty()) appendLine("<children>\n${childTitles.take(40).joinToString("\n") { "- $it" }}\n</children>")
+    if (comments.isNotEmpty()) appendLine("<comments>\n${comments.takeLast(20).joinToString("\n") { "- ${it.take(1500)}" }}\n</comments>")
 }
