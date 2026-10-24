@@ -31,10 +31,12 @@ class RequestShapeTest {
         return body(params)["tools"]!!.jsonArray
     }
 
-    @Test fun strictToolsListEveryPropertyAsRequired() {
+    @Test fun strictToolsStayWithinTheSchemaLimits() {
         for (everyBoard in listOf(false, true)) {
             val tools = toolsBody(everyBoard)
             assertEquals(if (everyBoard) 10 else 9, tools.size, "tool count")
+            var optional = 0
+            var unions = 0
             for (t in tools) {
                 val o = t.jsonObject
                 assertTrue(o["strict"]!!.jsonPrimitive.boolean, "${o["name"]} strict")
@@ -43,8 +45,18 @@ class RequestShapeTest {
                 assertEquals("false", schema["additionalProperties"].toString())
                 val props = schema["properties"]!!.jsonObject.keys
                 val required = schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
-                assertEquals(props, required, "${o["name"]} requires all properties")
+                val spec = assistantTools(everyBoard).first { it.name == o["name"]!!.jsonPrimitive.content }
+                assertEquals(props - spec.optional, required, "${o["name"]} requires all but its optional properties")
+                optional += props.size - required.size
+                unions += schema["properties"]!!.jsonObject.values.count { p ->
+                    val f = p.jsonObject
+                    "anyOf" in f || f["type"] is JsonArray
+                }
             }
+            // The API rejects a request over 24 optional or 16 union-typed parameters
+            // across all strict schemas; keep clear of both so new tools fit.
+            assertEquals(0, unions, "union-typed parameters (everyBoard=$everyBoard)")
+            assertTrue(optional <= 16, "$optional optional parameters (everyBoard=$everyBoard)")
         }
         val params = ClaudeService.baseParams(settings, "system", 64000).addUserMessage("hi").build()
         assertEquals("\"default\"", body(params)["fallbacks"].toString())

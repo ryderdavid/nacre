@@ -130,9 +130,7 @@ internal fun ToolSpec.toTool(): Tool = Tool.builder()
                     .apply { props.forEach { (k, v) -> putAdditionalProperty(k, JsonValue.from(v)) } }
                     .build()
             )
-            // Strict tools must list every property as required; optional values
-            // are nullable types instead.
-            .required(props.keys.toList())
+            .required(props.keys.filter { it !in optional })
             .putAdditionalProperty("additionalProperties", JsonValue.from(false))
             .build()
     )

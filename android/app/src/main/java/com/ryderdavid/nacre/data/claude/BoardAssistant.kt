@@ -294,8 +294,8 @@ class BoardAssistant(
             fun s(k: String) = (input[k] as? JsonPrimitive)?.takeUnless { it.content == "null" }?.content
             val board = s("board")
             val out = when (item.name) {
-                "list_boards" -> router.listBoards(s("query"))
-                "list_beads" -> router.listBeads(board, s("lane"), s("query"), (input["limit"] as? JsonPrimitive)?.intOrNull ?: 50)
+                "list_boards" -> router.listBoards(s("query")?.ifBlank { null })
+                "list_beads" -> router.listBeads(board?.ifBlank { null }, s("lane")?.ifBlank { null }, s("query")?.ifBlank { null }, (input["limit"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 } ?: 50)
                 else -> {
                     // Everything else works on exactly one board; resolving it can fail with advice.
                     val tools = router.resolve(board)
@@ -304,13 +304,13 @@ class BoardAssistant(
                         "get_bead" -> tools.getBead(s("id")!!)
                         "update_bead" -> tools.updateBead(s("id")!!, input)
                         "create_bead" -> tools.createBead(input)
-                        "close_bead" -> tools.closeBead(s("id")!!, s("reason"))
+                        "close_bead" -> tools.closeBead(s("id")!!, s("reason")?.ifBlank { null })
                         "add_comment" -> tools.addComment(s("id")!!, s("text")!!)
                         "add_dependency" -> tools.addDependency(s("issue_id")!!, s("depends_on_id")!!)
-                        "run_in_claude_code" -> tools.runInClaudeCode(s("id")!!, s("instructions"))
+                        "run_in_claude_code" -> tools.runInClaudeCode(s("id")!!, s("instructions")?.ifBlank { null })
                         "start_round" -> tools.startRound(
                             (input["ids"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty(),
-                            (input["budget_usd"] as? JsonPrimitive)?.doubleOrNull,
+                            (input["budget_usd"] as? JsonPrimitive)?.doubleOrNull?.takeIf { it > 0 },
                         )
                         else -> return finish(item, "Unknown tool ${item.name}", failed = true)
                     }
@@ -378,7 +378,7 @@ class BoardAssistant(
         val scope = router.only?.let { "You are working on the \"${it.boardName}\" board." }
             ?: "You can see every beads board on Ryder's computers — one board per project — and you work across all of them."
         val howTo = if (everyBoard)
-            "Call list_boards first: it costs nothing and gives every board's exact name and bead counts (open, in progress, blocked, done) without reading any board. Read those counts, decide which few boards actually matter to the question, and only then call list_beads with that board's exact name — each board you read is a fetch over Ryder's network, so read the boards you need, not all of them. Pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board is a last resort: it reads at most ${AllBoardsRouter.MAX_BOARDS_SWEPT} boards, skips hidden ones, and ends with a note naming what it didn't read — when that note says the sweep was cut short, tell Ryder so rather than presenting a partial answer as complete. A board marked hidden in list_boards is one Ryder has tucked away: leave it out unless Ryder names it, and then use it like any other. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board, or, when Ryder wants several beads on one board finished together, propose start_round with them."
+            "Call list_boards first: it costs nothing and gives every board's exact name and bead counts (open, in progress, blocked, done) without reading any board. Read those counts, decide which few boards actually matter to the question, and only then call list_beads with that board's exact name — each board you read is a fetch over Ryder's network, so read the boards you need, not all of them. Pass the exact name as `board` on every other call; never guess a board name or an id. list_beads without a board is a last resort: it reads at most ${AllBoardsRouter.MAX_BOARDS_SWEPT} boards, skips hidden ones, and ends with a note naming what it didn't read — when that note says the sweep was cut short, tell Ryder so rather than presenting a partial answer as complete. A board marked hidden in list_boards is one Ryder has tucked away: leave it out unless Ryder names it, and then use it like any other. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board, or, when Ryder wants several beads on one board finished together, propose start_round with them."
         else
             "Use the tools to look things up before answering; never guess ids."
         val refer = if (everyBoard) "Refer to beads by id and title, and say which board each one is on." else "Refer to beads by id and title."

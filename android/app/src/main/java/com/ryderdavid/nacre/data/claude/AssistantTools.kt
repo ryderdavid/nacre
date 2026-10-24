@@ -9,22 +9,23 @@ package com.ryderdavid.nacre.data.claude
 data class ToolSpec(
     val name: String,
     val description: String,
-    /** JSON Schema for the arguments. Strict tools require every property, so optional ones are nullable. */
+    /**
+     * JSON Schema for the arguments. Every property is required unless named in [optional];
+     * strict tools cap a request at 24 optional and 16 union-typed parameters, so optional
+     * values are left out rather than made nullable, and most "no value" cases are an empty string.
+     */
     val props: Map<String, Any>,
     /** Writes change beads, so they always wait for the user's approval in the app. */
     val write: Boolean,
     /** Arguments that must be present and non-blank for the call to be worth running. */
     val required: List<String> = emptyList(),
+    /** Properties the model may leave out; leaving one out means "no value" or "unchanged". */
+    val optional: Set<String> = emptySet(),
 )
 
 private fun str(desc: String) = mapOf("type" to "string", "description" to desc)
-private fun nullable(type: String, desc: String) =
-    mapOf("anyOf" to listOf(mapOf("type" to type), mapOf("type" to "null")), "description" to desc)
-
-private val stringsOrNull = mapOf(
-    "anyOf" to listOf(mapOf("type" to "array", "items" to mapOf("type" to "string")), mapOf("type" to "null")),
-    "description" to "The complete new label set, or null to leave the labels alone",
-)
+private fun typed(type: String, desc: String) = mapOf("type" to type, "description" to desc)
+private fun strings(desc: String) = mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to desc)
 
 /** Everything the assistant can do on a board, in the order it usually needs them. */
 val BOARD_TOOLS: List<ToolSpec> = listOf(
@@ -32,11 +33,11 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
         "list_beads",
         "List beads on this board as compact lines (id, lane, priority, type, title, blockers). Use lane to narrow down and query for text search.",
         mapOf(
-            "lane" to nullable("string", "ready | doing | blocked | later | done | open (everything not done), or null for all"),
-            "query" to nullable("string", "Text to match in id, title, labels and description, or null"),
-            "limit" to nullable("integer", "Maximum rows, default 50"),
+            "lane" to str("ready | doing | blocked | later | done | open (everything not done); leave out for all"),
+            "query" to str("Text to match in id, title, labels and description; leave out for no filter"),
+            "limit" to typed("integer", "Maximum rows; 50 suits most questions"),
         ),
-        write = false,
+        write = false, optional = setOf("lane", "query"),
     ),
     ToolSpec(
         "get_bead", "Get one bead in full: fields, dependencies, children and comments.",
@@ -44,21 +45,22 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
     ),
     ToolSpec(
         "update_bead",
-        "Change fields of a bead. Pass null for fields to leave unchanged. labels replaces the whole set. Requires the user's approval.",
+        "Change fields of a bead. Leave out the fields to keep as they are. labels replaces the whole set. Requires the user's approval.",
         mapOf(
             "id" to str("Bead id"),
-            "title" to nullable("string", "New title"),
-            "description" to nullable("string", "New description (markdown)"),
-            "design" to nullable("string", "New design notes"),
-            "acceptance_criteria" to nullable("string", "New acceptance criteria"),
-            "notes" to nullable("string", "New notes"),
-            "status" to nullable("string", "open | in_progress | blocked | deferred"),
-            "priority" to nullable("integer", "0-4"),
-            "issue_type" to nullable("string", "bug | feature | task | chore | epic | decision | spike"),
-            "assignee" to nullable("string", "Assignee name"),
-            "labels" to stringsOrNull,
+            "title" to typed("string", "New title"),
+            "description" to typed("string", "New description (markdown)"),
+            "design" to typed("string", "New design notes"),
+            "acceptance_criteria" to typed("string", "New acceptance criteria"),
+            "notes" to typed("string", "New notes"),
+            "status" to typed("string", "open | in_progress | blocked | deferred"),
+            "priority" to typed("integer", "0-4"),
+            "issue_type" to typed("string", "bug | feature | task | chore | epic | decision | spike"),
+            "assignee" to typed("string", "Assignee name"),
+            "labels" to strings("The complete new label set"),
         ),
         write = true, required = listOf("id"),
+        optional = setOf("title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "labels"),
     ),
     ToolSpec(
         "create_bead", "Create a new bead. Requires the user's approval.",
@@ -67,7 +69,7 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
             "description" to str("Why and what (markdown)"),
             "issue_type" to str("bug | feature | task | chore | epic | decision | spike"),
             "priority" to mapOf("type" to "integer", "description" to "0-4"),
-            "parent" to nullable("string", "Parent bead id, e.g. an epic"),
+            "parent" to str("Parent bead id, e.g. an epic, or empty"),
             "acceptance_criteria" to str("Testable acceptance criteria, or empty"),
             "labels" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
         ),
@@ -75,7 +77,7 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
     ),
     ToolSpec(
         "close_bead", "Close a bead as done. Requires the user's approval.",
-        mapOf("id" to str("Bead id"), "reason" to nullable("string", "One-line close reason")),
+        mapOf("id" to str("Bead id"), "reason" to str("One-line close reason")),
         write = true, required = listOf("id"),
     ),
     ToolSpec(
@@ -91,15 +93,15 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
     ToolSpec(
         "run_in_claude_code",
         "Dispatch a bead to Claude Code on Ryder's Mac Studio to do the work. Requires the user's approval.",
-        mapOf("id" to str("Bead id"), "instructions" to nullable("string", "Extra instructions for the coding agent")),
+        mapOf("id" to str("Bead id"), "instructions" to str("Extra instructions for the coding agent, or empty")),
         write = true, required = listOf("id"),
     ),
     ToolSpec(
         "start_round",
         "Hand several beads on this board to its computer as one round: it reviews them together first, asks Ryder only where they disagree, works each on its own branch, checks each against the repository's gates, and merges them into one commit that passes the gates and builds. Use it when Ryder wants several beads worked until they're done. Requires the user's approval.",
         mapOf(
-            "ids" to mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to "The bead ids to finish together"),
-            "budget_usd" to nullable("number", "Spending limit for the round in USD, or null for the computer's default"),
+            "ids" to strings("The bead ids to finish together"),
+            "budget_usd" to typed("number", "Spending limit for the round in USD, or 0 for the computer's default"),
         ),
         write = true, required = listOf("ids"),
     ),
@@ -109,8 +111,8 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
 val LIST_BOARDS = ToolSpec(
     "list_boards",
     "List every board (project) you can reach, with its bead counts, computers and path. It reads no board, so it is cheap: call it before anything else, then use the counts to choose which boards to read.",
-    mapOf("query" to nullable("string", "Text to match in the board name, path or git remote, or null for all boards")),
-    write = false,
+    mapOf("query" to str("Text to match in the board name, path or git remote; leave out for all boards")),
+    write = false, optional = setOf("query"),
 )
 
 /**
@@ -122,7 +124,8 @@ fun assistantTools(everyBoard: Boolean): List<ToolSpec> {
     return listOf(LIST_BOARDS) + BOARD_TOOLS.map { spec ->
         if (spec.name == "list_beads") spec.copy(
             description = spec.description.replace("on this board ", ""),
-            props = mapOf("board" to nullable("string", "Board name from list_boards. Null sweeps the ${AllBoardsRouter.MAX_BOARDS_SWEPT} most recently updated boards (a few rows from each, hidden boards skipped); prefer naming the boards whose counts matter")) + spec.props,
+            props = mapOf("board" to str("Board name from list_boards. Leaving it out sweeps the ${AllBoardsRouter.MAX_BOARDS_SWEPT} most recently updated boards (a few rows from each, hidden boards skipped); prefer naming the boards whose counts matter")) + spec.props,
+            optional = spec.optional + "board",
         ) else spec.copy(
             props = mapOf("board" to str("Board name, exactly as list_boards reports it")) + spec.props,
             required = listOf("board") + spec.required,
@@ -145,9 +148,13 @@ internal fun writeToolCatalogue(tools: List<ToolSpec> = BOARD_TOOLS): String = t
         append(spec.description.removeSuffix(" Requires the user's approval.")).append('\n')
         spec.props.forEach { (field, schema) ->
             val meta = schema as? Map<*, *>
-            val type = meta?.get("type") as? String ?: "string or null"
+            val type = meta?.get("type") as? String ?: "string"
             val desc = meta?.get("description") as? String ?: ""
-            val need = if (field in spec.required) " (required)" else ""
+            val need = when (field) {
+                in spec.required -> " (required)"
+                in spec.optional -> " (optional)"
+                else -> ""
+            }
             append("- `").append(field).append("`: ").append(type).append(need)
             if (desc.isNotBlank()) append(" — ").append(desc)
             append('\n')
