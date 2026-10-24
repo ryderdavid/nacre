@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHostIDIsGeneratedOnceAndKept(t *testing.T) {
@@ -28,5 +29,30 @@ func TestHostIDIsGeneratedOnceAndKept(t *testing.T) {
 	again.HostName = "Work laptop"
 	if got := again.Host().Name; got != "Work laptop" {
 		t.Errorf("explicit host_name ignored: %q", got)
+	}
+}
+
+func TestAdoptIdleMinutesDefaultsToFifteen(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AdoptIdleMinutes != 15 || c.AdoptIdleAfter() != 15*time.Minute {
+		t.Fatalf("default idle window = %d min (%v)", c.AdoptIdleMinutes, c.AdoptIdleAfter())
+	}
+	c.AdoptIdleMinutes = 40
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.AdoptIdleAfter() != 40*time.Minute {
+		t.Fatalf("configured idle window = %v, want 40m", again.AdoptIdleAfter())
+	}
+	if (&Config{}).AdoptIdleAfter() != 15*time.Minute {
+		t.Fatal("an unset window falls back to the default")
 	}
 }

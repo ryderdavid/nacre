@@ -97,7 +97,8 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
 }
 
 class RunsViewModel(private val repo: NacreRepository) : ViewModel() {
-    val runs: StateFlow<List<Run>> = repo.runs
+    val runs: StateFlow<List<Run>> = repo.runs.map { list -> list.filter { it.inRunsList } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, repo.runs.value.filter { it.inRunsList })
     val hosts = repo.hosts
     val refreshing = MutableStateFlow(false)
 

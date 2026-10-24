@@ -42,6 +42,7 @@ Created on first run with a random token. Fields (defaults in brackets):
 | `data_dir` | run history root [`~/Library/Application Support/nacred`] |
 | `adopt_sessions` | [false] watch Claude Code's session registry and mirror agent-started sessions as read-only adopted runs |
 | `adopt_poll_seconds` | [10] how often the session registry is polled |
+| `adopt_idle_minutes` | [15] how long an adopted session may go without writing its transcript before it counts as idle; past it the session stays on its bead but leaves the runs list and `adopted_runs` |
 
 ## Layout
 
@@ -73,8 +74,12 @@ in the session transcript, then by bd's claim state. A session is only adopted w
 genuinely alive (pid plus process start time, so a reused pid cannot resurrect a dead record), and
 nacred's own sessions are skipped. Adopted runs are read-only: cancel and follow-up both answer
 409, `can_cancel`/`can_followup` say so up front, and `resume_command` is the take-over affordance
-instead. They are counted by `Repo.adopted_runs`, never by `active_runs`, and `GET /v1/runs` omits
-them unless asked (`?include=adopted`). See docs/API.md, "Adopted runs".
+instead. Each poll also tails the session's transcript (`~/.claude/projects/*/<session id>.jsonl`), so
+an adopted run carries the agent's text, tool calls and results as events, and its cost, duration and
+counts from the transcript's running totals. Activity follows transcript freshness: a session quiet
+for longer than `adopt_idle_minutes` is idle and *stale*. They are counted by `Repo.adopted_runs`
+(stale ones excepted), never by `active_runs`, and `GET /v1/runs` omits them unless asked
+(`?include=adopted`, plus `stale` for the quiet ones). See docs/API.md, "Adopted runs".
 
 ## Notes
 

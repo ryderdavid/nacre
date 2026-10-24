@@ -521,3 +521,57 @@ func TestRepoCountsAdoptedRunsApartFromActiveRuns(t *testing.T) {
 		t.Fatalf("health active_runs = %v, want 1", health["active_runs"])
 	}
 }
+
+// A stale adopted session — alive, but quiet past the idle window — is left out
+// of the runs list a client shows and of the repo's adopted count, and comes
+// back with include=stale so a bead can still show its idle agent.
+func TestListRunsLeavesStaleAdoptedSessionsOutUnlessIncluded(t *testing.T) {
+	mgr, err := runs.New(runs.Options{Dir: t.TempDir(), ClaudePath: "/nonexistent/claude",
+		Logger: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet := time.Now().Add(-time.Hour)
+	mgr.SyncAdopted([]sessions.Session{
+		{Record: sessions.Record{PID: 98, SessionID: "sess-busy", CWD: "/code/Nacre", StartedAt: quiet.UnixMilli()},
+			Repo: sessions.Repo{ID: "rid", Name: "Nacre", Path: "/code/Nacre"}, IssueID: "NAC-1", LastWrite: time.Now()},
+		{Record: sessions.Record{PID: 99, SessionID: "sess-quiet", CWD: "/code/Nacre", StartedAt: quiet.UnixMilli()},
+			Repo: sessions.Repo{ID: "rid", Name: "Nacre", Path: "/code/Nacre"}, IssueID: "NAC-7", LastWrite: quiet},
+	})
+	ts := adoptedServer(t, mgr, "")
+
+	runsIn := func(query string) map[string]map[string]any {
+		t.Helper()
+		resp, body := do(t, "GET", ts.URL+"/v1/runs"+query, "tok")
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET /v1/runs%s: %d", query, resp.StatusCode)
+		}
+		out := map[string]map[string]any{}
+		list, _ := body["runs"].([]any)
+		for _, r := range list {
+			run := r.(map[string]any)
+			out[run["session_id"].(string)] = run
+		}
+		return out
+	}
+	got := runsIn("?include=adopted")
+	if len(got) != 1 || got["sess-busy"] == nil {
+		t.Fatalf("?include=adopted = %v, want only the working session", got)
+	}
+	if _, ok := got["sess-busy"]["stale"]; ok {
+		t.Fatalf("a working session carries stale: %v", got["sess-busy"])
+	}
+	for _, q := range []string{"?include=adopted,stale", "?include=stale,adopted&issue=NAC-7"} {
+		got = runsIn(q)
+		quietRun := got["sess-quiet"]
+		if quietRun == nil || quietRun["stale"] != true || quietRun["activity"] != "idle" || quietRun["status"] != "running" {
+			t.Fatalf("GET /v1/runs%s = %v, want the quiet session, idle and stale", q, got)
+		}
+	}
+	if got := runsIn("?include=stale"); len(got) != 0 {
+		t.Fatalf("?include=stale alone = %v: stale is a refinement of adopted, not a listing of its own", got)
+	}
+	if n := mgr.AdoptedCount("rid"); n != 1 {
+		t.Fatalf("AdoptedCount = %d, want 1: the stale session is not counted", n)
+	}
+}

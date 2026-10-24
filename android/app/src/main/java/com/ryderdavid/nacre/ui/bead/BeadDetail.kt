@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
+import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.UpdateIssue
@@ -192,6 +193,7 @@ fun BeadDetail(
                         Text(
                             when {
                                 active == null -> "Run with Claude Code"
+                                active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
                                 active.isAdopted -> "An agent is working…"
                                 else -> "Claude is working…"
                             }

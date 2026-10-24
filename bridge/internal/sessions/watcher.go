@@ -2,9 +2,13 @@ package sessions
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 // DefaultInterval is how often the session registry is polled when Options
@@ -21,6 +25,9 @@ type Options struct {
 	Projects string
 	// Interval is the poll period (default: DefaultInterval).
 	Interval time.Duration
+	// MaxEvents caps the events each transcript tail retains between polls
+	// (default: claude.MaxTranscriptEvents).
+	MaxEvents int
 
 	// Repos lists the discovered beads repositories. It is called once per
 	// poll, so it must not block on bd.
@@ -58,6 +65,9 @@ type Watcher struct {
 	// links caches a resolved bead per session id, so a session is linked
 	// once rather than re-resolved on every poll.
 	links map[string]linkResult
+	// tails follows each live session's transcript, by session id, so each
+	// poll reads only what was appended since the last one.
+	tails map[string]*claude.TranscriptTail
 }
 
 // New returns a Watcher. It does not read anything until Poll or Run is called.
@@ -74,7 +84,7 @@ func New(opts Options) *Watcher {
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
 	}
-	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}}
+	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}, tails: map[string]*claude.TranscriptTail{}}
 }
 
 // Run polls immediately and then every Interval until ctx is done.
@@ -151,6 +161,7 @@ func (w *Watcher) sessions() []Session {
 			taken[l.issueID] = true
 		}
 		s.IssueID, s.IssueTitle, s.LinkedBy = l.issueID, l.title, l.by
+		w.tail(&s)
 		out = append(out, s)
 	}
 	w.forget(seen)
@@ -173,12 +184,41 @@ func (w *Watcher) candidates(recs []Record) []Record {
 	return out
 }
 
+// tail reads what s's transcript gained since the previous poll into s. A
+// session whose transcript has not appeared yet simply has nothing to report.
+func (w *Watcher) tail(s *Session) {
+	if s.Transcript == "" {
+		return
+	}
+	t := w.tails[s.SessionID]
+	if t == nil || t.Path() != s.Transcript {
+		// A session that moved between worktrees can switch files; the new
+		// one is read from the beginning.
+		t = claude.NewTranscriptTail(s.Transcript, claude.TranscriptOptions{MaxEvents: w.opts.MaxEvents})
+		w.tails[s.SessionID] = t
+	}
+	fromStart := t.Offset() == 0
+	d, err := t.Read()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.opts.Logger.Printf("sessions: read transcript %s: %v", s.Transcript, err)
+	}
+	s.Events = d.Events
+	s.FromStart = fromStart || d.Restarted
+	s.LastWrite = d.ModTime
+	s.TranscriptState = t.State()
+}
+
 // forget releases the per-session caches of sessions that are gone.
 func (w *Watcher) forget(seen map[string]bool) {
 	for sid := range w.links {
 		if !seen[sid] {
 			delete(w.links, sid)
 			w.scan.forget(sid)
+		}
+	}
+	for sid := range w.tails {
+		if !seen[sid] {
+			delete(w.tails, sid)
 		}
 	}
 }

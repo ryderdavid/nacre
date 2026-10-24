@@ -43,7 +43,11 @@ type Options struct {
 	Notify func(event string, data any)
 	// RepoChanged is called when a run finishes (Claude may have edited beads).
 	RepoChanged func(repoID string)
-	Logger      *log.Logger
+	// AdoptIdleAfter is how long an adopted session may go without writing
+	// its transcript before it counts as idle and stale (default
+	// DefaultAdoptIdleAfter).
+	AdoptIdleAfter time.Duration
+	Logger         *log.Logger
 }
 
 // StartRequest describes a new run.
@@ -67,6 +71,11 @@ type Filter struct {
 	// AdoptedOnly keeps only adopted runs. With IncludeAdopted it is how the
 	// adopted sessions are counted separately from the runs nacred owns.
 	AdoptedOnly bool
+	// IncludeStale keeps adopted runs whose session has gone quiet for longer
+	// than the idle window (api.Run.Stale). They are left out by default: a
+	// session left open is not a job in progress, so the runs list and the
+	// adopted count skip it, while a bead's own view still wants to show it.
+	IncludeStale bool
 }
 
 // adoptedRefusal prefixes the conflicts returned for operations that are not
@@ -102,6 +111,9 @@ func New(opts Options) (*Manager, error) {
 	}
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
+	}
+	if opts.AdoptIdleAfter <= 0 {
+		opts.AdoptIdleAfter = DefaultAdoptIdleAfter
 	}
 	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
 		return nil, err
@@ -309,6 +321,9 @@ func (m *Manager) List(f Filter) []api.Run {
 		if f.AdoptedOnly && !s.Adopted() {
 			continue
 		}
+		if s.Stale && !f.IncludeStale {
+			continue
+		}
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
@@ -325,7 +340,8 @@ func (m *Manager) ActiveCount(repoID string) int {
 // AdoptedCount returns the number of live adopted sessions for repoID
 // ("" = all): agent-owned work nacred is watching but did not start, which is
 // exactly what ActiveCount leaves out. The two together are the whole picture
-// of what is running on this computer.
+// of what is running on this computer. Stale sessions, alive but quiet past
+// the idle window, are not counted: they are left open, not working.
 func (m *Manager) AdoptedCount(repoID string) int {
 	return len(m.List(Filter{RepoID: repoID, ActiveOnly: true, IncludeAdopted: true, AdoptedOnly: true}))
 }
