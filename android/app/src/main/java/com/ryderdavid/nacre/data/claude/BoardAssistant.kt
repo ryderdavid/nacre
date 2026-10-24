@@ -103,6 +103,9 @@ class BoardAssistant(
     private val settings: suspend () -> AppSettings,
     private val router: BoardRouter,
     private val scope: CoroutineScope,
+    /** Idle time after which the next message starts a new conversation; null keeps it forever. */
+    private val idleResetMs: Long? = null,
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val everyBoard = router.only == null
     private val toolSpecs = assistantTools(everyBoard)
@@ -120,6 +123,9 @@ class BoardAssistant(
 
     val autoApprove = MutableStateFlow(false)
     private var job: Job? = null
+
+    /** When the user or Claude last said anything, for [idleResetMs]. */
+    private var lastActive = 0L
 
     /** The input of the turn in flight, which [retry] sends again. */
     private var retryInput: TurnInput? = null
@@ -154,6 +160,12 @@ class BoardAssistant(
     fun send(text: String) {
         if (text.isBlank() || _busy.value) return
         val said = text.trim()
+        val idle = idleResetMs
+        if (idle != null && _items.value.isNotEmpty() && now() - lastActive >= idle) {
+            clear()
+            error("Started a new chat: the last one had been idle for over ${idle / HOUR_MS} hours.")
+        }
+        lastActive = now()
         _items.update { it + ChatItem.User(said) }
         job = scope.launch { converse(TurnInput.Say(said)) }
     }
@@ -244,6 +256,7 @@ class BoardAssistant(
             finishStreaming()
             error(e.message ?: "Something went wrong")
         } finally {
+            lastActive = now()
             _busy.value = false
         }
     }
@@ -350,7 +363,7 @@ class BoardAssistant(
         val scope = router.only?.let { "You are working on the \"${it.boardName}\" board." }
             ?: "You can see every beads board on Ryder's computers — one board per project — and you work across all of them."
         val howTo = if (everyBoard)
-            "Call list_boards first to learn the board names, then pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board sweeps every board at once, which is the way to answer \"what's next everywhere\" questions. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board."
+            "Call list_boards first: it costs nothing and gives every board's exact name and bead counts (open, in progress, blocked, done) without reading any board. Read those counts, decide which few boards actually matter to the question, and only then call list_beads with that board's exact name — each board you read is a fetch over Ryder's network, so read the boards you need, not all of them. Pass the exact name as `board` on every other call; never guess a board name or an id. list_beads with a null board is a last resort: it reads at most ${AllBoardsRouter.MAX_BOARDS_SWEPT} boards, skips hidden ones, and ends with a note naming what it didn't read — when that note says the sweep was cut short, tell Ryder so rather than presenting a partial answer as complete. A board marked hidden in list_boards is one Ryder has tucked away: leave it out unless Ryder names it, and then use it like any other. Bead ids are only unique within a board, so always keep a bead's board alongside its id. To orchestrate, find the beads that matter, propose the edits that unblock them, and dispatch the ones ready to be coded with run_in_claude_code on their own board."
         else
             "Use the tools to look things up before answering; never guess ids."
         val refer = if (everyBoard) "Refer to beads by id and title, and say which board each one is on." else "Refer to beads by id and title."
@@ -368,6 +381,11 @@ class BoardAssistant(
     companion object {
         // Large requests ("start everything that's ready") take many tool steps.
         private const val MAX_TURNS = 40
+
+        const val HOUR_MS = 60 * 60 * 1000L
+
+        /** The boards-screen conversation starts fresh once it has sat this long untouched. */
+        const val ORCHESTRATOR_IDLE_RESET_MS = 4 * HOUR_MS
 
         fun summarize(name: String, input: JsonObject?): String {
             fun s(k: String) = (input?.get(k) as? JsonPrimitive)?.takeUnless { it.content == "null" }?.content

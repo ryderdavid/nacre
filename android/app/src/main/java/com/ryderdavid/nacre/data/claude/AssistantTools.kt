@@ -99,7 +99,7 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
 /** Lists the boards; only offered when one conversation spans every board. */
 val LIST_BOARDS = ToolSpec(
     "list_boards",
-    "List every board (project) you can reach, with its bead counts, computers and path. Call this before anything else so you know the board names.",
+    "List every board (project) you can reach, with its bead counts, computers and path. It reads no board, so it is cheap: call it before anything else, then use the counts to choose which boards to read.",
     mapOf("query" to nullable("string", "Text to match in the board name, path or git remote, or null for all boards")),
     write = false,
 )
@@ -113,7 +113,7 @@ fun assistantTools(everyBoard: Boolean): List<ToolSpec> {
     return listOf(LIST_BOARDS) + BOARD_TOOLS.map { spec ->
         if (spec.name == "list_beads") spec.copy(
             description = spec.description.replace("on this board ", ""),
-            props = mapOf("board" to nullable("string", "Board name from list_boards, or null to sweep every board at once (a few rows from each)")) + spec.props,
+            props = mapOf("board" to nullable("string", "Board name from list_boards. Null sweeps the ${AllBoardsRouter.MAX_BOARDS_SWEPT} most recently updated boards (a few rows from each, hidden boards skipped); prefer naming the boards whose counts matter")) + spec.props,
         ) else spec.copy(
             props = mapOf("board" to str("Board name, exactly as list_boards reports it")) + spec.props,
             required = listOf("board") + spec.required,

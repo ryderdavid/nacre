@@ -5,6 +5,13 @@ import com.ryderdavid.nacre.data.RepoGroup
 import com.ryderdavid.nacre.data.HostState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -53,6 +60,7 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +77,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -79,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ryderdavid.nacre.data.Connection
+import com.ryderdavid.nacre.data.claude.ChatItem
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.settings.SettingsStore
@@ -116,6 +128,9 @@ private const val MIN_ASSISTANT_PANE_DP = 320f
 private const val MIN_BOARDS_PANE_DP = 360f
 private const val DEFAULT_ASSISTANT_PANE_DP = 420f
 
+/** Scroll, in px per event, that folds the chat bar away or brings it back on a narrow screen. */
+private const val BAR_SCROLL_SLOP_PX = 4f
+
 /** Clamp a dragged assistant-pane width so the boards list keeps its minimum inside [totalDp]. */
 internal fun clampAssistantPaneWidth(widthDp: Float, totalDp: Float): Float =
     widthDp.coerceIn(MIN_ASSISTANT_PANE_DP, (totalDp - MIN_BOARDS_PANE_DP).coerceAtLeast(MIN_ASSISTANT_PANE_DP))
@@ -123,6 +138,8 @@ internal fun clampAssistantPaneWidth(widthDp: Float, totalDp: Float): Float =
 /**
  * Every project's board. The chat bar at the bottom opens the assistant over all of
  * them at once; on a wide screen it sits beside the list instead of replacing it.
+ * Folded, the bar shrinks to a small button while the list scrolls down and comes
+ * back on scroll-up; unfolded it always stays.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,22 +162,40 @@ fun ReposScreen(
     var assistantPane by rememberSaveable { mutableStateOf(false) }
     var paneDp by rememberSaveable { mutableStateOf(DEFAULT_ASSISTANT_PANE_DP) }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val orchestrator = container.orchestrator()
+    val chat by orchestrator.items.collectAsState()
+    val messages = chat.count { it is ChatItem.User || it is ChatItem.Assistant }
+    var barText by rememberSaveable { mutableStateOf("") }
+    var barFolded by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 760.dp
         val density = LocalDensity.current.density
         val totalDp = maxWidth.value
-        LaunchedEffect(wide) { if (!wide) assistantPane = false }
+        LaunchedEffect(wide) { if (!wide) assistantPane = false else barFolded = false }
+        // Folded only: scrolling the list down tucks the bar away, scrolling up brings it back.
+        // A half-typed question keeps the bar out.
+        val foldBarOnScroll = remember(wide) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (!wide) {
+                        if (available.y < -BAR_SCROLL_SLOP_PX && barText.isBlank()) barFolded = true
+                        else if (available.y > BAR_SCROLL_SLOP_PX) barFolded = false
+                    }
+                    return Offset.Zero
+                }
+            }
+        }
         val paneShown = wide && assistantPane
         // Ask now, read the answer in the conversation: beside the list when there's room, else full screen.
         val ask: (String) -> Unit = { message ->
-            if (message.isNotBlank()) container.orchestrator().send(message)
+            if (message.isNotBlank()) orchestrator.send(message)
             if (wide) assistantPane = true else onOpenAssistant()
         }
 
         Row(Modifier.fillMaxSize()) {
             Scaffold(
-                modifier = Modifier.weight(1f).nestedScroll(scroll.nestedScrollConnection),
+                modifier = Modifier.weight(1f).nestedScroll(foldBarOnScroll).nestedScroll(scroll.nestedScrollConnection),
                 topBar = {
                     LargeTopAppBar(
                         title = {
@@ -182,7 +217,28 @@ fun ReposScreen(
                     )
                 },
                 bottomBar = {
-                    if (!paneShown && prefs?.bridgeConfigured == true) OrchestratorBar(claudeReady = prefs?.claudeConfigured == true, onAsk = ask)
+                    AnimatedVisibility(
+                        visible = !paneShown && prefs?.bridgeConfigured == true && !(barFolded && !wide),
+                        enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                        exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+                    ) {
+                        OrchestratorBar(
+                            text = barText, onText = { barText = it },
+                            claudeReady = prefs?.claudeConfigured == true,
+                            messages = messages, onNewChat = orchestrator::clear, onAsk = ask,
+                        )
+                    }
+                },
+                floatingActionButton = {
+                    AnimatedVisibility(
+                        visible = !paneShown && prefs?.bridgeConfigured == true && barFolded && !wide,
+                        enter = scaleIn() + fadeIn(),
+                        exit = scaleOut() + fadeOut(),
+                    ) {
+                        SmallFloatingActionButton(onClick = { barFolded = false }) {
+                            Icon(AiIcon, "Show the chat bar")
+                        }
+                    }
                 },
             ) { pad ->
                 val p = prefs ?: return@Scaffold
@@ -257,32 +313,50 @@ fun ReposScreen(
     }
 }
 
-/** The cross-board chat bar: ask about any project without opening its board first. */
+/**
+ * The cross-board chat bar: ask about any project without opening its board first.
+ * Once the shared conversation has [messages], it says so and offers a new chat, so
+ * sending is a choice to continue rather than a surprise.
+ */
 @Composable
-private fun OrchestratorBar(claudeReady: Boolean, onAsk: (String) -> Unit) {
-    var text by rememberSaveable { mutableStateOf("") }
+private fun OrchestratorBar(
+    text: String,
+    onText: (String) -> Unit,
+    claudeReady: Boolean,
+    messages: Int,
+    onNewChat: () -> Unit,
+    onAsk: (String) -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.surface) {
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                enabled = claudeReady,
-                placeholder = { Text(if (claudeReady) "Ask Claude about any board" else "Add your Claude API key in Settings") },
-                leadingIcon = { Icon(AiIcon, null) },
-                maxLines = 4,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            FilledIconButton(
-                onClick = { onAsk(text); text = "" },
-                enabled = claudeReady,
-                modifier = Modifier.size(52.dp),
-            ) {
-                if (text.isBlank()) Icon(AiIcon, "Open the assistant") else Icon(Icons.AutoMirrored.Rounded.Send, "Send")
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            if (messages > 0) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Continuing · $messages message${if (messages == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(start = 16.dp),
+                )
+                TextButton(onClick = onNewChat) { Text("New chat") }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onText,
+                    enabled = claudeReady,
+                    placeholder = { Text(if (claudeReady) "Ask Claude about any board" else "Add your Claude API key in Settings") },
+                    leadingIcon = { Icon(AiIcon, null) },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledIconButton(
+                    onClick = { onAsk(text); onText("") },
+                    enabled = claudeReady,
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    if (text.isBlank()) Icon(AiIcon, "Open the assistant") else Icon(Icons.AutoMirrored.Rounded.Send, "Send")
+                }
             }
         }
     }

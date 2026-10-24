@@ -70,26 +70,26 @@ class AllBoardsRouter(
         }
     }
 
+    /**
+     * With no board, reads the few boards [planSweep] picks — each one a full board fetch
+     * over the bridge — and ends with [sweepNote] naming everything it didn't read.
+     */
     override suspend fun listBeads(board: String?, lane: String?, query: String?, limit: Int): String {
         if (!board.isNullOrBlank()) return resolve(board).listBeads(lane, query, limit)
-        val hidden = settings.current().hiddenRepos
-        val candidates = boards()
-            .filter { it.id !in hidden && it.home.error.isBlank() && it.home.counts.total > 0 }
-            .filter { lane !in OPEN_LANES || it.home.counts.active > 0 }
-            .sortedByDescending { it.home.lastUpdated }
-        if (candidates.isEmpty()) return "No boards have beads to show."
-        val targets = candidates.take(MAX_BOARDS_SWEPT)
+        val plan = planSweep(boards(), settings.current().hiddenRepos, lane)
+        if (plan.targets.isEmpty()) return "No boards have beads to show." + sweepNote(plan)
         val per = limit.coerceIn(1, 200).coerceAtMost(ROWS_PER_BOARD)
         val sections = coroutineScope {
-            targets.map { g ->
+            plan.targets.map { g ->
                 async { g.home.name to runCatching { toolsFor(g).listBeads(lane, query, per) }.getOrElse { "(couldn't read this board: ${it.friendly()})" } }
             }.awaitAll()
         }
         val body = sections.filterNot { it.second == "No beads match." }.joinToString("\n\n") { (name, rows) -> "## $name\n$rows" }
-        val skipped = candidates.drop(targets.size)
-        return body.ifBlank { "No beads match on any board." } + if (skipped.isEmpty()) "" else
-            "\n\n(${skipped.size} quieter board(s) not swept: ${skipped.joinToString { it.home.name }}. Name one to look at it.)"
+        return body.ifBlank { "No beads match on the boards read." } + sweepNote(plan)
     }
+
+    /** What a board-less list_beads reads, and what it leaves out. */
+    internal data class SweepPlan(val targets: List<RepoGroup>, val notRead: List<RepoGroup>, val hidden: List<RepoGroup>)
 
     companion object {
         /**
@@ -100,9 +100,37 @@ class AllBoardsRouter(
             boards.filter { it.home.name.equals(name, ignoreCase = true) }
                 .ifEmpty { boards.filter { it.home.name.contains(name, true) || it.home.path.contains(name, true) || it.home.key == name } }
 
+        /**
+         * Picks the boards a sweep reads from the scan's counts alone, without fetching any:
+         * hidden, errored and empty boards are out (and, for a lane of open work, boards with
+         * nothing open), then the most recently updated [MAX_BOARDS_SWEPT] win.
+         */
+        internal fun planSweep(boards: List<RepoGroup>, hiddenIds: Set<String>, lane: String?): SweepPlan {
+            val (hidden, shown) = boards.partition { it.id in hiddenIds }
+            val candidates = shown
+                .filter { it.home.error.isBlank() && it.home.counts.total > 0 }
+                .filter { lane !in OPEN_LANES || it.home.counts.active > 0 }
+                .sortedByDescending { it.home.lastUpdated }
+            return SweepPlan(candidates.take(MAX_BOARDS_SWEPT), candidates.drop(MAX_BOARDS_SWEPT), hidden.sortedBy { it.home.name.lowercase() })
+        }
+
+        /** The trailing note on a sweep: says plainly when it was cut short, and which hidden boards it skipped. */
+        internal fun sweepNote(plan: SweepPlan): String = buildString {
+            if (plan.notRead.isNotEmpty()) {
+                val read = plan.targets.size
+                append("\n\n(Sweep cut short: read only the $read most recently updated of ${read + plan.notRead.size} boards with matching beads. ")
+                append("Not read: ").append(plan.notRead.joinToString { it.home.name }).append(". Name a board to read it.)")
+            }
+            if (plan.hidden.isNotEmpty()) {
+                append("\n\n(Plus ${plan.hidden.size} hidden: ").append(plan.hidden.joinToString { it.home.name })
+                append(". Hidden boards are left out of sweeps; name one to read it.)")
+            }
+        }
+
         /** Lanes that only hold beads which aren't done, so empty boards can be skipped. */
         val OPEN_LANES = setOf("ready", "doing", "blocked", "open")
-        const val MAX_BOARDS_SWEPT = 12
+        /** Boards one sweep fetches at most; the rest are named in [sweepNote] for the assistant to pick from. */
+        const val MAX_BOARDS_SWEPT = 5
         const val ROWS_PER_BOARD = 25
         const val SCAN_WAIT_MS = 8_000L
     }

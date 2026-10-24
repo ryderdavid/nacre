@@ -42,7 +42,8 @@ class AppContainer(app: Application) {
 
     /**
      * One assistant conversation per board plus the cross-board one, kept for the life
-     * of the process. Repo keys are "<host>~<repo id>", so [ALL_BOARDS] can't collide.
+     * of the process (the cross-board one starts fresh after a few idle hours). Repo keys
+     * are "<host>~<repo id>", so [ALL_BOARDS] can't collide.
      */
     private val assistants = mutableMapOf<String, BoardAssistant>()
 
@@ -55,7 +56,10 @@ class AppContainer(app: Application) {
     /** The conversation on the boards screen, which reaches every board at once. */
     fun orchestrator(): BoardAssistant = synchronized(assistants) {
         assistants.getOrPut(ALL_BOARDS) {
-            BoardAssistant(backends, { settings.current() }, AllBoardsRouter(repository, settings), scope)
+            BoardAssistant(
+                backends, { settings.current() }, AllBoardsRouter(repository, settings), scope,
+                idleResetMs = BoardAssistant.ORCHESTRATOR_IDLE_RESET_MS,
+            )
         }
     }
 
