@@ -66,6 +66,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/runs", s.startRun)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
+	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
+	mux.HandleFunc("POST /v1/assist/{turn}/cancel", s.cancelAssist)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)
 	mux.HandleFunc("GET /v1/runs/{run}", s.getRun)
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)

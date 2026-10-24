@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,12 +50,18 @@ func TestAssistRequestValidation(t *testing.T) {
 	}
 }
 
-// assistServer serves one repo (a temp dir) with a fake claude binary.
+// assistServer serves one repo (a temp dir) with a fake claude binary that
+// prints transcript.
 func assistServer(t *testing.T, transcript string) (ts *httptest.Server, repoID string) {
+	t.Helper()
+	return assistServerScript(t, "#!/bin/sh\ncat <<'EOF'\n"+transcript+"\nEOF\n")
+}
+
+// assistServerScript serves one repo with script as the claude binary.
+func assistServerScript(t *testing.T, script string) (ts *httptest.Server, repoID string) {
 	t.Helper()
 	repoDir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "claude")
-	script := "#!/bin/sh\ncat <<'EOF'\n" + transcript + "\nEOF\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -152,10 +159,10 @@ func TestAssistStreamSendsEventsThenDone(t *testing.T) {
 			last = strings.TrimPrefix(line, "data: ")
 		}
 	}
-	if len(names) == 0 || names[len(names)-1] != "done" {
+	if len(names) < 2 || names[0] != "turn" || names[len(names)-1] != "done" {
 		t.Fatalf("events = %v", names)
 	}
-	for _, n := range names[:len(names)-1] {
+	for _, n := range names[1 : len(names)-1] {
 		if n != "event" {
 			t.Errorf("unexpected event %q in %v", n, names)
 		}
@@ -171,6 +178,134 @@ func TestAssistStreamSendsEventsThenDone(t *testing.T) {
 	}
 	if done.SessionID != "s-1" || done.Output.Reply != "all clear" {
 		t.Errorf("done = %+v", done)
+	}
+}
+
+// sseMsg is one parsed server-sent event.
+type sseMsg struct{ id, name, data string }
+
+// readSSE parses messages from rd until it ends or stop returns true.
+func readSSE(rd io.Reader, stop func(sseMsg) bool) []sseMsg {
+	var out []sseMsg
+	var cur sseMsg
+	br := bufio.NewReader(rd)
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return out
+		}
+		line = strings.TrimRight(line, "\n")
+		switch {
+		case line == "":
+			if cur.name != "" {
+				out = append(out, cur)
+				if stop(cur) {
+					return out
+				}
+			}
+			cur = sseMsg{}
+		case strings.HasPrefix(line, "id: "):
+			cur.id = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "event: "):
+			cur.name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			cur.data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+}
+
+// slowAssist prints one tool call, waits for the go file to appear (or two
+// seconds), then a second tool call and the answer.
+func slowAssist(t *testing.T) (ts *httptest.Server, repoID, gate string) {
+	gate = filepath.Join(t.TempDir(), "go")
+	script := `#!/bin/sh
+echo '{"type":"system","subtype":"init","session_id":"s-9"}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"bd list"}}]}}'
+i=0; while [ ! -f ` + gate + ` ] && [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"bd ready"}}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"session_id":"s-9","result":"{}","structured_output":{"reply":"survived"}}'
+`
+	ts, repoID = assistServerScript(t, script)
+	return ts, repoID, gate
+}
+
+func TestAssistTurnSurvivesDroppedConnection(t *testing.T) {
+	ts, repoID, gate := slowAssist(t)
+
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/repos/"+repoID+"/claude/stream", strings.NewReader(`{"prompt":"x"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Read the turn id and the first event, then drop the connection.
+	first := readSSE(resp.Body, func(m sseMsg) bool { return m.name == "event" })
+	resp.Body.Close()
+	if len(first) < 2 || first[0].name != "turn" {
+		t.Fatalf("first messages = %+v", first)
+	}
+	var turn struct {
+		TurnID string `json:"turn_id"`
+	}
+	_ = json.Unmarshal([]byte(first[0].data), &turn)
+	lastSeq := first[len(first)-1].id
+	if turn.TurnID == "" || lastSeq == "" {
+		t.Fatalf("turn %+v, seq %q", turn, lastSeq)
+	}
+	// claude carries on without anyone listening.
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ = http.NewRequest("GET", ts.URL+"/v1/assist/"+turn.TurnID+"/stream?after="+lastSeq, nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	rest := readSSE(resp.Body, func(sseMsg) bool { return false })
+	if len(rest) == 0 || rest[len(rest)-1].name != "done" || !strings.Contains(rest[len(rest)-1].data, "survived") {
+		t.Fatalf("after reattach = %+v", rest)
+	}
+	seen, _ := strconv.Atoi(lastSeq)
+	for _, m := range rest[:len(rest)-1] {
+		if n, _ := strconv.Atoi(m.id); n <= seen {
+			t.Errorf("replayed seq %s already seen (after %s)", m.id, lastSeq)
+		}
+	}
+
+	// An unknown turn is a 404.
+	if resp, _ := do(t, "GET", ts.URL+"/v1/assist/t_nope/stream", "tok"); resp.StatusCode != 404 {
+		t.Errorf("unknown turn: %d", resp.StatusCode)
+	}
+}
+
+func TestAssistTurnCancel(t *testing.T) {
+	ts, repoID, _ := slowAssist(t)
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/repos/"+repoID+"/claude/stream", strings.NewReader(`{"prompt":"x"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	cancelled := false
+	msgs := readSSE(resp.Body, func(m sseMsg) bool {
+		if m.name == "turn" && !cancelled {
+			var turn struct {
+				TurnID string `json:"turn_id"`
+			}
+			_ = json.Unmarshal([]byte(m.data), &turn)
+			if r, _ := post(t, ts.URL+"/v1/assist/"+turn.TurnID+"/cancel", ""); r.StatusCode != 204 {
+				t.Errorf("cancel: %d", r.StatusCode)
+			}
+			cancelled = true
+		}
+		return false
+	})
+	if last := msgs[len(msgs)-1]; last.name != "error" {
+		t.Fatalf("cancelled turn ended with %+v", last)
 	}
 }
 

@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,9 +115,13 @@ type assistResult struct {
 	CostUSD   float64         `json:"cost_usd,omitempty"`
 }
 
-// assistStream answers one prompt and streams the transcript as it arrives:
-// "event" messages carrying RunEvents, then one "done" with the structured
-// answer, or one "error". This is how the board assistant runs on the Mac.
+// assistStream answers one prompt and streams the transcript as it arrives.
+// This is how the board assistant runs on the Mac.
+//
+// The turn runs on its own, not on this request: a phone that loses its
+// connection mid-answer reattaches with GET /v1/assist/{turn}/stream and
+// picks up where it left off instead of killing claude and losing the answer.
+// The first message is "turn" with the id to reattach with.
 func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 	path, ok := s.repoPath(w, r)
 	if !ok {
@@ -130,37 +137,76 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, bad, "")
 		return
 	}
+	turn := s.Assist.Start(path, h)
+	s.streamTurn(w, r, turn, 0, true)
+}
 
+// resumeAssist reattaches to a turn, replaying the events after ?after=seq
+// (or Last-Event-ID) and then following it live.
+func (s *Server) resumeAssist(w http.ResponseWriter, r *http.Request) {
+	turn := s.Assist.Turn(r.PathValue("turn"))
+	if turn == nil {
+		writeError(w, http.StatusNotFound, "that answer is no longer available", "")
+		return
+	}
+	after := int64(0)
+	if v := r.Header.Get("Last-Event-ID"); v != "" {
+		after, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	} else if v := r.URL.Query().Get("after"); v != "" {
+		after, _ = strconv.ParseInt(v, 10, 64)
+	}
+	s.streamTurn(w, r, turn, after, false)
+}
+
+// cancelAssist stops a turn the person no longer wants.
+func (s *Server) cancelAssist(w http.ResponseWriter, r *http.Request) {
+	turn := s.Assist.Turn(r.PathValue("turn"))
+	if turn == nil {
+		writeError(w, http.StatusNotFound, "that answer is no longer available", "")
+		return
+	}
+	turn.Cancel()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// assistTurn is the payload of the first "turn" message.
+type assistTurn struct {
+	TurnID string `json:"turn_id"`
+}
+
+// streamTurn sends a turn's events after seq "after", then one "done" with
+// the structured answer or one "error". Leaving early, when the client goes
+// away, leaves the turn running.
+func (s *Server) streamTurn(w http.ResponseWriter, r *http.Request, turn *assist.Turn, after int64, announce bool) {
 	sw, err := sse.NewWriter(w)
 	if err != nil {
 		return
 	}
-	// The process runs on this goroutine; events are queued so a slow phone
-	// cannot stall the reader that drains claude's stdout.
-	events := make(chan api.RunEvent, 256)
-	var (
-		out    assist.Outcome
-		runErr error
-	)
-	// Closing events signals completion, so out and runErr are set by the time
-	// the loop below leaves.
-	go func() {
-		defer close(events)
-		var seq int64
-		o, e := s.Assist.Run(r.Context(), path, h, func(ev api.RunEvent) {
-			seq++
-			ev.Seq, ev.TS = seq, time.Now().UTC().Format(time.RFC3339Nano)
-			select {
-			case events <- ev:
-			default: // the client is behind; drop progress rather than block
-			}
-		})
-		out, runErr = o, e
-	}()
-
+	if announce && sw.Send("", "turn", assistTurn{TurnID: turn.ID}) != nil {
+		return
+	}
 	ping := time.NewTicker(sse.KeepAlive)
 	defer ping.Stop()
-	for events != nil {
+	for {
+		st := turn.State(after)
+		for _, ev := range st.Events {
+			if sw.Send(strconv.FormatInt(ev.Seq, 10), "event", ev) != nil {
+				return
+			}
+			after = ev.Seq
+		}
+		if st.Done {
+			if st.Err != nil {
+				if !errors.Is(st.Err, context.Canceled) {
+					s.Log.Printf("assist: %v", st.Err)
+				}
+				_ = sw.Send("", "error", api.Error{Error: st.Err.Error()})
+				return
+			}
+			out := st.Out
+			_ = sw.Send("", "done", assistResult{SessionID: out.SessionID, Output: out.Output, Text: out.Text, CostUSD: out.CostUSD})
+			return
+		}
 		select {
 		case <-r.Context().Done():
 			return
@@ -168,20 +214,7 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 			if sw.Ping() != nil {
 				return
 			}
-		case ev, open := <-events:
-			if !open {
-				events = nil
-				break
-			}
-			if sw.Send("", "event", ev) != nil {
-				return
-			}
+		case <-st.Changed:
 		}
 	}
-	if runErr != nil {
-		s.Log.Printf("assist: %v", runErr)
-		_ = sw.Send("", "error", api.Error{Error: runErr.Error()})
-		return
-	}
-	_ = sw.Send("", "done", assistResult{SessionID: out.SessionID, Output: out.Output, Text: out.Text, CostUSD: out.CostUSD})
 }

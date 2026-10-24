@@ -50,6 +50,9 @@ sealed interface StreamMessage {
 
 /** Messages from a streamed `claude -p` turn on the computer. */
 sealed interface AssistMessage {
+    /** The id to reattach with if the connection drops; always first from a current nacred. */
+    data class Turn(val id: String) : AssistMessage
+
     /** One line of the Mac's own transcript: a thought, a bd command, its output. */
     data class Event(val event: RunEvent) : AssistMessage
 
@@ -67,6 +70,12 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }.build()
 
     private val streamHttp = http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
+
+    /**
+     * Assistant turns notice a dead connection: nacred pings every 15 s, so a
+     * silent minute means the link is gone and the turn should be reattached.
+     */
+    private val assistHttp = http.newBuilder().readTimeout(60, TimeUnit.SECONDS).build()
 
     @Serializable private data class Repos(val repos: List<Repo>)
     @Serializable data class Board(val repo: Repo, val issues: List<Issue>)
@@ -121,14 +130,33 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun claudeJson(repo: String, req: AssistRequest): AssistResult = send("POST", "/v1/repos/$repo/claude/json", req)
 
     /** One board-assistant turn on this computer, streamed as it runs. */
-    fun claudeStream(repo: String, req: AssistRequest): Flow<AssistMessage> = callbackFlow {
+    fun claudeStream(repo: String, req: AssistRequest): Flow<AssistMessage> {
         val body: RequestBody = json.encodeToString(req).toRequestBody(JSON)
-        val request = Request.Builder().url(url("/v1/repos/$repo/claude/stream")).post(body)
-            .header("Accept", "text/event-stream").build()
-        val source = EventSources.createFactory(streamHttp).newEventSource(request, object : EventSourceListener() {
+        return assistSse(Request.Builder().url(url("/v1/repos/$repo/claude/stream")).post(body))
+    }
+
+    /**
+     * Picks a turn back up after the connection dropped: the events after [after], then
+     * the rest live. The turn kept running on the computer in the meantime.
+     */
+    fun claudeResume(turn: String, after: Long): Flow<AssistMessage> =
+        assistSse(Request.Builder().url(url("/v1/assist/${enc(turn)}/stream?after=$after")))
+
+    /** Stops a turn nobody is waiting for any more. */
+    suspend fun claudeCancel(turn: String) {
+        withContext(Dispatchers.IO) {
+            http.newCall(Request.Builder().url(url("/v1/assist/${enc(turn)}/cancel")).post(ByteArray(0).toRequestBody()).build())
+                .await().close()
+        }
+    }
+
+    private fun assistSse(builder: Request.Builder): Flow<AssistMessage> = callbackFlow {
+        val request = builder.header("Accept", "text/event-stream").build()
+        val source = EventSources.createFactory(assistHttp).newEventSource(request, object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                 val msg = runCatching {
                     when (type) {
+                        "turn" -> AssistMessage.Turn(json.decodeFromString<JsonObject>(data)["turn_id"]!!.jsonPrimitive.content)
                         "done" -> AssistMessage.Done(json.decodeFromString<AssistResult>(data))
                         "error" -> AssistMessage.Failed(json.decodeFromString<ErrorBody>(data).error.ifBlank { "Claude failed on the computer" })
                         else -> AssistMessage.Event(json.decodeFromString<RunEvent>(data))

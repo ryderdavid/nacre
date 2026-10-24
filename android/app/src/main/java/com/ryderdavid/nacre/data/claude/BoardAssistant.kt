@@ -79,11 +79,13 @@ sealed interface ChatItem {
 
     /**
      * Something went wrong. [offerApiKey] marks the failures the user can fix
-     * by running Claude on this phone's API key instead.
+     * by running Claude on this phone's API key instead, and [canRetry] the
+     * ones where asking again is likely to work.
      */
     data class Error(
         val text: String,
         val offerApiKey: Boolean = false,
+        val canRetry: Boolean = false,
         override val key: String = UUID.randomUUID().toString(),
     ) : ChatItem
 }
@@ -119,6 +121,9 @@ class BoardAssistant(
     val autoApprove = MutableStateFlow(false)
     private var job: Job? = null
 
+    /** The input of the turn in flight, which [retry] sends again. */
+    private var retryInput: TurnInput? = null
+
     // Which entry each kind of streamed output is currently appending to.
     private var textKey: String? = null
     private var thinkKey: String? = null
@@ -153,6 +158,14 @@ class BoardAssistant(
         job = scope.launch { converse(TurnInput.Say(said)) }
     }
 
+    /** Asks again after a failure that [ChatItem.Error.canRetry] says is worth retrying. */
+    fun retry() {
+        val input = retryInput ?: return
+        if (_busy.value) return
+        _items.update { list -> list.filterNot { it is ChatItem.Error && it.canRetry } }
+        job = scope.launch { converse(input) }
+    }
+
     fun stop() {
         job?.cancel()
         approvals.values.forEach { it.complete(false) }
@@ -170,6 +183,7 @@ class BoardAssistant(
 
     fun clear() {
         stop()
+        retryInput = null
         session?.reset()
         _items.value = emptyList()
     }
@@ -198,6 +212,7 @@ class BoardAssistant(
             val session = sessionFor()
             var input = first
             repeat(MAX_TURNS) {
+                retryInput = input
                 val result = session.turn(input, sink)
                 finishStreaming()
                 when (result.stop) {
@@ -224,7 +239,7 @@ class BoardAssistant(
             throw e
         } catch (e: ClaudeUnavailableException) {
             finishStreaming()
-            error(e.message ?: "Claude isn't available right now", offerApiKey = e.offerApiKey && settings().apiKeyConfigured)
+            error(e.message ?: "Claude isn't available right now", offerApiKey = e.offerApiKey && settings().apiKeyConfigured, canRetry = e.canRetry)
         } catch (e: Exception) {
             finishStreaming()
             error(e.message ?: "Something went wrong")
@@ -327,8 +342,8 @@ class BoardAssistant(
         }
     }
 
-    private fun error(text: String, offerApiKey: Boolean = false) {
-        _items.update { it + ChatItem.Error(text, offerApiKey) }
+    private fun error(text: String, offerApiKey: Boolean = false, canRetry: Boolean = false) {
+        _items.update { it + ChatItem.Error(text, offerApiKey, canRetry) }
     }
 
     private fun systemPrompt(): String {

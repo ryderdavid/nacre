@@ -2,14 +2,22 @@ package com.ryderdavid.nacre.data.claude
 
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.bridge.AssistMessage
+import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
+import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.RunEvent
 import com.ryderdavid.nacre.data.settings.AppSettings
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -65,8 +73,12 @@ class MacSession(
 ) : AssistantSession {
     private var sessionId = ""
 
+    /** A turn that lost its connection, kept so Retry can pick it back up. */
+    private var pending: TurnProgress? = null
+
     override fun reset() {
         sessionId = ""
+        pending = null
     }
 
     override suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult {
@@ -89,19 +101,45 @@ class MacSession(
             keep = true,
         )
 
-        var done: AssistResult? = null
-        var failed: String? = null
-        translate {
-            repo.claudeStream(runKey, req).collect { msg ->
-                when (msg) {
-                    is AssistMessage.Event -> relay(msg.event, sink)
-                    is AssistMessage.Done -> done = msg.result
-                    is AssistMessage.Failed -> failed = msg.error
+        val host = repo.hostName(Keys.host(runKey)).ifBlank { "the computer" }
+        // A Retry of a turn that lost its connection picks the same turn back up: it
+        // carried on on the computer, and its answer is probably waiting there.
+        var progress = pending?.takeIf { it.prompt == req.prompt } ?: TurnProgress(req.prompt)
+        pending = null
+        val reconnecting = Reconnecting(sink, host)
+
+        val outcome = try {
+            translate {
+                val resumable = progress.turn
+                try {
+                    val first = if (resumable != null) repo.claudeResume(runKey, resumable, progress.lastSeq) else repo.claudeStream(runKey, req)
+                    followTurn(first, progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting)
+                } catch (e: BridgeException) {
+                    if (resumable == null || e.code != 404) throw e
+                    // The computer has forgotten that turn; ask again.
+                    progress = TurnProgress(req.prompt)
+                    followTurn(repo.claudeStream(runKey, req), progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting)
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Stopped: Claude shouldn't keep spending the subscription on an answer nobody wants.
+            progress.turn?.let { t -> withContext(NonCancellable) { withTimeoutOrNull(3_000) { runCatching { repo.claudeCancel(runKey, t) } } } }
+            throw e
+        } catch (e: TurnLostException) {
+            reconnecting.gaveUp()
+            if (progress.turn != null) pending = progress
+            throw ClaudeUnavailableException(
+                if (progress.turn != null) "Lost the connection to $host. Claude kept working there; Retry picks the answer back up."
+                else "Lost the connection to $host before Claude finished.",
+                canRetry = true,
+            )
         }
-        failed?.let { throw ClaudeException(it) }
-        val result = done ?: throw ClaudeException("The Mac stopped sending before Claude finished.")
+        reconnecting.back()
+
+        val result = when (outcome) {
+            is TurnOutcome.Failed -> throw ClaudeException(outcome.error)
+            is TurnOutcome.Done -> outcome.result
+        }
         if (result.sessionId.isNotBlank()) sessionId = result.sessionId
 
         val (reply, calls) = result.output?.let { runCatching { macAnswer(it) }.getOrNull() }
@@ -125,7 +163,8 @@ class MacSession(
                 sink.newBlock()
                 sink.thinking(event.text)
             }
-            "tool_use" -> sink.aside(event.toolId.ifBlank { event.seq.toString() }, BD_TOOL, event.text)
+            // StructuredOutput is how claude -p hands back the schema answer, shown below as the reply.
+            "tool_use" -> if (event.tool != STRUCTURED_OUTPUT) sink.aside(event.toolId.ifBlank { event.seq.toString() }, BD_TOOL, event.text)
             "tool_result" -> sink.asideDone(event.toolId, event.text, event.isError == true)
         }
     }
@@ -133,6 +172,8 @@ class MacSession(
     companion object {
         /** The name shown for a step the Mac ran itself. */
         const val BD_TOOL = "bd"
+
+        private const val STRUCTURED_OUTPUT = "StructuredOutput"
     }
 }
 
@@ -156,9 +197,125 @@ internal fun macAnswer(output: JsonObject, turn: String = UUID.randomUUID().toSt
     return answer.reply to calls
 }
 
+/** How far a Mac turn has got, so it can be reattached after a dropped connection. */
+internal class TurnProgress(val prompt: String) {
+    var turn: String? = null
+    var lastSeq = 0L
+    var events = 0
+}
+
+internal sealed interface TurnOutcome {
+    data class Done(val result: AssistResult) : TurnOutcome
+    data class Failed(val error: String) : TurnOutcome
+}
+
+/** The connection dropped and couldn't be brought back in time. */
+internal class TurnLostException(cause: Throwable) : IOException("connection lost", cause)
+
+/** Hears about a dropped connection: [lost] when it goes, [back] when a reattach works. */
+internal interface DropListener {
+    fun lost(attempt: Int)
+    fun back()
+}
+
+/** How long to keep trying to reattach before telling the user. */
+internal const val RECONNECT_BUDGET_MS = 3 * 60_000L
+
+/** 1 s, 2 s, 4 s, 8 s, then every 10 s. */
+internal fun reconnectDelay(attempt: Int): Long = minOf(10_000L, 1_000L shl (attempt - 1).coerceIn(0, 4))
+
 /**
- * Turns a bridge failure into words about this feature. A Mac that cannot be
- * reached is the common case and the app offers the API key instead.
+ * Follows one Mac turn to its answer, reattaching when the connection drops.
+ *
+ * nacred keeps the turn running when the phone goes away, so a drop costs
+ * nothing as long as the app comes back: [resume] replays the events after
+ * the last one seen, which are de-duplicated by seq. It gives up with
+ * [TurnLostException] after [budgetMs] of failed attempts, always making one
+ * attempt after each pause — a phone waking from sleep finds the answer
+ * waiting. A failure that isn't the network, such as a 404 or a bad token,
+ * ends it at once.
+ */
+internal suspend fun followTurn(
+    first: Flow<AssistMessage>,
+    progress: TurnProgress,
+    resume: (turn: String, after: Long) -> Flow<AssistMessage>,
+    relay: (RunEvent) -> Unit,
+    dropped: DropListener,
+    budgetMs: Long = RECONNECT_BUDGET_MS,
+    pause: suspend (attempt: Int) -> Unit = { delay(reconnectDelay(it)) },
+    now: () -> Long = System::currentTimeMillis,
+): TurnOutcome {
+    var stream = first
+    var attempt = 0
+    var lostAt = 0L
+    while (true) {
+        var outcome: TurnOutcome? = null
+        try {
+            stream.collect { msg ->
+                if (attempt > 0) {
+                    attempt = 0
+                    dropped.back()
+                }
+                when (msg) {
+                    is AssistMessage.Turn -> progress.turn = msg.id
+                    is AssistMessage.Event -> {
+                        val seq = msg.event.seq
+                        if (seq == 0L || seq > progress.lastSeq) {
+                            if (seq > 0) progress.lastSeq = seq
+                            progress.events++
+                            relay(msg.event)
+                        }
+                    }
+                    is AssistMessage.Done -> outcome = TurnOutcome.Done(msg.result)
+                    is AssistMessage.Failed -> outcome = TurnOutcome.Failed(msg.error)
+                }
+            }
+            outcome?.let { return it }
+            throw IOException("The computer closed the stream before Claude finished")
+        } catch (e: IOException) {
+            if (e is BridgeException && e.code != 0) throw e
+            val turn = progress.turn
+            // Nothing to reattach to: either nothing started (let the caller say the computer
+            // can't be reached) or an older nacred that can't resume.
+            if (turn == null) throw if (progress.events == 0) e else TurnLostException(e)
+            if (attempt == 0) lostAt = now()
+            else if (now() - lostAt > budgetMs) throw TurnLostException(e)
+            attempt++
+            dropped.lost(attempt)
+            pause(attempt)
+            stream = resume(turn, progress.lastSeq)
+        }
+    }
+}
+
+/** Shows a dropped connection in the conversation as a step of its own. */
+private class Reconnecting(private val sink: TurnSink, private val host: String) : DropListener {
+    private var id: String? = null
+
+    override fun lost(attempt: Int) {
+        if (id != null) return
+        id = "reconnect-" + UUID.randomUUID().toString().take(8)
+        sink.aside(id!!, CONNECTION_STEP, "The connection to $host dropped")
+    }
+
+    override fun back() {
+        id?.let { sink.asideDone(it, "Reconnected; Claude kept working on $host.", false) }
+        id = null
+    }
+
+    fun gaveUp() {
+        id?.let { sink.asideDone(it, "Couldn't reconnect.", true) }
+        id = null
+    }
+}
+
+/** The step name for a dropped-and-recovered connection. */
+const val CONNECTION_STEP = "connection"
+
+/**
+ * Turns a bridge failure into words about this feature. A computer that can't
+ * be reached at all is worth trying again, and the app offers the API key
+ * instead; one that refused the request is not.
  */
 internal suspend fun <T> translate(block: suspend () -> T): T = try {
     block()
@@ -166,16 +323,20 @@ internal suspend fun <T> translate(block: suspend () -> T): T = try {
     throw e
 } catch (e: ClaudeUnavailableException) {
     throw e
+} catch (e: TurnLostException) {
+    throw e
 } catch (e: kotlinx.coroutines.CancellationException) {
     throw e
 } catch (e: Exception) {
     val friendly = e.friendly()
     val tooOld = friendly.contains("no such route")
+    val network = e is IOException && (e !is BridgeException || e.code == 0)
     throw ClaudeUnavailableException(
         when {
             tooOld -> "That computer's nacred is too old to run Claude for the app. Update nacred, or use your API key."
             else -> friendly
         },
         offerApiKey = true,
+        canRetry = network,
     )
 }

@@ -25,7 +25,12 @@ enum class ClaudeRunner(val key: String, val label: String) {
 }
 
 /** Raised when the chosen backend can't do the job, with wording for the user. */
-class ClaudeUnavailableException(message: String, val offerApiKey: Boolean = false) : Exception(message)
+class ClaudeUnavailableException(
+    message: String,
+    val offerApiKey: Boolean = false,
+    /** Trying the same thing again may well work: the network, not the request, failed. */
+    val canRetry: Boolean = false,
+) : Exception(message)
 
 /** Claude's half of the app's three Claude features. */
 interface ClaudeBackend {

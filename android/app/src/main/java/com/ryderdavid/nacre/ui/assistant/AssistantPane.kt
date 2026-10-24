@@ -68,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import com.ryderdavid.nacre.data.claude.CONNECTION_STEP
 import com.ryderdavid.nacre.data.claude.ChatItem
 import com.ryderdavid.nacre.data.claude.ChatItem.ToolCall.State as S
 import com.ryderdavid.nacre.ui.common.AiIcon
@@ -215,9 +216,12 @@ fun AssistantPane(
                                     Spacer(Modifier.width(8.dp))
                                     Text(item.text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
                                 }
-                                if (item.offerApiKey) TextButton(
-                                    onClick = { scope.launch { container.settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) } } },
-                                ) { Text("Use my Claude API key instead") }
+                                Row {
+                                    if (item.canRetry) TextButton(onClick = assistant::retry, enabled = !busy) { Text("Retry") }
+                                    if (item.offerApiKey) TextButton(
+                                        onClick = { scope.launch { container.settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) } } },
+                                    ) { Text("Use my Claude API key instead") }
+                                }
                             }
                         }
                     }
@@ -277,6 +281,7 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 
 private fun toolTitle(name: String) = when (name) {
     "bd" -> "Read the board on the Mac"
+    CONNECTION_STEP -> "Connection"
     "list_boards" -> "Looked at the boards"
     "list_beads" -> "Looked at beads"
     "get_bead" -> "Read bead"

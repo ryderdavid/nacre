@@ -146,6 +146,8 @@ still a 409).
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |
 | POST | `/v1/repos/{repo}/claude/json` | AssistRequest | `{"session_id","output":{…},"text","cost_usd"}` |
 | POST | `/v1/repos/{repo}/claude/stream` | AssistRequest | SSE (below) |
+| GET | `/v1/assist/{turn}/stream[?after=seq]` | – | SSE: reattach to a streaming answer (404 once it has expired) |
+| POST | `/v1/assist/{turn}/cancel` | – | 204; stops that answer's claude process |
 | GET | `/v1/runs[?repo={repo}&issue={id}&active=1&include=adopted[,stale]]` | – | `{"runs":[Run]}` newest first; adopted runs only with `include=adopted`, stale ones only with `stale` too |
 | GET | `/v1/runs/{run}` | – | `{"run":Run,"events":[RunEvent]}` |
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
@@ -237,10 +239,16 @@ the next turn can continue it with `session_id` (`--resume`).
 final message. A failure is a 502 with `{"error"}` carrying Claude's own wording.
 
 ### SSE
-`/v1/repos/{repo}/claude/stream`: `event: event` + RunEvent JSON for each step as it happens
-(thinking, the `bd` commands and their output), then exactly one terminal message — `event: done`
-with the same body as `/claude/json`, or `event: error` with `{"error"}`. Keep-alive `: ping`
-every 15 s. Progress is dropped rather than buffered without limit if the client falls behind.
+`/v1/repos/{repo}/claude/stream`: first `event: turn` with `{"turn_id"}`, then `id: <seq>` +
+`event: event` + RunEvent JSON for each step as it happens (thinking, the `bd` commands and their
+output), then exactly one terminal message — `event: done` with the same body as `/claude/json`, or
+`event: error` with `{"error"}`. Keep-alive `: ping` every 15 s.
+
+The answer runs independently of the request. If the connection drops, claude keeps going; the
+client reattaches with `GET /v1/assist/{turn}/stream?after=<last seq>` (or `Last-Event-ID`), which
+replays the missed events and then follows live, ending with the same `done`/`error`. A finished
+answer stays readable for 10 minutes. `POST /v1/assist/{turn}/cancel` stops one the person no
+longer wants; its stream then ends with `event: error`.
 
 `/v1/runs/{run}/stream`: first replays stored events with `seq > after`, then sends the current
 `event: run` snapshot, then streams live ones.

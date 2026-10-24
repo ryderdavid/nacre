@@ -383,6 +383,12 @@ class NacreRepository(
     /** Runs one board-assistant turn on [key]'s computer, streamed as it goes. */
     fun claudeStream(key: String, req: AssistRequest): Flow<AssistMessage> = clientFor(key).claudeStream(Keys.id(key), req)
 
+    /** Reattaches to a turn on [key]'s computer after the connection dropped. */
+    fun claudeResume(key: String, turn: String, after: Long): Flow<AssistMessage> = clientFor(key).claudeResume(turn, after)
+
+    /** Stops a turn on [key]'s computer. */
+    suspend fun claudeCancel(key: String, turn: String) = clientFor(key).claudeCancel(turn)
+
     suspend fun startRun(repoKey: String, issueId: String, req: RunRequest): Run {
         val p = pairedFor(repoKey)
         val run = try {
@@ -433,5 +439,8 @@ fun Throwable.friendly(): String = when (this) {
     is BridgeException -> message.orEmpty()
     is java.net.ConnectException, is java.net.SocketTimeoutException, is java.net.UnknownHostException, is java.net.NoRouteToHostException ->
         "Can't reach that computer. Check Tailscale and that nacred is running."
+    // "Software caused connection abort", "Connection reset" and friends: the link dropped mid-call.
+    is java.net.SocketException, is java.io.EOFException, is okhttp3.internal.http2.StreamResetException ->
+        "Lost the connection to that computer."
     else -> message ?: javaClass.simpleName
 }

@@ -36,6 +36,9 @@ const maxStderrTail = 10
 type Runner struct {
 	ClaudePath string
 	Timeout    time.Duration
+
+	turnsMu sync.Mutex
+	turns   map[string]*Turn
 }
 
 // Outcome is what one call produced.
