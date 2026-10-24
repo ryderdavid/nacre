@@ -13,7 +13,12 @@ make test             # go vet + go test
 ./bin/nacred pair     # QR code + URL/token for the app
 ```
 
-Subcommands: `serve` (default), `pair`, `token`, `version`, `install`, `uninstall`.
+Subcommands: `serve` (default), `pair`, `token`, `version`, `install`, `uninstall`, `gates`.
+
+`nacred gates [dir] [--build] [--skip-final] [--only name] [--json]` runs a repository's
+`nacre.yaml` gates (see `docs/API.md`) exactly as nacred does when it checks work: from the
+repository root found at or above `dir`, with the file's `env`, timeout and output tail. It exits 1 if
+anything fails, printing the end of the failing output. Agents should run it before handing work over.
 Flags: `--config <path>` (default `~/.config/nacred/config.json`), `--listen host:port`.
 
 `make install` (or `nacred install`) copies the binary to `~/.local/bin/nacred`, writes
@@ -37,6 +42,7 @@ Created on first run with a random token. Fields (defaults in brackets):
 | `bd_path`, `claude_path` | resolved from PATH / standard locations |
 | `actor` | `bd --actor` for writes ["<git user.name> via Nacre"] |
 | `max_concurrent_runs` | [3]; extra runs stay queued |
+| `max_concurrent_gates` | [2] gate and build commands (`nacre.yaml`) running at once on this computer, across single runs and rounds; set 1 on a laptop |
 | `default_mode`, `default_model` | ["auto"], [""] |
 | `prompt_template` | `{{id}}`, `{{title}}`, `{{repo}}`, `{{instructions}}` placeholders |
 | `data_dir` | run history root [`~/Library/Application Support/nacred`] |
@@ -53,6 +59,8 @@ internal/config     config file, token, Tailscale address
 internal/discovery  .beads repo discovery
 internal/bd         bd CLI wrapper (argv only, 30 s timeout, per-repo write lock)
 internal/repos      repo registry, 2 s issue cache, counts
+internal/repoconfig nacre.yaml: gates, build, env, version bump, resources, landing
+internal/gates      runs gate and build commands (timeout, process group, output tail, computer-wide limit)
 internal/claude     claude argv (runs and headless calls) + stream-json → RunEvent parser
 internal/assist     one-shot `claude -p` calls for the app's Refine, Draft and assistant
 internal/prompt     prompt template rendering

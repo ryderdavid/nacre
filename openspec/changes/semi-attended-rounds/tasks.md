@@ -4,10 +4,11 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 
 ## 1. Repository gates (`nacre.yaml`)
 
-- [ ] 1.1 Parse and validate `nacre.yaml` (gates, build, env, version, resources, land, limits) in a new `internal/repoconfig` package, with errors that name the field and line — G-bridge
-- [ ] 1.2 Expose whether a repository has a valid `nacre.yaml` (and its gate names) on the Repo API entry; update `docs/API.md` — G-bridge
-- [ ] 1.3 Gate runner: run a named command in a directory with env and timeout, kill the process group on timeout, keep exit status, duration and the last 200 lines — G-bridge
-- [ ] 1.4 Add Nacre's own `nacre.yaml` and `scripts/bump-version.sh <patch|minor>` (versionCode +1; versionName patch or minor, minor resetting the patch) — G-bridge, then run the new gate runner against it by hand
+- [x] 1.1 Parse and validate `nacre.yaml` (gates, build, env, version, resources, land, limits) in a new `internal/repoconfig` package, with errors that name the field and line — G-bridge
+- [x] 1.2 Expose whether a repository has a valid `nacre.yaml` (and its gate names) on the Repo API entry; update `docs/API.md` — G-bridge
+- [x] 1.3 Gate runner: run a named command in a directory with env and timeout, kill the process group on timeout, keep exit status, duration and the last 200 lines; a computer-wide `max_concurrent_gates` limit (config, default 2) that queues rather than fails — G-bridge
+- [x] 1.4 Add Nacre's own `nacre.yaml` and `scripts/bump-version.sh <patch|minor>` (versionCode +1; versionName patch or minor, minor resetting the patch) — G-bridge, then run the new gate runner against it by hand
+- [x] 1.5 `nacred gates [dir] [--build]`: run a repository's gates (and build) from the terminal exactly as nacred will, so agents and people can check before handing work over — G-bridge
 
 ## 2. Workspaces
 

@@ -43,6 +43,16 @@ func main() {
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		cmd, args = args[0], args[1:]
 	}
+	if cmd == "gates" {
+		// Runs on its own: no config, no server, and flags of its own.
+		if err := runGates(args, os.Stdout); err != nil {
+			if !errors.Is(err, errGatesFailed) {
+				fmt.Fprintln(os.Stderr, "nacred gates:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	fs := flag.NewFlagSet("nacred "+cmd, flag.ExitOnError)
 	configPath := fs.String("config", config.DefaultPath(), "config file path")
 	listen := fs.String("listen", "", "listen address host:port (overrides config)")
@@ -72,7 +82,7 @@ func main() {
 	case "uninstall":
 		err = launchd.Uninstall(launchd.DefaultPaths(config.Home()), os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall] [--config path] [--listen host:port]\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates] [--config path] [--listen host:port]\n", cmd)
 		os.Exit(2)
 	}
 	if err != nil {

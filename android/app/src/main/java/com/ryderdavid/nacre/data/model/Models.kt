@@ -33,6 +33,10 @@ data class Repo(
     /** Normalized origin remote, e.g. "github.com/owner/repo"; "" if none. */
     @SerialName("git_remote") val gitRemote: String = "",
     @SerialName("git_branch") val gitBranch: String = "",
+    /** Gate names from the repository's nacre.yaml on that computer; empty when it has none. */
+    val gates: List<String> = emptyList(),
+    /** Why nacre.yaml can't be used, with the line it is about; "" when fine or absent. */
+    @SerialName("gates_error") val gatesError: String = "",
     /** Set by the app: which paired computer this repo is on. */
     @Transient val hostId: String = "",
     @Transient val hostName: String = "",

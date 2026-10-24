@@ -47,9 +47,13 @@ type Config struct {
 	// Actor is passed as `bd --actor` on writes.
 	Actor string `json:"actor"`
 
-	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
-	DefaultMode       string `json:"default_mode"`
-	DefaultModel      string `json:"default_model"`
+	MaxConcurrentRuns int `json:"max_concurrent_runs"`
+	// MaxConcurrentGates bounds how many gate and build commands (nacre.yaml)
+	// run at once on this computer, across single runs and rounds. Builds,
+	// not agents, are what a machine runs out of. Default 2; a laptop sets 1.
+	MaxConcurrentGates int    `json:"max_concurrent_gates,omitempty"`
+	DefaultMode        string `json:"default_mode"`
+	DefaultModel       string `json:"default_model"`
 	// PromptTemplate supports {{id}}, {{title}}, {{repo}} and {{instructions}}.
 	PromptTemplate string `json:"prompt_template"`
 
@@ -199,6 +203,9 @@ func (c *Config) fillDefaults() {
 	}
 	if c.MaxConcurrentRuns <= 0 {
 		c.MaxConcurrentRuns = 3
+	}
+	if c.MaxConcurrentGates <= 0 {
+		c.MaxConcurrentGates = 2
 	}
 	if c.DefaultMode == "" {
 		c.DefaultMode = "auto"

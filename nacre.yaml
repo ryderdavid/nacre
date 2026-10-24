@@ -1,0 +1,24 @@
+# What "done" means for Nacre. nacred runs these to check work, and agents
+# run the same thing first with `nacred gates`. See
+# openspec/changes/semi-attended-rounds.
+gates:
+  - name: bridge
+    run: cd bridge && go vet ./... && go test -race ./...
+  - name: app tests
+    run: cd android && ./gradlew -q testDebugUnitTest
+  - name: specs
+    run: openspec validate --all --strict
+build:
+  - name: release apk
+    run: cd android && ./gradlew -q assembleRelease
+    artifact: android/app/build/outputs/apk/release/app-release.apk
+env:
+  JAVA_HOME: /Applications/Android Studio.app/Contents/jbr/Contents/Home
+version:
+  bump: scripts/bump-version.sh {level}
+resources:
+  - name: emulator
+    id: emulator-5554
+land:
+  target: main
+  push: true

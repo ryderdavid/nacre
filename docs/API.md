@@ -31,8 +31,36 @@ user's own subscription login.
   "adopted_runs": 2,             // live agent-owned sessions nacred is only watching; omitted when 0
   "error": "",                    // non-empty when bd failed for this repo (repo still listed)
   "git_remote": "github.com/ryderdavid/nacre", // normalized origin URL, "" if none or a local path
-  "git_branch": "main"            // current branch, "" when detached or not a git repo
+  "git_branch": "main",           // current branch, "" when detached or not a git repo
+  "gates": ["bridge", "app tests"], // gate names from the repo's nacre.yaml; omitted when it has none
+  "gates_error": ""               // why nacre.yaml can't be used ("nacre.yaml line 4: …"); omitted when fine
 }
+```
+
+A repository's `nacre.yaml` (at its root) says what "done" means: the gates every piece of work must
+pass, the build that ends a round, their environment, the version bump, exclusive resources and how a
+round lands. Rounds need it; `nacred gates` runs it from a terminal. Format:
+
+```yaml
+gates:                 # required; each must exit 0
+  - name: bridge
+    run: cd bridge && go test ./...
+  - name: lint
+    run: ./lint.sh
+    final_only: true   # skipped when one bead is checked; runs at the end of a round
+build:                 # run at the end of a round
+  - name: release apk
+    run: cd android && ./gradlew -q assembleRelease
+    artifact: android/app/build/outputs/apk/release/app-release.apk
+env: {JAVA_HOME: /path}  # added to every gate and build command; "~/" means home
+version:
+  bump: scripts/bump-version.sh {level}   # {level} is patch or minor
+resources: [emulator]  # or {name, id}; exclusive, one run at a time
+land: {target: main, auto: false, push: true}       # defaults shown
+limits: {gate_timeout_minutes: 20, fix_attempts: 2} # defaults shown
+```
+Unknown fields are errors. Commands run with `/bin/sh -c` in the repository (or worktree) root, in
+their own process group, killed on timeout; the last 200 lines of output are kept.
 ```
 
 ### Issue

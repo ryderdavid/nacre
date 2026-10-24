@@ -17,6 +17,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/gitinfo"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 )
 
 const (
@@ -73,6 +74,8 @@ type entry struct {
 	prefix    string // from `bd config get issue_prefix`, fetched once
 	git       gitinfo.Info
 	gitAt     time.Time
+	gates     []string // from nacre.yaml, read on each fetch
+	gatesErr  string
 }
 
 type issueMeta struct {
@@ -214,6 +217,13 @@ func (r *Registry) refresh(e *entry, maxAge time.Duration) {
 	if prefix != "" {
 		e.prefix = prefix
 	}
+	// nacre.yaml is small and edited by hand, so it is re-read on every fetch.
+	e.gates, e.gatesErr = nil, ""
+	if cfg, err := repoconfig.Load(e.path); err == nil {
+		e.gates = cfg.GateNames()
+	} else if !errors.Is(err, repoconfig.ErrNotFound) {
+		e.gatesErr = err.Error()
+	}
 	if time.Since(e.gitAt) > gitTTL {
 		e.mu.Unlock()
 		info := gitinfo.Read(ctx, e.path)
@@ -342,6 +352,7 @@ func (r *Registry) summary(e *entry) api.Repo {
 	}
 	rp.Prefix = e.prefix
 	rp.GitRemote, rp.GitBranch = e.git.Remote, e.git.Branch
+	rp.Gates, rp.GatesError = e.gates, e.gatesErr
 	if rp.Prefix == "" && len(e.meta) > 0 {
 		ids := make([]string, len(e.meta))
 		for i, m := range e.meta {

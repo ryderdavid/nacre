@@ -124,7 +124,12 @@ reorder.
 disagreement into a merge-conflict resolution by an agent that has to guess.
 
 ### 6. Scheduling
-Beads run in parallel up to the repository's concurrency (existing `max_concurrent_runs`), in an order
+Two computer-wide limits from each Mac's nacred config apply to everything on that computer, single runs
+and all rounds alike: `max_concurrent_runs` (Claude runs, default 3) and `max_concurrent_gates` (gate and
+build commands, default 2). They are per computer, not in `nacre.yaml`, because they describe the
+hardware: on the Mac Studio (M1 Max, 10 cores, 64 GB) agents are light but each concurrent Gradle build
+takes 5–6 GB and most of the cores, so builds, not agents, are the bottleneck; a laptop sets 2 and 1.
+Beads run in parallel up to those limits, in an order
 that respects bd dependencies plus the plan's orderings: a bead starts when everything it depends on or
 stacks on has been integrated. Exclusive resources are leased (decision 9), so a bead that needs the
 emulator waits for it rather than colliding.
@@ -219,6 +224,9 @@ Rollback: rounds are additive; disabling is removing `nacre.yaml`. Round branche
   the build number always goes up by one.
 - Pre-flight also looks at unmerged branches outside the round that touch the same areas, and asks.
 
+- Concurrency is per computer: 3 runs and 2 gates by default (the Mac Studio); the work laptop sets 2
+  and 1 in its own config. Both limits cover single runs and rounds together.
+
 ## Open Questions
 
-- Default concurrency for rounds on a laptop vs the Mac Studio.
+- None outstanding.

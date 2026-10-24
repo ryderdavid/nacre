@@ -32,3 +32,22 @@ A run holding a lease SHALL receive the resource's identity in its prompt and en
 #### Scenario: Serial passed
 - **WHEN** NAC-5 starts with the emulator lease for `emulator-5554`
 - **THEN** its environment has `NACRE_RESOURCE_EMULATOR=emulator-5554` and its prompt names that serial
+
+### Requirement: Computer-wide limits
+Each computer's nacred config SHALL set how many Claude runs may be active at once
+(`max_concurrent_runs`) and how many gate or build commands may run at once (`max_concurrent_gates`).
+Both limits SHALL apply across everything on that computer: single runs and every round's runs,
+verifications, integrations and final builds. A run or gate over the limit SHALL wait its turn rather than
+fail. The defaults SHALL be 3 runs and 2 gates; a smaller computer lowers them in its own config.
+
+#### Scenario: Gates queue across rounds
+- **WHEN** `max_concurrent_gates` is 2, two beads in one round are running their gates, and a single run's verification is requested
+- **THEN** the third gate run waits until one of the two finishes
+
+#### Scenario: Single runs count
+- **WHEN** `max_concurrent_runs` is 3, two round runs are active and Ryder starts a single "Run with Claude Code"
+- **THEN** the single run starts, and the round's next bead waits until a slot frees up
+
+#### Scenario: Smaller computer
+- **WHEN** the work laptop's config sets `max_concurrent_runs: 2` and `max_concurrent_gates: 1`
+- **THEN** that laptop's nacred never runs more than two Claude runs or one gate at a time

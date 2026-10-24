@@ -92,6 +92,12 @@ type Repo struct {
 	// clients to recognise the same repository on several computers.
 	GitRemote string `json:"git_remote"`
 	GitBranch string `json:"git_branch"`
+	// Gates names the gates in the repository's nacre.yaml, in order; absent
+	// when it has none. A repository needs them before rounds can run in it.
+	Gates []string `json:"gates,omitempty"`
+	// GatesError says why nacre.yaml can't be used, when it exists but is
+	// invalid (with the line it is about).
+	GatesError string `json:"gates_error,omitempty"`
 }
 
 // Host identifies the computer a nacred instance runs on.
