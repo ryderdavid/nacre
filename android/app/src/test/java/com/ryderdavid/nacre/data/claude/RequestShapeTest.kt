@@ -55,6 +55,42 @@ class RequestShapeTest {
         println(Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), body(params)).take(1500))
     }
 
+    @Test fun draftSchemaIsStrictObject() {
+        val params = ClaudeService.baseParams(settings, "system", 8000)
+            .outputConfig(OutputConfig.builder().format(JsonOutputFormat.builder().schema(ClaudeService.schemaOf(ClaudeService.draftSchema)).build()).build())
+            .addUserMessage("hi")
+            .build()
+        val schema = body(params)["output_config"]!!.jsonObject["format"]!!.jsonObject["schema"]!!.jsonObject
+        val props = (schema["properties"] as JsonObject).keys
+        assertEquals(props, (schema["required"] as JsonArray).map { it.jsonPrimitive.content }.toSet())
+        assertTrue("open_questions" in props && "reply" in props)
+    }
+
+    @Test fun revisePromptCarriesDraftQuestionsHistoryAndMessage() {
+        val current = BeadDraft(
+            title = "Add a chat box", description = "Steer the draft", issue_type = "feature", priority = 3,
+            labels = listOf("ux"), open_questions = listOf("Should it sit at the bottom?"),
+        )
+        val prompt = ClaudeService.revisePrompt(
+            "Nacre", current, listOf(DraftTurn(true, "Make it P1"), DraftTurn(false, "Raised priority to P1.")),
+            "Yes, at the bottom. Also change the title to Steer drafts by chat.", parentTitle = null, existingTitles = emptyList(),
+        )
+        assertTrue("<title>Add a chat box</title>" in prompt)
+        assertTrue("priority=\"P3\"" in prompt)
+        assertTrue("- Should it sit at the bottom?" in prompt)
+        assertTrue("<owner>Make it P1</owner>" in prompt && "<you>Raised priority to P1.</you>" in prompt)
+        assertTrue("<message>Yes, at the bottom. Also change the title to Steer drafts by chat.</message>" in prompt)
+    }
+
+    @Test fun draftParsesQuestionsAndReply() {
+        val d = ClaudeService.json.decodeFromString<BeadDraft>(
+            """{"title":"t","description":"d","design":"","acceptance_criteria":"","issue_type":"task","priority":1,"labels":[],"open_questions":["q?"],"reply":"Changed the title."}"""
+        )
+        assertEquals(listOf("q?"), d.open_questions)
+        assertEquals("Changed the title.", d.reply)
+        assertEquals(emptyList(), ClaudeService.json.decodeFromString<BeadDraft>("""{"title":"t"}""").open_questions)
+    }
+
     @Test fun proposalParsesNullsAsUnchanged() {
         val p = ClaudeService.json.decodeFromString<RefineProposal>(
             """{"summary":"s","title":null,"description":"d","design":null,"acceptance_criteria":null,"notes":null,"priority":1,"issue_type":null,"labels":null,"children":[{"title":"c","description":"","issue_type":"task","priority":2,"acceptance_criteria":""}]}"""
