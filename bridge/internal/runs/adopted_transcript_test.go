@@ -332,3 +332,132 @@ func TestAdoptedActivityVocabularyMatchesTheAdapter(t *testing.T) {
 		t.Fatal("claude.DeriveSessionStatus's activities are stored on api.Run as they are")
 	}
 }
+
+// bulkyEvents is n transcript events of about 1 KiB each, so a few thousand
+// carry an adopted run's log past adoptedLogBytes.
+func bulkyEvents(n, from int, base time.Time) []api.RunEvent {
+	pad := strings.Repeat("x", 1024)
+	out := make([]api.RunEvent, 0, n)
+	for i := from; i < from+n; i++ {
+		out = append(out, api.RunEvent{Kind: api.KindText, Text: fmt.Sprint(i, " ", pad),
+			TS: base.Add(time.Duration(i) * time.Millisecond).UTC().Format(time.RFC3339Nano)})
+	}
+	return out
+}
+
+// A long-lived session must cost bounded disk too: once the log passes the
+// threshold it is rewritten to the newest events, seq numbers intact, through
+// a temporary file that does not outlive the rename.
+func TestAdoptedRunLogIsCompacted(t *testing.T) {
+	dir := t.TempDir()
+	m := quietManager(t, dir)
+	s := agentSession("sess-agent", "NAC-7")
+	s.LastWrite = time.Now()
+	n := adoptedLogBytes/1024 + 500
+	s.Events = bulkyEvents(n, 0, time.Now().Add(-time.Hour))
+	m.SyncAdopted([]sessions.Session{s})
+	id := m.List(Filter{IncludeAdopted: true})[0].ID
+	rdir := filepath.Join(dir, id)
+
+	if size := eventsSize(rdir); size > adoptedLogBytes {
+		t.Fatalf("log is %d bytes, want at most %d", size, adoptedLogBytes)
+	}
+	if _, err := os.Stat(filepath.Join(rdir, eventsFile+".tmp")); !os.IsNotExist(err) {
+		t.Fatalf("temporary log left behind: %v", err)
+	}
+	disk, _ := readEvents(rdir, 0)
+	if len(disk) != maxAdoptedEvents {
+		t.Fatalf("log holds %d events, want %d", len(disk), maxAdoptedEvents)
+	}
+	// Two events (the adoption notice and the running status) precede the
+	// transcript, so the newest transcript event i has seq i+3.
+	if last := disk[len(disk)-1]; !strings.HasPrefix(last.Text, fmt.Sprint(n-1, " ")) || last.Seq != int64(n+2) {
+		t.Fatalf("newest logged event = seq %d %.10q", last.Seq, last.Text)
+	}
+	for i := 1; i < len(disk); i++ {
+		if disk[i].Seq != disk[i-1].Seq+1 {
+			t.Fatalf("seq gap at %d: %d then %d", i, disk[i-1].Seq, disk[i].Seq)
+		}
+	}
+
+	// Appends after a compaction land on the compacted log.
+	s.Events = bulkyEvents(10, n, time.Now().Add(-time.Hour))
+	m.SyncAdopted([]sessions.Session{s})
+	disk, _ = readEvents(rdir, 0)
+	if len(disk) != maxAdoptedEvents+10 || disk[len(disk)-1].Seq != int64(n+12) {
+		t.Fatalf("after append: %d events, newest seq %d", len(disk), disk[len(disk)-1].Seq)
+	}
+}
+
+// A restart reads back the compacted tail, and seq numbers carry on from it.
+func TestAdoptedRunRestoresCompactedLogAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	m := quietManager(t, dir)
+	s := agentSession("sess-agent", "NAC-7")
+	s.LastWrite = time.Now()
+	n := adoptedLogBytes/1024 + 500
+	s.Events = bulkyEvents(n, 0, time.Now().Add(-time.Hour))
+	m.SyncAdopted([]sessions.Session{s})
+	id := m.List(Filter{IncludeAdopted: true})[0].ID
+	_, before, _ := m.Get(id)
+
+	m2 := quietManager(t, dir)
+	_, after, err := m2.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) || after[0].Seq != before[0].Seq || after[len(after)-1].Seq != before[len(before)-1].Seq {
+		t.Fatalf("restored seq %d..%d (%d events), want %d..%d (%d)", after[0].Seq, after[len(after)-1].Seq,
+			len(after), before[0].Seq, before[len(before)-1].Seq, len(before))
+	}
+	m2.SyncAdopted([]sessions.Session{agentSession("sess-agent", "NAC-8")})
+	_, evs, _ := m2.Get(id)
+	if last := evs[len(evs)-1]; last.Seq != before[len(before)-1].Seq+1 || len(evs) != maxAdoptedEvents {
+		t.Fatalf("after restart: %d events, newest = %+v", len(evs), last)
+	}
+}
+
+// A log left oversized by an older nacred is read back only as its tail and
+// compacted on load.
+func TestAdoptedRunCompactsAnOversizedLogOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	m := quietManager(t, dir)
+	m.SyncAdopted([]sessions.Session{agentSession("sess-agent", "NAC-7")})
+	id := m.List(Filter{IncludeAdopted: true})[0].ID
+	rdir := filepath.Join(dir, id)
+	n := adoptedLogBytes/1024 + 500
+	evs := bulkyEvents(n, 0, time.Now().Add(-time.Hour))
+	for i := range evs {
+		evs[i].Seq = int64(i + 1)
+	}
+	if err := appendEvent(rdir, evs...); err != nil {
+		t.Fatal(err)
+	}
+
+	m2 := quietManager(t, dir)
+	_, got, _ := m2.Get(id)
+	if len(got) != maxAdoptedEvents || got[len(got)-1].Seq != int64(n) {
+		t.Fatalf("loaded %d events, newest seq %d", len(got), got[len(got)-1].Seq)
+	}
+	if size := eventsSize(rdir); size > adoptedLogBytes {
+		t.Fatalf("log is still %d bytes", size)
+	}
+}
+
+// Runs started from Nacre keep their whole log, however large.
+func TestDispatchedRunLogIsNotCompacted(t *testing.T) {
+	rdir := t.TempDir()
+	r := newRun(api.Run{ID: "r_X", Status: api.StatusRunning}, rdir)
+	r.loaded = true
+	n := adoptedLogBytes/1024 + 500
+	evs := bulkyEvents(n, 0, time.Now())
+	r.mu.Lock()
+	r.importEvents(evs)
+	r.mu.Unlock()
+	if len(r.events) != n {
+		t.Fatalf("held %d events, want %d", len(r.events), n)
+	}
+	if disk, _ := readEvents(rdir, 0); len(disk) != n {
+		t.Fatalf("log holds %d events, want %d", len(disk), n)
+	}
+}

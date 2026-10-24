@@ -19,11 +19,12 @@ type run struct {
 	meta api.Run
 	dir  string
 
-	events  []api.RunEvent // loaded lazily for runs from previous sessions
-	loaded  bool
-	nextSeq int64
-	metaVer uint64
-	subs    map[chan struct{}]struct{}
+	events    []api.RunEvent // loaded lazily for runs from previous sessions
+	loaded    bool
+	nextSeq   int64
+	compactAt int64 // adopted runs: compact events.jsonl once it passes this size
+	metaVer   uint64
+	subs      map[chan struct{}]struct{}
 
 	pending     *claude.Turn // turn waiting in the queue
 	pgid        int          // process group of the running claude, 0 if none
@@ -40,18 +41,24 @@ func newRun(meta api.Run, dir string) *run {
 	return &run{meta: meta, dir: dir, nextSeq: 1, subs: map[chan struct{}]struct{}{}}
 }
 
-// ensureLoaded reads events from disk on first use.
+// ensureLoaded reads events from disk on first use. An adopted run holds only
+// its newest maxAdoptedEvents, and a log left oversized (written before
+// compaction existed) is compacted straight away.
 func (r *run) ensureLoaded() {
 	if r.loaded {
 		return
 	}
 	r.loaded = true
-	evs, _ := readEvents(r.dir)
+	keep := 0
+	if r.meta.Adopted() {
+		keep = maxAdoptedEvents
+	}
+	evs, _ := readEvents(r.dir, keep)
 	r.events = evs
 	if n := len(evs); n > 0 {
 		r.nextSeq = evs[n-1].Seq + 1
 	}
-	r.trimEvents()
+	r.compactEvents()
 }
 
 // addEvent assigns seq/ts, stores, persists and signals subscribers.
@@ -62,6 +69,8 @@ func (r *run) addEvent(ev api.RunEvent) {
 	ev.TS = time.Now().UTC().Format(time.RFC3339Nano)
 	r.events = append(r.events, ev)
 	_ = appendEvent(r.dir, ev)
+	r.trimEvents()
+	r.compactEvents()
 	r.signal()
 }
 
@@ -86,6 +95,7 @@ func (r *run) importEvents(evs []api.RunEvent) {
 	r.events = append(r.events, batch...)
 	_ = appendEvent(r.dir, batch...)
 	r.trimEvents()
+	r.compactEvents()
 	r.signal()
 }
 
@@ -96,12 +106,38 @@ const maxAdoptedEvents = claude.MaxTranscriptEvents
 
 // trimEvents drops an adopted run's oldest in-memory events beyond
 // maxAdoptedEvents. Seq numbers are untouched, so EventsAfter keeps working;
-// the full log stays on disk.
+// compactEvents bounds the log on disk the same way.
 func (r *run) trimEvents() {
 	if !r.meta.Adopted() || len(r.events) <= maxAdoptedEvents {
 		return
 	}
 	r.events = append([]api.RunEvent(nil), r.events[len(r.events)-maxAdoptedEvents:]...)
+}
+
+// adoptedLogBytes is the size past which an adopted run's events.jsonl is
+// rewritten to hold only the events kept in memory, so the log stays bounded
+// however long the agent's session runs and a restart reads back only its tail.
+const adoptedLogBytes = 4 << 20
+
+// compactEvents rewrites an adopted run's event log to its in-memory events
+// (the newest maxAdoptedEvents, seq numbers intact) once the log passes
+// compactAt. The next threshold is at least twice the compacted size, so a
+// tail of unusually large events can't force a rewrite on every append.
+func (r *run) compactEvents() {
+	if !r.meta.Adopted() {
+		return
+	}
+	if r.compactAt == 0 {
+		r.compactAt = adoptedLogBytes
+	}
+	if eventsSize(r.dir) <= r.compactAt {
+		return
+	}
+	r.trimEvents()
+	if writeEvents(r.dir, r.events) != nil {
+		return
+	}
+	r.compactAt = max(adoptedLogBytes, 2*eventsSize(r.dir))
 }
 
 // changed marks a significant metadata change (status, session, cost, error).
