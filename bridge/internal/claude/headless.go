@@ -29,6 +29,16 @@ type Headless struct {
 	// AllowedTools are Claude Code tool permission patterns. Empty means no
 	// tools at all; anything not listed is denied without prompting.
 	AllowedTools []string
+	// ReadRepo also lets the call read the working directory: Read, Grep,
+	// Glob and read-only git. Nothing can be written either way.
+	ReadRepo bool
+}
+
+// RepoReadTools are what a ReadRepo call may use besides AllowedTools.
+var RepoReadTools = []string{
+	"Read", "Grep", "Glob",
+	"Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)",
+	"Bash(git branch:*)", "Bash(ls:*)",
 }
 
 // BdReadTools are the only commands the board assistant may run: bd
@@ -76,7 +86,13 @@ func (h Headless) Args() []string {
 	if len(h.Schema) > 0 {
 		args = append(args, "--json-schema", string(h.Schema))
 	}
-	if len(h.AllowedTools) > 0 {
+	if h.ReadRepo {
+		args = append(args, "--tools", "Bash,Read,Grep,Glob")
+		args = append(args, "--disallowed-tools")
+		args = append(args, bdWriteCommands...)
+		args = append(args, "--allowed-tools")
+		args = append(args, append(append([]string{}, h.AllowedTools...), RepoReadTools...)...)
+	} else if len(h.AllowedTools) > 0 {
 		args = append(args, "--tools", "Bash")
 		args = append(args, "--disallowed-tools")
 		args = append(args, bdWriteCommands...)

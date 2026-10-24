@@ -100,6 +100,23 @@ Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hoo
 }
 ```
 
+A run a **round** started adds these (all omitted otherwise):
+```jsonc
+{
+  "round_id": "rd_01…",
+  "kind": "bead",                  // "bead": work on one bead; "integration": a merge or finishing turn
+  "branch": "nacre/r/rd_01…/NAC-1", // the branch nacred made for it
+  "workspace": "/Users/ryder/Library/Application Support/nacred/worktrees/<repo>/<round>/NAC-1",
+  "base": "bd299b7…",              // commit the branch started from
+  "verification": {                // nacred's own check once the turn ended
+    "ok": false, "reason": "gate \"app tests\" failed with exit status 1",
+    "uncommitted": [], "commits": 2,
+    "gates": [{"name": "app tests", "ok": false, "exit_code": 1, "duration_ms": 41200, "tail": "…"}],
+    "at": "2026-10-24T09:00:00Z"
+  }
+}
+```
+
 A run nacred dispatched carries exactly the fields above. An **adopted** run — a session an agent
 started on its own, which nacred only watches (see [Adopted runs](#adopted-runs)) — adds these.
 Every one of them is omitted for a dispatched run, so a client written against the fields above

@@ -293,7 +293,9 @@ type UpdateParams struct {
 	// RemoveLabels removes labels; needed to clear the set because bd
 	// ignores an empty --set-labels.
 	RemoveLabels []string
-	Parent       *string
+	// AddLabels adds labels, keeping the rest.
+	AddLabels []string
+	Parent    *string
 }
 
 // Empty reports whether no field is set.
@@ -326,6 +328,9 @@ func (p UpdateParams) flags() []string {
 		f = append(f, "--remove-label="+l)
 	}
 	str("--parent", p.Parent)
+	for _, l := range p.AddLabels {
+		f = append(f, "--add-label="+l)
+	}
 	return f
 }
 

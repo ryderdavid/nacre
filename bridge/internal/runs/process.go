@@ -35,7 +35,7 @@ func (m *Manager) execute(r *run, t claude.Turn, cwd string) {
 func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
 	cmd := exec.Command(m.opts.ClaudePath, t.Args()...)
 	cmd.Dir = cwd
-	cmd.Env = claude.ChildEnv()
+	cmd.Env = append(claude.ChildEnv(), t.Env...)
 	cmd.Stdin = nil // /dev/null
 	// Own process group so cancel can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

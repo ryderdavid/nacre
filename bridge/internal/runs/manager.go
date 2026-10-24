@@ -60,6 +60,21 @@ type StartRequest struct {
 	Mode, Model                string
 	Worktree                   bool
 	Prompt                     string
+	// Round fields: the run works in Workspace (a worktree nacred made, on
+	// Branch from Base) instead of the repository, for round RoundID.
+	RoundID, Kind           string
+	Branch, Workspace, Base string
+	MaxBudgetUSD            float64
+	Env                     []string
+}
+
+// Followup is a message to resume a run's session with.
+type Followup struct {
+	Message string
+	// Mode "" keeps the run's current mode.
+	Mode         string
+	MaxBudgetUSD float64
+	Env          []string
 }
 
 // Filter selects runs in List.
@@ -169,6 +184,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 		IssueID: req.IssueID, IssueTitle: req.IssueTitle, Status: api.StatusQueued,
 		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree,
 		CreatedAt: t.UTC().Format(time.RFC3339), Turns: 1,
+		RoundID: req.RoundID, Kind: req.Kind, Branch: req.Branch, Workspace: req.Workspace, Base: req.Base,
 	}
 	r := newRun(meta, filepath.Join(m.opts.Dir, id))
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {
@@ -177,7 +193,8 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	r.loaded = true
 	r.pending = &claude.Turn{
 		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model,
-		Worktree: req.Worktree, Name: claude.NamePrefix + req.IssueID,
+		Worktree: req.Worktree && req.Workspace == "", Name: claude.NamePrefix + req.IssueID,
+		MaxBudgetUSD: req.MaxBudgetUSD, Env: req.Env,
 	}
 	r.mu.Lock()
 	r.addEvent(api.RunEvent{Kind: api.KindStatus, Status: api.StatusQueued})
@@ -202,6 +219,12 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 // Followup sends message to the run's Claude session (claude --resume).
 // mode "" keeps the run's current mode.
 func (m *Manager) Followup(id, message, mode string) (api.Run, error) {
+	return m.FollowupWith(id, Followup{Message: message, Mode: mode})
+}
+
+// FollowupWith resumes the run's session with f.
+func (m *Manager) FollowupWith(id string, f Followup) (api.Run, error) {
+	message, mode := f.Message, f.Mode
 	m.mu.Lock()
 	r := m.runs[id]
 	if r == nil {
@@ -231,7 +254,8 @@ func (m *Manager) Followup(id, message, mode string) (api.Run, error) {
 	r.meta.Error = ""
 	r.meta.EndedAt = ""
 	r.cancelReq = false
-	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID}
+	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID,
+		MaxBudgetUSD: f.MaxBudgetUSD, Env: f.Env}
 	r.setStatus(api.StatusQueued)
 	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: message})
 	_ = r.save()
@@ -285,6 +309,22 @@ func (m *Manager) Cancel(id string) (api.Run, error) {
 	r.mu.Unlock()
 	m.mu.Unlock()
 	return snap, nil
+}
+
+// SetVerification records nacred's check of a run's work and publishes it.
+func (m *Manager) SetVerification(id string, v *api.Verification) error {
+	r := m.get(id)
+	if r == nil {
+		return ErrNotFound
+	}
+	r.mu.Lock()
+	r.meta.Verification = v
+	r.changed()
+	err := r.save()
+	snap := r.meta
+	r.mu.Unlock()
+	m.notify(snap)
+	return err
 }
 
 // Get returns a run and all its events.
@@ -465,6 +505,9 @@ func (m *Manager) schedule() {
 			continue
 		}
 		cwd := r.meta.RepoPath
+		if r.meta.Workspace != "" {
+			cwd = r.meta.Workspace
+		}
 		if turn.Resume != "" && r.meta.SessionCWD != "" {
 			if fi, err := os.Stat(r.meta.SessionCWD); err == nil && fi.IsDir() {
 				cwd = r.meta.SessionCWD

@@ -181,6 +181,20 @@ type Run struct {
 	Stalled bool `json:"stalled,omitempty"`
 	// StalledSince is when the last output arrived, set with Stalled.
 	StalledSince string `json:"stalled_since,omitempty"`
+
+	// RoundID is set on runs a round started; see openspec semi-attended-rounds.
+	RoundID string `json:"round_id,omitempty"`
+	// Kind is "bead" for a round's work on one bead and "integration" for a
+	// round's merge or finishing turn; empty for a run started on its own.
+	Kind string `json:"kind,omitempty"`
+	// Branch and Workspace are the branch and worktree nacred made for the
+	// run, and Base the commit the branch started from.
+	Branch    string `json:"branch,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
+	Base      string `json:"base,omitempty"`
+	// Verification is nacred's own check of the run's work (clean tree,
+	// commits, gates), absent until checked.
+	Verification *Verification `json:"verification,omitempty"`
 	// CanCancel and CanFollowup report whether POST /v1/runs/{run}/cancel and
 	// .../followup are available for this run at all. See SetCapabilities for
 	// why they are pointers.
@@ -215,6 +229,32 @@ func (r *Run) SetCapabilities() {
 	}
 	cancel, followup := false, false
 	r.CanCancel, r.CanFollowup = &cancel, &followup
+}
+
+// Verification is nacred's check that a round run's work is done: committed,
+// on its branch, and passing the repository's gates.
+type Verification struct {
+	OK bool `json:"ok"`
+	// Reason says what failed, in a sentence ("uncommitted changes: a.go").
+	Reason string `json:"reason,omitempty"`
+	// Uncommitted lists files left modified or untracked.
+	Uncommitted []string `json:"uncommitted,omitempty"`
+	// Commits is how many commits the branch has beyond its base.
+	Commits int          `json:"commits"`
+	Gates   []GateResult `json:"gates,omitempty"`
+	At      string       `json:"at"`
+}
+
+// GateResult is the outcome of one nacre.yaml gate or build command.
+type GateResult struct {
+	Name       string `json:"name"`
+	OK         bool   `json:"ok"`
+	ExitCode   int    `json:"exit_code"`
+	TimedOut   bool   `json:"timed_out,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
+	// Tail is the end of the command's output.
+	Tail  string `json:"tail,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // RunEvent is one entry in a run's transcript.

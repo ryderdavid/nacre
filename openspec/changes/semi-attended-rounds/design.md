@@ -58,11 +58,11 @@ DAG; Ryder's five beads usually don't share one, and the swarm doesn't hold work
 Rounds can still be started from an epic (its open children become the set).
 
 ### 3. nacred creates the workspaces
-For a round `r`, nacred creates the integration branch `nacre/r/<id>` at the recorded base SHA (default:
-the target branch's HEAD at round start) and a worktree for it. Each bead gets
-`nacre/r/<id>/<bead>` and a worktree under `<data_dir>/worktrees/<repo>/<round>/<bead>` (outside the
-repository, so discovery never sees it), created with `bd worktree create` so the beads database is
-shared. A bead's branch starts from the integration branch *as it is when the bead starts*, which is
+For a round `r`, nacred creates the integration branch `nacre/r/<id>/integration` at the recorded base SHA (default:
+the target branch's HEAD at round start) and a worktree for it. (Git can't hold a branch `nacre/r/<id>` beside `nacre/r/<id>/<bead>`, hence
+`/integration`.) Each bead gets `nacre/r/<id>/<bead>` and a worktree under `<data_dir>/worktrees/<repo>/<round>/<bead>` (outside the
+repository, so discovery never sees it), created with plain `git worktree add`: bd finds the shared beads database through git's
+common directory, so `bd worktree create` adds nothing. A bead's branch starts from the integration branch *as it is when the bead starts*, which is
 how dependencies and serialized overlaps see their prerequisites. claude runs with that worktree as its
 cwd and without `--worktree`.
 *Alternative:* keep `--worktree` and discover the path from the `init` line. That still branches from

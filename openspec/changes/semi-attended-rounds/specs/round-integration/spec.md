@@ -7,7 +7,7 @@ each merge it SHALL run the gates on the integration worktree.
 
 #### Scenario: Clean merge
 - **WHEN** NAC-1 is verified and merges without conflict
-- **THEN** nacred creates a merge commit on `nacre/r/<round>`, runs the gates there, and on success marks NAC-1 `integrated`
+- **THEN** nacred creates a merge commit on `nacre/r/<round>/integration`, runs the gates there, and on success marks NAC-1 `integrated`
 
 #### Scenario: Serialized
 - **WHEN** NAC-1 and NAC-3 are verified at the same moment

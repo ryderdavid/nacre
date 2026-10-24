@@ -12,7 +12,7 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 
 ## 2. Workspaces
 
-- [ ] 2.1 Create the integration branch and worktree at a recorded base, outside the repository, via `bd worktree create`; record path, branch and base — G-bridge
+- [ ] 2.1 Create the integration branch and worktree at a recorded base, outside the repository, with `git worktree add` (bd shares its database through git's common directory); record path, branch and base — G-bridge
 - [ ] 2.2 Create a bead branch and worktree from the integration branch's current head — G-bridge
 - [ ] 2.3 Let a run start in a given working directory without `--worktree`; add `round_id`, `branch`, `workspace`, `base`, `verified` to Run and `docs/API.md` — G-bridge
 - [ ] 2.4 Remove worktrees after integration and branches after landing; startup sweep for orphans; `nacred round gc` — G-bridge

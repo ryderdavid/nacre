@@ -2,12 +2,12 @@
 
 ### Requirement: Integration branch from a recorded base
 When a round starts, nacred SHALL record the base commit (the HEAD of the round's target branch unless
-another is given), create the integration branch `nacre/r/<round>` at that commit, and create a worktree
+another is given), create the integration branch `nacre/r/<round>/integration` at that commit, and create a worktree
 for it outside the repository directory.
 
 #### Scenario: Base recorded
 - **WHEN** a round targeting `main` starts while `main` is at bd299b7
-- **THEN** the round records base bd299b7 and `nacre/r/<round>` points at bd299b7
+- **THEN** the round records base bd299b7 and `nacre/r/<round>/integration` points at bd299b7
 
 ### Requirement: Each bead gets its own branch and worktree
 nacred SHALL create, for each bead when it starts, a branch `nacre/r/<round>/<bead>` from the integration
@@ -41,7 +41,7 @@ rounds SHALL be kept. On startup, nacred SHALL remove worktrees whose round is l
 
 #### Scenario: After landing
 - **WHEN** the round has landed
-- **THEN** `nacre/r/<round>` and every `nacre/r/<round>/*` branch except parked ones are deleted, and no worktree for the round remains
+- **THEN** every `nacre/r/<round>/*` branch except parked ones are deleted, and no worktree for the round remains
 
 #### Scenario: Leftover after a crash
 - **WHEN** nacred starts and finds a worktree for a round that is landed
