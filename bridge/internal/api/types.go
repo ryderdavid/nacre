@@ -461,6 +461,9 @@ type Question struct {
 	Options    []string `json:"options"`
 	Answer     string   `json:"answer,omitempty"`
 	AnsweredAt string   `json:"answered_at,omitempty"`
+	// Problem says why an earlier answer couldn't be carried out, when the
+	// question has come back to be answered again.
+	Problem string `json:"problem,omitempty"`
 }
 
 // IntegrationStep is the merge nacred is working through.

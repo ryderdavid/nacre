@@ -482,6 +482,64 @@ func TestParkSkipAndUnmergedQuestion(t *testing.T) {
 	}
 }
 
+// A merge Ryder asked for that can't be done hands the question back, rather
+// than pausing into the same failure on every resume.
+func TestFailedPreflightMergeAsksAgain(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-B", Title: "Add b", Type: "bug"})
+	plan := `{"summary":"","beads":[],"findings":[
+	 {"kind":"unmerged-work","beads":["T-B"],"branch":"side","files":["clash.txt"],"text":"side edits clash.txt.","question":"","options":[]}]}`
+	h := newHarness(t, beads, plan)
+	ctx := context.Background()
+	wt := filepath.Join(t.TempDir(), "side")
+	if err := gitx.AddWorktree(ctx, h.repo, wt, "side", "main"); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(wt, "clash.txt"), []byte("side\n"), 0o644)
+	gitx.CommitAll(ctx, wt, "side work")
+	os.WriteFile(filepath.Join(h.repo, "clash.txt"), []byte("main\n"), 0o644)
+	gitx.CommitAll(ctx, h.repo, "main work")
+
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-B"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := h.wait(t, r.ID, api.RoundNeedsDecision)
+	if _, err := h.m.Answer(r.ID, asked.Questions[0].ID, AnswerMergeFirst); err != nil {
+		t.Fatal(err)
+	}
+	var again api.Round
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		again, _, _ = h.m.Get(r.ID)
+		if again.State == api.RoundNeedsDecision && again.Questions[0].Problem != "" {
+			break
+		}
+		if again.State == api.RoundPaused || time.Now().After(deadline) {
+			t.Fatalf("round = %s %q, want the question asked again", again.State, again.PauseReason)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	q := again.Questions[0]
+	if q.Answer != "" || !strings.Contains(q.Problem, "clash.txt") {
+		t.Fatalf("question = %+v", q)
+	}
+	for _, b := range again.Beads {
+		if b.State != api.BeadWaiting {
+			t.Errorf("%s started before the question was settled", b.ID)
+		}
+	}
+	if _, err := h.m.Answer(r.ID, q.ID, AnswerIgnore); err != nil {
+		t.Fatal(err)
+	}
+	done := h.wait(t, r.ID, api.RoundReadyToLand)
+	if done.Questions[0].Problem != "" {
+		t.Error("the problem outlived the new answer")
+	}
+	if b, _ := os.ReadFile(filepath.Join(done.Workspace, "clash.txt")); strings.TrimSpace(string(b)) != "main" {
+		t.Errorf("clash.txt = %q, want main's", b)
+	}
+}
+
 func TestCreateRefusals(t *testing.T) {
 	beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "a", Type: "task"}, &fakeBead{ID: "T-X", Title: "x", Type: "task", Status: "closed"})
 	h := newHarness(t, beads, `{"summary":"","beads":[],"findings":[]}`)

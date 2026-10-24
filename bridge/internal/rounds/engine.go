@@ -494,7 +494,7 @@ func (m *Manager) Answer(id, questionID, answer string) (api.Round, error) {
 		if q.ID != questionID {
 			continue
 		}
-		q.Answer, q.AnsweredAt = answer, stamp()
+		q.Answer, q.AnsweredAt, q.Problem = answer, stamp(), ""
 		r.event("answer", "", fmt.Sprintf("%s → %s", q.Text, answer))
 		for _, b := range q.Beads {
 			r.note(b, fmt.Sprintf("Decision for round %s: %s\nAnswer: %s", r.meta.ID, q.Text, answer))

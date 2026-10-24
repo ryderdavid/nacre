@@ -333,6 +333,7 @@ private fun QuestionCard(q: Question, busy: Boolean, onAnswer: (String) -> Unit)
                 style = MaterialTheme.typography.labelLarge, color = Nacre.colors.needsYou,
             )
             Text(q.text, style = MaterialTheme.typography.bodyLarge)
+            if (q.problem.isNotBlank()) Text(q.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { q.beads.forEach { LabelChip(it) } }
             q.options.forEach { opt ->
                 OutlinedButton(onClick = { onAnswer(opt) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
