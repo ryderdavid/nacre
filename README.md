@@ -38,7 +38,10 @@ A repository checked out on more than one computer (same git `origin`, SSH host 
 When `adopt_sessions` is on in `nacred`'s config, the Mac also watches Claude Code sessions an **agent
 started on its own** — claiming a bead from the terminal, say — and Nacre lists them in the Runs tab
 beside its own, marked **Agent** with what the session is doing (*working*, *waiting for input*,
-*session ended*). The transcript, cost and bead link are all there.
+*session ended*). The transcript, cost and bead link are all there, read live from the session's
+own transcript. A session that has written nothing for 15 minutes (`adopt_idle_minutes`) is left
+open rather than working: it drops out of the Runs tab and its count, but its bead still shows the
+agent, as idle.
 
 They are read-only, because the Mac owns no process for them: there is no *Cancel* and no follow-up
 box, signalling someone's live terminal or resuming it would fork their work. *Copy “take over on

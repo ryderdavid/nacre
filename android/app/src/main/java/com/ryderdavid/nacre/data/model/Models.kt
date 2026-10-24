@@ -144,6 +144,14 @@ data class Run(
     @SerialName("owner_pid") val ownerPid: Int = 0,
     /** [ACTIVITY_WORKING], [ACTIVITY_IDLE] or [ACTIVITY_ENDED] on an adopted run, "" otherwise. */
     val activity: String = "",
+    /**
+     * An adopted session that is alive but has not written its transcript for the bridge's idle
+     * window (adopt_idle_minutes): left open rather than working. It still shows on its bead,
+     * as idle, but not in the Runs list or the active count; see [inRunsList].
+     */
+    val stale: Boolean = false,
+    /** When the agent's transcript last gained an entry, as Claude Code wrote it; "" until then. */
+    @SerialName("last_activity_at") val lastActivityAt: String = "",
     /** Null means "allowed": the bridge only sends these to say an action is refused outright. */
     @SerialName("can_cancel") val canCancel: Boolean? = null,
     @SerialName("can_followup") val canFollowup: Boolean? = null,
@@ -164,6 +172,9 @@ data class Run(
      * and they may be a terminal a person leaves open for hours.
      */
     val isNacreWork get() = isActive && !isAdopted
+
+    /** Whether the Runs list and its badge show this run: everything but a [stale] agent session. */
+    val inRunsList get() = !stale
 
     /** Cancel is offered while the run is active unless the bridge says it is refused. */
     val showsCancel get() = isActive && canCancel != false

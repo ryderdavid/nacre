@@ -11,8 +11,10 @@
 // session transcript), then bd's own claim state.
 //
 // The package only observes: it never signals a session, never writes to a
-// transcript and never execs claude. Turning its output into run events is a
-// separate concern (see NAC-j5z.2).
+// transcript and never execs claude. Each poll also tails every adopted
+// session's transcript through claude.TranscriptTail, so a Session carries the
+// run events and running totals the agent's transcript gained since the last
+// poll; turning those into an adopted run is the run manager's job.
 package sessions
 
 import (
@@ -22,6 +24,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 // Link signals, in increasing order of strength. Session.LinkedBy reports
@@ -148,6 +153,35 @@ type Session struct {
 	// Transcript is the session's on-disk transcript, "" when Claude Code has
 	// not written one yet.
 	Transcript string
+	// LastWrite is when the transcript last changed (its mtime), zero when
+	// there is no transcript yet. It is the freshness signal that tells a
+	// session doing something from one left open and quiet.
+	LastWrite time.Time
+	// Events are the run events the transcript gained since the previous
+	// poll, oldest first, with the transcript's own timestamps.
+	Events []api.RunEvent
+	// FromStart reports that Events were read from the start of the
+	// transcript rather than from where the previous poll left off: the first
+	// poll after a (re)start of nacred, or a transcript that was replaced. A
+	// consumer that already holds earlier events must expect to see them again.
+	FromStart bool
+	// TranscriptState is everything the transcript has said so far: cost,
+	// duration, tool calls, turns, model and the last assistant text.
+	TranscriptState claude.TranscriptState
+}
+
+// LastActive returns the latest sign of life the session has given: a
+// transcript write or entry, or failing both, the session's own start. It is
+// zero only for a session that has neither.
+func (s Session) LastActive() time.Time {
+	last := s.LastWrite
+	if a := s.TranscriptState.LastActivity; a.After(last) {
+		last = a
+	}
+	if last.IsZero() {
+		last = s.Started()
+	}
+	return last
 }
 
 // DefaultDir returns Claude Code's session registry directory.

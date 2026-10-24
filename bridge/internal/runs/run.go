@@ -51,6 +51,7 @@ func (r *run) ensureLoaded() {
 	if n := len(evs); n > 0 {
 		r.nextSeq = evs[n-1].Seq + 1
 	}
+	r.trimEvents()
 }
 
 // addEvent assigns seq/ts, stores, persists and signals subscribers.
@@ -62,6 +63,45 @@ func (r *run) addEvent(ev api.RunEvent) {
 	r.events = append(r.events, ev)
 	_ = appendEvent(r.dir, ev)
 	r.signal()
+}
+
+// importEvents appends events that already happened elsewhere — an adopted
+// session's transcript — keeping the timestamps they carry, and persists them
+// in one write.
+func (r *run) importEvents(evs []api.RunEvent) {
+	if len(evs) == 0 {
+		return
+	}
+	r.ensureLoaded()
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	batch := make([]api.RunEvent, 0, len(evs))
+	for _, ev := range evs {
+		ev.Seq = r.nextSeq
+		r.nextSeq++
+		if ev.TS == "" {
+			ev.TS = stamp
+		}
+		batch = append(batch, ev)
+	}
+	r.events = append(r.events, batch...)
+	_ = appendEvent(r.dir, batch...)
+	r.trimEvents()
+	r.signal()
+}
+
+// maxAdoptedEvents bounds the events an adopted run holds in memory. An agent's
+// session can run for days, and its whole transcript is replayed over SSE on
+// every reconnect, so only the newest are kept, as the transcript tail does.
+const maxAdoptedEvents = claude.MaxTranscriptEvents
+
+// trimEvents drops an adopted run's oldest in-memory events beyond
+// maxAdoptedEvents. Seq numbers are untouched, so EventsAfter keeps working;
+// the full log stays on disk.
+func (r *run) trimEvents() {
+	if !r.meta.Adopted() || len(r.events) <= maxAdoptedEvents {
+		return
+	}
+	r.events = append([]api.RunEvent(nil), r.events[len(r.events)-maxAdoptedEvents:]...)
 }
 
 // changed marks a significant metadata change (status, session, cost, error).

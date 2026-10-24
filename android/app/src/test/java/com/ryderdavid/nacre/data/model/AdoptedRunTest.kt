@@ -52,7 +52,21 @@ class AdoptedRunTest {
         assertFalse(Run(id = "r_5", status = "succeeded").showsFollowUp, "no session to resume")
     }
 
-    @Test fun adoptedRunsAreCountedApartFromOurs() {
+    @Test fun aStaleAgentSessionStaysOnItsBeadButLeavesTheRunsList() {
+        val stale = decode(
+            """{"id":"r_6","status":"running","origin":"adopted","activity":"idle","stale":true,
+               "issue_id":"NAC-7","last_activity_at":"2026-10-23T19:53:01.123Z"}"""
+        )
+        assertTrue(stale.isActive, "still a live session, so its bead keeps showing it, as idle")
+        assertEquals(ACTIVITY_IDLE, stale.activity)
+        assertFalse(stale.inRunsList, "a session left open is not a job in progress")
+        assertEquals("2026-10-23T19:53:01.123Z", stale.lastActivityAt)
+        assertTrue(decode("""{"id":"r_7","status":"running","origin":"adopted","activity":"idle"}""").inRunsList,
+            "an idle session that wrote recently is still listed")
+        assertTrue(decode("""{"id":"r_8","status":"running"}""").inRunsList)
+    }
+
+        @Test fun adoptedRunsAreCountedApartFromOurs() {
         val repo = BridgeClient.json.decodeFromString<Repo>(
             """{"id":"x","name":"Nacre","path":"/tmp/x","active_runs":1,"adopted_runs":2}"""
         )

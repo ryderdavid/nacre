@@ -85,13 +85,17 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }
 
     suspend fun startRun(repo: String, id: String, req: RunRequest): Run = send("POST", "/v1/repos/$repo/issues/${enc(id)}/runs", req)
-    /** Adopted runs are listed only on request; an older bridge ignores the parameter. */
+    /**
+     * Adopted runs are listed only on request, and stale ones (sessions left open and quiet) on
+     * a second request: they are fetched so a bead can still show its idle agent, and kept out of
+     * the Runs list by [Run.inRunsList]. An older bridge ignores what it does not know.
+     */
     suspend fun runs(repo: String? = null, issue: String? = null, active: Boolean = false, adopted: Boolean = true): List<Run> {
         val u = url("/v1/runs").newBuilder().apply {
             repo?.let { addQueryParameter("repo", it) }
             issue?.let { addQueryParameter("issue", it) }
             if (active) addQueryParameter("active", "1")
-            if (adopted) addQueryParameter("include", "adopted")
+            if (adopted) addQueryParameter("include", "adopted,stale")
         }.build()
         return call<Runs>(Request.Builder().url(u).build()).runs
     }

@@ -78,16 +78,24 @@ func readMeta(dir string) (api.Run, error) {
 	return meta, err
 }
 
-func appendEvent(dir string, ev api.RunEvent) error {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return err
+// appendEvent appends evs to a run's event log in one write.
+func appendEvent(dir string, evs ...api.RunEvent) error {
+	var data []byte
+	for _, ev := range evs {
+		line, err := json.Marshal(ev)
+		if err != nil {
+			return err
+		}
+		data = append(append(data, line...), '\n')
+	}
+	if len(data) == 0 {
+		return nil
 	}
 	f, err := os.OpenFile(filepath.Join(dir, eventsFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return err
 	}

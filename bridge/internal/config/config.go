@@ -61,6 +61,11 @@ type Config struct {
 	// AdoptPollSeconds is how often the session registry is polled. 0 uses
 	// the watcher's own default.
 	AdoptPollSeconds int `json:"adopt_poll_seconds,omitempty"`
+	// AdoptIdleMinutes is how long an adopted session may go without writing
+	// its transcript before it counts as idle. Past it the session is "stale":
+	// still shown on its bead, but left out of the runs list and the adopted
+	// count, because a session left open is not a job in progress. Default 15.
+	AdoptIdleMinutes int `json:"adopt_idle_minutes"`
 
 	// DataDir holds run history. Default ~/Library/Application Support/nacred.
 	DataDir string `json:"data_dir,omitempty"`
@@ -196,6 +201,20 @@ func (c *Config) fillDefaults() {
 	if c.PromptTemplate == "" {
 		c.PromptTemplate = DefaultPromptTemplate
 	}
+	if c.AdoptIdleMinutes <= 0 {
+		c.AdoptIdleMinutes = DefaultAdoptIdleMinutes
+	}
+}
+
+// DefaultAdoptIdleMinutes is the default AdoptIdleMinutes.
+const DefaultAdoptIdleMinutes = 15
+
+// AdoptIdleAfter returns the adopted-session idle window.
+func (c *Config) AdoptIdleAfter() time.Duration {
+	if c.AdoptIdleMinutes <= 0 {
+		return DefaultAdoptIdleMinutes * time.Minute
+	}
+	return time.Duration(c.AdoptIdleMinutes) * time.Minute
 }
 
 // AdoptInterval returns the configured session-registry poll period, or 0 to

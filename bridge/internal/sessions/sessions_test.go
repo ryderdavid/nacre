@@ -497,3 +497,78 @@ func TestPollAdoptsOnlyLiveAgentSessionsInKnownRepos(t *testing.T) {
 		t.Fatalf("caches not released: %d links, %d scans", len(w.links), len(w.scan.state))
 	}
 }
+
+// Each poll tails every adopted session's transcript: the session carries the
+// run events gained since the previous poll, the transcript's running state
+// and its last write, and the tail is released with the session.
+func TestPollTailsEachSessionsTranscript(t *testing.T) {
+	dir, projects, repoPath := t.TempDir(), t.TempDir(), t.TempDir()
+	pdir := filepath.Join(projects, "-repo")
+	if err := os.MkdirAll(pdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-2 * time.Minute).Truncate(time.Second)
+	agent := record(21, "aaaaaaaa-0000-0000-0000-000000000021", repoPath, "agent", start)
+	writeRecord(t, dir, agent)
+	path := filepath.Join(pdir, agent.SessionID+".jsonl")
+	mustWrite(t, path, transcriptLine("go test ./...", false))
+
+	procs := fakeProcs{21: start}
+	var got []Session
+	w := New(Options{
+		Dir: dir, Projects: projects, Procs: procs,
+		MainCheckout: func(string) string { return "" },
+		Repos:        func() []Repo { return []Repo{{ID: "r1", Name: "repo", Path: repoPath}} },
+		Sync:         func(live []Session) { got = live },
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	w.Poll()
+	if len(got) != 1 {
+		t.Fatalf("sessions = %+v", got)
+	}
+	s := got[0]
+	if len(s.Events) != 1 || s.Events[0].Kind != "tool_use" || s.Events[0].Tool != "Bash" {
+		t.Fatalf("events = %+v", s.Events)
+	}
+	if !s.FromStart || s.TranscriptState.ToolCalls != 1 || s.TranscriptState.AssistantTurns != 1 {
+		t.Fatalf("first poll: from start %v, state %+v", s.FromStart, s.TranscriptState)
+	}
+	fi, _ := os.Stat(path)
+	if !s.LastWrite.Equal(fi.ModTime()) || !s.LastActive().Equal(fi.ModTime()) {
+		t.Fatalf("last write = %v, last active = %v, want the transcript mtime %v", s.LastWrite, s.LastActive(), fi.ModTime())
+	}
+
+	// Nothing new: no events, and the tail carries on where it was.
+	w.Poll()
+	if s := got[0]; len(s.Events) != 0 || s.FromStart || s.TranscriptState.ToolCalls != 1 {
+		t.Fatalf("quiet poll = events %+v, from start %v, state %+v", s.Events, s.FromStart, s.TranscriptState)
+	}
+	appendTo(t, path, transcriptLine("bd show NAC-7", false))
+	w.Poll()
+	if s := got[0]; len(s.Events) != 1 || s.FromStart || s.TranscriptState.ToolCalls != 2 {
+		t.Fatalf("after append = events %+v, from start %v, state %+v", s.Events, s.FromStart, s.TranscriptState)
+	}
+
+	delete(procs, 21)
+	w.Poll()
+	if len(got) != 0 || len(w.tails) != 0 {
+		t.Fatalf("after exit: %d sessions, %d tails", len(got), len(w.tails))
+	}
+}
+
+func TestLastActiveFallsBackToTheSessionStart(t *testing.T) {
+	start := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
+	s := Session{Record: record(1, "s", "/x", "", start)}
+	if !s.LastActive().Equal(start.UTC()) {
+		t.Fatalf("no transcript: last active = %v, want the start %v", s.LastActive(), start)
+	}
+	entry := start.Add(time.Minute)
+	s.TranscriptState.LastActivity = entry
+	if !s.LastActive().Equal(entry) {
+		t.Fatalf("last active = %v, want the newest entry %v", s.LastActive(), entry)
+	}
+	s.LastWrite = entry.Add(time.Minute)
+	if !s.LastActive().Equal(s.LastWrite) {
+		t.Fatalf("last active = %v, want the last write %v", s.LastActive(), s.LastWrite)
+	}
+}

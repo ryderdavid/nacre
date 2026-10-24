@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 )
 
@@ -18,6 +19,15 @@ import (
 // never started or signalled, and a bridge restart does not fail them. What
 // they share with a dispatched run is the storage layout and the id scheme, so
 // the store, prune and the API need no special case.
+//
+// What an adopted run shows comes from the session's own transcript, which the
+// watcher tails each poll (sessions.Session.Events and TranscriptState): the
+// agent's text, tool calls and results become the run's events, and the
+// transcript's running totals its cost, duration and counts.
+
+// DefaultAdoptIdleAfter is how long an adopted session may go without writing
+// its transcript before it counts as idle and stale (Options.AdoptIdleAfter).
+const DefaultAdoptIdleAfter = 15 * time.Minute
 
 // OwnsSession reports whether sessionID belongs to a run nacred dispatched
 // itself. The session watcher uses it to avoid adopting nacred's own sessions,
@@ -111,7 +121,7 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 		ID: id, Origin: api.OriginAdopted, Agent: api.AgentClaudeCode,
 		RepoID: s.Repo.ID, RepoName: s.Repo.Name, RepoPath: s.Repo.Path,
 		IssueID: s.IssueID, IssueTitle: s.IssueTitle,
-		Status: api.StatusRunning, Activity: adoptedActivity(s), Mode: "", Model: "",
+		Status: api.StatusRunning, Mode: "", Model: "",
 		SessionID: s.SessionID, SessionCWD: s.CWD,
 		SessionName: s.Name, OwnerPID: s.PID,
 		CreatedAt: ts, StartedAt: ts, Turns: 1,
@@ -126,6 +136,9 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 	r.changed() // fills in ResumeCommand ("take over on the Mac")
 	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: adoptedNotice(s)})
 	r.addEvent(api.RunEvent{Kind: api.KindStatus, Status: api.StatusRunning})
+	if m.foldTranscript(r, s, time.Now()) {
+		r.changed()
+	}
 	if err := r.save(); err != nil {
 		return nil, api.Run{}, err
 	}
@@ -133,8 +146,9 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 }
 
 // refreshAdopted folds a fresh registry reading into an existing adopted run:
-// a bead link that has only now resolved, and a session that came back after
-// being reported gone. Caller holds m.mu.
+// what the transcript gained since the last poll, a bead link that has only
+// now resolved, and a session that came back after being reported gone.
+// Caller holds m.mu.
 func (m *Manager) refreshAdopted(r *run, s sessions.Session) (api.Run, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -158,15 +172,14 @@ func (m *Manager) refreshAdopted(r *run, s sessions.Session) (api.Run, bool) {
 		r.meta.OwnerPID = s.PID
 		changed = true
 	}
-	if act := adoptedActivity(s); act != r.meta.Activity {
-		r.meta.Activity = act
-		changed = true
-	}
 	if !r.meta.Active() {
 		// The pid was gone for a poll (or the bridge restarted while it was)
 		// and is back: the session outlived the report of its ending.
 		r.meta.EndedAt, r.meta.Error = "", ""
 		r.setStatus(api.StatusRunning)
+		changed = true
+	}
+	if m.foldTranscript(r, s, time.Now()) {
 		changed = true
 	}
 	if !changed {
@@ -189,24 +202,78 @@ func (m *Manager) endAdopted(r *run) (api.Run, bool) {
 	}
 	r.ensureLoaded()
 	r.meta.EndedAt = now()
-	r.meta.Activity = api.ActivityEnded
+	r.meta.Activity, r.meta.Stale = api.ActivityEnded, false
 	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: "session ended: the Claude Code process is no longer running"})
 	r.setStatus(api.StatusSucceeded)
 	_ = r.save()
 	return r.meta, true
 }
 
-// adoptedActivity maps what the session registry says about a live session
-// onto the Activity vocabulary. Claude Code marks a parked session "idle"
-// itself, so that reading is taken as given and anything else alive counts as
-// working. The finer distinction the design also allows — alive but quiet for
-// a while — needs the session's last transcript write, which belongs with the
-// transcript adapter that owns it (NAC-j5z.2's DeriveSessionStatus), not here.
-func adoptedActivity(s sessions.Session) string {
-	if s.Idle() {
-		return api.ActivityIdle
+// foldTranscript brings an adopted run up to date with what the watcher read
+// from its session's transcript at now, and re-derives the run's activity and
+// staleness. It reports whether anything changed; the caller marks the run
+// changed and saves it. Caller holds r.mu.
+func (m *Manager) foldTranscript(r *run, s sessions.Session, now time.Time) bool {
+	evs := s.Events
+	if s.FromStart {
+		// The tail started over (nacred restarted, or the transcript was
+		// replaced), so it is replaying entries this run may already hold.
+		evs = newerThan(evs, r.meta.LastActivityAt)
 	}
-	return api.ActivityWorking
+	r.importEvents(evs)
+
+	meta := r.meta
+	if st := s.TranscriptState; st.Entries > 0 {
+		// Running totals over the whole transcript, so they replace rather
+		// than add to what the run had.
+		meta.CostUSD, meta.DurationMS = st.CostUSD, st.DurationMS
+		meta.ToolCalls, meta.NumTurns = st.ToolCalls, st.AssistantTurns
+		meta.Turns = max(1, st.UserPrompts)
+		if st.LastText != "" {
+			meta.LastText = st.LastText
+		}
+		if st.Model != "" {
+			meta.Model = st.Model
+		}
+		if st.LastEntryTS != "" {
+			meta.LastActivityAt = st.LastEntryTS
+		}
+	}
+	meta.Activity, meta.Stale = m.adoptedActivity(s, now)
+	if meta == r.meta {
+		return len(evs) > 0
+	}
+	r.meta = meta
+	return true
+}
+
+// adoptedActivity derives a live session's activity from how recently its
+// transcript changed, through claude.DeriveSessionStatus: Claude Code's own
+// "idle" mark on a parked session is taken as given, and a session quiet for
+// longer than the idle window is idle too, however its record reads. stale
+// reports the second case alone — the session is left open, not working —
+// which is what keeps it out of the runs list and the adopted count.
+func (m *Manager) adoptedActivity(s sessions.Session, now time.Time) (activity string, stale bool) {
+	last := s.LastActive()
+	_, activity = claude.DeriveSessionStatus(claude.SessionLiveness{Alive: true, RecordStatus: s.Status}, last, now, m.opts.AdoptIdleAfter)
+	return activity, last.IsZero() || now.Sub(last) > m.opts.AdoptIdleAfter
+}
+
+// newerThan returns the events stamped after watermark (an RFC 3339 time), or
+// all of them when there is no watermark yet. An event whose stamp does not
+// parse cannot be placed, so on a replay it is dropped rather than doubled.
+func newerThan(evs []api.RunEvent, watermark string) []api.RunEvent {
+	mark, err := time.Parse(time.RFC3339, watermark)
+	if err != nil {
+		return evs
+	}
+	var out []api.RunEvent
+	for _, ev := range evs {
+		if ts, err := time.Parse(time.RFC3339, ev.TS); err == nil && ts.After(mark) {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 // adoptedNotice is the first event of an adopted run: what was found, where,

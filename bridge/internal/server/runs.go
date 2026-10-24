@@ -85,13 +85,15 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 	list := s.Runs.List(runs.Filter{
 		RepoID: q.Get("repo"), IssueID: q.Get("issue"), ActiveOnly: q.Get("active") == "1",
 		IncludeAdopted: includes(q.Get("include"), "adopted"),
+		IncludeStale:   includes(q.Get("include"), "stale"),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"runs": list})
 }
 
 // includes reports whether a comma-separated ?include= list names want.
 // Adopted runs are opt-in: a client that does not ask for them must not be
-// handed sessions it would offer to cancel but nacred cannot control.
+// handed sessions it would offer to cancel but nacred cannot control. Stale
+// adopted runs, sessions left open and quiet, are a second opt-in ("stale").
 func includes(list, want string) bool {
 	for _, v := range strings.Split(list, ",") {
 		if strings.TrimSpace(v) == want {

@@ -84,6 +84,8 @@ gets back byte-for-byte what it got before adopted runs existed:
   "session_name": "fix-the-parser", // the name the agent gave its session, as Claude Code recorded it
   "owner_pid": 54321,              // the process that owns the session — not a child of nacred
   "activity": "working",           // "working" | "idle" | "ended"; reported beside status, see below
+  "stale": true,                   // alive but no transcript write within adopt_idle_minutes; absent otherwise
+  "last_activity_at": "2026-10-23T19:53:01.123Z", // newest transcript entry read; absent until there is one
   "can_cancel": false,             // absent means allowed
   "can_followup": false            // absent means allowed
 }
@@ -95,6 +97,12 @@ waiting for input is `"status": "running"` with `"activity": "idle"`. `"ended"` 
 process is gone, which nacred reports as `"status": "succeeded"` with no `error` — nobody reports a
 result for a session nacred did not run, so the status means "over, nothing failed on our side" and
 `activity` carries the truth.
+
+`activity` follows the session's transcript, not just its registry record: a session counts as
+`"working"` while its transcript keeps changing, and as `"idle"` once Claude Code marks it parked
+or it has gone `adopt_idle_minutes` (default 15) without writing. The second case also sets
+`"stale": true` — the session is alive but left open, not a job in progress — see
+[Adopted runs](#adopted-runs) for what that changes.
 
 `can_cancel` and `can_followup` are **absent** on a dispatched run and `false` on an adopted one.
 Treat an absent flag as `true`: it means "no restriction beyond the usual status rules", which are
@@ -136,7 +144,7 @@ still a 409).
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
 | DELETE | `/v1/repos/{repo}/deps?issue_id=&depends_on_id=` | – | `{"ok":true}` |
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |
-| GET | `/v1/runs[?repo={repo}&issue={id}&active=1&include=adopted]` | – | `{"runs":[Run]}` newest first; adopted runs only with `include=adopted` |
+| GET | `/v1/runs[?repo={repo}&issue={id}&active=1&include=adopted[,stale]]` | – | `{"runs":[Run]}` newest first; adopted runs only with `include=adopted`, stale ones only with `stale` too |
 | GET | `/v1/runs/{run}` | – | `{"run":Run,"events":[RunEvent]}` |
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
 | POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200; **409 for an adopted run**) |
@@ -183,18 +191,25 @@ so:
 
 Adopted runs also stay out of nacred's own accounting: they never enter the queue, never occupy a
 `max_concurrent_runs` slot, and are **not** counted by `active_runs` on `Repo` or `/v1/health`,
-which keep meaning "runs nacred is doing". `Repo.adopted_runs` counts them separately, and is
-omitted when zero.
+which keep meaning "runs nacred is doing". `Repo.adopted_runs` counts them separately, leaves out
+stale ones, and is omitted when zero.
 
 Everything else works as usual: `GET /v1/runs/{run}` and `/v1/runs/{run}/stream` serve an adopted
 run by id, with the session's transcript as `RunEvent`s. Its first event is a `system` notice saying
-what was found, where, which signal linked it to a bead, and that it is read-only.
+what was found, where, which signal linked it to a bead, and that it is read-only. After it come the
+agent's own `text`, `thinking`, `tool_use`, `tool_result` and prompt (`user`) events, read from the
+on-disk transcript each poll and stamped with the transcript's own times; subagent turns are left
+out. `cost_usd`, `duration_ms`, `tool_calls`, `num_turns` (assistant turns), `turns` (prompts),
+`model` and `last_text` come from the transcript's running totals. `result_text` stays empty: a
+transcript has no result entry. Only the newest 1000 events are kept in memory.
 
 **Listing is opt-in.** `GET /v1/runs` omits adopted runs unless `include=adopted` is passed, because
 a client that does not know about them would offer controls that cannot work. `include` takes a
-comma-separated list and ignores names it does not know, so `?include=adopted` is the only form that
-matters today. Fetching one by id is not gated: a client that was handed an adopted run's id can
-always follow it.
+comma-separated list and ignores names it does not know. A **stale** adopted run (`"stale": true`)
+is a second opt-in: it is listed only with `?include=adopted,stale`, so the plain adopted list holds
+the sessions doing work right now. A client that shows each bead's agent session — working or idle —
+asks for both and keeps stale runs out of its runs list and counts itself. Fetching one by id is not
+gated: a client that was handed an adopted run's id can always follow it.
 
 ### RunRequest
 `{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)"}`

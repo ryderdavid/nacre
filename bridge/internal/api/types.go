@@ -153,6 +153,16 @@ type Run struct {
 	// Activity is one of the Activity* values on an adopted run, "" on a run
 	// nacred dispatched.
 	Activity string `json:"activity,omitempty"`
+	// Stale marks an adopted run whose session is alive but has not written
+	// its transcript within the adoption idle window (adopt_idle_minutes): a
+	// session left open rather than one doing work. A stale run is left out
+	// of GET /v1/runs?include=adopted unless include also names "stale", and
+	// is not counted by Repo.AdoptedRuns. Never set on a dispatched run.
+	Stale bool `json:"stale,omitempty"`
+	// LastActivityAt is the timestamp of the newest transcript entry nacred
+	// has read for an adopted run, as Claude Code wrote it; absent until the
+	// session has written one.
+	LastActivityAt string `json:"last_activity_at,omitempty"`
 	// CanCancel and CanFollowup report whether POST /v1/runs/{run}/cancel and
 	// .../followup are available for this run at all. See SetCapabilities for
 	// why they are pointers.
