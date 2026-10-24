@@ -92,6 +92,8 @@ data class Issue(
     @SerialName("comment_count") val commentCount: Int = 0,
     @SerialName("spec_id") val specId: String = "",
     @SerialName("external_ref") val externalRef: String = "",
+    /** Set by the bridge when bd shows the bead claimed but no run on that computer is working it. */
+    @SerialName("active_elsewhere") val activeElsewhere: ActiveElsewhere? = null,
 ) {
     val isClosed get() = status == "closed"
     val isEpic get() = type == "epic"
@@ -102,6 +104,50 @@ data class Issue(
     /** Open owner decisions and anything flagged with bd's `human` label. */
     val needsYou get() = !isClosed && ("human" in labels || type == "decision")
 }
+
+/**
+ * A bead someone holds in bd while no run on the bridge's computer works on it: another agent
+ * (Codex…), another computer, a session that ended. A marker, not a run: there is nothing to open.
+ */
+@Serializable
+data class ActiveElsewhere(
+    val assignee: String = "",
+    /** The bead's started_at (else updated_at). */
+    val since: String = "",
+    /** The assignee is the person the bridge acts for, i.e. the user. */
+    val self: Boolean = false,
+) {
+    /**
+     * The marker's heading. The user's own claim is the usual case (one person, many sessions), so
+     * it is about the session; anyone else's names them.
+     */
+    val title get() = if (self || assignee.isBlank()) "Active in another session" else "Active elsewhere · $assignee"
+
+    /** The detail's explanation; [ago] is [since] already formatted ("3 min. ago"), or "". */
+    fun detail(ago: String): String {
+        val whenText = ago.ifBlank { null }?.let { " $it" } ?: ""
+        return if (self || assignee.isBlank()) {
+            "Claimed$whenText from a session Nacre isn't running or watching: another terminal or computer, " +
+                "or an agent Nacre can't follow, like Codex. There is no transcript to show here."
+        } else {
+            "Claimed by $assignee$whenText. No run in Nacre is working on it, so there is no transcript to show here."
+        }
+    }
+}
+
+/**
+ * The [Issue.activeElsewhere] marker to show, given whether a live run on any paired computer is
+ * linked to the bead: that run's own marker wins, so the two never show together.
+ */
+fun Issue.elsewhere(liveRun: Boolean): ActiveElsewhere? = activeElsewhere?.takeIf { !liveRun && !isClosed }
+
+/**
+ * Beads with a run working on them now, among [runs] of the repository keys [repoKeys]. Stale agent
+ * sessions are left out, as in the Runs list: the bead then shows the bridge's
+ * [Issue.activeElsewhere] marker instead.
+ */
+fun liveRunIssueIds(runs: List<Run>, repoKeys: Set<String>): Set<String> =
+    runs.filter { it.isActive && it.inRunsList && it.repoKey in repoKeys }.map { it.issueId }.toSet()
 
 @Serializable
 data class Comment(

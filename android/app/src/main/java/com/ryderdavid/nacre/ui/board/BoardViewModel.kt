@@ -14,6 +14,7 @@ import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.board.moveActionFor
 import com.ryderdavid.nacre.data.model.Issue
+import com.ryderdavid.nacre.data.model.liveRunIssueIds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -44,10 +45,7 @@ class BoardViewModel(private val repo: NacreRepository, val repoKey: String) : V
     val state: StateFlow<Loadable<BoardUi>> = combine(
         source, filter, groupBy, showAllDone,
         // A run of this repository on any computer marks the bead as running.
-        combine(repo.runs, repo.groups) { runs, _ ->
-            val keys = repo.siblingKeys(repoKey)
-            runs.filter { it.isActive && it.repoKey in keys }.map { it.issueId }.toSet()
-        },
+        combine(repo.runs, repo.groups) { runs, _ -> liveRunIssueIds(runs, repo.siblingKeys(repoKey)) },
     ) { src, f, g, all, running ->
         val snap = src.data ?: return@combine Loadable<BoardUi>(null, src.loading, src.error)
         val ix = snap.index

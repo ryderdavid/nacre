@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -77,6 +78,8 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
+import com.ryderdavid.nacre.data.model.ActiveElsewhere
+import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.UpdateIssue
@@ -318,6 +321,7 @@ private fun DetailBody(
                 MenuChip(label = { TypeLabel(i.type) }, leading = null, options = TYPES.map { it to it.replaceFirstChar { c -> c.uppercase() } }, onPick = onType)
                 AssistChip(onClick = onAssignee, label = { Text(i.assignee.ifBlank { "Unassigned" }, maxLines = 1) }, leadingIcon = { Icon(Icons.Rounded.Person, null, Modifier.size(18.dp)) })
             }
+            i.elsewhere(liveRun = runs.any { it.isActive && it.inRunsList })?.let { ElsewhereNote(it) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                 i.labels.forEach { l -> InputChip(selected = false, onClick = onLabels, label = { Text(l) }) }
                 AssistChip(onClick = onLabels, label = { Text(if (i.labels.isEmpty()) "Add labels" else "Edit") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) })
@@ -401,6 +405,25 @@ private fun DetailBody(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+        }
+    }
+}
+
+/** bd shows the bead claimed while no run in Nacre works on it. A marker, not a run: nothing to open. */
+@Composable
+private fun ElsewhereNote(e: ActiveElsewhere) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(Modifier.padding(12.dp)) {
+            Icon(Icons.Rounded.Devices, null, Modifier.size(20.dp), tint = Nacre.colors.doing)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(e.title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    e.detail(relativeTime(e.since)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

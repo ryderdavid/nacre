@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Comment
+import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
@@ -43,12 +44,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
+import com.ryderdavid.nacre.data.model.ActiveElsewhere
 import com.ryderdavid.nacre.data.model.Issue
+import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.LabelChip
 import com.ryderdavid.nacre.ui.common.NeedsYouTag
 import com.ryderdavid.nacre.ui.common.PriorityPill
 import com.ryderdavid.nacre.ui.common.TypeLabel
+import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.theme.Nacre
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -63,6 +67,7 @@ fun BeadCard(
 ) {
     val blockers = if (!issue.isClosed) index.openBlockers(issue) else emptyList()
     val crumb = index.breadcrumb(issue)
+    val elsewhere = issue.elsewhere(liveRun = running)
     val accent = when {
         running -> Nacre.colors.running
         issue.needsYou -> Nacre.colors.needsYou
@@ -88,6 +93,10 @@ fun BeadCard(
                 if (issue.needsYou) {
                     Spacer(Modifier.height(6.dp))
                     NeedsYouTag()
+                }
+                if (elsewhere != null) {
+                    Spacer(Modifier.height(6.dp))
+                    ElsewhereTag(elsewhere)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -159,6 +168,17 @@ private fun WaitsOn(blockers: List<String>, index: BoardIndex) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/** bd shows the bead claimed while no run here works on it: by whom (unless the user), and since when. */
+@Composable
+private fun ElsewhereTag(e: ActiveElsewhere) {
+    val text = listOfNotNull(e.title, relativeTime(e.since).ifBlank { null }).joinToString(" · ")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Devices, null, Modifier.size(14.dp), tint = Nacre.colors.doing)
+        Spacer(Modifier.width(4.dp))
+        Text(text, style = MaterialTheme.typography.labelSmall, color = Nacre.colors.doing, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -75,6 +75,32 @@ Commonly present: `description`, `design`, `acceptance_criteria`, `notes`, `assi
 Statuses: `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
 (plus any custom statuses configured in the repo).
 
+nacred adds one field of its own, **`active_elsewhere`**, to issues it returns (the issue list,
+`GET …/issues/{id}`, and the issue echoed after a write). It is present only when bd says someone
+is working on the bead but nothing on this computer is:
+
+- the status is `in_progress` or `hooked`, and
+- `assignee` is set and is not nacred's configured `actor`, and
+- no live run on this computer is linked to the bead — neither one nacred dispatched nor a working
+  adopted session. A **stale** adopted session does not count: left open is not working, so the
+  claim in bd is the better signal, and
+- the claim is not one a Nacre run made. The agent in a run nacred dispatches claims its bead under
+  the git user, not the actor, and may leave it in progress when it finishes; so a claim made at or
+  before the end of the bead's latest dispatched run here is taken to be that run's. A claim made
+  after it ended is reported.
+
+```json
+"active_elsewhere": {"assignee": "codex", "since": "2026-10-24T10:00:00Z", "self": false}
+```
+
+`since` is the bead's `started_at`, else its `updated_at`. `self` is `true` when the assignee is the
+person nacred acts for — the actor without its ` via Nacre` suffix, e.g. `Ryder Cobean` for the
+default actor `Ryder Cobean via Nacre` — meaning their own work outside Nacre (another computer, a
+terminal, an agent without adoption). It is a **marker, not a run**: there is no transcript and
+nothing to cancel or follow up. It covers agents nacred cannot adopt (Codex and others), computers
+with `adopt_sessions` off, and sessions that ended or were never adopted. A client that also knows
+of a live run linked to the bead on another paired computer should show that run's marker instead.
+
 ### Comment
 `{"id": "…", "issue_id": "NAC-013", "author": "Ryder Cobean", "text": "…", "created_at": "…"}`
 

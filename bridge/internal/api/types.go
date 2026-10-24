@@ -106,8 +106,25 @@ type Host struct {
 	Name string `json:"host_name"`
 }
 
-// Issue is a bd issue object passed through verbatim from `bd list --json`.
+// Issue is a bd issue object passed through verbatim from `bd list --json`,
+// plus active_elsewhere when nacred adds it (see ActiveElsewhere).
 type Issue = json.RawMessage
+
+// ActiveElsewhere is the marker nacred adds to an issue, as active_elsewhere,
+// when bd says someone is working on it but nothing on this computer is: the
+// bead is in_progress or hooked, its assignee is not nacred's own actor, and
+// no live run here (dispatched or adopted, stale adopted sessions aside) is
+// linked to it. It is a claim seen in bd, not a run: there is no transcript.
+type ActiveElsewhere struct {
+	// Assignee is who holds the bead, as bd records it.
+	Assignee string `json:"assignee"`
+	// Since is the bead's started_at, or its updated_at when bd has no
+	// started_at; "" when it has neither.
+	Since string `json:"since,omitempty"`
+	// Self is set when the assignee is the person nacred acts for (the actor
+	// without its " via Nacre" suffix): their own work, outside Nacre.
+	Self bool `json:"self,omitempty"`
+}
 
 // Comment is a bd comment.
 type Comment struct {

@@ -21,7 +21,7 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repo": repo, "issues": issues})
+	writeJSON(w, http.StatusOK, map[string]any{"repo": repo, "issues": s.withElsewhere(repo.ID, issues)})
 }
 
 func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +52,7 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, cerr)
 		return
 	}
+	issue = s.withElsewhere(r.PathValue("repo"), []api.Issue{issue})[0]
 	writeJSON(w, http.StatusOK, map[string]any{"issue": issue, "comments": comments})
 }
 
@@ -363,7 +364,7 @@ func (s *Server) respondIssue(w http.ResponseWriter, r *http.Request, path, id s
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, status, map[string]any{"issue": issue})
+	writeJSON(w, status, map[string]any{"issue": s.withElsewhere(r.PathValue("repo"), []api.Issue{issue})[0]})
 }
 
 // cleanLabels trims labels and drops empties.
