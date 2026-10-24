@@ -7,7 +7,7 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 - [ ] 1.1 Parse and validate `nacre.yaml` (gates, build, env, version, resources, land, limits) in a new `internal/repoconfig` package, with errors that name the field and line — G-bridge
 - [ ] 1.2 Expose whether a repository has a valid `nacre.yaml` (and its gate names) on the Repo API entry; update `docs/API.md` — G-bridge
 - [ ] 1.3 Gate runner: run a named command in a directory with env and timeout, kill the process group on timeout, keep exit status, duration and the last 200 lines — G-bridge
-- [ ] 1.4 Add Nacre's own `nacre.yaml` and `scripts/bump-version.sh` (bumps versionCode and the patch of versionName) — G-bridge, then run the new gate runner against it by hand
+- [ ] 1.4 Add Nacre's own `nacre.yaml` and `scripts/bump-version.sh <patch|minor>` (versionCode +1; versionName patch or minor, minor resetting the patch) — G-bridge, then run the new gate runner against it by hand
 
 ## 2. Workspaces
 
@@ -38,12 +38,13 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 - [ ] 5.2 Turn contradictions and ambiguities into questions; `needs_decision` until all answered; record answers on beads and in later prompts — G-bridge
 - [ ] 5.3 Turn overlaps and orderings into sequencing; propose bd dependencies; accept reordering and unlinking before implementation — G-bridge
 - [ ] 5.4 Mark shared artifacts (version etc.) as round-owned and tell runs not to touch them — G-bridge
+- [ ] 5.5 Collect unmerged branches (local and remote, excluding active round branches) with their changed files, give them to the review, and turn matching `unmerged-work` findings into questions; "merge it first" merges into the integration branch and re-runs the gates before any bead starts — G-bridge (temp repo with an unmerged branch touching a bead's file)
 
 ## 6. Integration and landing
 
 - [ ] 6.1 Serialized `--no-ff` merge by nacred into the integration worktree, gates after each merge — G-bridge (temp git repos in tests)
 - [ ] 6.2 Integration turn for conflicts and post-merge failures; reset and park after `fix_attempts` — G-bridge
-- [ ] 6.3 Finish: one version bump, final gates and build, record final SHA and artifacts, close beads (keeping human-check beads open) — G-bridge
+- [ ] 6.3 Finish: one version bump (`minor` if any integrated bead is a feature or epic, else `patch`), final gates and build, record final SHA and artifacts, close beads (keeping human-check beads open); parked beads don't block finishing and stay open labelled `round-parked` — G-bridge
 - [ ] 6.4 Land: fast-forward target, merge-and-reverify if it moved, push when configured, `auto` landing — G-bridge
 
 ## 7. Exclusive resources

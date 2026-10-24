@@ -84,7 +84,7 @@ build:                       # run on the integration branch at the end of a rou
 env:
   JAVA_HOME: /Applications/Android Studio.app/Contents/jbr/Contents/Home
 version:
-  bump: scripts/bump-version.sh   # once per round, on the integration branch
+  bump: scripts/bump-version.sh {level}   # once per round; {level} is patch or minor
 resources: [emulator]
 land:
   target: main
@@ -110,7 +110,12 @@ expects to touch and any implied dependency, and a list of findings, each one of
 - `ordering` — one bead needs another's result → **dependency** (added to bd with Ryder's approval
   shown in the plan, not silently);
 - `shared-artifact` — version numbers, migrations, generated files → **owned by the round** (agents
-  are told not to touch them; the round does it once).
+  are told not to touch them; the round does it once);
+- `unmerged-work` — a local or remote branch not merged into the target touches the same files or
+  areas as a round bead → **question**: merge it into the round's base first, ignore it, or stop.
+  nacred lists those branches (`git branch -a --no-merged <target>` and the files each changes) and
+  gives them to the review. This is the check that would have caught NAC-eky being built on 0.2.1
+  while integration-0.3 sat unmerged.
 
 Questions block the round from implementing until each has an answer. Answers are posted to the beads
 as comments and fed to every affected run's prompt. Ryder may also mark the plan's ordering wrong and
@@ -154,8 +159,12 @@ released when the run's turn ends, and expire with the stall window so a hung ru
 The resource's identity (e.g. the emulator serial) is passed to the run in its prompt and environment.
 
 ### 10. Finishing and landing
-When every bead is integrated or parked: run `version.bump` once on the integration branch, run
-gates and `build`, record the artifact path and SHA. The round is **ready to land**. Beads whose
+When every bead is integrated or parked: run `version.bump` once on the integration branch with
+`{level}` = `minor` if any integrated bead is a feature or an epic, otherwise `patch` (versionCode, or
+the repository's equivalent, always increases by one), then run gates and `build`, and record the
+artifact path and SHA. A parked bead does not hold the round back: the round finishes and lands what
+reconciled, and the parked bead stays open, labelled `round-parked`, with its reason, ready for a
+later round. The round is **ready to land**. Beads whose
 acceptance criteria need a human (label `human`, or flagged by pre-flight) stay open with a
 "verify: …" note; the rest are closed with a reason naming the round and commit. Landing
 fast-forwards `land.target` to the integration commit; if the target moved, nacred merges the target
@@ -202,11 +211,14 @@ state intact; Ryder can raise the limit and resume.
    in Runs, tagged with `round_id`).
 Rollback: rounds are additive; disabling is removing `nacre.yaml`. Round branches are ordinary branches.
 
+## Decided (Ryder, 2026-10-24)
+
+- A bead that can't be reconciled does not block landing: the round lands what reconciled, and the
+  parked bead stays open and labelled for a later round.
+- The version goes up by bead type: minor if the round integrated any feature or epic, otherwise patch;
+  the build number always goes up by one.
+- Pre-flight also looks at unmerged branches outside the round that touch the same areas, and asks.
+
 ## Open Questions
 
-- Should a parked bead block landing, or should the round land what reconciled and leave the parked bead
-  for a later round? (Proposed: land what reconciled; parked beads stay open and labelled.)
-- Version bump scheme: patch per round, or derived from bead types (feature → minor)?
-- Should pre-flight also look at open, non-round work on other branches (e.g. an unmerged branch that
-  touches the same files)? It would have caught the NAC-eky base problem.
 - Default concurrency for rounds on a laptop vs the Mac Studio.

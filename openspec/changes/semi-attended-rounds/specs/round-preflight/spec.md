@@ -15,7 +15,8 @@ findings. The review SHALL NOT modify the repository or the beads beyond posting
 - **THEN** it runs in plan mode with only read access to the repository and bd, and the working tree is unchanged afterwards
 
 ### Requirement: Classify findings
-Each finding SHALL be one of `contradiction`, `ambiguity`, `overlap`, `ordering` or `shared-artifact`, and
+Each finding SHALL be one of `contradiction`, `ambiguity`, `overlap`, `ordering`, `shared-artifact` or
+`unmerged-work`, and
 SHALL name the beads involved and explain the finding in a sentence.
 
 #### Scenario: Contradiction
@@ -26,14 +27,33 @@ SHALL name the beads involved and explain the finding in a sentence.
 - **WHEN** two beads would each bump the app's versionName
 - **THEN** the plan contains a `shared-artifact` finding for the version, and neither bead's run is asked to change it
 
-### Requirement: Contradictions and ambiguities become questions
-Every `contradiction` and `ambiguity` finding SHALL become a question for Ryder with suggested answers,
+### Requirement: Look at unmerged work outside the round
+The review SHALL be given every local and remote branch that is not merged into the round's target, with
+the files each one changes, and SHALL report an `unmerged-work` finding for each such branch that touches
+the files or areas a round bead expects to touch. Branches created by rounds that are still active SHALL be
+excluded.
+
+#### Scenario: Stale base caught
+- **WHEN** a round targeting `main` includes a bead that edits `NewBeadSheet.kt`, and branch `integration-0.3` is not merged into `main` and also changes `NewBeadSheet.kt`
+- **THEN** the plan contains an `unmerged-work` finding naming `integration-0.3`, the bead, and the shared file
+
+#### Scenario: Unrelated branch ignored
+- **WHEN** an unmerged branch only changes files no round bead expects to touch
+- **THEN** the plan has no finding for it
+
+### Requirement: Contradictions, ambiguities and unmerged work become questions
+Every `contradiction`, `ambiguity` and `unmerged-work` finding SHALL become a question for Ryder with
+suggested answers (for `unmerged-work`: merge the branch into the round's base first, ignore it, or stop),
 and the round SHALL be `needs_decision` until every question has an answer. The other finding types
 SHALL NOT ask him anything.
 
 #### Scenario: Waiting for an answer
 - **WHEN** the plan contains one contradiction and two overlaps
 - **THEN** Ryder is asked one question, and implementation waits for its answer
+
+#### Scenario: Merge the unmerged branch first
+- **WHEN** Ryder answers an `unmerged-work` question with "merge it first"
+- **THEN** nacred merges that branch into the integration branch before any bead starts, runs the gates, and records the new base
 
 #### Scenario: No questions
 - **WHEN** the plan contains only overlaps and orderings

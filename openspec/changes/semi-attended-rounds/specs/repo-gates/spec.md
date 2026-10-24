@@ -4,7 +4,7 @@
 A repository SHALL declare its gates in a `nacre.yaml` file at its root, with: `gates` (named commands
 that must all exit 0), `build` (named commands run at the end of a round, each optionally naming an
 `artifact` path), `env` (environment variables for those commands), `version.bump` (a command run once per
-round), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits`
+round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits`
 (`gate_timeout_minutes`, `fix_attempts`). nacred SHALL reject a malformed file with the line and reason.
 
 #### Scenario: Valid file

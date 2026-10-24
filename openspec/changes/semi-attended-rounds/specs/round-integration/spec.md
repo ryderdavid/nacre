@@ -38,13 +38,26 @@ SHALL only edit and commit inside the worktree they were given.
 
 ### Requirement: Finish the round on one verified commit
 When every bead is integrated, parked or skipped, nacred SHALL run `version.bump` once on the integration
-branch and commit it, then run all gates and every `build` step there. If they pass, the round SHALL be
+branch with the level `minor` if any integrated bead is a feature or an epic and `patch` otherwise, and
+commit it, then run all gates and every `build` step there. If they pass, the round SHALL be
 `ready_to_land` with its final commit SHA and artifact paths recorded; if they fail, nacred SHALL run an
 integration turn under the same attempt limit.
 
 #### Scenario: Ready to land
 - **WHEN** all three beads are integrated and the final gates and build pass
 - **THEN** the round is `ready_to_land`, with one version bump commit, the final SHA and the APK path recorded
+
+#### Scenario: Feature bumps the minor version
+- **WHEN** a round at 0.3.3 integrates one feature and two bugs
+- **THEN** `version.bump` runs with `minor` and the version becomes 0.4.0, with the build number one higher
+
+#### Scenario: Only fixes bump the patch
+- **WHEN** a round at 0.3.3 integrates only bugs and tasks
+- **THEN** `version.bump` runs with `patch` and the version becomes 0.3.4
+
+#### Scenario: Parked bead does not hold the round
+- **WHEN** NAC-2 is parked and NAC-1 and NAC-3 are integrated
+- **THEN** the round finishes and becomes `ready_to_land` with NAC-1 and NAC-3, and NAC-2 stays open labelled `round-parked` with its reason
 
 ### Requirement: Close beads against the final commit
 At `ready_to_land`, nacred SHALL close each integrated bead with a reason naming the round and final commit,
