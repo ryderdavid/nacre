@@ -84,7 +84,14 @@ data class BeadDraft(
     val issue_type: String = "task",
     val priority: Int = 2,
     val labels: List<String> = emptyList(),
+    /** Things Claude needs the owner to decide or clarify; answered from the draft chat box. */
+    val open_questions: List<String> = emptyList(),
+    /** One sentence on what a revision changed; empty on a first draft. */
+    val reply: String = "",
 )
+
+/** One message in the chat that steers a draft. */
+data class DraftTurn(val fromUser: Boolean, val text: String) : java.io.Serializable
 
 /** Claude API access with the user's own key (Keystore-encrypted on device). */
 class ClaudeService {
@@ -111,6 +118,15 @@ class ClaudeService {
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(s: AppSettings, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft = withContext(Dispatchers.IO) {
         val text = structured(s, Prompts.EDITOR, Prompts.draft(repoName, rough, parentTitle, existingTitles), draftSchema, maxTokens = 8000)
+        json.decodeFromString<BeadDraft>(text)
+    }
+
+    /** Revise a draft from a chat message that answers an open question or asks to change a field. */
+    suspend fun reviseDraft(
+        s: AppSettings, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
+        parentTitle: String?, existingTitles: List<String>,
+    ): BeadDraft = withContext(Dispatchers.IO) {
+        val text = structured(s, Prompts.EDITOR, Prompts.reviseDraft(repoName, current, history, message, parentTitle, existingTitles), draftSchema, maxTokens = 8000)
         json.decodeFromString<BeadDraft>(text)
     }
 
@@ -221,7 +237,7 @@ class ClaudeService {
         val draftSchema: Map<String, Any> = mapOf(
             "type" to "object",
             "additionalProperties" to false,
-            "required" to listOf("title", "description", "design", "acceptance_criteria", "issue_type", "priority", "labels"),
+            "required" to listOf("title", "description", "design", "acceptance_criteria", "issue_type", "priority", "labels", "open_questions", "reply"),
             "properties" to mapOf(
                 "title" to mapOf("type" to "string"),
                 "description" to mapOf("type" to "string"),
@@ -230,9 +246,22 @@ class ClaudeService {
                 "issue_type" to mapOf("type" to "string"),
                 "priority" to mapOf("type" to "integer"),
                 "labels" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
+                "open_questions" to mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to "Questions for the owner, usually empty"),
+                "reply" to mapOf("type" to "string", "description" to "One sentence on what this revision changed; empty on a first draft"),
             ),
         )
     }
+}
+
+internal fun BeadDraft.render(): String = buildString {
+    appendLine("<draft type=\"$issue_type\" priority=\"P$priority\">")
+    appendLine("<title>$title</title>")
+    if (labels.isNotEmpty()) appendLine("<labels>${labels.joinToString(", ")}</labels>")
+    appendLine("<description>\n$description\n</description>")
+    if (design.isNotBlank()) appendLine("<design>\n$design\n</design>")
+    if (acceptance_criteria.isNotBlank()) appendLine("<acceptance_criteria>\n$acceptance_criteria\n</acceptance_criteria>")
+    if (open_questions.isNotEmpty()) appendLine("<open_questions>\n${open_questions.joinToString("\n") { "- $it" }}\n</open_questions>")
+    appendLine("</draft>")
 }
 
 internal fun BeadContext.render(): String = buildString {

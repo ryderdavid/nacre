@@ -35,6 +35,31 @@ object Prompts {
         }
         appendLine()
         appendLine("Choose issue_type from bug, feature, task, chore, epic, decision, spike. Priority is 0 (critical) to 4 (backlog); default 2. Keep the title under 80 characters and imperative. Only add acceptance criteria and design notes you can justify from the note; leave them empty otherwise. Labels: at most 3, lowercase, only if clearly useful.")
+        appendLine("In open_questions, list up to 4 short questions whose answers the note leaves open and that would change the bead (scope, priority, approach); leave it empty when nothing is unclear. Leave reply empty.")
+    }
+
+    /** Revises a draft from a chat message that answers an open question or asks to change a field. */
+    fun reviseDraft(
+        repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
+        parentTitle: String?, existingTitles: List<String>,
+    ): String = buildString {
+        appendLine("You drafted the bead below for the \"$repoName\" beads (bd) issue tracker; the owner may have edited it since. Revise it according to their latest message.")
+        appendLine()
+        appendLine(current.render())
+        parentTitle?.let { appendLine("It will be a child of: $it") }
+        if (existingTitles.isNotEmpty()) {
+            appendLine("Existing open beads (avoid duplicating them):")
+            existingTitles.take(60).forEach { appendLine("- $it") }
+        }
+        if (history.isNotEmpty()) {
+            appendLine("<conversation>")
+            history.forEach { appendLine(if (it.fromUser) "<owner>${it.text}</owner>" else "<you>${it.text}</you>") }
+            appendLine("</conversation>")
+        }
+        appendLine()
+        appendLine("<message>$message</message>")
+        appendLine()
+        appendLine("If the message answers one of the open questions, work the answer into the fields it affects and drop that question. If it asks to change a named field (title, description, design, acceptance criteria, type, priority or labels), change that field as asked. Keep everything else as it is unless the message implies it should change, and keep the owner's own edits. Return the whole revised draft. Keep open_questions to those still unanswered, plus any new one the message raises. In reply, tell the owner in one sentence what you changed.")
     }
 
     /**

@@ -38,6 +38,11 @@ class MacBackend(
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         json(repoKey, Prompts.draft(repoName, rough, parentTitle, existingTitles), ClaudeService.draftSchema)
 
+    override suspend fun reviseDraft(
+        repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
+        parentTitle: String?, existingTitles: List<String>,
+    ): BeadDraft = json(repoKey, Prompts.reviseDraft(repoName, current, history, message, parentTitle, existingTitles), ClaudeService.draftSchema)
+
     override fun session(board: AssistantBoard): AssistantSession = MacSession(repo, settings, board)
 
     /** One structured call, decoded with the same serializers as the API path. */

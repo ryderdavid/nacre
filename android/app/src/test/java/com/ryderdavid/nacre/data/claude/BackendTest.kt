@@ -171,9 +171,22 @@ class BackendTest {
     private class StubBackend(override val runner: ClaudeRunner) : ClaudeBackend {
         override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String) = RefineProposal()
         override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>) = BeadDraft("x")
+        override suspend fun reviseDraft(repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String, parentTitle: String?, existingTitles: List<String>) = current
         override fun session(board: AssistantBoard) = throw UnsupportedOperationException()
     }
 }
 
 internal fun kotlinx.serialization.json.JsonElement?.asText(): String = toString().trim('"')
 internal fun kotlinx.serialization.json.JsonElement?.asObject(): JsonObject = this as JsonObject
+
+/** The draft chat sends the same prompt and schema whichever backend runs it. */
+class DraftChatOnTheMacTest {
+    @Test fun revisingADraftOnTheMacUsesTheDraftSchemaAndTheRevisePrompt() {
+        val current = BeadDraft(title = "Add chat", open_questions = listOf("Bottom of the sheet?"))
+        val prompt = Prompts.reviseDraft("Nacre", current, listOf(DraftTurn(true, "make it P1")), "yes, at the bottom", null, emptyList())
+        assertTrue("<message>yes, at the bottom</message>" in prompt)
+        assertTrue("Bottom of the sheet?" in prompt)
+        val schema = ClaudeService.draftSchema.toSchemaJson().toString()
+        assertTrue("open_questions" in schema && "reply" in schema)
+    }
+}

@@ -51,6 +51,7 @@ class ApprovalTest {
     private class FakeBackend(override val runner: ClaudeRunner, val session: AssistantSession) : ClaudeBackend {
         override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String) = RefineProposal()
         override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>) = BeadDraft("x")
+        override suspend fun reviseDraft(repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String, parentTitle: String?, existingTitles: List<String>) = current
         override fun session(board: AssistantBoard) = session
     }
 

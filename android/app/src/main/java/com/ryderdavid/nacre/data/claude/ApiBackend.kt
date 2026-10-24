@@ -32,6 +32,11 @@ class ApiBackend(
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         service.draft(settings(), repoName, rough, parentTitle, existingTitles)
 
+    override suspend fun reviseDraft(
+        repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
+        parentTitle: String?, existingTitles: List<String>,
+    ): BeadDraft = service.reviseDraft(settings(), repoName, current, history, message, parentTitle, existingTitles)
+
     override fun session(board: AssistantBoard): AssistantSession = ApiSession(service, settings, board)
 }
 

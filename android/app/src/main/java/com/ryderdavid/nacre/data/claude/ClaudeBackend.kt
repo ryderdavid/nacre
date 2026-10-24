@@ -42,6 +42,12 @@ interface ClaudeBackend {
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft
 
+    /** Revise a draft from the chat under it: an answer to an open question, or a field to fix. */
+    suspend fun reviseDraft(
+        repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
+        parentTitle: String?, existingTitles: List<String>,
+    ): BeadDraft
+
     /** A fresh conversation about [board]. */
     fun session(board: AssistantBoard): AssistantSession
 }
