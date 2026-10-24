@@ -32,6 +32,7 @@ type run struct {
 	shutdownReq bool         // bridge is shutting down
 	turnResult  *claude.Result
 	stderrTail  []string
+	lastOutput  time.Time // when the running claude last printed anything
 }
 
 func newRun(meta api.Run, dir string) *run {

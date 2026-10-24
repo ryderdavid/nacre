@@ -111,6 +111,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
+		StallAfter:     cfg.StallAfter(),
 		Notify:         broker.Publish,
 		RepoChanged: func(repoID string) {
 			registry.Invalidate(repoID)

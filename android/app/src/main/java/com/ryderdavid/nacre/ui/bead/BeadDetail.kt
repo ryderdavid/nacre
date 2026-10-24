@@ -364,7 +364,7 @@ private fun DetailBody(
                     Modifier.fillMaxWidth().clickable { onOpenRun(r.key) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RunStatusIcon(r.status)
+                    RunStatusIcon(r.status, stalled = r.stalled)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(r.lastText.ifBlank { r.status }, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)

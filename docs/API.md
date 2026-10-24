@@ -169,6 +169,14 @@ Any subset of `{"title","description","design","acceptance_criteria","notes","st
 Setting `status` to `closed` uses `bd close`; changing a closed issue to another status reopens it first.
 Long text fields are passed via flags (not a shell), so any content is safe.
 
+### Stalled runs
+A running run whose `claude` has printed nothing for `stall_minutes` (config, default 15; negative
+turns the check off) gets `"stalled": true` and `"stalled_since"` (when it last printed), a system
+event saying it may be stuck, and a `run` notification on `/v1/events`. nacred does not stop it: the
+person decides whether to wait, or cancel and follow up. The flag clears as soon as `claude` prints
+again or the turn ends. The window is longer than Claude Code's longest foreground tool call
+(10 minutes), so a slow build is not mistaken for a hang.
+
 ### Adopted runs
 When `adopt_sessions` is enabled in nacred's config, nacred also watches Claude Code's own session
 registry (`~/.claude/sessions/`) and mirrors sessions an **agent started on its own** as runs with

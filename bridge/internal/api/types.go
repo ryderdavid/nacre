@@ -167,6 +167,14 @@ type Run struct {
 	// has read for an adopted run, as Claude Code wrote it; absent until the
 	// session has written one.
 	LastActivityAt string `json:"last_activity_at,omitempty"`
+	// Stalled marks a running run whose claude process has printed nothing
+	// for longer than the stall window (config stall_minutes): most likely
+	// stuck — on a dead API connection, say — rather than working. nacred
+	// leaves the process alone; the person decides whether to cancel and
+	// follow up. Cleared as soon as claude prints again or the turn ends.
+	Stalled bool `json:"stalled,omitempty"`
+	// StalledSince is when the last output arrived, set with Stalled.
+	StalledSince string `json:"stalled_since,omitempty"`
 	// CanCancel and CanFollowup report whether POST /v1/runs/{run}/cancel and
 	// .../followup are available for this run at all. See SetCapabilities for
 	// why they are pointers.

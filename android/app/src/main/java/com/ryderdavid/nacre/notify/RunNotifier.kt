@@ -36,6 +36,13 @@ internal fun runsWorthWatching(runs: List<Run>): List<Run> = runs.filter { it.is
  * never announced: nothing finished for us when a person quits their own session, and the
  * notification would claim a result Nacre never asked for.
  */
+/**
+ * Runs that have just been flagged stalled, given the keys already announced. A run is
+ * announced once per stall: it drops out of [announced] when it prints again or ends.
+ */
+internal fun newlyStalled(runs: List<Run>, announced: Set<String>): List<Run> =
+    runs.filter { it.stalled && it.isNacreWork && it.key !in announced }
+
 internal fun shouldAnnounceFinish(run: Run, notifyRuns: Boolean, appInForeground: Boolean): Boolean =
     notifyRuns && !appInForeground && !run.isAdopted
 
@@ -46,6 +53,9 @@ class RunNotifier(
     private val settings: SettingsStore,
     private val scope: CoroutineScope,
 ) {
+    /** Stalled runs already announced, so each stall notifies once. */
+    private var stallsAnnounced: Set<String> = emptySet()
+
     private val foreground get() = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
     fun start() {
@@ -57,6 +67,9 @@ class RunNotifier(
         }
         scope.launch {
             repository.runs.collect { runs ->
+                val fresh = newlyStalled(runs, stallsAnnounced)
+                stallsAnnounced = runs.filter { it.stalled && it.isNacreWork }.mapTo(mutableSetOf()) { it.key }
+                if (settings.current().notifyRuns) fresh.forEach(::postStalled)
                 if (runsWorthWatching(runs).isNotEmpty() && foreground && !RunWatcherService.running) {
                     withContext(Dispatchers.Main) { runCatching { RunWatcherService.start(context) } }
                 }
@@ -75,6 +88,23 @@ class RunNotifier(
         nm.createNotificationChannel(NotificationChannel(CH_DONE, "Finished runs", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "When a Claude Code run on your Mac finishes"
         })
+        nm.createNotificationChannel(NotificationChannel(CH_STUCK, "Runs that may be stuck", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "When a Claude Code run has printed nothing for a long time"
+        })
+    }
+
+    private fun postStalled(run: Run) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val n = NotificationCompat.Builder(context, CH_STUCK)
+            .setSmallIcon(R.drawable.ic_stat_nacre)
+            .setContentTitle("${run.issueId} may be stuck")
+            .setContentText("Claude has printed nothing for a while. Open it to cancel and follow up.")
+            .setSubText(listOfNotNull(run.hostName.ifBlank { null }, run.repoName).joinToString(" · "))
+            .setContentIntent(openRun(context, run.key))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        NotificationManagerCompat.from(context).notify(run.key.hashCode(), n)
     }
 
     private fun postFinished(run: Run) {
@@ -101,6 +131,7 @@ class RunNotifier(
     companion object {
         const val CH_ACTIVE = "runs_active"
         const val CH_DONE = "runs_done"
+        const val CH_STUCK = "runs_stuck"
         const val EXTRA_RUN = "nacre.run_id"
 
         fun cost(run: Run): String? = if (run.costUsd > 0) String.format(Locale.US, "$%.2f", run.costUsd) else null

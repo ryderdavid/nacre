@@ -153,6 +153,14 @@ data class Run(
     val stale: Boolean = false,
     /** When the agent's transcript last gained an entry, as Claude Code wrote it; "" until then. */
     @SerialName("last_activity_at") val lastActivityAt: String = "",
+    /**
+     * A run whose claude has printed nothing for the bridge's stall window (stall_minutes):
+     * probably stuck, e.g. on a dead connection, rather than working. The Mac leaves it
+     * running; the person decides whether to wait, or cancel and follow up.
+     */
+    val stalled: Boolean = false,
+    /** When the stalled run last printed anything. */
+    @SerialName("stalled_since") val stalledSince: String = "",
     /** Null means "allowed": the bridge only sends these to say an action is refused outright. */
     @SerialName("can_cancel") val canCancel: Boolean? = null,
     @SerialName("can_followup") val canFollowup: Boolean? = null,

@@ -56,3 +56,11 @@ func TestAdoptIdleMinutesDefaultsToFifteen(t *testing.T) {
 		t.Fatal("an unset window falls back to the default")
 	}
 }
+
+func TestStallAfter(t *testing.T) {
+	for minutes, want := range map[int]time.Duration{0: 15 * time.Minute, 20: 20 * time.Minute, -1: 0} {
+		if got := (&Config{StallMinutes: minutes}).StallAfter(); got != want {
+			t.Errorf("stall_minutes %d: %v, want %v", minutes, got, want)
+		}
+	}
+}

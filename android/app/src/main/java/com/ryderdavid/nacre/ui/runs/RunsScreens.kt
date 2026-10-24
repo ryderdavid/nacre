@@ -42,6 +42,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.HourglassDisabled
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
@@ -123,7 +124,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
 @Composable
-fun RunStatusIcon(status: String, modifier: Modifier = Modifier) {
+fun RunStatusIcon(status: String, modifier: Modifier = Modifier, stalled: Boolean = false) {
+    if (status == "running" && stalled) {
+        Icon(Icons.Rounded.HourglassDisabled, "May be stuck", tint = Nacre.colors.needsYou, modifier = modifier)
+        return
+    }
     when (status) {
         "running" -> {
             val t = rememberInfiniteTransition(label = "run")
@@ -242,6 +247,7 @@ internal fun activityLabel(activity: String): String? = when (activity) {
 /** The line shown under a transcript that is still going. */
 internal fun workingLabel(r: Run): String = when {
     r.status == "queued" -> "Waiting for a free slot on the Mac…"
+    r.stalled -> "Claude hasn't printed anything since ${relativeTime(r.stalledSince).ifBlank { "a while ago" }}, so it may be stuck. Wait, or cancel it and send a follow-up to carry on."
     r.isAdopted && r.activity == ACTIVITY_IDLE -> "The agent's session is waiting for input on the Mac…"
     r.isAdopted -> "An agent is working in this session…"
     else -> "Claude is working…"
@@ -262,12 +268,20 @@ fun AgentChip(r: Run, modifier: Modifier = Modifier) {
     }
 }
 
+/** Marks a running job that has gone quiet for longer than the Mac's stall window. */
+@Composable
+fun StalledChip(modifier: Modifier = Modifier) {
+    Surface(color = Nacre.colors.needsYouContainer, shape = RoundedCornerShape(8.dp), modifier = modifier) {
+        Text("May be stuck", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+    }
+}
+
 @Composable
 private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        leadingContent = { RunStatusIcon(r.status) },
+        leadingContent = { RunStatusIcon(r.status, stalled = r.stalled) },
         overlineContent = {
             Text(
                 listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, r.issueId.ifBlank { null }).joinToString(" · "),
@@ -275,7 +289,12 @@ private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: ()
             )
         },
         headlineContent = { Text(runTitle(r), maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        trailingContent = { if (r.isAdopted) AgentChip(r) },
+        trailingContent = {
+            when {
+                r.isAdopted -> AgentChip(r)
+                r.stalled -> StalledChip()
+            }
+        },
         supportingContent = {
             Column {
                 if (r.lastText.isNotBlank()) Text(r.lastText, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -366,7 +385,7 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
             if (r?.isActive == true) item("working") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A parked agent session is alive but doing nothing; don't pretend it is thinking.
-                    if (!(r.isAdopted && r.activity == ACTIVITY_IDLE)) {
+                    if (!(r.isAdopted && r.activity == ACTIVITY_IDLE) && !r.stalled) {
                         LoadingIndicator(Modifier.size(32.dp))
                         Spacer(Modifier.width(8.dp))
                     }
@@ -384,7 +403,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), shape = RoundedCornerShape(20.dp), modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RunStatusIcon(r.status)
+                RunStatusIcon(r.status, stalled = r.stalled)
                 Spacer(Modifier.width(8.dp))
                 Text(r.status.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium)
                 if (r.isAdopted) AgentChip(r, Modifier.padding(start = 8.dp))

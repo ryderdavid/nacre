@@ -47,7 +47,10 @@ type Options struct {
 	// its transcript before it counts as idle and stale (default
 	// DefaultAdoptIdleAfter).
 	AdoptIdleAfter time.Duration
-	Logger         *log.Logger
+	// StallAfter is how long a running claude may print nothing before the
+	// run is flagged api.Run.Stalled. 0 turns the check off.
+	StallAfter time.Duration
+	Logger     *log.Logger
 }
 
 // StartRequest describes a new run.
@@ -96,6 +99,7 @@ type Manager struct {
 	// rescan or a bridge restart finds the existing run instead of adopting
 	// the same session a second time.
 	adopted map[string]string
+	stop    chan struct{} // closed by Shutdown; ends the stall watch
 }
 
 // New loads run history from opts.Dir. Runs that were active when the bridge
@@ -118,7 +122,7 @@ func New(opts Options) (*Manager, error) {
 	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	m := &Manager{opts: opts, runs: map[string]*run{}, adopted: map[string]string{}}
+	m := &Manager{opts: opts, runs: map[string]*run{}, adopted: map[string]string{}, stop: make(chan struct{})}
 	ids, err := listRunDirs(opts.Dir)
 	if err != nil {
 		return nil, err
@@ -148,6 +152,9 @@ func New(opts Options) (*Manager, error) {
 		m.runs[id] = r
 	}
 	m.prune()
+	if opts.StallAfter > 0 {
+		go m.watchStalls()
+	}
 	return m, nil
 }
 
@@ -405,6 +412,9 @@ func (s *Subscription) Close() {
 // Shutdown terminates running processes and waits (bounded) for them to exit.
 func (m *Manager) Shutdown(timeout time.Duration) {
 	m.mu.Lock()
+	if !m.closing {
+		close(m.stop)
+	}
 	m.closing = true
 	m.queue = nil
 	for _, r := range m.runs {

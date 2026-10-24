@@ -66,6 +66,11 @@ type Config struct {
 	// still shown on its bead, but left out of the runs list and the adopted
 	// count, because a session left open is not a job in progress. Default 15.
 	AdoptIdleMinutes int `json:"adopt_idle_minutes"`
+	// StallMinutes is how long a run's claude process may print nothing
+	// before the run is flagged stalled. Longer than the longest foreground
+	// tool call Claude Code allows (10 minutes), so a slow build is not
+	// mistaken for a hang. Default 15; negative turns the check off.
+	StallMinutes int `json:"stall_minutes,omitempty"`
 
 	// DataDir holds run history. Default ~/Library/Application Support/nacred.
 	DataDir string `json:"data_dir,omitempty"`
@@ -215,6 +220,20 @@ func (c *Config) AdoptIdleAfter() time.Duration {
 		return DefaultAdoptIdleMinutes * time.Minute
 	}
 	return time.Duration(c.AdoptIdleMinutes) * time.Minute
+}
+
+// DefaultStallMinutes is the default StallMinutes.
+const DefaultStallMinutes = 15
+
+// StallAfter returns the stall window, or 0 when the check is off.
+func (c *Config) StallAfter() time.Duration {
+	switch {
+	case c.StallMinutes < 0:
+		return 0
+	case c.StallMinutes == 0:
+		return DefaultStallMinutes * time.Minute
+	}
+	return time.Duration(c.StallMinutes) * time.Minute
 }
 
 // AdoptInterval returns the configured session-registry poll period, or 0 to

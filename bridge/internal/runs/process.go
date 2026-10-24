@@ -66,6 +66,7 @@ func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
 
 	r.mu.Lock()
 	r.pgid = pgid
+	r.lastOutput = time.Now()
 	if r.cancelReq || r.shutdownReq {
 		r.terminate() // cancel arrived before the process existed
 	}
@@ -117,6 +118,10 @@ func (m *Manager) readStdout(r *run, rd io.Reader) {
 		p, err := claude.ParseLine(line)
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.heard() {
+			_ = r.save()
+			m.notify(r.meta)
+		}
 		if err != nil {
 			// Not JSON: surface it rather than dropping it.
 			r.addEvent(api.RunEvent{Kind: api.KindStderr, Text: claude.Truncate(strings.TrimRight(string(line), "\r\n"), maxStderrLine)})
@@ -135,6 +140,10 @@ func (m *Manager) readStderr(r *run, rd io.Reader) {
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.heard() {
+			_ = r.save()
+			m.notify(r.meta)
+		}
 		// Claude Code writes some stream-json notices (e.g. permission_denied) to
 		// stderr; show those as events rather than raw JSON.
 		if strings.HasPrefix(strings.TrimSpace(text), "{") {
@@ -224,6 +233,7 @@ func (m *Manager) finishTurn(r *run, waitErr error) {
 	r.cancelReq = false
 	r.meta.Error = errText
 	r.meta.EndedAt = now()
+	r.meta.Stalled, r.meta.StalledSince = false, ""
 	r.setStatus(status)
 	_ = r.save()
 	snap := r.meta
