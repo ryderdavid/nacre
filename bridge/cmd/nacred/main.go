@@ -226,8 +226,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 	return nil
 }
 
-// adoptSessions watches Claude Code's session registry so that sessions an
-// agent started on its own show up as read-only adopted runs (NAC-j5z).
+// adoptSessions watches Claude Code's session registry and Codex's rollout
+// files so that sessions an agent started on its own show up as read-only
+// adopted runs (NAC-j5z, NAC-j5z.11).
 func adoptSessions(ctx context.Context, cfg *config.Config, registry *repos.Registry, manager *runs.Manager, logger *log.Logger) {
 	w := sessions.New(sessions.Options{
 		Dir:           sessions.DefaultDir(config.Home()),
@@ -249,11 +250,15 @@ func adoptSessions(ctx context.Context, cfg *config.Config, registry *repos.Regi
 			}
 			return sessions.ParseBeads(issues)
 		},
-		Owned:  manager.OwnsSession,
-		Sync:   manager.SyncAdopted,
-		Logger: logger,
+		Owned: manager.OwnsSession,
+		Sync:  manager.SyncAdopted,
+		// A Codex session has no pid, so it ends once its rollout has been
+		// quiet for twice the idle window: idle and stale first, then ended.
+		CodexHome:       sessions.DefaultCodexHome(config.Home()),
+		CodexQuietAfter: 2 * cfg.AdoptIdleAfter(),
+		Logger:          logger,
 	})
-	logger.Printf("adopting agent-owned Claude Code sessions from %s", sessions.DefaultDir(config.Home()))
+	logger.Printf("adopting agent-owned Claude Code sessions from %s and Codex sessions from %s", sessions.DefaultDir(config.Home()), sessions.DefaultCodexHome(config.Home()))
 	w.Run(ctx)
 }
 

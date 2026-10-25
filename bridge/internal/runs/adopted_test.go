@@ -354,3 +354,71 @@ func TestCancelNeverSignalsAnAdoptedSession(t *testing.T) {
 		t.Fatalf("refused cancel wrote %d events", len(evs)-len(before))
 	}
 }
+
+// A Codex session rides the same adopted-run path: agent "codex", no pid, a
+// codex resume line, and the same read-only flags. Its rollout's events are
+// folded in like a Claude Code transcript's, and it ends when the watcher
+// stops reporting it.
+func TestAdoptedCodexSession(t *testing.T) {
+	m := quietManager(t, t.TempDir())
+	s := agentSession("01a17081-82ba-7853-aaa7-9229fb3a78e2", "NAC-7")
+	s.Agent, s.PID, s.Name, s.Version, s.Entrypoint, s.Status = api.AgentCodex, 0, "Fix the slow check", "0.159.2", "codex-tui", ""
+	ts := time.Now().UTC().Format(time.RFC3339)
+	s.Events = []api.RunEvent{
+		{Kind: api.KindText, Text: "Claiming the bead.", TS: ts},
+		{Kind: api.KindToolUse, Tool: "Bash", ToolID: "exec-1", Text: "bd update NAC-7 --claim", TS: ts},
+	}
+	s.FromStart = true
+	s.LastWrite = time.Now()
+	s.TranscriptState.Entries, s.TranscriptState.ToolCalls, s.TranscriptState.Model = 4, 1, "gpt-6.1-sol"
+	s.TranscriptState.LastText, s.TranscriptState.LastEntryTS = "Claiming the bead.", ts
+	m.SyncAdopted([]sessions.Session{s})
+
+	got := m.List(Filter{IncludeAdopted: true})
+	if len(got) != 1 {
+		t.Fatalf("runs = %+v", got)
+	}
+	r := got[0]
+	if r.Origin != api.OriginAdopted || r.Agent != api.AgentCodex || r.OwnerPID != 0 || r.IssueID != "NAC-7" {
+		t.Fatalf("run = %+v", r)
+	}
+	if r.Model != "gpt-6.1-sol" || r.ToolCalls != 1 || r.LastText != "Claiming the bead." || r.Activity != api.ActivityWorking {
+		t.Fatalf("folded state = model %q, tools %d, last %q, activity %q", r.Model, r.ToolCalls, r.LastText, r.Activity)
+	}
+	if !strings.Contains(r.ResumeCommand, "codex resume "+s.SessionID) {
+		t.Fatalf("resume command = %q", r.ResumeCommand)
+	}
+	if r.CanCancel == nil || *r.CanCancel || r.CanFollowup == nil || *r.CanFollowup {
+		t.Fatalf("capability flags = %v/%v", r.CanCancel, r.CanFollowup)
+	}
+	_, evs, _ := m.Get(r.ID)
+	if !strings.Contains(evs[0].Text, "adopted Codex session") || strings.Contains(evs[0].Text, "pid 0") {
+		t.Fatalf("notice = %q", evs[0].Text)
+	}
+	var tools int
+	for _, ev := range evs {
+		if ev.Kind == api.KindToolUse && ev.Tool == "Bash" {
+			tools++
+		}
+	}
+	if tools != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+
+	// Between turns the watcher marks it idle, as Claude Code does.
+	parked := s
+	parked.Events, parked.FromStart, parked.Status = nil, false, "idle"
+	m.SyncAdopted([]sessions.Session{parked})
+	if idle := m.List(Filter{IncludeAdopted: true})[0]; idle.Status != api.StatusRunning || idle.Activity != api.ActivityIdle {
+		t.Fatalf("parked = %q/%q", idle.Status, idle.Activity)
+	}
+
+	m.SyncAdopted(nil)
+	ended, evs, _ := m.Get(r.ID)
+	if ended.Activity != api.ActivityEnded || ended.Status != api.StatusSucceeded || ended.Error != "" {
+		t.Fatalf("ended = %+v", ended)
+	}
+	if last := evs[len(evs)-2]; !strings.Contains(last.Text, "Codex") {
+		t.Fatalf("end notice = %q", last.Text)
+	}
+}

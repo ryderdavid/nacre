@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
@@ -46,8 +47,18 @@ type Options struct {
 	// seeing it appear in the registry.
 	OwnNamePrefix string
 	// Sync receives the complete set of live adopted sessions after every
-	// poll. A session that drops out of it has ended.
+	// poll, Claude Code and Codex together. A session that drops out of it
+	// has ended.
 	Sync func([]Session)
+
+	// CodexHome is Codex's state directory (normally ~/.codex). When set, the
+	// watcher also adopts Codex sessions from the rollout files under
+	// CodexHome/sessions; "" leaves Codex out. See codex.go for the liveness
+	// rule, which has no pid to go on.
+	CodexHome string
+	// CodexQuietAfter is how long a Codex rollout may go unwritten before its
+	// session counts as ended (default: DefaultCodexQuietAfter).
+	CodexQuietAfter time.Duration
 
 	// Procs checks pid liveness (default: SystemProcs()).
 	Procs ProcTable
@@ -68,6 +79,8 @@ type Watcher struct {
 	// tails follows each live session's transcript, by session id, so each
 	// poll reads only what was appended since the last one.
 	tails map[string]*claude.TranscriptTail
+	// codex holds what the Codex source remembers between polls.
+	codex codexState
 }
 
 // New returns a Watcher. It does not read anything until Poll or Run is called.
@@ -84,7 +97,10 @@ func New(opts Options) *Watcher {
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
 	}
-	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}, tails: map[string]*claude.TranscriptTail{}}
+	if opts.CodexQuietAfter <= 0 {
+		opts.CodexQuietAfter = DefaultCodexQuietAfter
+	}
+	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}, tails: map[string]*claude.TranscriptTail{}, codex: newCodexState()}
 }
 
 // Run polls immediately and then every Interval until ctx is done.
@@ -110,16 +126,9 @@ func (w *Watcher) Poll() {
 	}
 }
 
-// sessions resolves the registry into the sessions nacred can adopt.
+// sessions resolves the registry, and Codex's rollouts when enabled, into the
+// sessions nacred can adopt.
 func (w *Watcher) sessions() []Session {
-	recs, err := ReadDir(w.opts.Dir)
-	if err != nil {
-		w.opts.Logger.Printf("sessions: read %s: %v", w.opts.Dir, err)
-		return nil
-	}
-	recs = w.candidates(recs)
-	starts := w.opts.Procs.StartTimes(pids(recs))
-
 	var repoList []Repo
 	if w.opts.Repos != nil {
 		repoList = w.opts.Repos()
@@ -139,9 +148,38 @@ func (w *Watcher) sessions() []Session {
 		return bs
 	}
 
-	out := make([]Session, 0, len(recs))
-	seen := make(map[string]bool, len(recs))
+	var out []Session
+	seen := map[string]bool{}
 	taken := map[string]bool{}
+	// finish links a session that resolved to a repo and adds it to the set.
+	// Its tail must already have been read: the same pass collects the bd
+	// commands the link resolves from.
+	finish := func(s Session) {
+		sid := s.SessionID
+		seen[sid] = true
+		l, cached := w.links[sid]
+		if !cached || l.issueID == "" {
+			l = w.link(s.Record, beads(s.Repo.ID), s.Transcript, taken)
+			w.links[sid] = l
+		}
+		if l.issueID != "" {
+			taken[l.issueID] = true
+			// A linked session is never re-linked, so its mentions are no
+			// longer collected.
+			w.scan.forget(sid)
+		}
+		s.IssueID, s.IssueTitle, s.LinkedBy = l.issueID, l.title, l.by
+		out = append(out, s)
+	}
+
+	recs, err := ReadDir(w.opts.Dir)
+	if err != nil {
+		// Codex sessions can still be reported; Claude Code ones are not
+		// known this poll, so they end.
+		w.opts.Logger.Printf("sessions: read %s: %v", w.opts.Dir, err)
+	}
+	recs = w.candidates(recs)
+	starts := w.opts.Procs.StartTimes(pids(recs))
 	for _, rec := range recs {
 		if !live(rec, starts) {
 			continue
@@ -150,24 +188,16 @@ func (w *Watcher) sessions() []Session {
 		if !ok {
 			continue
 		}
-		seen[rec.SessionID] = true
-		s := Session{Record: rec, Repo: repo, Transcript: transcriptPath(w.opts.Projects, rec.SessionID)}
-		// The tail is read first: the same pass collects the bd commands the
-		// link below resolves from.
-		w.tail(&s)
-		l, cached := w.links[rec.SessionID]
-		if !cached || l.issueID == "" {
-			l = w.link(rec, beads(repo.ID), s.Transcript, taken)
-			w.links[rec.SessionID] = l
+		s := Session{Record: rec, Agent: api.AgentClaudeCode, Repo: repo, Transcript: transcriptPath(w.opts.Projects, rec.SessionID)}
+		w.tail(&s, claude.TranscriptOptions{})
+		finish(s)
+	}
+	if w.opts.CodexHome != "" {
+		for _, s := range w.codexSessions(repoList, time.Now()) {
+			if !seen[s.SessionID] {
+				finish(s)
+			}
 		}
-		if l.issueID != "" {
-			taken[l.issueID] = true
-			// A linked session is never re-linked, so its mentions are no
-			// longer collected.
-			w.scan.forget(rec.SessionID)
-		}
-		s.IssueID, s.IssueTitle, s.LinkedBy = l.issueID, l.title, l.by
-		out = append(out, s)
 	}
 	w.forget(seen)
 	return out
@@ -191,7 +221,11 @@ func (w *Watcher) candidates(recs []Record) []Record {
 
 // tail reads what s's transcript gained since the previous poll into s. A
 // session whose transcript has not appeared yet simply has nothing to report.
-func (w *Watcher) tail(s *Session) {
+//
+// opts carries the agent-specific parts of the tail: Parse for a transcript
+// that is not Claude Code's, and an extra Observe hook. MaxEvents and the bd
+// scan are added here.
+func (w *Watcher) tail(s *Session, opts claude.TranscriptOptions) {
 	if s.Transcript == "" {
 		return
 	}
@@ -200,14 +234,17 @@ func (w *Watcher) tail(s *Session) {
 		// A session that moved between worktrees can switch files; the new
 		// one is read from the beginning, and so are the bd commands in it.
 		sid := s.SessionID
-		t = claude.NewTranscriptTail(s.Transcript, claude.TranscriptOptions{
-			MaxEvents: w.opts.MaxEvents,
-			Observe: func(p claude.TranscriptParsed) {
-				if w.links[sid].issueID == "" {
-					w.scan.observe(sid, p)
-				}
-			},
-		})
+		extra := opts.Observe
+		opts.MaxEvents = w.opts.MaxEvents
+		opts.Observe = func(p claude.TranscriptParsed) {
+			if extra != nil {
+				extra(p)
+			}
+			if w.links[sid].issueID == "" {
+				w.scan.observe(sid, p)
+			}
+		}
+		t = claude.NewTranscriptTail(s.Transcript, opts)
 		w.tails[sid] = t
 		w.scan.forget(sid)
 	}
@@ -239,6 +276,7 @@ func (w *Watcher) forget(seen map[string]bool) {
 			delete(w.tails, sid)
 		}
 	}
+	w.codex.forget(seen)
 }
 
 func pids(recs []Record) []int {

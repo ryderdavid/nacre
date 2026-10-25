@@ -1,6 +1,8 @@
 // Package sessions watches Claude Code's on-disk session registry
 // (~/.claude/sessions/<pid>.json) so nacred can adopt Claude Code sessions an
-// agent started on its own, with no cooperation from that agent.
+// agent started on its own, with no cooperation from that agent. Codex
+// sessions are adopted the same way from Codex's rollout files; codex.go
+// covers what differs, chiefly that liveness has no pid to go on.
 //
 // A record is only adopted when its process is genuinely alive (pid liveness
 // plus a process-start-time match, so a reused pid cannot resurrect a dead
@@ -132,10 +134,17 @@ func ParseBeads(raw []json.RawMessage) []Bead {
 	return out
 }
 
-// Session is a live Claude Code session nacred has adopted: a registry record
-// that passed the liveness check and resolved to a discovered repo.
+// Session is a live agent session nacred has adopted: a Claude Code registry
+// record that passed the liveness check, or a fresh Codex rollout, that
+// resolved to a discovered repo.
 type Session struct {
 	Record
+
+	// Agent is the tool that owns the session: api.AgentClaudeCode for a
+	// registry record, api.AgentCodex for a Codex rollout. A Codex session has
+	// no pid (Record.PID is 0); Record.Entrypoint is its originator and
+	// Record.Status is "idle" between turns.
+	Agent string
 
 	// Repo is the discovered repository the session is working in. For a
 	// session inside a git worktree this is the main checkout, which is where

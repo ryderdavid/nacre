@@ -63,9 +63,9 @@ type Config struct {
 	// PromptTemplate supports {{id}}, {{title}}, {{repo}} and {{instructions}}.
 	PromptTemplate string `json:"prompt_template"`
 
-	// AdoptSessions enables watching Claude Code's session registry so that
-	// sessions an agent started on its own are adopted as read-only runs
-	// (NAC-j5z). Off by default; even when on, adopted runs are only listed
+	// AdoptSessions enables watching Claude Code's session registry and
+	// Codex's rollout files (~/.codex/sessions) so that sessions an agent
+	// started on its own are adopted as read-only runs (NAC-j5z, NAC-j5z.11). Off by default; even when on, adopted runs are only listed
 	// to clients that ask for them (GET /v1/runs?include=adopted).
 	AdoptSessions bool `json:"adopt_sessions"`
 	// AdoptPollSeconds is how often the session registry is polled. 0 uses
