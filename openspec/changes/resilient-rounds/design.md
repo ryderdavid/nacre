@@ -19,7 +19,7 @@ parked.
 | Workspace can't be made; bd can't read the bead; run can't start; follow-up can't start | park | transient retry with backoff → park |
 | Run failed / gone / cancelled / stalled twice / verification fails after follow-ups | park | unchanged (the bead's own turns already ran) |
 | Nothing could be reconciled | pause | stop with choices (retry a parked bead, cancel) |
-| Budget or time used up | pause | stop with choices (raise, land what's integrated, cancel); no ladder |
+| Budget or time used up | pause | stop with choices (raise, with an estimate of what's left; cancel); no ladder |
 
 ## Goals / Non-Goals
 
@@ -79,11 +79,30 @@ card's text, each choice's explanation under its button.
 
 ### Choices instead of Resume
 A paused round exposes `choices`, each an id the bridge knows how to carry out: `retry-with-budget`
-(another recovery turn, with an amount), `skip-branch`, `skip-bead` (park it), `land-integrated` (finish
-with the beads already integrated; offered when at least one is), `continue` (Ryder changed something by
-hand), `raise-limits`, `cancel`. `continue` compares the state that made the step fail (the HEADs and
+(another recovery turn, with an amount), `skip-branch` (only on a stop about a pre-flight branch),
+`skip-bead` (park it; only on a stop about one bead), `continue` (Ryder changed something by hand),
+`raise-limits`, `cancel`.
+
+There is deliberately no "land what's integrated". A round already finishes as soon as every bead is
+integrated, parked or skipped, so a bead that can't be finished never blocks landing, and the Land card
+lists what was set aside. The only other way to end up with some beads integrated and others unfinished
+is a budget or time stop, where the useful answer is to raise the limit (the round is usually most of
+the way there) or cancel. Splitting by choice would ship half of work that was started as a unit, spend a
+version bump on it, and leave the rest on a branch built on an old base. A limits stop instead shows
+what was spent per bead and estimates the rest from the average cost of the finished beads, so raising
+the limit is an informed choice. `continue` compares the state that made the step fail (the HEADs and
 files involved) with now; if nothing changed it refuses with "nothing has changed since this failed" and
 leaves the other choices. The existing Resume route maps to `continue`, so older apps keep working.
+
+### Set-aside work carries over
+A parked bead's branch (`nacre/r/<round>/<bead>`) is kept, and so are a cancelled round's. The
+pre-flight scan skips every `nacre/r/` branch, so that work is never asked about, but today a later round
+that includes the bead also ignores it. When a round creates a bead's workspace, nacred looks up the
+newest kept branch for that bead (from stored rounds, not by branch name alone) that has commits beyond
+its own base; if there is one, the new bead branch starts from the integration branch and merges the
+kept branch in, through the same mechanical fixes and recovery turn as any other merge. The bead's
+prompt says its earlier work is already there and why it was set aside. The old round's record notes
+which round picked the branch up, and the old branch is deleted once the new round lands.
 
 ### API shape
 `Round.stop = {kind, reason, diagnosis: {summary, cause}, choices: [{id, label, explanation}],
@@ -109,5 +128,4 @@ Additive in the bridge and app. Rounds already paused when nacred is upgraded ke
 
 ## Open Questions
 
-- Whether `land-integrated` should also be offered when beads are parked for non-merge reasons (failed
-  verification), or only when the round can't go further.
+None. (Settled: no "land what's integrated" choice; see "Choices instead of Resume".)

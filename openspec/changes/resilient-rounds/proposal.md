@@ -36,9 +36,14 @@ wrong first. A round should do the same, and stop only for decisions that are ge
   failure, the round's events and the repository, and says in plain words what is wrong and what each way
   forward would do. That text is shown on the stop card in the app and in `nacred round status`.
 - **Stops are decisions with choices, and Resume never repeats a failure.** A stop carries concrete
-  choices (let Claude try again with more budget, skip this branch or bead, land what is already
-  integrated, cancel), and "I fixed it, continue" first checks that something actually changed; if the
-  same step would fail the same way, the round says so instead of trying.
+  choices (let Claude try again with more budget, skip the branch or bead the stop is about, raise the
+  limits, cancel), and "I fixed it, continue" first checks that something actually changed; if the same
+  step would fail the same way, the round says so instead of trying. A round is never split by choice:
+  it lands whole, or without only the beads that truly couldn't be finished, which it already sets aside
+  by itself and lists at Land.
+- **Set-aside work carries over.** A bead parked by a round (or left by a cancelled one) keeps its branch;
+  today a later round that includes the bead ignores that work and starts again. The next round that
+  includes it continues from the kept branch, brought up to date with the new base.
 - **App.** The pause card shows the diagnosis and one button per choice; recovery events read as part of
   the round's log; notifications fire only for a real stop.
 
@@ -49,14 +54,16 @@ Out of scope:
   catalogue in code.
 - Overriding Ryder's decisions: a question about intent (a contradiction between beads) is still his, and
   budget and time limits still stop the round.
+- Landing part of a round by choice. Beads in a round belong together; an urgent fix that can't wait for
+  the rest goes in a round of its own.
 - Force-pushing, rewriting the target's history, or deleting branches as a recovery step.
 
 ## Capabilities
 
 ### New Capabilities
 - `round-recovery`: the recovery ladder at every stop point, the catalogue of mechanical fixes, recovery
-  turns for merges and landing, transient retries, the diagnosis shown at a stop, and stops as choices
-  that never replay the same failure.
+  turns for merges and landing, transient retries, the diagnosis shown at a stop, stops as choices that
+  never replay the same failure, and carrying a set-aside bead's work into the next round.
 
 ### Modified Capabilities
 <!-- None in openspec/specs/: the round capabilities this builds on (run-rounds, round-preflight,

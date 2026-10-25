@@ -29,14 +29,21 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 ## 5. Diagnosis and choices
 
 - [ ] 5.1 Diagnosis call through the headless assist path (bd reads + `read_repo`), JSON schema `{summary, cause, choices}`, $0.50 cap, 3-minute timeout, skipped without budget — G-bridge (fake headless)
-- [ ] 5.2 Choices per stop kind and `POST /v1/rounds/{round}/choose`; `retry-with-budget`, `skip-branch`, `skip-bead`, `land-integrated`, `raise-limits`, `cancel` — G-bridge
+- [ ] 5.2 Choices per stop kind and `POST /v1/rounds/{round}/choose`; `retry-with-budget`, `skip-branch` (pre-flight branch stops only), `skip-bead` (single-bead stops only), `raise-limits`, `cancel`; no partial-landing choice — G-bridge
+- [ ] 5.2a Limits stop: spend per bead and an estimate for the unfinished beads from the finished ones' average — G-bridge
 - [ ] 5.3 `continue` compares the failing state with now and refuses when nothing changed; Resume maps to `continue` — G-bridge
 - [ ] 5.4 `nacred round status` shows the diagnosis and choices; `nacred round choose ROUND CHOICE [--budget USD]` — G-bridge
+
+## 5b. Set-aside work carries over
+
+- [ ] 5b.1 Find a bead's newest kept round branch (from stored rounds: parked beads and cancelled rounds) with commits beyond its base — G-bridge
+- [ ] 5b.2 Start the new bead branch from the integration branch with the kept branch merged in (mechanical fixes, then recovery turn); prompt says the earlier work is there and why it was set aside — G-bridge (round A parks, round B continues)
+- [ ] 5b.3 Record the pickup on the old round; delete the kept branch after the new round lands — G-bridge
 
 ## 6. App
 
 - [ ] 6.1 Models for `stop`, choices and `recover` events; `choose` in BridgeClient and NacreRepository — G-app
-- [ ] 6.2 Stop card: diagnosis summary, one button per choice with its explanation, budget field for `retry-with-budget`; recovery events in the round log — G-app, G-build
+- [ ] 6.2 Stop card: diagnosis summary, one button per choice with its explanation, budget field for `retry-with-budget`, spend per bead and the estimate on a limits stop; recovery events in the round log — G-app, G-build
 - [ ] 6.3 Notify only on a real stop, not on a successful recovery — G-app
 
 ## 7. Release and check

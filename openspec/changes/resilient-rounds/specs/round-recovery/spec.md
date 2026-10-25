@@ -89,9 +89,12 @@ skipped, showing the plain reason, when the budget can't cover it or the call fa
 
 ### Requirement: Stops are choices that never replay a failure
 A paused round SHALL expose the choices that apply to its stop, each one carried out by nacred:
-`retry-with-budget` (another recovery turn with an amount Ryder sets), `skip-branch`, `skip-bead`,
-`land-integrated` (finish with the beads already integrated, offered when at least one is), `continue`
-(Ryder changed something by hand), `raise-limits` and `cancel`. `continue` SHALL first compare the state
+`retry-with-budget` (another recovery turn with an amount Ryder sets), `skip-branch` (on a stop about a
+pre-flight branch), `skip-bead` (on a stop about one bead), `continue` (Ryder changed something by hand),
+`raise-limits` and `cancel`. A round SHALL NOT offer to land only part of its beads; it lands without a
+bead only when that bead was parked because it couldn't be finished. A stop for budget or time SHALL show
+what each bead has spent and an estimate of what the unfinished beads need, from the average cost of the
+finished ones. `continue` SHALL first compare the state
 that made the step fail (the commits and files involved) with now, and if nothing changed SHALL refuse
 with "Nothing has changed since this failed" and leave the round paused. The existing resume action SHALL
 behave as `continue`.
@@ -104,9 +107,28 @@ behave as `continue`.
 - **WHEN** a pre-flight merge of `origin/old-work` stops after the ladder and Ryder chooses `skip-branch`
 - **THEN** the question is recorded as "Ignore it", the integration branch is as it was, and the beads start
 
-#### Scenario: Land what's integrated
-- **WHEN** two of three beads are integrated, the third keeps failing, and Ryder chooses `land-integrated`
-- **THEN** the third bead is parked, the final gates, version bump and build run on the two, and the round becomes ready to land
+#### Scenario: Budget runs out partway
+- **WHEN** two of three beads are integrated at $8 each and the round's $25 budget runs out while the third is running
+- **THEN** the stop offers raising the limit with an estimate of about $8 more, or cancelling, and no choice to land the two on their own
+
+#### Scenario: A bead that can't be finished
+- **WHEN** the third bead still fails its gates after its follow-ups and recovery turn
+- **THEN** the round parks it without asking, finishes with the other two, and the Land card lists the parked bead and why
+
+### Requirement: Set-aside work carries into the next round
+nacred SHALL continue a bead from its kept round branch when a new round includes a bead that an earlier
+round parked or left behind by being cancelled, and that branch has commits beyond its own base. The new
+bead branch SHALL start from the new round's integration branch with the kept branch merged in, through
+the same mechanical fixes and recovery turn as any merge; the bead's prompt SHALL say its earlier work is
+present and why it was set aside; and the kept branch SHALL be deleted once the new round lands.
+
+#### Scenario: Picking up parked work
+- **WHEN** NAC-7 was parked in round A with two commits on `nacre/r/A/NAC-7`, and round B includes NAC-7
+- **THEN** NAC-7's branch in round B contains those two commits on top of B's base, its run is told what they are and why A parked it, and `nacre/r/A/NAC-7` is deleted after B lands
+
+#### Scenario: Nothing to pick up
+- **WHEN** round B includes a bead whose kept branch in round A has no commits beyond its base
+- **THEN** the bead starts fresh from B's base
 
 ### Requirement: The app shows stops and recoveries
 The round screen SHALL show a stop's diagnosis summary, one button per choice with its explanation, and
@@ -116,7 +138,7 @@ succeeded.
 
 #### Scenario: Stop card
 - **WHEN** a round stops on a landing conflict after the ladder
-- **THEN** the card shows the diagnosis, and buttons for trying again with more budget, landing what's integrated, continuing after a manual fix, and cancelling
+- **THEN** the card shows the diagnosis, and buttons for trying again with more budget, continuing after a manual fix, and cancelling
 
 #### Scenario: Quiet recovery
 - **WHEN** a version conflict at landing is fixed mechanically
