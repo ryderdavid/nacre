@@ -143,6 +143,16 @@ A run a **round** started adds these (all omitted otherwise):
 }
 ```
 
+A run dispatched to **Codex** (`RunRequest.agent` `"codex"`) carries the same fields plus
+`"agent": "codex"`. Its `session_id` is the Codex thread id, `resume_command` is
+`cd '…' && codex resume <thread id>`, `model` is `""` unless one was asked for (Codex's configured
+default), and `cost_usd` stays 0 because Codex reports no cost; `duration_ms` is wall time. Its
+events are the same kinds a Claude run has: Codex's messages are `text`, its reasoning `thinking`,
+and its commands, file changes, MCP calls, web searches and plans are `tool_use`/`tool_result`
+pairs named like Claude Code's tools (`Bash`, `Edit`, `mcp__server__tool`, `WebSearch`,
+`TodoWrite`), so a client shows both alike. Cancel and follow-up work as for a Claude run (a
+follow-up is `codex exec resume`).
+
 A run nacred dispatched carries exactly the fields above. An **adopted** run — a session an agent
 started on its own, which nacred only watches (see [Adopted runs](#adopted-runs)) — adds these.
 Every one of them is omitted for a dispatched run, so a client written against the fields above
@@ -203,7 +213,7 @@ still a 409).
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.1.0","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","repos":n,"active_runs":n,"features":["claude"]}` — `active_runs` excludes adopted runs |
+| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `active_runs` excludes adopted runs; `features` has `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -295,8 +305,15 @@ asks for both and keeps stale runs out of its runs list and counts itself. Fetch
 gated: a client that was handed an adopted run's id can always follow it.
 
 ### RunRequest
-`{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)"}`
+`{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)", "agent": "claude-code|codex"}`
 All fields optional; defaults come from config.
+
+`agent` `"codex"` runs the bead with the OpenAI Codex CLI (`codex exec --json`) instead of Claude
+Code; `""` or `"claude-code"` is Claude Code. It answers 409 with `codex_unavailable`'s reason as
+`detail` when Codex can't run on this computer. For Codex, `default_model` (a Claude model) is not
+applied, and `mode` picks Codex's sandbox, since `codex exec` asks no one for approval: `plan` is
+read-only; `acceptEdits` and `dontAsk` may write in the repository without network; `auto` may
+also use the network; `bypassPermissions` runs with no sandbox.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",

@@ -1,6 +1,6 @@
-// Package runs manages Claude Code runs: queueing under a concurrency limit,
-// launching `claude -p` processes, recording their stream-json output as
-// RunEvents, follow-ups via --resume, cancellation, and persistence so run
+// Package runs manages agent runs: queueing under a concurrency limit,
+// launching `claude -p` (or, for Agent "codex", `codex exec --json`)
+// processes, recording their output as RunEvents, follow-ups via --resume, cancellation, and persistence so run
 // history survives restarts.
 package runs
 
@@ -17,6 +17,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/codex"
 )
 
 // Errors returned by Manager methods.
@@ -33,8 +34,10 @@ func (c conflict) Unwrap() error { return ErrConflict }
 
 // Options configures a Manager.
 type Options struct {
-	Dir           string // run history directory
-	ClaudePath    string
+	Dir        string // run history directory
+	ClaudePath string
+	// CodexPath is the Codex CLI, for runs started with Agent api.AgentCodex.
+	CodexPath     string
 	MaxConcurrent int
 	Keep          int // number of runs to keep on disk (default 200)
 	// Notify publishes a global notification (event "run" with an api.Run).
@@ -60,6 +63,9 @@ type StartRequest struct {
 	Mode, Model                string
 	Worktree                   bool
 	Prompt                     string
+	// Agent is api.AgentCodex to run the bead with the Codex CLI; "" (or
+	// api.AgentClaudeCode) runs it with Claude Code.
+	Agent string
 	// Round fields: the run works in Workspace (a worktree nacred made, on
 	// Branch from Base) instead of the repository, for round RoundID.
 	RoundID, Kind           string
@@ -186,6 +192,9 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 		CreatedAt: t.UTC().Format(time.RFC3339), Turns: 1,
 		RoundID: req.RoundID, Kind: req.Kind, Branch: req.Branch, Workspace: req.Workspace, Base: req.Base,
 	}
+	if req.Agent == api.AgentCodex {
+		meta.Agent = api.AgentCodex
+	}
 	r := newRun(meta, filepath.Join(m.opts.Dir, id))
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {
 		return api.Run{}, fmt.Errorf("persist run: %w", err)
@@ -244,7 +253,7 @@ func (m *Manager) FollowupWith(id string, f Followup) (api.Run, error) {
 	case r.meta.SessionID == "":
 		r.mu.Unlock()
 		m.mu.Unlock()
-		return api.Run{}, conflict("run has no Claude session to resume")
+		return api.Run{}, conflict("run has no session to resume")
 	}
 	r.ensureLoaded()
 	if mode != "" {
@@ -521,10 +530,11 @@ func (m *Manager) schedule() {
 		r.setStatus(api.StatusRunning)
 		_ = r.save()
 		snap := r.meta
+		agent := r.meta.Agent
 		r.mu.Unlock()
 		m.running++
 		m.wg.Add(1)
-		go m.execute(r, *turn, cwd)
+		go m.execute(r, agent, *turn, cwd)
 		m.notify(snap)
 	}
 }
@@ -580,6 +590,9 @@ func resumeCommand(meta api.Run) string {
 	dir := meta.SessionCWD
 	if dir == "" {
 		dir = meta.RepoPath
+	}
+	if meta.Agent == api.AgentCodex {
+		return codex.ResumeCommand(dir, meta.SessionID)
 	}
 	return fmt.Sprintf("cd %s && claude --resume %s", shellQuote(dir), meta.SessionID)
 }

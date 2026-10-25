@@ -27,7 +27,11 @@ type run struct {
 	subs      map[chan struct{}]struct{}
 
 	pending     *claude.Turn // turn waiting in the queue
-	pgid        int          // process group of the running claude, 0 if none
+	pgid        int          // process group of the running agent, 0 if none
+	// stopSig is what terminate sends first (0 = SIGTERM). Codex runs each
+	// command in a process group of its own, out of reach of a signal to
+	// pgid, and only kills them itself on SIGINT.
+	stopSig syscall.Signal
 	cancelReq   bool         // user asked to cancel the current turn
 	shutdownReq bool         // bridge is shutting down
 	turnResult  *claude.Result
@@ -167,14 +171,18 @@ func (r *run) signal() {
 	}
 }
 
-// terminate sends SIGTERM to the run's process group and SIGKILL after
-// killGrace if it is still the same process group.
+// terminate sends SIGTERM (or stopSig) to the run's process group and
+// SIGKILL after killGrace if it is still the same process group.
 func (r *run) terminate() {
 	pgid := r.pgid
 	if pgid <= 0 {
 		return // not started yet; execute checks cancelReq after start
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	sig := syscall.SIGTERM
+	if r.stopSig != 0 {
+		sig = r.stopSig
+	}
+	_ = syscall.Kill(-pgid, sig)
 	time.AfterFunc(killGrace, func() {
 		r.mu.Lock()
 		still := r.pgid == pgid

@@ -187,7 +187,7 @@ data class Run(
     @SerialName("resume_command") val resumeCommand: String = "",
     /** [ORIGIN_ADOPTED] for a session an agent started itself; absent means Nacre dispatched the run. */
     val origin: String = "",
-    /** Tool that owns an adopted session ("claude-code"); absent means Claude Code. */
+    /** Tool that owns the session: [AGENT_CODEX] for a run sent to Codex; absent means Claude Code. */
     val agent: String = "",
     /** The name the agent gave its session; the only human label an adopted run has. */
     @SerialName("session_name") val sessionName: String = "",
@@ -234,6 +234,12 @@ data class Run(
     /** A session an agent started on its own, which the Mac only watches (see docs/API.md). */
     val isAdopted get() = origin == ORIGIN_ADOPTED
 
+    /** A run the Mac does with the OpenAI Codex CLI rather than Claude Code. */
+    val isCodex get() = agent == AGENT_CODEX
+
+    /** The agent doing the run, as the app names it in sentences ("Codex is working…"). */
+    val agentName get() = if (isCodex) "Codex" else "Claude"
+
     /**
      * Work Nacre asked for and is waiting on. Adopted runs are excluded everywhere this
      * decides whether something is "in progress for us": nobody asked for them from here,
@@ -256,6 +262,9 @@ data class Run(
 
 /** `origin` of a run the Mac only watches; see "Adopted runs" in docs/API.md. */
 const val ORIGIN_ADOPTED = "adopted"
+
+/** `agent` of a run done with the OpenAI Codex CLI; [RunRequest.agent] to start one. */
+const val AGENT_CODEX = "codex"
 
 /** `activity` of an adopted run: finer-grained than `status`, which stays one of the five. */
 const val ACTIVITY_WORKING = "working"
@@ -284,6 +293,9 @@ data class Health(
     @SerialName("host_name") val hostName: String = "",
     @SerialName("bd_version") val bdVersion: String = "",
     @SerialName("claude_version") val claudeVersion: String = "",
+    @SerialName("codex_version") val codexVersion: String = "",
+    /** Why beads can't be run with Codex on this computer, in a sentence; "" when they can. */
+    @SerialName("codex_unavailable") val codexUnavailable: String = "",
     val repos: Int = 0,
     @SerialName("active_runs") val activeRuns: Int = 0,
     /** Optional capabilities this computer reports; see [Features]. */
@@ -291,11 +303,25 @@ data class Health(
 ) {
     /** True when this computer can run Refine, Draft and the assistant itself. */
     val runsClaude get() = Features.CLAUDE in features
+
+    /** True when beads can be run with the Codex CLI on this computer. */
+    val runsCodex get() = Features.CODEX in features
+
+    /** Why "Implement via Codex" can't be used here, or null when it can. */
+    val codexBlocker: String? get() = when {
+        runsCodex -> null
+        codexUnavailable.isNotBlank() -> codexUnavailable
+        // An older nacred reports neither the feature nor a reason.
+        else -> "This computer's nacred is too old to run Codex; update it"
+    }
 }
 
 object Features {
     /** nacred can run the app's Claude features headless on its own subscription. */
     const val CLAUDE = "claude"
+
+    /** Beads can be run with the OpenAI Codex CLI, installed and signed in on the computer. */
+    const val CODEX = "codex"
 }
 
 // ---- request bodies ----
@@ -336,6 +362,8 @@ data class RunRequest(
     val model: String? = null,
     val instructions: String? = null,
     val worktree: Boolean? = null,
+    /** [AGENT_CODEX] to run the bead with Codex; null runs it with Claude Code. */
+    val agent: String? = null,
 )
 
 /**

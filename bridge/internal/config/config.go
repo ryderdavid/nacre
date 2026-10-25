@@ -44,6 +44,8 @@ type Config struct {
 
 	BdPath     string `json:"bd_path"`
 	ClaudePath string `json:"claude_path"`
+	// CodexPath is the OpenAI Codex CLI, for beads run with Codex.
+	CodexPath string `json:"codex_path"`
 	// Actor is passed as `bd --actor` on writes.
 	Actor string `json:"actor"`
 
@@ -201,6 +203,9 @@ func (c *Config) fillDefaults() {
 	}
 	if c.ClaudePath == "" {
 		c.ClaudePath = findBinary("claude", filepath.Join(Home(), ".local/bin/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude")
+	}
+	if c.CodexPath == "" {
+		c.CodexPath = findBinary("codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex", filepath.Join(Home(), ".local/bin/codex"))
 	}
 	if c.Actor == "" {
 		c.Actor = defaultActor()

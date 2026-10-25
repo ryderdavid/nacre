@@ -30,6 +30,11 @@ const (
 // app's Claude features (Refine, Draft, the board assistant) headless.
 const FeatureClaude = "claude"
 
+// FeatureCodex is reported in /v1/health when beads can be run with the
+// OpenAI Codex CLI here: it is installed and signed in. When it is missing,
+// health's codex_unavailable says why.
+const FeatureCodex = "codex"
+
 // Run origins.
 const (
 	// OriginNacre marks a run nacred dispatched and owns the process of. It
@@ -43,11 +48,12 @@ const (
 )
 
 // Agents that can own a run's session. Agent is omitted from the wire for a
-// run nacred dispatched, which is always Claude Code; it is carried on an
-// adopted run so clients can tell agents apart once nacred learns to adopt
-// more than one.
+// run nacred dispatched to Claude Code, so such a run is what it always was;
+// it is AgentCodex on a run dispatched to the Codex CLI, and carried on an
+// adopted run so clients can tell agents apart.
 const (
 	AgentClaudeCode = "claude-code"
+	AgentCodex      = "codex"
 )
 
 // Activities are the finer-grained state of an adopted session, reported
@@ -166,8 +172,9 @@ type Run struct {
 	// Origin is OriginAdopted for an agent-owned session nacred only watches.
 	// Empty (and absent from the wire) means OriginNacre.
 	Origin string `json:"origin,omitempty"`
-	// Agent names the tool that owns the session (AgentClaudeCode). Absent
-	// means Claude Code, the only agent nacred dispatches.
+	// Agent names the tool that owns the session (AgentClaudeCode,
+	// AgentCodex). Absent means Claude Code. For a Codex run SessionID is the
+	// Codex thread id, and CostUSD stays 0: Codex reports no cost.
 	Agent string `json:"agent,omitempty"`
 	// SessionName is the name the owning agent gave the session, as Claude
 	// Code recorded it. It is carried on adopted runs, where it is the only

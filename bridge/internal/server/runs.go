@@ -20,6 +20,9 @@ type runRequest struct {
 	Instructions string `json:"instructions"`
 	Worktree     bool   `json:"worktree"`
 	Prompt       string `json:"prompt"`
+	// Agent is "codex" to run the bead with the Codex CLI; "" or
+	// "claude-code" runs it with Claude Code.
+	Agent string `json:"agent"`
 }
 
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +47,21 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid mode", "one of: "+strings.Join(api.Modes, ", "))
 		return
 	}
-	if req.Model == "" {
-		req.Model = s.Config.DefaultModel
+	switch req.Agent {
+	case "", api.AgentClaudeCode:
+		req.Agent = ""
+		if req.Model == "" {
+			req.Model = s.Config.DefaultModel
+		}
+	case api.AgentCodex:
+		// default_model names a Claude model; Codex keeps its own default.
+		if st := s.codexStatus(r.Context()); !st.Available() {
+			writeError(w, http.StatusConflict, "codex unavailable", st.Reason)
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "invalid agent", "one of: "+api.AgentClaudeCode+", "+api.AgentCodex)
+		return
 	}
 	if strings.HasPrefix(req.Model, "-") {
 		writeError(w, http.StatusBadRequest, "invalid model", "")
@@ -71,7 +87,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	run, err := s.Runs.Start(runs.StartRequest{
 		RepoID: repoID, RepoName: repo.Name, RepoPath: path,
 		IssueID: id, IssueTitle: issue.Title,
-		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree, Prompt: text,
+		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree, Prompt: text, Agent: req.Agent,
 	})
 	if err != nil {
 		s.fail(w, err)

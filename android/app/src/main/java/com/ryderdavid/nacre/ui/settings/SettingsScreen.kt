@@ -442,6 +442,7 @@ private fun HostRow(hs: HostState, onReconnect: () -> Unit, onRename: () -> Unit
             hs.host.url,
             c.health.bdVersion.takeIf { it.isNotBlank() }?.let { "bd $it" },
             c.health.claudeVersion.takeIf { it.isNotBlank() }?.let { "Claude Code $it" },
+            c.health.codexVersion.takeIf { it.isNotBlank() && c.health.runsCodex }?.let { "Codex $it" },
         ).joinToString(" · ") to true
         Connection.Connecting -> "Connecting… · ${hs.host.url}" to true
         is Connection.Offline -> c.reason to false
