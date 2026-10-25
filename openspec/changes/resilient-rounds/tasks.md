@@ -1,0 +1,46 @@
+Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./...`;
+**G-app** = `cd android && ./gradlew -q testDebugUnitTest`; **G-build** = `cd android && ./gradlew -q assembleRelease`
+(with `JAVA_HOME` set to Android Studio's JBR); **G-specs** = `openspec validate --all --strict`.
+`nacred gates --build` runs all four.
+
+## 1. One stop path
+
+- [ ] 1.1 `api.Stop` (`kind`, `reason`, `diagnosis`, `choices`, `attempted`) on Round, with `pause_reason` kept in step for older apps; `recover` event kind; update `docs/API.md` — G-bridge
+- [ ] 1.2 `round.stop(Stop)` replacing every `pause` call in `internal/rounds`, each with the right kind and context; attempts persisted so a reload doesn't repeat a rung; rounds paused before the upgrade load as kind `legacy` — G-bridge (reload test mid-ladder)
+
+## 2. Mechanical fixes
+
+- [ ] 2.1 Catalogue type and dispatch: resolve a merge only when every conflicted path is handled, then run the gates; undo and fall through otherwise — G-bridge
+- [ ] 2.2 Move the version re-bump (NAC-gkc) and upstream-branch skip (NAC-2zc) into the catalogue without changing behaviour — G-bridge (existing tests stay green)
+- [ ] 2.3 `beads-jsonl`: union merge of `.beads/*.jsonl` with duplicates dropped and order kept — G-bridge
+- [ ] 2.4 `nacre.yaml` `merge.regenerate` (path pattern + command), validated with field names in errors; the `regenerate` fix — G-bridge
+
+## 3. Recovery turns for every merge
+
+- [ ] 3.1 Integration turn phases `preflight-merge`, `land-merge` and `land`, with prompts that state each side's intent and the never-revert-the-target rule — G-bridge (golden prompt tests)
+- [ ] 3.2 Pre-flight merge conflicts and gate failures go to a `preflight-merge` turn before the question is reopened — G-bridge (fake claude that resolves, and one that can't)
+- [ ] 3.3 Landing merge conflicts go to a `land-merge` turn; a moved target that breaks the gates goes to a `land` turn; land only after the final gates and build pass — G-bridge
+
+## 4. Transient retry
+
+- [ ] 4.1 Classifier for environmental errors from real strings (git `index.lock`, bd lock and I/O errors, process start failures, connection resets) — G-bridge (table test)
+- [ ] 4.2 Retry with 5 s / 30 s backoff at workspace creation, bd reads, run and follow-up start, pre-flight review, and the git steps at landing — G-bridge (fakes that fail once, and always)
+
+## 5. Diagnosis and choices
+
+- [ ] 5.1 Diagnosis call through the headless assist path (bd reads + `read_repo`), JSON schema `{summary, cause, choices}`, $0.50 cap, 3-minute timeout, skipped without budget — G-bridge (fake headless)
+- [ ] 5.2 Choices per stop kind and `POST /v1/rounds/{round}/choose`; `retry-with-budget`, `skip-branch`, `skip-bead`, `land-integrated`, `raise-limits`, `cancel` — G-bridge
+- [ ] 5.3 `continue` compares the failing state with now and refuses when nothing changed; Resume maps to `continue` — G-bridge
+- [ ] 5.4 `nacred round status` shows the diagnosis and choices; `nacred round choose ROUND CHOICE [--budget USD]` — G-bridge
+
+## 6. App
+
+- [ ] 6.1 Models for `stop`, choices and `recover` events; `choose` in BridgeClient and NacreRepository — G-app
+- [ ] 6.2 Stop card: diagnosis summary, one button per choice with its explanation, budget field for `retry-with-budget`; recovery events in the round log — G-app, G-build
+- [ ] 6.3 Notify only on a real stop, not on a successful recovery — G-app
+
+## 7. Release and check
+
+- [ ] 7.1 README "Rounds" section: what a round fixes by itself and when it stops; `docs/API.md` complete — G-specs
+- [ ] 7.2 Replay the two incidents end to end on a scratch repository through a trial nacred: a stale rebased branch chosen for merging, and a target that ships its own release mid-round; both finish without a stop — G-bridge, then by hand
+- [ ] 7.3 Ryder: one real round on Nacre's own beads with the upgraded nacred; note any stop that still needed him
