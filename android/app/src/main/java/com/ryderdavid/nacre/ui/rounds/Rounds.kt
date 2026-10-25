@@ -1,5 +1,11 @@
 package com.ryderdavid.nacre.ui.rounds
 
+import com.ryderdavid.nacre.ui.common.AiIcon
+import com.ryderdavid.nacre.data.model.CHOICE_RETRY_WITH_BUDGET
+import com.ryderdavid.nacre.data.model.CHOICE_RAISE_LIMITS
+import com.ryderdavid.nacre.data.model.CHOICE_CANCEL
+import com.ryderdavid.nacre.data.model.RoundStop
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -228,7 +234,9 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
             r == null && error != null -> MessageState(Icons.Rounded.Error, "Couldn't load the round", error, modifier = Modifier.padding(pad))
             r == null -> LoadingState("Loading the round…", Modifier.padding(pad))
             else -> LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item("status") { StatusCard(r, busy, onResume = vm::resume, onBudget = vm::setBudget) }
+                item("status") {
+                    StatusCard(r, busy, onResume = vm::resume, onBudget = vm::setBudget, onChoose = vm::choose, onCancel = { confirmCancel = true })
+                }
                 if (error != null) item("error") { Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (r.state == ROUND_NEEDS_DECISION || r.openQuestions.isNotEmpty()) items(r.openQuestions, key = { "q:" + it.id }) { q ->
                     QuestionCard(q, busy) { vm.answer(q.id, it) }
@@ -266,8 +274,17 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun StatusCard(r: Round, busy: Boolean, onResume: () -> Unit, onBudget: (Double) -> Unit) {
+private fun StatusCard(
+    r: Round,
+    busy: Boolean,
+    onResume: () -> Unit,
+    onBudget: (Double) -> Unit,
+    onChoose: (String, Double) -> Unit,
+    onCancel: () -> Unit,
+) {
     var raising by remember { mutableStateOf(false) }
+    var retrying by remember { mutableStateOf(false) }
+    val stop = r.stop?.takeIf { r.state == ROUND_PAUSED }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -290,13 +307,120 @@ private fun StatusCard(r: Round, busy: Boolean, onResume: () -> Unit, onBudget: 
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (r.state == ROUND_PAUSED) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onResume, enabled = !busy) { Text("Resume") }
-                OutlinedButton(onClick = { raising = true }, enabled = !busy) { Text("Raise budget") }
-            } else if (r.isActive) TextButton(onClick = { raising = true }, enabled = !busy) { Text("Change budget") }
+            when {
+                stop != null -> StopChoices(
+                    stop, busy,
+                    onChoose = { choice ->
+                        when (choice) {
+                            CHOICE_RAISE_LIMITS -> raising = true
+                            CHOICE_RETRY_WITH_BUDGET -> retrying = true
+                            CHOICE_CANCEL -> onCancel()
+                            else -> onChoose(choice, 0.0)
+                        }
+                    },
+                )
+                // An older nacred: no stop to read, so the plain controls.
+                r.state == ROUND_PAUSED -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = onResume, enabled = !busy) { Text("Resume") }
+                    OutlinedButton(onClick = { raising = true }, enabled = !busy) { Text("Raise budget") }
+                }
+                r.isActive -> TextButton(onClick = { raising = true }, enabled = !busy) { Text("Change budget") }
+            }
         }
     }
-    if (raising) BudgetDialog(r.budgetUsd, onDismiss = { raising = false }, onSet = { raising = false; onBudget(it) })
+    if (raising) BudgetDialog(r.budgetUsd, onDismiss = { raising = false }, onSet = {
+        raising = false
+        if (stop?.choices?.any { c -> c.id == CHOICE_RAISE_LIMITS } == true) onChoose(CHOICE_RAISE_LIMITS, it) else onBudget(it)
+    })
+    if (retrying) ExtraBudgetDialog(onDismiss = { retrying = false }, onSet = { retrying = false; onChoose(CHOICE_RETRY_WITH_BUDGET, it) })
+}
+
+/**
+ * What a stopped round found and the ways forward: Claude's read of the
+ * problem, what was already tried, the spend on a limits stop, and one
+ * button per choice with what it would do.
+ */
+@Composable
+private fun StopChoices(stop: RoundStop, busy: Boolean, onChoose: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        stop.diagnosis?.takeIf { it.summary.isNotBlank() }?.let { d ->
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(AiIcon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("What's wrong", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(d.summary, style = MaterialTheme.typography.bodyMedium)
+                    if (d.cause.isNotBlank()) Text(d.cause, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (stop.attempted.isNotEmpty()) Text(
+            "Already tried: " + stop.attempted.joinToString(", ", transform = ::attemptLabel),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (stop.spend.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            stop.spend.forEach { s ->
+                Row {
+                    BeadId(s.bead)
+                    Spacer(Modifier.width(8.dp))
+                    Text(usd(s.spentUsd) + if (s.done) " · done" else "", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (stop.estimateUsd > 0) Text(
+                "The unfinished beads need about ${usd(stop.estimateUsd)} more, going by the finished ones.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        stop.choices.forEachIndexed { i, c ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                when {
+                    c.id == CHOICE_CANCEL -> TextButton(onClick = { onChoose(c.id) }, enabled = !busy) { Text(c.label.ifBlank { "Cancel the round" }) }
+                    i == 0 -> FilledTonalButton(onClick = { onChoose(c.id) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(c.label) }
+                    else -> OutlinedButton(onClick = { onChoose(c.id) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(c.label) }
+                }
+                if (c.explanation.isNotBlank() && c.id != CHOICE_CANCEL) Text(
+                    c.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A stop's "already tried" entry in words. */
+internal fun attemptLabel(a: String): String {
+    val (what, detail) = a.split(':', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+    return when (what) {
+        "fix" -> "settled ${detail.substringBefore(':').replace('-', ' ')} without Claude"
+        "turn" -> {
+            val times = detail.substringAfter('×', "1")
+            "Claude ${if (times == "1") "once" else "$times times"}"
+        }
+        "retry" -> "retried $detail×"
+        "review" -> "reviewed $detail times"
+        else -> a
+    }
+}
+
+@Composable
+private fun ExtraBudgetDialog(onDismiss: () -> Unit, onSet: (Double) -> Unit) {
+    var text by rememberSaveable { mutableStateOf("5") }
+    val value = text.toDoubleOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Let Claude try again") },
+        text = {
+            OutlinedTextField(
+                value = text, onValueChange = { text = it }, singleLine = true, prefix = { Text("$") },
+                supportingText = { Text("Added to what's left of the round's budget for the new attempts.") },
+                isError = value == null || value <= 0,
+            )
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSet) }, enabled = value != null && value > 0) { Text("Try again") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -420,6 +544,8 @@ private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Uni
                 if (b.fixAttempts > 0) add("Sent back ${b.fixAttempts}×")
                 if (b.stalls > 0) add("Resumed after stalling")
                 if (b.mergeCommit.isNotBlank()) add("Merged at ${b.mergeCommit.take(7)}")
+                if (b.carriedFrom.isNotBlank()) add("Continues earlier work from ${b.carriedFrom}")
+                if (b.pickedUpBy.isNotBlank()) add("Continued in round ${b.pickedUpBy}")
             }
             if (notes.isNotEmpty()) Text(notes.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (b.reason.isNotBlank()) Text(b.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -497,10 +623,18 @@ private fun EventRow(e: RoundEvent) {
             modifier = Modifier.width(44.dp).padding(top = 2.dp),
         )
         Column(Modifier.weight(1f)) {
-            Text(
-                (if (e.bead.isNotBlank()) "${e.bead}: " else "") + e.text,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                // Something the round fixed by itself.
+                if (e.kind == "recover") Icon(
+                    Icons.Rounded.AutoFixHigh, "Recovered", tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp).padding(top = 2.dp),
+                )
+                if (e.kind == "recover") Spacer(Modifier.width(4.dp))
+                Text(
+                    (if (e.bead.isNotBlank()) "${e.bead}: " else "") + e.text,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             e.gates.filter { !it.ok }.forEach { g ->
                 Text("${g.name}: ${g.tail.lines().lastOrNull { it.isNotBlank() }.orEmpty()}", style = MaterialTheme.typography.labelSmall, fontFamily = MonoFamily, color = MaterialTheme.colorScheme.error, maxLines = 2)
             }

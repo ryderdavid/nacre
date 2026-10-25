@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
@@ -40,31 +41,49 @@ type preflightBead struct {
 	After []string
 }
 
-// startPreflight runs the read-only review of the round's beads.
+// startPreflight runs the read-only review of the round's beads. Reading
+// the beads and the review call are retried on transient errors, and an
+// answer that can't be read gets one more review before the round stops.
 func (r *round) startPreflight() {
 	meta, cfg := clone(r.meta), r.cfg
 	r.event("plan", "", "Reviewing the beads together before any code is written")
 	r.saveLocked()
 	r.goOp("preflight", func(ctx context.Context) func() {
-		in, err := r.m.gatherPreflight(ctx, meta)
+		var in preflightInput
+		n, err := retry(ctx, func() (e error) { in, e = r.m.gatherPreflight(ctx, meta); return e })
 		if err != nil {
-			return func() { r.pause("The pre-flight review couldn't read the beads: " + err.Error()) }
+			return r.stopFn(api.Stop{Kind: api.StopReviewFailed, Reason: "The pre-flight review couldn't read the beads: " + err.Error(), Attempted: tries(n)})
 		}
 		schema, _ := json.Marshal(preflightSchema)
 		h := claude.Headless{
 			Prompt: preflightPrompt(meta, in, cfg), System: preflightSystem, Schema: schema,
 			Model: meta.Model, AllowedTools: claude.BdReadTools, ReadRepo: true,
 		}
-		out, err := r.m.opts.Headless.Run(ctx, meta.Workspace, h, nil)
-		if err != nil {
-			return func() { r.pause("The pre-flight review failed: " + err.Error()) }
+		cost := 0.0
+		var problem string
+		for attempt := 1; attempt <= 2; attempt++ {
+			var out assist.Outcome
+			n, err := retry(ctx, func() (e error) { out, e = r.m.opts.Headless.Run(ctx, meta.Workspace, h, nil); return e })
+			cost += out.CostUSD
+			if err != nil {
+				return r.stopFn(api.Stop{Kind: api.StopReviewFailed, Reason: "The pre-flight review failed: " + err.Error(), Attempted: tries(n)})
+			}
+			plan, drafts, err := parsePlan(out.Output, meta, in)
+			if err == nil {
+				plan.CostUSD = cost
+				return func() {
+					if attempt > 1 {
+						r.event("recover", "", "The first review's answer couldn't be read; a second review worked")
+					}
+					r.applyPlan(plan, drafts, in)
+				}
+			}
+			problem = err.Error()
 		}
-		plan, drafts, err := parsePlan(out.Output, meta, in)
-		if err != nil {
-			return func() { r.pause("The pre-flight review's answer couldn't be read: " + err.Error()) }
+		return func() {
+			r.meta.OverheadUSD += cost
+			r.stop(api.Stop{Kind: api.StopReviewFailed, Reason: "The pre-flight review's answer couldn't be read, twice: " + problem, Attempted: []string{"review:2"}})
 		}
-		plan.CostUSD = out.CostUSD
-		return func() { r.applyPlan(plan, drafts, in) }
 	})
 }
 
@@ -353,9 +372,12 @@ func (r *round) allAnswered() bool {
 }
 
 // applyDecisions acts on the answers: merging unmerged work first when asked,
-// or stopping the round.
+// or stopping the round. A merge the catalogue can't settle, or one that
+// breaks the gates, goes to a recovery turn; once it is in, applyDecisions
+// runs again and moves on to the next branch.
 func (r *round) applyDecisions() {
 	var merge []string
+	why := map[string]string{}
 	for _, q := range r.meta.Questions {
 		if q.Kind != api.FindingUnmergedWork {
 			continue
@@ -366,6 +388,7 @@ func (r *round) applyDecisions() {
 			return
 		case strings.HasPrefix(q.Answer, "Merge"):
 			merge = append(merge, q.Branch)
+			why[q.Branch] = q.Text
 		}
 	}
 	if len(merge) == 0 {
@@ -375,30 +398,44 @@ func (r *round) applyDecisions() {
 	}
 	ws, cfg, round := r.meta.Workspace, r.cfg, r.meta.ID
 	r.goOp("decide", func(ctx context.Context) func() {
+		var fixes, merged []string
 		for _, br := range merge {
+			if gitx.IsAncestor(ctx, ws, br, "HEAD") {
+				continue // already in: merged earlier, or by hand
+			}
 			pre, _ := gitx.RevParse(ctx, ws, "HEAD")
+			log, _ := gitx.Run(ctx, ws, "log", "--oneline", "-30", "HEAD.."+br)
+			in := incoming{Name: br, Why: why[br], Log: log}
 			res, err := gitx.Merge(ctx, ws, br, fmt.Sprintf("Merge %s into round %s before the beads start", br, round))
-			if err != nil || len(res.Conflicts) > 0 {
+			if err != nil {
 				_ = gitx.ResetHard(ctx, ws, pre)
-				why := "conflicts in " + list(res.Conflicts, 10)
-				if err != nil {
-					why = err.Error()
-				}
 				return func() {
-					r.reopen(br, fmt.Sprintf("Merging %s into the round failed (%s). Choose another answer, or merge it into %s by hand and choose to merge again.", br, why, r.meta.Branch))
+					r.reopen(br, fmt.Sprintf("Merging %s into the round failed (%s). Choose another answer, or merge it into %s by hand and choose to merge again.", br, firstLine(err.Error()), r.meta.Branch))
 				}
+			}
+			if len(res.Conflicts) > 0 {
+				f, ok := r.mechanical(ctx, ws, cfg, res.Conflicts)
+				if !ok {
+					v := r.integrationVars("", res.Conflicts, nil)
+					return r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "preflight-merge", Branch: br, PreMerge: pre, Problem: "git reported conflicts in: " + list(res.Conflicts, 20)},
+						incomingPrompt(v, in))
+				}
+				fixes = append(fixes, f...)
 			}
 			results := r.m.opts.Gates.RunAll(ctx, ws, cfg, beadGates(cfg), true)
 			if !gates.AllOK(results) {
-				_ = gitx.ResetHard(ctx, ws, pre)
-				return func() {
-					r.reopen(br, fmt.Sprintf("With %s merged in, the gates fail: %s. Choose another answer, or fix the branch and choose to merge again.", br, failure(results)))
-				}
+				v := r.integrationVars("", nil, results)
+				return r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "preflight-merge", Branch: br, PreMerge: pre, Problem: failure(results)},
+					incomingPrompt(v, in))
 			}
+			merged = append(merged, br)
 		}
 		head, _ := gitx.RevParse(ctx, ws, "HEAD")
 		return func() {
-			r.eventWith(api.RoundEvent{Kind: "merge", Text: "Merged " + strings.Join(merge, ", ") + " into the round before the beads start", Commit: head})
+			r.recordFixes("", "bringing in unmerged work", fixes)
+			if len(merged) > 0 {
+				r.eventWith(api.RoundEvent{Kind: "merge", Text: "Merged " + strings.Join(merged, ", ") + " into the round before the beads start", Commit: head})
+			}
 			r.startImplementing()
 		}
 	})
@@ -417,6 +454,7 @@ func (r *round) reopen(branch, problem string) {
 	r.meta.State = api.RoundNeedsDecision
 	r.event("state", "", problem)
 	r.saveLocked()
+	r.diagnoseQuestion(branch, problem)
 }
 
 func (r *round) startImplementing() {

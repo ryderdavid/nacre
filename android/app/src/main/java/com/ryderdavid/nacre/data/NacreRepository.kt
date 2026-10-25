@@ -484,6 +484,8 @@ class NacreRepository(
     suspend fun cancelRound(key: String) = roundAction(key) { cancelRound(it) }
     suspend fun resumeRound(key: String) = roundAction(key) { resumeRound(it) }
     suspend fun retryBead(key: String, bead: String) = roundAction(key) { retryBead(it, bead) }
+    suspend fun chooseRound(key: String, choice: String, budgetUsd: Double = 0.0, minutes: Int = 0) =
+        roundAction(key) { chooseRound(it, choice, budgetUsd, minutes) }
 }
 
 /**

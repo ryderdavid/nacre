@@ -31,6 +31,8 @@ const roundUsage = `usage: nacred round <command>
   land ROUND             fast-forward the target and push (as nacre.yaml says)
   cancel ROUND | resume ROUND | retry ROUND BEAD
   limits ROUND [--budget USD] [--minutes N]
+  choose ROUND CHOICE [--budget USD] [--minutes N]
+                         take one of a stopped round's choices (see status)
   gc                     remove worktrees of landed, cancelled or missing rounds`
 
 // runRound is `nacred round …`, a client of the local nacred so a Claude
@@ -67,6 +69,17 @@ func runRound(cfg *config.Config, args []string, out io.Writer) error {
 			return errors.New("usage: nacred round retry ROUND BEAD")
 		}
 		return c.post("/v1/rounds/"+args[0]+"/beads/"+args[1]+"/retry", map[string]string{}, out)
+	case "choose":
+		if len(args) < 2 {
+			return errors.New("usage: nacred round choose ROUND CHOICE [--budget USD] [--minutes N]")
+		}
+		fs := flag.NewFlagSet("nacred round choose", flag.ContinueOnError)
+		budget := fs.Float64("budget", 0, "extra budget for retry-with-budget, or the new budget for raise-limits")
+		minutes := fs.Int("minutes", 0, "new time limit in minutes")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		return c.post("/v1/rounds/"+args[0]+"/choose", map[string]any{"choice": args[1], "budget_usd": *budget, "time_limit_minutes": *minutes}, out)
 	case "limits":
 		if len(args) < 1 {
 			return errors.New("usage: nacred round limits ROUND [--budget USD] [--minutes N]")
@@ -210,6 +223,42 @@ func (c *roundClient) show(id string, out io.Writer) error {
 	fmt.Fprintf(out, "Round %s in %s: %s\n", r.ID, r.RepoName, r.State)
 	if r.PauseReason != "" {
 		fmt.Fprintf(out, "  %s\n", r.PauseReason)
+	}
+	if s := r.Stop; s != nil {
+		if d := s.Diagnosis; d != nil {
+			fmt.Fprintf(out, "  Diagnosis: %s\n", d.Summary)
+			if d.Cause != "" {
+				fmt.Fprintf(out, "  Cause: %s\n", d.Cause)
+			}
+		}
+		if len(s.Attempted) > 0 {
+			fmt.Fprintf(out, "  Already tried: %s\n", strings.Join(s.Attempted, ", "))
+		}
+		for _, b := range s.Spend {
+			done := ""
+			if b.Done {
+				done = " (done)"
+			}
+			fmt.Fprintf(out, "  %s spent $%.2f%s\n", b.Bead, b.SpentUSD, done)
+		}
+		if s.EstimateUSD > 0 {
+			fmt.Fprintf(out, "  The unfinished beads need about $%.2f more.\n", s.EstimateUSD)
+		}
+		fmt.Fprintln(out, "  Choices:")
+		for _, ch := range s.Choices {
+			fmt.Fprintf(out, "    nacred round choose %s %s", r.ID, ch.ID)
+			switch ch.ID {
+			case api.ChoiceRetryWithBudget:
+				fmt.Fprint(out, " [--budget USD]")
+			case api.ChoiceRaiseLimits:
+				fmt.Fprint(out, " --budget USD | --minutes N")
+			}
+			fmt.Fprintf(out, "\n      %s", ch.Label)
+			if ch.Explanation != "" {
+				fmt.Fprintf(out, ": %s", ch.Explanation)
+			}
+			fmt.Fprintln(out)
+		}
 	}
 	fmt.Fprintf(out, "Spent $%.2f of $%.2f. Integration branch %s.\n", r.SpentUSD, r.BudgetUSD, r.Branch)
 	if r.FinalCommit != "" {

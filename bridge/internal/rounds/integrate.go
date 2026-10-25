@@ -51,59 +51,90 @@ func (r *round) startMerge(b *api.RoundBead) {
 				r.integrationFailed(id, "git couldn't merge it: "+err.Error())
 			}
 		}
+		var fixes []string
 		if len(res.Conflicts) > 0 {
-			problem := "git reported conflicts in: " + list(res.Conflicts, 20)
-			return r.startIntegrationRun(ctx, id, "conflict", pre, problem, conflictPrompt(r.integrationVars(id, res.Conflicts, nil)))
+			var ok bool
+			if fixes, ok = r.mechanical(ctx, ws, cfg, res.Conflicts); !ok {
+				problem := "git reported conflicts in: " + list(res.Conflicts, 20)
+				return r.startIntegrationRun(ctx, api.IntegrationStep{Bead: id, Phase: "conflict", PreMerge: pre, Problem: problem},
+					conflictPrompt(r.integrationVars(id, res.Conflicts, nil)))
+			}
+			res.Commit, _ = gitx.RevParse(ctx, ws, "HEAD")
 		}
 		results := r.m.opts.Gates.RunAll(ctx, ws, cfg, beadGates(cfg), true)
 		if gates.AllOK(results) {
 			return func() {
 				r.meta.Integration.PreMerge = pre
+				r.recordFixes(id, "the merge", fixes)
 				r.eventWith(api.RoundEvent{Kind: "gates", Bead: id, Text: "Gates pass after the merge", Gates: toAPI(results)})
 				r.integrated(id, res.Commit)
 			}
 		}
-		problem := failure(results)
-		return r.startIntegrationRun(ctx, id, "gates", pre, problem, gatesPrompt(r.integrationVars(id, nil, results)))
+		return r.startIntegrationRun(ctx, api.IntegrationStep{Bead: id, Phase: "gates", PreMerge: pre, Problem: failure(results)},
+			gatesPrompt(r.integrationVars(id, nil, results)))
 	})
 }
 
-// startIntegrationRun asks Claude to fix the integration worktree.
-func (r *round) startIntegrationRun(ctx context.Context, bead, phase, pre, problem, prompt string) func() {
+// startIntegrationRun asks Claude to fix the integration worktree. step
+// describes the turn: its phase, what it is for and what to reset to if it
+// gives up.
+func (r *round) startIntegrationRun(ctx context.Context, step api.IntegrationStep, prompt string) func() {
 	meta := r.metaCopy()
+	bead := step.Bead
 	title := "Integrate round " + meta.ID
-	if bead != "" {
+	switch {
+	case bead != "":
 		title = "Integrate " + bead + " in round " + meta.ID
+	case step.Branch != "":
+		title = "Bring " + step.Branch + " into round " + meta.ID
+	case landPhase(step.Phase):
+		title = "Merge " + meta.Target + " into round " + meta.ID + " before landing"
 	}
-	run, err := r.m.opts.Runs.Start(runs.StartRequest{
-		RepoID: meta.RepoID, RepoName: meta.RepoName, RepoPath: meta.RepoPath,
-		IssueID: bead, IssueTitle: title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
-		RoundID: meta.ID, Kind: "integration", Branch: meta.Branch, Workspace: meta.Workspace, Base: pre,
-		MaxBudgetUSD: meta.BudgetUSD - meta.SpentUSD,
+	var run api.Run
+	n, err := retry(ctx, func() (e error) {
+		run, e = r.m.opts.Runs.Start(runs.StartRequest{
+			RepoID: meta.RepoID, RepoName: meta.RepoName, RepoPath: meta.RepoPath,
+			IssueID: bead, IssueTitle: title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
+			RoundID: meta.ID, Kind: "integration", Branch: meta.Branch, Workspace: meta.Workspace, Base: step.PreMerge,
+			MaxBudgetUSD: meta.BudgetUSD - meta.SpentUSD,
+		})
+		return e
 	})
 	return func() {
 		st := r.meta.Integration
 		if st == nil {
-			st = &api.IntegrationStep{Bead: bead}
+			st = &api.IntegrationStep{}
 			r.meta.Integration = st
 		}
-		st.Phase, st.Problem = phase, problem
-		if pre != "" {
-			st.PreMerge = pre
+		st.Bead, st.Phase, st.Problem, st.Branch, st.Rebump = bead, step.Phase, step.Problem, step.Branch, step.Rebump
+		if step.PreMerge != "" {
+			st.PreMerge = step.PreMerge
 		}
+		if landPhase(step.Phase) {
+			// The land operation has handed over to Claude; the round follows
+			// the turn like any other integration.
+			r.meta.State = api.RoundIntegrating
+		}
+		r.retried(bead, "Starting the integration turn", n)
 		if err != nil {
 			r.integrationFailed(bead, "the integration run couldn't start: "+err.Error())
 			return
 		}
 		st.RunID, st.Attempts = run.ID, 1
 		r.meta.RunIDs = append(r.meta.RunIDs, run.ID)
-		kind := "conflict"
-		if phase != "conflict" {
-			kind = "gates"
+		kind := "gates"
+		switch step.Phase {
+		case "conflict":
+			kind = "conflict"
+		case "preflight-merge", "land-merge", "land":
+			kind = "recover"
 		}
-		r.event(kind, bead, "Sent to Claude to fix: "+firstLine(problem))
+		r.event(kind, bead, "Sent to Claude to fix: "+firstLine(step.Problem))
 	}
 }
+
+// landPhase reports whether an integration phase belongs to landing.
+func landPhase(phase string) bool { return phase == "land-merge" || phase == "land" }
 
 func (r *round) metaCopy() api.Round {
 	r.mu.Lock()
@@ -115,7 +146,7 @@ func (r *round) metaCopy() api.Round {
 func (r *round) watchIntegration() {
 	st := r.meta.Integration
 	switch {
-	case r.ops["merge"] || r.ops["finish"] || r.ops["integrate-check"] || r.ops["integrate-followup"]:
+	case r.ops["merge"] || r.ops["finish"] || r.ops["integrate-check"] || r.ops["integrate-followup"] || r.ops["decide"] || r.ops["land"] || r.ops["reset"]:
 		return
 	case st.RunID == "" && st.Phase == "merge":
 		// nacred stopped mid-merge: undo it and merge again.
@@ -134,6 +165,26 @@ func (r *round) watchIntegration() {
 		r.meta.Integration = nil
 		r.saveLocked()
 		return
+	case st.RunID == "":
+		// A recovery turn that never started (nacred restarted): undo the
+		// merge and go back to the step that wanted it.
+		pre, ws, phase := st.PreMerge, r.meta.Workspace, st.Phase
+		r.goOp("reset", func(ctx context.Context) func() {
+			if gitx.MergeInProgress(ctx, ws) {
+				_ = gitx.AbortMerge(ctx, ws)
+			}
+			if pre != "" {
+				_ = gitx.ResetHard(ctx, ws, pre)
+			}
+			return func() {
+				r.meta.Integration = nil
+				if landPhase(phase) {
+					r.meta.State = api.RoundReadyToLand
+					r.startLand()
+				}
+			}
+		})
+		return
 	}
 	run, err := r.m.opts.Runs.Run(st.RunID)
 	if err != nil {
@@ -147,20 +198,34 @@ func (r *round) watchIntegration() {
 		}
 		return
 	}
-	phase, bead, cfg, ws := st.Phase, st.Bead, r.cfg, r.meta.Workspace
+	step, cfg, ws, meta := *st, r.cfg, r.meta.Workspace, clone(r.meta)
 	r.goOp("integrate-check", func(ctx context.Context) func() {
-		problem, results := r.checkIntegration(ctx, ws, phase, bead, cfg)
-		if problem == "" {
-			head, _ := gitx.RevParse(ctx, ws, "HEAD")
-			if phase == "final" {
-				return r.finishOK(ctx, head, results)
-			}
-			return func() {
-				r.eventWith(api.RoundEvent{Kind: "gates", Bead: bead, Text: "Fixed; gates pass", Gates: toAPI(results)})
-				r.integrated(bead, head)
-			}
+		problem, results := r.checkIntegration(ctx, ws, step.Phase, step.Bead, cfg)
+		if problem != "" {
+			return func() { r.integrationRetry(problem, results, run.SessionID != "") }
 		}
-		return func() { r.integrationRetry(problem, results, run.SessionID != "") }
+		head, _ := gitx.RevParse(ctx, ws, "HEAD")
+		switch step.Phase {
+		case "final":
+			return r.finishOK(ctx, head, results)
+		case "preflight-merge":
+			return func() {
+				r.meta.Integration = nil
+				r.eventWith(api.RoundEvent{Kind: "merge", Text: "Merged " + step.Branch + " into the round; Claude settled it and the gates pass", Commit: head, Gates: toAPI(results)})
+			}
+		case "land-merge":
+			land := r.afterLandMerge(ctx, meta, cfg, step.Rebump, nil)
+			return func() {
+				r.eventWith(api.RoundEvent{Kind: "recover", Text: "Claude settled merging " + meta.Target + "; the gates pass", Commit: head, Gates: toAPI(results)})
+				land()
+			}
+		case "land":
+			return r.completeLand(ctx, meta, cfg, head, meta.Version, true)
+		}
+		return func() {
+			r.eventWith(api.RoundEvent{Kind: "gates", Bead: step.Bead, Text: "Fixed; gates pass", Gates: toAPI(results)})
+			r.integrated(step.Bead, head)
+		}
 	})
 }
 
@@ -179,7 +244,7 @@ func (r *round) checkIntegration(ctx context.Context, ws, phase, bead string, cf
 		return "uncommitted changes: " + list(dirty, 8), nil
 	}
 	steps := beadGates(cfg)
-	if phase == "final" {
+	if phase == "final" || phase == "land" {
 		steps = finalSteps(cfg)
 	}
 	results := r.m.opts.Gates.RunAll(ctx, ws, cfg, steps, true)
@@ -200,7 +265,7 @@ func (r *round) integrationRetry(problem string, results []gates.Result, canResu
 		st.Attempts++
 		st.Problem = problem
 		runID, budget := st.RunID, r.remaining()
-		msg := integrationFollowup(problem, results, st.Phase == "final")
+		msg := integrationFollowup(problem, results, st.Phase == "final" || st.Phase == "land")
 		r.goOp("integrate-followup", func(ctx context.Context) func() {
 			_, err := r.m.opts.Runs.FollowupWith(runID, runs.Followup{Message: msg, MaxBudgetUSD: budget})
 			return func() {
@@ -214,29 +279,51 @@ func (r *round) integrationRetry(problem string, results []gates.Result, canResu
 	r.integrationFailed(st.Bead, problem)
 }
 
-// integrationFailed gives up on the current integration step: a bead's
-// merge is undone and the bead parked; a failing final check pauses the round.
+// integrationFailed gives up on the current integration step. A bead's merge
+// is undone and the bead parked; unmerged work Ryder chose to bring in goes
+// back to its question; a failing final check or landing stops the round.
 func (r *round) integrationFailed(bead, problem string) {
 	st := r.meta.Integration
-	if st != nil && st.Phase == "final" {
-		r.meta.Integration = nil
-		r.pause("The final gates or build fail on the integration branch: " + firstLine(problem))
-		return
-	}
-	pre, ws := "", r.meta.Workspace
-	if st != nil {
-		pre = st.PreMerge
-	}
 	r.meta.Integration = nil
-	if pre != "" {
+	if st == nil {
+		st = &api.IntegrationStep{Bead: bead}
+	}
+	pre, ws, phase := st.PreMerge, r.meta.Workspace, st.Phase
+	attempted := []string{fmt.Sprintf("turn:%s×%d", phase, max(st.Attempts, 1))}
+	// undo resets the integration branch, then records the outcome.
+	undo := func(then func()) {
 		r.goOp("reset", func(ctx context.Context) func() {
-			if err := gitx.ResetHard(ctx, ws, pre); err != nil {
-				return func() { r.pause("Undoing a failed merge failed: " + err.Error()) }
+			if gitx.MergeInProgress(ctx, ws) {
+				_ = gitx.AbortMerge(ctx, ws)
 			}
-			return nil
+			if pre != "" {
+				if err := gitx.ResetHard(ctx, ws, pre); err != nil {
+					return r.stopFn(api.Stop{Kind: api.StopGitError, Bead: bead, Reason: "Undoing a failed merge failed: " + err.Error(), Attempted: attempted})
+				}
+			}
+			return then
 		})
 	}
-	r.park(r.bead(bead), "It couldn't be reconciled with the rest of the round: "+problem)
+	switch phase {
+	case "final":
+		r.stop(api.Stop{Kind: api.StopGatesFailed, Phase: "final", Reason: "The final gates or build fail on the integration branch: " + firstLine(problem), Attempted: attempted})
+	case "land-merge", "land":
+		kind, what := api.StopMergeConflict, r.meta.Target+" moved since the round started and Claude couldn't merge it in"
+		if phase == "land" {
+			kind, what = api.StopGatesFailed, r.meta.Target+" moved since the round started, and with its changes the round fails"
+		}
+		undo(r.stopFn(api.Stop{Kind: kind, Phase: "land", Reason: what + ": " + firstLine(problem), Attempted: attempted}))
+	case "preflight-merge":
+		// Reopen the question at once, so the answer that led here can't
+		// start another merge while this one is being undone.
+		undo(nil)
+		r.reopen(st.Branch, fmt.Sprintf("Claude couldn't bring %s into the round: %s. Choose another answer, or merge it into %s by hand and choose to merge again.", st.Branch, firstLine(problem), r.meta.Branch))
+	default:
+		if pre != "" {
+			undo(nil)
+		}
+		r.park(r.bead(bead), "It couldn't be reconciled with the rest of the round: "+problem)
+	}
 }
 
 // integrated marks a bead merged and frees its worktree.
@@ -258,7 +345,7 @@ func (r *round) integrated(id, commit string) {
 // the integration branch.
 func (r *round) startFinish() {
 	if r.integratedCount() == 0 {
-		r.pause("No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round.")
+		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: "No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round."})
 		return
 	}
 	meta, cfg := clone(r.meta), r.cfg
@@ -271,7 +358,10 @@ func (r *round) startFinish() {
 		if version == "" && cfg.Version.Bump != "" {
 			v, err := r.bump(ctx, ws, cfg, meta, "")
 			if err != nil {
-				return func() { r.meta.Integration = nil; r.pause(err.Error()) }
+				return func() {
+					r.meta.Integration = nil
+					r.stop(api.Stop{Kind: api.StopBumpFailed, Phase: "final", Reason: err.Error()})
+				}
 			}
 			version = v
 		}
@@ -281,8 +371,7 @@ func (r *round) startFinish() {
 			apply := r.finishOK(ctx, head, results)
 			return func() { r.meta.Version = version; apply() }
 		}
-		problem := failure(results)
-		start := r.startIntegrationRun(ctx, "", "final", "", problem, finalPrompt(r.integrationVars("", nil, results)))
+		start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "final", Problem: failure(results)}, finalPrompt(r.integrationVars("", nil, results)))
 		return func() { r.meta.Version = version; start() }
 	})
 }
@@ -379,110 +468,166 @@ func bumpCommit(ctx context.Context, ws, round string) string {
 // the target in and re-verifying if it moved, then pushes and cleans up.
 func (r *round) startLand() {
 	meta, cfg := clone(r.meta), r.cfg
+	r.event("land", "", "Landing on "+meta.Target)
+	r.saveLocked()
+	r.goOp("land", func(ctx context.Context) func() { return r.land(ctx, meta, cfg) })
+}
+
+// land brings in the target if it moved and lands. The round's version bump
+// was made from the base it started on, so before merging a moved target it
+// is undone, and after the merge it is redone from the target's version. A
+// merge the catalogue can't settle, or a check that fails with the target's
+// changes, goes to a recovery turn.
+func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config) func() {
+	ws, final := meta.Workspace, meta.FinalCommit
+	var target string
+	n, err := retry(ctx, func() (e error) { target, e = gitx.RevParse(ctx, meta.RepoPath, "refs/heads/"+meta.Target); return e })
+	if err != nil {
+		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: meta.Target + " can't be read: " + err.Error(), Attempted: tries(n)})
+	}
+	if gitx.IsAncestor(ctx, meta.RepoPath, target, final) {
+		return r.completeLand(ctx, meta, cfg, final, meta.Version, false)
+	}
+	rebump := false
+	if cfg.Version.Bump != "" && meta.Version != "" {
+		if bumped := bumpCommit(ctx, ws, meta.ID); bumped != "" {
+			if _, err := gitx.Run(ctx, ws, "revert", "--no-commit", bumped); err != nil {
+				_ = gitx.ResetHard(ctx, ws, final)
+				return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "Undoing the round's version bump before merging " + meta.Target + " failed: " + firstLine(err.Error())})
+			}
+			if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Undo round %s's version bump to redo it on top of %s", meta.ID, meta.Target)); err != nil {
+				_ = gitx.ResetHard(ctx, ws, final)
+				return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "Undoing the round's version bump failed: " + err.Error()})
+			}
+			rebump = true
+		}
+	}
+	res, err := gitx.Merge(ctx, ws, meta.Target, fmt.Sprintf("Merge %s into round %s before landing", meta.Target, meta.ID))
+	if err != nil {
+		_ = gitx.ResetHard(ctx, ws, final)
+		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: fmt.Sprintf("Merging %s into the round failed: %s", meta.Target, firstLine(err.Error()))})
+	}
+	notes := []string{}
+	if rebump {
+		notes = append(notes, "fix:"+fixVersion)
+	}
+	if len(res.Conflicts) > 0 {
+		fixes, ok := r.mechanical(ctx, ws, cfg, res.Conflicts)
+		if !ok {
+			problem := "git reported conflicts in: " + list(res.Conflicts, 20)
+			log, _ := gitx.Run(ctx, meta.RepoPath, "log", "--oneline", "-30", final+".."+meta.Target)
+			v := r.integrationVars("", res.Conflicts, nil)
+			start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land-merge", PreMerge: final, Rebump: rebump, Problem: problem},
+				incomingPrompt(v, incoming{Name: meta.Target, Log: log, Landing: true}))
+			return func() {
+				r.recordFixes("", "the version", notes)
+				start()
+			}
+		}
+		notes = append(notes, fixes...)
+	}
+	return r.afterLandMerge(ctx, meta, cfg, rebump, notes)
+}
+
+// afterLandMerge redoes the version bump if it was undone, runs the final
+// gates and build with the target merged in, and lands, or hands a failure
+// to a recovery turn.
+func (r *round) afterLandMerge(ctx context.Context, meta api.Round, cfg *repoconfig.Config, rebump bool, notes []string) func() {
+	ws, final := meta.Workspace, meta.FinalCommit
+	version := meta.Version
+	if rebump {
+		v, err := r.bump(ctx, ws, cfg, meta, meta.Target)
+		if err != nil {
+			_ = gitx.ResetHard(ctx, ws, final)
+			return r.stopFn(api.Stop{Kind: api.StopBumpFailed, Phase: "land", Reason: err.Error()})
+		}
+		version = v
+	}
+	results := r.m.opts.Gates.RunAll(ctx, ws, cfg, finalSteps(cfg), true)
+	if !gates.AllOK(results) {
+		log, _ := gitx.Run(ctx, meta.RepoPath, "log", "--oneline", "-30", final+".."+meta.Target)
+		v := r.integrationVars("", nil, results)
+		start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land", PreMerge: final, Problem: failure(results)},
+			incomingPrompt(v, incoming{Name: meta.Target, Log: log, Landing: true}))
+		return func() {
+			r.recordFixes("", "merging "+meta.Target, notes)
+			r.meta.Version = version
+			start()
+		}
+	}
+	head, _ := gitx.RevParse(ctx, ws, "HEAD")
+	land := r.completeLand(ctx, meta, cfg, head, version, true)
+	return func() {
+		r.recordFixes("", "merging "+meta.Target, notes)
+		land()
+	}
+}
+
+// completeLand fast-forwards the target to head, pushes and cleans up.
+// rebuilt says the workspace was built again (after merging the target), so
+// its artifacts replace the ones kept at the end of the round.
+func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfig.Config, head, version string, rebuilt bool) func() {
+	ws := meta.Workspace
+	var artifacts []string
+	if rebuilt {
+		for _, step := range cfg.Build {
+			if step.Artifact != "" {
+				if p, err := keepArtifact(filepath.Join(ws, step.Artifact), filepath.Join(r.dir, "artifacts")); err == nil {
+					artifacts = append(artifacts, p)
+				}
+			}
+		}
+	}
+	n, err := retry(ctx, func() error { return gitx.FastForward(ctx, meta.RepoPath, meta.Target, head) })
+	if err != nil {
+		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: fmt.Sprintf("Moving %s to %s failed: %v", meta.Target, short(head), err), Attempted: tries(n)})
+	}
+	pushErr := ""
+	if cfg.Land.Push {
+		if _, err := retry(ctx, func() error { return gitx.Push(ctx, meta.RepoPath, "origin", meta.Target) }); err != nil {
+			pushErr = err.Error()
+		}
+	}
+	dropped := r.dropCarried(ctx, meta)
 	keep := map[string]bool{}
 	for _, b := range meta.Beads {
 		if b.State == api.BeadParked && b.Branch != "" {
 			keep[b.Branch] = true
 		}
 	}
-	r.event("land", "", "Landing on "+meta.Target)
-	r.saveLocked()
-	r.goOp("land", func(ctx context.Context) func() {
-		ws, final := meta.Workspace, meta.FinalCommit
-		head, err := gitx.RevParse(ctx, meta.RepoPath, "refs/heads/"+meta.Target)
-		if err != nil {
-			return func() { r.pause(meta.Target + " can't be read: " + err.Error()) }
+	cleanErr := r.m.opts.Workspaces.RemoveRound(ctx, meta.RepoPath, meta.RepoID, meta.ID, keep)
+	return func() {
+		r.meta.State, r.meta.LandedCommit, r.meta.FinalCommit, r.meta.EndedAt = api.RoundLanded, head, head, stamp()
+		r.meta.Version, r.meta.Integration = version, nil
+		if len(artifacts) > 0 {
+			r.meta.Artifacts = artifacts
 		}
-		var artifacts []string
-		version := meta.Version
-		if !gitx.IsAncestor(ctx, meta.RepoPath, head, final) {
-			// The round bumped the version from the base it started on. If the
-			// target has moved it may well have bumped too, and merging two bumps
-			// conflicts or lands the wrong number: undo the round's bump, merge,
-			// and bump again from the target's version.
-			bumped := ""
-			if cfg.Version.Bump != "" && version != "" {
-				bumped = bumpCommit(ctx, ws, meta.ID)
-				if bumped != "" {
-					if _, err := gitx.Run(ctx, ws, "revert", "--no-commit", bumped); err != nil {
-						_ = gitx.ResetHard(ctx, ws, final)
-						return func() {
-							r.pause("Undoing the round's version bump before merging " + meta.Target + " failed: " + firstLine(err.Error()))
-						}
-					}
-					if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Undo round %s's version bump to redo it on top of %s", meta.ID, meta.Target)); err != nil {
-						_ = gitx.ResetHard(ctx, ws, final)
-						return func() { r.pause("Undoing the round's version bump failed: " + err.Error()) }
-					}
-				}
-			}
-			res, err := gitx.Merge(ctx, ws, meta.Target, fmt.Sprintf("Merge %s into round %s before landing", meta.Target, meta.ID))
-			if err != nil || len(res.Conflicts) > 0 {
-				_ = gitx.ResetHard(ctx, ws, final)
-				why := "conflicts in " + list(res.Conflicts, 10)
-				if err != nil {
-					why = err.Error()
-				}
-				return func() {
-					r.pause(fmt.Sprintf("%s moved since the round started and can't be merged in (%s). Merge it into %s by hand, then land again.", meta.Target, why, meta.Branch))
-				}
-			}
-			if bumped != "" {
-				v, err := r.bump(ctx, ws, cfg, meta, meta.Target)
-				if err != nil {
-					_ = gitx.ResetHard(ctx, ws, final)
-					return func() { r.pause(err.Error()) }
-				}
-				version = v
-			}
-			results := r.m.opts.Gates.RunAll(ctx, ws, cfg, finalSteps(cfg), true)
-			if !gates.AllOK(results) {
-				_ = gitx.ResetHard(ctx, ws, final)
-				return func() {
-					r.pause(fmt.Sprintf("%s moved since the round started, and with its changes the round fails: %s", meta.Target, failure(results)))
-				}
-			}
-			final, _ = gitx.RevParse(ctx, ws, "HEAD")
-			for _, step := range cfg.Build {
-				if step.Artifact != "" {
-					if p, err := keepArtifact(filepath.Join(ws, step.Artifact), filepath.Join(r.dir, "artifacts")); err == nil {
-						artifacts = append(artifacts, p)
-					}
-				}
-			}
+		text := fmt.Sprintf("Landed: %s is at %s", meta.Target, short(head))
+		switch {
+		case !cfg.Land.Push:
+		case pushErr == "":
+			r.meta.Pushed = true
+			text += " and pushed"
+		default:
+			r.meta.Error = "The push failed: " + pushErr
+			text += "; the push failed: " + firstLine(pushErr)
 		}
-		if err := gitx.FastForward(ctx, meta.RepoPath, meta.Target, final); err != nil {
-			return func() { r.pause(fmt.Sprintf("Moving %s to %s failed: %v", meta.Target, short(final), err)) }
+		r.eventWith(api.RoundEvent{Kind: "land", Text: text, Commit: head})
+		if len(dropped) > 0 {
+			r.event("note", "", "Removed the earlier rounds' kept branches this round continued: "+strings.Join(dropped, ", "))
 		}
-		pushErr := ""
-		if cfg.Land.Push {
-			if err := gitx.Push(ctx, meta.RepoPath, "origin", meta.Target); err != nil {
-				pushErr = err.Error()
-			}
+		if cleanErr != nil {
+			r.event("note", "", "Cleaning up the round's worktrees and branches left something behind: "+firstLine(cleanErr.Error()))
 		}
-		cleanErr := r.m.opts.Workspaces.RemoveRound(ctx, meta.RepoPath, meta.RepoID, meta.ID, keep)
-		return func() {
-			r.meta.State, r.meta.LandedCommit, r.meta.FinalCommit, r.meta.EndedAt = api.RoundLanded, final, final, stamp()
-			r.meta.Version = version
-			if len(artifacts) > 0 {
-				r.meta.Artifacts = artifacts
-			}
-			text := fmt.Sprintf("Landed: %s is at %s", meta.Target, short(final))
-			switch {
-			case !cfg.Land.Push:
-			case pushErr == "":
-				r.meta.Pushed = true
-				text += " and pushed"
-			default:
-				r.meta.Error = "The push failed: " + pushErr
-				text += "; the push failed: " + firstLine(pushErr)
-			}
-			r.eventWith(api.RoundEvent{Kind: "land", Text: text, Commit: final})
-			if cleanErr != nil {
-				r.event("note", "", "Cleaning up the round's worktrees and branches left something behind: "+firstLine(cleanErr.Error()))
-			}
-		}
-	})
+	}
+}
+
+// tries lists retries for a stop's Attempted.
+func tries(n int) []string {
+	if n <= 1 {
+		return nil
+	}
+	return []string{fmt.Sprintf("retry:%d", n-1)}
 }
 
 // failure describes the first failing result.

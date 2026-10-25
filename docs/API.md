@@ -58,7 +58,14 @@ version:
 resources: [emulator]  # or {name, id}; exclusive, one run at a time
 land: {target: main, auto: false, push: true}       # defaults shown
 limits: {gate_timeout_minutes: 20, fix_attempts: 2} # defaults shown
+merge:
+  regenerate:          # files rebuilt rather than merged, e.g. lockfiles
+    - path: android/*.lockfile   # path.Match pattern; "*" doesn't cross "/"
+      run: cd android && ./gradlew -q dependencies --write-locks
 ```
+When a round's merge conflicts only in files a round can settle by itself, it does so without Claude:
+`.beads/*.jsonl` logs get every line from both sides once, and a `merge.regenerate` file takes the
+target's side and is rebuilt by its command. The gates run afterwards either way.
 Unknown fields are errors. Commands run with `/bin/sh -c` in the repository (or worktree) root, in
 their own process group, killed on timeout; the last 200 lines of output are kept.
 ```
@@ -385,10 +392,11 @@ on the computer that has the repository, without any client connected.
 | GET | `/v1/rounds/{round}/stream[?after=seq]` | – | SSE: `event: event` (RoundEvent, `id: seq`) for log entries after `after`, and `event: round` (Round) whenever it changes; honours `Last-Event-ID` |
 | POST | `/v1/rounds/{round}/answers` | `{"question_id","answer"}` | `Round` |
 | POST | `/v1/rounds/{round}/plan` | `{"unlink":[["NAC-2","NAC-1"]], "accept_dependencies":[["NAC-2","NAC-1"]]}` | `Round`; unlink only before the bead starts |
-| POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round paused by a limit resumes |
+| POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round stopped by a limit resumes |
+| POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
 | POST | `/v1/rounds/{round}/land` | – | `Round`; 409 unless `ready_to_land` |
 | POST | `/v1/rounds/{round}/cancel` | – | `Round` (branches are kept) |
-| POST | `/v1/rounds/{round}/resume` | – | `Round`; 409 unless `paused` |
+| POST | `/v1/rounds/{round}/resume` | – | `Round`; the `continue` choice: 409 unless `paused`, at a limit, or when nothing has changed since the failure |
 | POST | `/v1/rounds/{round}/beads/{id}/retry` | – | `Round`; puts a parked or skipped bead back |
 
 `/v1/events` also carries `event: round` with the Round on every change.
@@ -399,7 +407,19 @@ on the computer that has the repository, without any client connected.
   "id": "rdtnf62ywld", "repo_id": "…", "repo_name": "Nacre", "repo_path": "/Users/ryder/Code/Nacre",
   "epic": "",                       // set when started from an epic
   "state": "implementing",          // planning | needs_decision | implementing | integrating | ready_to_land | landed | cancelled | paused
-  "paused_from": "", "pause_reason": "",
+  "paused_from": "", "pause_reason": "",     // pause_reason repeats stop.reason for older clients
+  "stop": {                         // only while paused: why, and the ways forward
+    "kind": "merge-conflict",       // merge-conflict | gates-failed | git-error | bump-failed | review-failed | limits | nothing-integrated | config | legacy
+    "reason": "main moved since the round started and Claude couldn't merge it in: …",
+    "phase": "land",                // the step a choice goes back to: preflight | final | land | "" (the paused-from state)
+    "bead": "", "branch": "",       // set when the stop is about one bead or a pre-flight branch
+    "diagnosis": {"summary": "…", "cause": "…", "cost_usd": 0.04}, // Claude's read-only account; absent when it couldn't be made
+    "choices": [{"id": "retry-with-budget", "label": "Let Claude try again", "explanation": "…"}],
+                                    // ids: retry-with-budget | skip-branch | skip-bead | continue | raise-limits | cancel
+    "attempted": ["fix:version", "turn:land-merge×2", "retry:2"],
+    "fingerprint": "…",             // the state it failed in; continue is refused while unchanged
+    "spend": [{"bead":"NAC-1","spent_usd":8.1,"done":true}], "estimate_usd": 8.1 // limits stops only
+  },
   "target": "main", "base": "bd299b7…",          // branch it started from and lands on; commit it started at
   "branch": "nacre/r/rdtnf62ywld/integration", "workspace": "…/worktrees/<repo>/rdtnf62ywld/integration",
   "beads": [{
@@ -411,14 +431,19 @@ on the computer that has the repository, without any client connected.
     "fix_attempts": 0, "stalls": 0, "verification": {…}, "merge_commit": "",
     "reason": "",                   // why it was parked or skipped
     "human_check": "",              // what only a person can verify; such beads stay open
-    "closed": false
+    "closed": false,
+    "carried_from": "",             // an earlier round's kept branch this bead's work continues from
+    "picked_up_by": ""              // the later round that continued this bead's kept branch
   }],
   "plan": {"summary": "…", "beads": [{"id","areas","files","depends_on","needs","human_check"}],
            "findings": [{"id":"f1","kind":"overlap","beads":["NAC-1","NAC-2"],"branch":"","files":[],"text":"…","accepted":false,"unlinked":false}],
            "cost_usd": 0.4},
   "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again
-  "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…"}, // the merge in progress, if any
-  "budget_usd": 25, "spent_usd": 3.1, "time_limit_minutes": 240, "mode": "auto", "model": "",
+  "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…",
+                  "branch":"","rebump":false}, // the merge in progress, if any. phase: merge | conflict | gates | final for the
+                                    // round's own merges; preflight-merge (branch set) for unmerged work Ryder chose to bring
+                                    // in; land-merge | land for a target that moved before landing
+  "budget_usd": 25, "spent_usd": 3.1, "overhead_usd": 0.04, // overhead: diagnoses, part of spent "time_limit_minutes": 240, "mode": "auto", "model": "",
   "run_ids": ["r_…"],               // every run the round started
   "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
   "final_commit": "", "version": "0.3.3 -> 0.4.0", "artifacts": ["…/rounds/<id>/artifacts/app-release.apk"],
@@ -431,7 +456,18 @@ the branch into the round first, ignore it, or stop).
 
 ### RoundEvent
 `{"seq", "ts", "kind", "bead", "text", "commit", "gates":[GateResult]}`; kind is one of `state`,
-`plan`, `question`, `answer`, `bead`, `verify`, `merge`, `conflict`, `gates`, `build`, `land`, `note`.
+`plan`, `question`, `answer`, `bead`, `verify`, `merge`, `conflict`, `gates`, `build`, `land`, `note`,
+`recover` (something the round fixed or retried by itself: a mechanical fix, a recovery turn, a retry
+after a transient error, continuing a bead's earlier work).
+
+Before a round stops it tries, in order: a mechanical fix (the version re-bump at landing, the beads
+logs, `merge.regenerate` files); a recovery turn in which Claude settles the merge or fixes the gates in
+the integration worktree, judged by the gates (bead merges, unmerged work brought in before the beads
+start, and a target that moved before landing all get one); and up to two retries, after 5 s and
+30 s, for environmental errors (a locked index or database, a dropped connection, a process that
+can't start). Budget and time limits stop at once. A bead that an earlier round parked, or left on
+cancel, continues from that round's kept branch the next time a round includes it; the kept branch is
+deleted once that round lands.
 
 ## Several computers
 Each computer runs its own nacred. `host_id` is a stable random id generated on first run (stored in

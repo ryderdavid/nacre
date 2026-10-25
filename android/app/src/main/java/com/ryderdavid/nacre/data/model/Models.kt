@@ -434,6 +434,8 @@ data class Round(
     val state: String = ROUND_PLANNING,
     @SerialName("paused_from") val pausedFrom: String = "",
     @SerialName("pause_reason") val pauseReason: String = "",
+    /** Why a paused round stopped, and the ways forward; null on an older nacred. */
+    val stop: RoundStop? = null,
     val target: String = "",
     val base: String = "",
     val branch: String = "",
@@ -444,6 +446,7 @@ data class Round(
     val integration: IntegrationStep? = null,
     @SerialName("budget_usd") val budgetUsd: Double = 0.0,
     @SerialName("spent_usd") val spentUsd: Double = 0.0,
+    @SerialName("overhead_usd") val overheadUsd: Double = 0.0,
     @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0,
     @SerialName("run_ids") val runIds: List<String> = emptyList(),
     @SerialName("created_at") val createdAt: String = "",
@@ -489,7 +492,42 @@ data class RoundBead(
     val reason: String = "",
     @SerialName("human_check") val humanCheck: String = "",
     val closed: Boolean = false,
+    /** The kept branch of an earlier round this bead's work continues from. */
+    @SerialName("carried_from") val carriedFrom: String = "",
+    /** The later round that continued this bead's kept work. */
+    @SerialName("picked_up_by") val pickedUpBy: String = "",
 )
+
+/** Why a round stopped after trying to recover by itself, and the ways forward. */
+@Serializable
+data class RoundStop(
+    val kind: String = "",
+    val reason: String = "",
+    val phase: String = "",
+    val bead: String = "",
+    val branch: String = "",
+    val diagnosis: StopDiagnosis? = null,
+    val choices: List<StopChoice> = emptyList(),
+    val attempted: List<String> = emptyList(),
+    val spend: List<BeadSpend> = emptyList(),
+    @SerialName("estimate_usd") val estimateUsd: Double = 0.0,
+)
+
+@Serializable
+data class StopDiagnosis(val summary: String = "", val cause: String = "", @SerialName("cost_usd") val costUsd: Double = 0.0)
+
+@Serializable
+data class StopChoice(val id: String, val label: String = "", val explanation: String = "")
+
+@Serializable
+data class BeadSpend(val bead: String, @SerialName("spent_usd") val spentUsd: Double = 0.0, val done: Boolean = false)
+
+const val CHOICE_RETRY_WITH_BUDGET = "retry-with-budget"
+const val CHOICE_SKIP_BRANCH = "skip-branch"
+const val CHOICE_SKIP_BEAD = "skip-bead"
+const val CHOICE_CONTINUE = "continue"
+const val CHOICE_RAISE_LIMITS = "raise-limits"
+const val CHOICE_CANCEL = "cancel"
 
 @Serializable
 data class Plan(

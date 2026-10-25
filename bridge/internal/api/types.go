@@ -303,6 +303,75 @@ type Error struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// Stop is why a round stopped after trying to recover by itself, and the
+// ways forward.
+type Stop struct {
+	// Kind is one of the Stop* constants.
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
+	// Phase says which step to go back to: "preflight", "bead", "final" or
+	// "land"; empty resumes the state the round paused from.
+	Phase  string `json:"phase,omitempty"`
+	Bead   string `json:"bead,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	// Diagnosis is Claude's read of what is wrong, when it could be made.
+	Diagnosis *Diagnosis   `json:"diagnosis,omitempty"`
+	Choices   []StopChoice `json:"choices"`
+	// Attempted lists what the round tried before stopping, e.g.
+	// "fix:beads-jsonl", "turn:land-merge", "retry:2".
+	Attempted []string `json:"attempted,omitempty"`
+	// Fingerprint is the state the step failed in; "continue" is refused
+	// while it is unchanged.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// Spend and EstimateUSD are set on a limits stop.
+	Spend       []BeadSpend `json:"spend,omitempty"`
+	EstimateUSD float64     `json:"estimate_usd,omitempty"`
+}
+
+// Diagnosis is a plain-language account of a stop.
+type Diagnosis struct {
+	Summary string  `json:"summary"`
+	Cause   string  `json:"cause,omitempty"`
+	CostUSD float64 `json:"cost_usd,omitempty"`
+}
+
+// StopChoice is one way forward from a stop.
+type StopChoice struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Explanation string `json:"explanation,omitempty"`
+}
+
+// BeadSpend is what a bead's runs have cost so far.
+type BeadSpend struct {
+	Bead     string  `json:"bead"`
+	SpentUSD float64 `json:"spent_usd"`
+	Done     bool    `json:"done"`
+}
+
+// Stop kinds.
+const (
+	StopMergeConflict     = "merge-conflict"
+	StopGatesFailed       = "gates-failed"
+	StopGitError          = "git-error"
+	StopBumpFailed        = "bump-failed"
+	StopReviewFailed      = "review-failed"
+	StopLimits            = "limits"
+	StopNothingIntegrated = "nothing-integrated"
+	StopConfig            = "config"
+	StopLegacy            = "legacy"
+)
+
+// Stop choices.
+const (
+	ChoiceRetryWithBudget = "retry-with-budget"
+	ChoiceSkipBranch      = "skip-branch"
+	ChoiceSkipBead        = "skip-bead"
+	ChoiceContinue        = "continue"
+	ChoiceRaiseLimits     = "raise-limits"
+	ChoiceCancel          = "cancel"
+)
+
 // Round states.
 const (
 	RoundPlanning      = "planning"
@@ -347,9 +416,12 @@ type Round struct {
 	// Epic is set when the round was started from an epic.
 	Epic  string `json:"epic,omitempty"`
 	State string `json:"state"`
-	// PausedFrom is the state a paused round resumes to; PauseReason says why.
+	// PausedFrom is the state a paused round resumes to; PauseReason says why
+	// (the same text as Stop.Reason, kept for older clients).
 	PausedFrom  string `json:"paused_from,omitempty"`
 	PauseReason string `json:"pause_reason,omitempty"`
+	// Stop says why a paused round stopped and what Ryder can do about it.
+	Stop *Stop `json:"stop,omitempty"`
 	// Target is the branch the round started from and lands on; Base is the
 	// commit it started from.
 	Target string `json:"target"`
@@ -363,8 +435,11 @@ type Round struct {
 	// Integration is the merge in progress, if any.
 	Integration *IntegrationStep `json:"integration,omitempty"`
 
-	BudgetUSD        float64 `json:"budget_usd"`
-	SpentUSD         float64 `json:"spent_usd"`
+	BudgetUSD float64 `json:"budget_usd"`
+	SpentUSD  float64 `json:"spent_usd"`
+	// OverheadUSD is what calls outside runs cost (diagnoses); it is part of
+	// SpentUSD.
+	OverheadUSD      float64 `json:"overhead_usd,omitempty"`
 	TimeLimitMinutes int     `json:"time_limit_minutes"`
 	Mode             string  `json:"mode"`
 	Model            string  `json:"model,omitempty"`
@@ -422,6 +497,11 @@ type RoundBead struct {
 	HumanCheck string `json:"human_check,omitempty"`
 	// Closed is set once the round closed the bead.
 	Closed bool `json:"closed,omitempty"`
+	// CarriedFrom is the kept branch of an earlier round this bead's work
+	// continues from; PickedUpBy is the later round that continued this
+	// bead's kept branch.
+	CarriedFrom string `json:"carried_from,omitempty"`
+	PickedUpBy  string `json:"picked_up_by,omitempty"`
 }
 
 // Plan is the pre-flight review's result.
@@ -476,8 +556,15 @@ type Question struct {
 // IntegrationStep is the merge nacred is working through.
 type IntegrationStep struct {
 	Bead string `json:"bead,omitempty"`
-	// Phase is "merge", "conflict", "gates", "final" or "land".
+	// Phase is "merge", "conflict", "gates" or "final" for the round's own
+	// merges, "preflight-merge" for unmerged work Ryder chose to bring in,
+	// and "land-merge" or "land" for a target that moved before landing.
 	Phase string `json:"phase"`
+	// Branch is the branch being brought in during "preflight-merge".
+	Branch string `json:"branch,omitempty"`
+	// Rebump says the round's version bump was undone for a landing merge
+	// and must be redone once it is resolved.
+	Rebump bool `json:"rebump,omitempty"`
 	// PreMerge is the integration commit before the merge, to reset to.
 	PreMerge string `json:"pre_merge,omitempty"`
 	RunID    string `json:"run_id,omitempty"`

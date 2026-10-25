@@ -72,4 +72,7 @@ class RoundViewModel(private val repo: NacreRepository, val roundKey: String) : 
     fun resume() = act { repo.resumeRound(roundKey) }
     fun retry(bead: String) = act("$bead is back in the round") { repo.retryBead(roundKey, bead) }
     fun setBudget(usd: Double) = act { repo.setRoundLimits(roundKey, usd) }
+
+    /** Takes one of a stopped round's choices; [usd] is the budget a choice asks for. */
+    fun choose(choice: String, usd: Double = 0.0) = act { repo.chooseRound(roundKey, choice, usd) }
 }

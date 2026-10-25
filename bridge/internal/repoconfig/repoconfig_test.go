@@ -105,6 +105,9 @@ func TestErrorsNameTheProblemAndLine(t *testing.T) {
 		"bad timeout":        {"gates:\n  - name: t\n    run: a\nlimits:\n  gate_timeout_minutes: 0\n", 0, "more than 0"},
 		"bad target":         {"gates:\n  - name: t\n    run: a\nland:\n  target: --force\n", 0, "not a valid branch"},
 		"not yaml":           {"gates: [\n", 0, ""},
+		"regenerate no run":  {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: go.sum\n", 6, "run is required"},
+		"regenerate outside": {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: ../x\n      run: make\n", 6, "inside the repository"},
+		"regenerate field":   {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: go.sum\n      run: make\n      when: always\n", 8, `unknown field "when"`},
 	}
 	for name, tc := range cases {
 		_, err := Parse([]byte(tc.yaml))
@@ -132,5 +135,18 @@ func TestLoad(t *testing.T) {
 	}
 	if c, err := Load(dir); err != nil || len(c.Gates) != 3 {
 		t.Fatalf("load: %v %+v", err, c)
+	}
+}
+
+func TestMergeRegenerate(t *testing.T) {
+	c, err := Parse([]byte("gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: android/*.lockfile\n      run: cd android && ./gradlew -q dependencies --write-locks\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, ok := c.Merge.Regenerates("android/gradle.lockfile"); !ok || !strings.Contains(r.Run, "--write-locks") {
+		t.Errorf("lockfile not matched: %+v %v", r, ok)
+	}
+	if _, ok := c.Merge.Regenerates("android/app/gradle.lockfile"); ok {
+		t.Error("* crossed a directory")
 	}
 }

@@ -8,7 +8,10 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/gitx"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
+	"github.com/ryderdavid/nacre/bridge/internal/workspace"
 )
 
 // recheck is how often a round looks at its runs even without being poked,
@@ -101,7 +104,11 @@ func (r *round) advance() bool {
 			r.startPreflight()
 		}
 	case api.RoundNeedsDecision:
-		if r.allAnswered() && !r.ops["decide"] {
+		switch {
+		case r.meta.Integration != nil:
+			// Claude is resolving unmerged work Ryder chose to bring in.
+			r.watchIntegration()
+		case r.allAnswered() && !r.ops["decide"] && !r.ops["reset"]:
 			r.applyDecisions()
 		}
 	case api.RoundImplementing, api.RoundIntegrating:
@@ -125,6 +132,7 @@ func (r *round) refreshSpend() {
 	if r.meta.Plan != nil {
 		spent += r.meta.Plan.CostUSD
 	}
+	spent += r.meta.OverheadUSD
 	for _, id := range r.meta.RunIDs {
 		if run, err := r.m.opts.Runs.Run(id); err == nil {
 			spent += run.CostUSD
@@ -169,17 +177,8 @@ func (r *round) limitsHit() bool {
 	if reason == "" {
 		return false
 	}
-	r.pause(reason)
+	r.stop(api.Stop{Kind: api.StopLimits, Reason: reason})
 	return true
-}
-
-func (r *round) pause(reason string) {
-	if r.meta.State == api.RoundPaused {
-		return
-	}
-	r.meta.PausedFrom, r.meta.State, r.meta.PauseReason = r.meta.State, api.RoundPaused, reason
-	r.event("state", "", "Paused: "+reason)
-	r.saveLocked()
 }
 
 func (r *round) setState(state, text string) {
@@ -227,7 +226,8 @@ func (r *round) drive() {
 	switch {
 	case r.meta.Integration != nil:
 		r.watchIntegration()
-	case r.ops["merge"]:
+	case r.ops["merge"] || r.ops["reset"] || r.ops["land"]:
+		// The integration branch is moving; wait for it to settle.
 	default:
 		if b := r.nextToMerge(); b != nil {
 			r.startMerge(b)
@@ -305,28 +305,54 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 	budget := r.remaining()
 	cfg := r.cfg
 	r.goOp("start:"+id, func(ctx context.Context) func() {
-		ws, err := r.m.opts.Workspaces.CreateBead(ctx, meta.RepoPath, meta.RepoID, meta.ID, id, meta.Branch)
+		tries := 0
+		var ws workspace.Workspace
+		n, err := retry(ctx, func() (e error) {
+			ws, e = r.m.opts.Workspaces.CreateBead(ctx, meta.RepoPath, meta.RepoID, meta.ID, id, meta.Branch)
+			return e
+		})
+		tries += n - 1
 		if err != nil {
 			return func() { r.park(r.bead(id), "Its workspace couldn't be made: "+err.Error()) }
 		}
-		raw, err := r.m.opts.Beads.Get(ctx, meta.RepoPath, id)
+		var raw api.Issue
+		n, err = retry(ctx, func() (e error) { raw, e = r.m.opts.Beads.Get(ctx, meta.RepoPath, id); return e })
+		tries += n - 1
 		if err != nil {
 			return func() { r.park(r.bead(id), "bd couldn't read it: "+err.Error()) }
 		}
 		comments, _ := r.m.opts.Beads.Comments(ctx, meta.RepoPath, id)
+		earlier, fixes := r.continueEarlier(ctx, meta, cfg, id, ws)
 		prompt := beadPrompt(beadPromptVars{
 			Round: meta, Issue: parseIssue(raw), Comments: comments, Branch: ws.Branch, Base: ws.Base,
-			Decisions: decisions, Shared: shared, Integrated: integrated, Cfg: cfg, Env: env,
+			Decisions: decisions, Shared: shared, Integrated: integrated, Cfg: cfg, Env: env, Earlier: earlier,
 		})
 		b := r.beadCopy(id)
-		run, err := r.m.opts.Runs.Start(runs.StartRequest{
-			RepoID: meta.RepoID, RepoName: meta.RepoName, RepoPath: meta.RepoPath,
-			IssueID: id, IssueTitle: b.Title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
-			RoundID: meta.ID, Kind: "bead", Branch: ws.Branch, Workspace: ws.Path, Base: ws.Base,
-			MaxBudgetUSD: budget, Env: env,
+		var run api.Run
+		n, err = retry(ctx, func() (e error) {
+			run, e = r.m.opts.Runs.Start(runs.StartRequest{
+				RepoID: meta.RepoID, RepoName: meta.RepoName, RepoPath: meta.RepoPath,
+				IssueID: id, IssueTitle: b.Title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
+				RoundID: meta.ID, Kind: "bead", Branch: ws.Branch, Workspace: ws.Path, Base: ws.Base,
+				MaxBudgetUSD: budget, Env: env,
+			})
+			return e
 		})
+		tries += n - 1
 		return func() {
 			b := r.bead(id)
+			r.retried(id, "Starting it", tries+1)
+			if earlier != nil {
+				b.CarriedFrom = earlier.Branch
+				r.recordFixes(id, "merging its earlier work", fixes)
+				how := "merged into its branch"
+				if !earlier.Merged {
+					how = "left for its run to merge, since it conflicts with the current code"
+				}
+				r.event("recover", id, fmt.Sprintf("Continues round %s's work from %s (%s)", earlier.Round, earlier.Branch, how))
+				from, by := earlier.Round, r.meta.ID
+				r.async(func(context.Context) { r.m.markPickedUp(from, id, by) })
+			}
 			if err != nil {
 				r.park(b, "Its run couldn't start: "+err.Error())
 				return
@@ -337,6 +363,33 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 			r.event("bead", id, fmt.Sprintf("Started on %s from %s", ws.Branch, short(ws.Base)))
 		}
 	})
+}
+
+// continueEarlier brings a bead's kept work from an earlier round into its
+// new branch. A clean merge (or one the catalogue settles) is committed;
+// otherwise the merge is undone and the bead's run is told to do it.
+func (r *round) continueEarlier(ctx context.Context, meta api.Round, cfg *repoconfig.Config, bead string, ws workspace.Workspace) (*earlierWork, []string) {
+	kept := r.m.keptWorkFor(meta.RepoID, meta.ID, bead)
+	if kept == nil || !hasCommits(ctx, meta.RepoPath, kept.Base, kept.Branch) {
+		return nil, nil
+	}
+	e := &earlierWork{Round: kept.Round, Branch: kept.Branch, Reason: kept.Reason}
+	res, err := gitx.Merge(ctx, ws.Path, kept.Branch, fmt.Sprintf("Continue %s from round %s's kept work", bead, kept.Round))
+	switch {
+	case err != nil:
+	case len(res.Conflicts) == 0:
+		e.Merged = true
+		return e, nil
+	default:
+		if fixes, ok := r.mechanical(ctx, ws.Path, cfg, res.Conflicts); ok {
+			e.Merged = true
+			return e, fixes
+		}
+	}
+	if gitx.MergeInProgress(ctx, ws.Path) {
+		_ = gitx.AbortMerge(ctx, ws.Path)
+	}
+	return e, nil
 }
 
 // beadCopy returns a copy of a bead for use outside the lock.
@@ -413,8 +466,12 @@ func (r *round) followUp(b *api.RoundBead, message string) {
 	env := r.m.leases.env(r.meta.ID+"/"+id, r.cfg)
 	b.State = api.BeadRunning
 	r.goOp("followup:"+id, func(ctx context.Context) func() {
-		_, err := r.m.opts.Runs.FollowupWith(runID, runs.Followup{Message: message, MaxBudgetUSD: budget, Env: env})
+		n, err := retry(ctx, func() error {
+			_, e := r.m.opts.Runs.FollowupWith(runID, runs.Followup{Message: message, MaxBudgetUSD: budget, Env: env})
+			return e
+		})
 		return func() {
+			r.retried(id, "Sending it back", n)
 			if err != nil {
 				r.park(r.bead(id), "Its follow-up couldn't start: "+err.Error())
 				return
@@ -579,7 +636,7 @@ func (m *Manager) RetryBead(id, beadID string) (api.Round, error) {
 	case api.RoundReadyToLand:
 		r.meta.State = api.RoundImplementing
 	case api.RoundPaused:
-		r.meta.State, r.meta.PausedFrom, r.meta.PauseReason = api.RoundImplementing, "", ""
+		r.meta.State, r.meta.PausedFrom, r.meta.PauseReason, r.meta.Stop = api.RoundImplementing, "", "", nil
 	}
 	r.event("bead", beadID, "Back in the round")
 	repo := r.meta.RepoPath
@@ -607,32 +664,34 @@ func (m *Manager) SetLimits(id string, budgetUSD float64, minutes int) (api.Roun
 		r.meta.TimeLimitMinutes = minutes
 	}
 	r.event("note", "", fmt.Sprintf("Limits set to $%.2f and %d minutes", r.meta.BudgetUSD, r.meta.TimeLimitMinutes))
-	if r.meta.State == api.RoundPaused && r.meta.PausedFrom != "" {
-		r.meta.State, r.meta.PausedFrom, r.meta.PauseReason = r.meta.PausedFrom, "", ""
-		r.event("state", "", "Resumed")
+	if r.meta.State == api.RoundPaused && r.meta.Stop != nil && r.meta.Stop.Kind == api.StopLimits {
+		r.resumeFromStop("Resumed")
 	}
 	r.saveLocked()
 	return clone(r.meta), nil
 }
 
-// Resume restarts a paused round once its cause is dealt with.
+// Resume restarts a paused round once its cause is dealt with. It is the
+// "continue" choice: refused while nothing has changed since the failure.
 func (m *Manager) Resume(id string) (api.Round, error) {
 	r := m.get(id)
 	if r == nil {
 		return api.Round{}, ErrNotFound
 	}
+	snap := r.metaCopy()
+	if snap.State != api.RoundPaused {
+		return snap, conflict("the round isn't paused")
+	}
+	if snap.Stop != nil && snap.Stop.Kind == api.StopLimits {
+		return snap, conflict("the round is at its limits: raise the budget or time limit to carry on")
+	}
+	if snap.Stop != nil && hasChoice(*snap.Stop, api.ChoiceContinue) {
+		return m.Choose(id, api.ChoiceContinue, 0, 0)
+	}
 	r.mu.Lock()
 	defer r.poke()
 	defer r.mu.Unlock()
-	if r.meta.State != api.RoundPaused {
-		return clone(r.meta), conflict("the round isn't paused")
-	}
-	to := r.meta.PausedFrom
-	if to == "" || to == api.RoundPaused {
-		to = api.RoundImplementing
-	}
-	r.meta.State, r.meta.PausedFrom, r.meta.PauseReason = to, "", ""
-	r.event("state", "", "Resumed")
+	r.resumeFromStop("Resumed")
 	r.saveLocked()
 	return clone(r.meta), nil
 }

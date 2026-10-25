@@ -186,6 +186,25 @@ func (s *Server) resumeRound(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// chooseRound carries out one of a stopped round's choices.
+func (s *Server) chooseRound(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Choice           string  `json:"choice"`
+		BudgetUSD        float64 `json:"budget_usd"`
+		TimeLimitMinutes int     `json:"time_limit_minutes"`
+	}
+	if !s.roundsReady(w) || !decodeOK(w, r, &body) {
+		return
+	}
+	if body.Choice == "" {
+		writeError(w, http.StatusBadRequest, "choice required", "")
+		return
+	}
+	s.roundResult(w, func() (api.Round, error) {
+		return s.Rounds.Choose(r.PathValue("round"), body.Choice, body.BudgetUSD, body.TimeLimitMinutes)
+	})
+}
+
 func (s *Server) retryRoundBead(w http.ResponseWriter, r *http.Request) {
 	if s.roundsReady(w) {
 		s.roundResult(w, func() (api.Round, error) { return s.Rounds.RetryBead(r.PathValue("round"), r.PathValue("id")) })

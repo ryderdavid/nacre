@@ -225,10 +225,18 @@ func (m *Manager) load(dir string) (*round, error) {
 		}
 		cfg, err := repoconfig.Load(cfgDir)
 		if err != nil {
-			r.meta.State, r.meta.PausedFrom = api.RoundPaused, meta.State
-			r.meta.PauseReason = "nacre.yaml can't be read: " + err.Error()
+			reason := "nacre.yaml can't be read: " + err.Error()
+			if r.meta.State != api.RoundPaused {
+				r.meta.PausedFrom = meta.State
+			}
+			r.meta.State, r.meta.PauseReason = api.RoundPaused, reason
+			r.meta.Stop = &api.Stop{Kind: api.StopConfig, Reason: reason, Choices: legacyStop(reason).Choices}
 		}
 		r.cfg = cfg
+		if r.meta.State == api.RoundPaused && r.meta.Stop == nil {
+			// Paused before stops existed.
+			r.meta.Stop = legacyStop(r.meta.PauseReason)
+		}
 	}
 	return r, nil
 }
@@ -660,6 +668,17 @@ func clone(r api.Round) api.Round {
 	if r.Integration != nil {
 		st := *r.Integration
 		c.Integration = &st
+	}
+	if r.Stop != nil {
+		st := *r.Stop
+		st.Choices = append([]api.StopChoice(nil), r.Stop.Choices...)
+		st.Attempted = append([]string(nil), r.Stop.Attempted...)
+		st.Spend = append([]api.BeadSpend(nil), r.Stop.Spend...)
+		if r.Stop.Diagnosis != nil {
+			d := *r.Stop.Diagnosis
+			st.Diagnosis = &d
+		}
+		c.Stop = &st
 	}
 	return c
 }

@@ -73,4 +73,10 @@ func TestRoundsAPI(t *testing.T) {
 	if resp, _ := post(t, ts.URL+"/v1/rounds/rdnope/answers", `{"question_id":"q1","answer":"yes"}`); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("answers: %d", resp.StatusCode)
 	}
+	if resp, _ := post(t, ts.URL+"/v1/rounds/rdnope/choose", `{}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("choose without a choice: %d", resp.StatusCode)
+	}
+	if resp, _ := post(t, ts.URL+"/v1/rounds/rdnope/choose", `{"choice":"continue"}`); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("choose on an unknown round: %d", resp.StatusCode)
+	}
 }

@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rounds/{round}/land", s.landRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/cancel", s.cancelRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/resume", s.resumeRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/choose", s.chooseRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/beads/{id}/retry", s.retryRoundBead)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such route: "+r.Method+" "+r.URL.Path, "")

@@ -18,6 +18,8 @@ const (
 	markFinal       = "Fix the round's final check"
 	markPreflight   = "Review these beads together before anyone writes code"
 	markFollowupFix = "nacred checked your work"
+	markIncoming    = "Bring outside work into the round"
+	markLandFix     = "Fix the round after merging its target"
 )
 
 // tailLines is how much gate output goes into a prompt.
@@ -34,6 +36,17 @@ type beadPromptVars struct {
 	Integrated []string
 	Cfg        *repoconfig.Config
 	Env        []string
+	// Earlier is this bead's work from an earlier round that set it aside.
+	Earlier *earlierWork
+}
+
+// earlierWork is a bead's kept branch from an earlier round, carried into
+// this one.
+type earlierWork struct {
+	Round, Branch, Reason string
+	// Merged says it is already merged into the bead's new branch; otherwise
+	// the run merges it.
+	Merged bool
 }
 
 // beadPrompt is the contract a round run works under.
@@ -72,6 +85,15 @@ func beadPrompt(v beadPromptVars) string {
 	if len(v.Integrated) > 0 {
 		fmt.Fprintf(&s, "It already contains this round's finished work on: %s.\n", strings.Join(v.Integrated, "; "))
 	}
+	if e := v.Earlier; e != nil {
+		s.WriteString("\n## Earlier work on this bead\n")
+		fmt.Fprintf(&s, "Round %s worked on this bead and set it aside (%s). Its work is on branch %s.\n", e.Round, oneLine(e.Reason, 300), e.Branch)
+		if e.Merged {
+			s.WriteString("That work is already merged into your branch: read what it did (`git log` and `git diff` against the base), build on it and finish the bead, rather than starting over.\n")
+		} else {
+			fmt.Fprintf(&s, "It conflicts with the current code, so it isn't merged yet. Start by running `git merge %s`, resolve the conflicts so its work fits the code as it is now, commit the merge, and then finish the bead on top of it.\n", e.Branch)
+		}
+	}
 
 	s.WriteString("\n## How your work will be checked\n")
 	fmt.Fprintf(&s, "When your turn ends, nacred checks this worktree itself:\n1. nothing is left uncommitted;\n2. %s has at least one commit;\n3. these gates pass:\n", v.Branch)
@@ -81,7 +103,11 @@ func beadPrompt(v beadPromptVars) string {
 	s.WriteString("Run `nacred gates --skip-final` in this worktree before you finish; it runs exactly these, with the same environment.\n")
 
 	s.WriteString("\n## Rules for this round\n")
-	fmt.Fprintf(&s, "- Commit your work on %s. Don't merge, rebase onto other branches, push, or switch branches: nacred merges the beads.\n", v.Branch)
+	if e := v.Earlier; e != nil && !e.Merged {
+		fmt.Fprintf(&s, "- Commit your work on %s. Apart from merging %s as above, don't merge, rebase onto other branches, push, or switch branches: nacred merges the beads.\n", v.Branch, e.Branch)
+	} else {
+		fmt.Fprintf(&s, "- Commit your work on %s. Don't merge, rebase onto other branches, push, or switch branches: nacred merges the beads.\n", v.Branch)
+	}
 	fmt.Fprintf(&s, "- Don't close %s or change its status; nacred closes it when the round is verified. You may add bd comments.\n", is.ID)
 	for _, sh := range v.Shared {
 		fmt.Fprintf(&s, "- Don't change %s.\n", sh)
@@ -205,6 +231,58 @@ func finalPrompt(v integrationVars) string {
 	writeFailures(&s, v.Results)
 	s.WriteString("\nFix it and commit. Don't change the version again.\n")
 	s.WriteString(v.rules("nacred gates --build"))
+	return s.String()
+}
+
+// incoming describes work from outside the round being merged into it: a
+// branch Ryder chose to bring in before the beads start, or the target that
+// moved before landing.
+type incoming struct {
+	// Name is the branch; Why is what the pre-flight review said about it.
+	Name, Why string
+	// Log is the incoming side's commits that the round lacks.
+	Log string
+	// Landing is set for the target at landing time.
+	Landing bool
+}
+
+// incomingPrompt asks Claude to settle a merge of outside work into the
+// round, or to fix what it broke.
+func incomingPrompt(v integrationVars, in incoming) string {
+	var s strings.Builder
+	mark := markIncoming
+	if in.Landing && len(v.Conflicts) == 0 {
+		mark = markLandFix
+	}
+	s.WriteString(v.header(mark))
+	if in.Landing {
+		fmt.Fprintf(&s, "\nThe round's work is finished and verified, but %s moved since the round started, so nacred merged %s into the integration branch before landing.\n", in.Name, in.Name)
+	} else {
+		fmt.Fprintf(&s, "\nBefore the beads start, Ryder chose to bring %s into the round, and nacred merged it into the integration branch.\n", in.Name)
+		if in.Why != "" {
+			fmt.Fprintf(&s, "What the review said about it: %s\n", in.Why)
+		}
+	}
+	if in.Log != "" {
+		fmt.Fprintf(&s, "\n## What %s brings\n```\n%s\n```\n", in.Name, lastN(in.Log, 40))
+	}
+	if len(v.Conflicts) > 0 {
+		s.WriteString("\ngit reported conflicts in:\n")
+		for _, f := range v.Conflicts {
+			fmt.Fprintf(&s, "- %s\n", f)
+		}
+		fmt.Fprintf(&s, "\nResolve every conflict so both %s's changes and the round's keep doing what they were meant to. Where %s already has an equivalent change (the same fix, a newer version of the same code), keep %s's version. Then `git add` the files and run `git commit --no-edit` to finish the merge.\n", in.Name, in.Name, in.Name)
+	} else {
+		s.WriteString("\nThe merge went through, but with it this fails:\n")
+		writeFailures(&s, v.Results)
+		fmt.Fprintf(&s, "\nFind what breaks when %s's changes meet the round's, fix it, and commit.\n", in.Name)
+	}
+	fmt.Fprintf(&s, "\n## Rules\n- Work only in this worktree, on %s. Don't push, reset, rebase or switch branches.\n- Never revert %s's commits: it is the newer ground the round has to fit.\n- Don't change the version; nacred bumps it once the merge is settled.\n", v.Round.Branch, in.Name)
+	cmd := "nacred gates --skip-final"
+	if in.Landing && len(v.Conflicts) == 0 {
+		cmd = "nacred gates --build"
+	}
+	fmt.Fprintf(&s, "- Commit when done, then run `%s` and fix anything it reports.\n", cmd)
 	return s.String()
 }
 

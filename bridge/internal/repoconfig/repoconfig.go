@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -46,6 +47,33 @@ type Config struct {
 	Resources []Resource
 	Land      Land
 	Limits    Limits
+	Merge     Merge
+}
+
+// Merge says how a round settles conflicts it can resolve without Claude.
+type Merge struct {
+	// Regenerate lists files that are rebuilt rather than merged, such as
+	// lockfiles: on a conflict the target's side is taken and Run rebuilds it.
+	Regenerate []Regenerate
+}
+
+// Regenerate is one rebuilt file.
+type Regenerate struct {
+	// Path is a pattern matched against repository-relative paths with
+	// path.Match ("*" doesn't cross "/").
+	Path string
+	Run  string
+	Line int
+}
+
+// Regenerates returns the entry whose pattern matches file, if any.
+func (m Merge) Regenerates(file string) (Regenerate, bool) {
+	for _, r := range m.Regenerate {
+		if ok, _ := path.Match(r.Path, file); ok {
+			return r, true
+		}
+	}
+	return Regenerate{}, false
 }
 
 // Step is one named command.
@@ -143,6 +171,9 @@ type file struct {
 		GateTimeoutMinutes *int `yaml:"gate_timeout_minutes"`
 		FixAttempts        *int `yaml:"fix_attempts"`
 	} `yaml:"limits"`
+	Merge struct {
+		Regenerate []yaml.Node `yaml:"regenerate"`
+	} `yaml:"merge"`
 }
 
 var (
@@ -205,7 +236,50 @@ func Parse(b []byte) (*Config, error) {
 		}
 		c.Limits.FixAttempts = *v
 	}
+	if c.Merge.Regenerate, err = regenerates(f.Merge.Regenerate); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// regenerates validates merge.regenerate.
+func regenerates(nodes []yaml.Node) ([]Regenerate, error) {
+	var out []Regenerate
+	for i := range nodes {
+		n := &nodes[i]
+		where := fmt.Sprintf("merge.regenerate %d", i+1)
+		if n.Kind != yaml.MappingNode {
+			return nil, &Error{Line: n.Line, Msg: where + ": expected path and run"}
+		}
+		for k := 0; k+1 < len(n.Content); k += 2 {
+			switch key := n.Content[k].Value; key {
+			case "path", "run":
+			default:
+				return nil, &Error{Line: n.Content[k].Line, Msg: fmt.Sprintf("%s: unknown field %q", where, key)}
+			}
+		}
+		var r struct {
+			Path string `yaml:"path"`
+			Run  string `yaml:"run"`
+		}
+		if err := n.Decode(&r); err != nil {
+			return nil, yamlError(err)
+		}
+		r.Path, r.Run = strings.TrimSpace(r.Path), strings.TrimSpace(r.Run)
+		switch {
+		case r.Path == "":
+			return nil, &Error{Line: n.Line, Msg: where + ": path is required"}
+		case r.Run == "":
+			return nil, &Error{Line: n.Line, Msg: where + ": run is required: the command that rebuilds " + r.Path}
+		case strings.HasPrefix(r.Path, "/") || strings.Contains(r.Path, ".."):
+			return nil, &Error{Line: n.Line, Msg: fmt.Sprintf("%s: %q must be a path inside the repository", where, r.Path)}
+		}
+		if _, err := path.Match(r.Path, ""); err != nil {
+			return nil, &Error{Line: n.Line, Msg: fmt.Sprintf("%s: %q is not a valid pattern", where, r.Path)}
+		}
+		out = append(out, Regenerate{Path: r.Path, Run: r.Run, Line: n.Line})
+	}
+	return out, nil
 }
 
 // steps validates a list of gates or build steps. Names are unique across both

@@ -66,7 +66,15 @@ done**, pick the beads, and optionally a budget. That computer's `nacred` carrie
 3. It merges the beads one at a time, running the gates after each merge, and hands conflicts to
    Claude with both beads' intent. It finishes with one version bump, every gate and the build on
    one commit.
-4. **Land** fast-forwards `main` and pushes it.
+4. **Land** fast-forwards `main` and pushes it. If `main` moved meanwhile, the round merges it in
+   first, redoes its version bump on top of `main`'s, and builds again.
+
+A round fixes what it can before it bothers you: version bumps that collide, beads logs, lockfiles
+it can rebuild, a merge Claude can settle, a locked file worth trying again. When it does stop, the
+card says what's wrong in plain words and gives you choices: let Claude try again with more budget,
+carry on after you've fixed it by hand (it checks something actually changed first), set a bead
+aside, or cancel. Rounds land whole: a bead that truly can't be finished is set aside and listed
+when you land, and the next round that includes it picks up its work where it stopped.
 
 The Runs tab shows rounds first, with their decisions, beads, plan, spend and log. You get a
 notification when a round needs a decision, parks a bead, pauses or is ready to land. A Claude

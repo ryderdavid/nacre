@@ -132,13 +132,32 @@ func (f *fakeBeads) bead(id string) fakeBead {
 
 // fakeHeadless answers the pre-flight review with a canned plan.
 type fakeHeadless struct {
-	plan   string
-	prompt string
+	mu        sync.Mutex
+	plan      string
+	prompt    string
+	diagnoses []string
 }
 
 func (h *fakeHeadless) Run(_ context.Context, _ string, hl claude.Headless, _ func(api.RunEvent)) (assist.Outcome, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if hl.System == diagnosisSystem {
+		h.diagnoses = append(h.diagnoses, hl.Prompt)
+		return assist.Outcome{CostUSD: 0.03, Output: json.RawMessage(`{"summary":"The merge conflicts in a file both sides changed.","cause":"clash.txt","choices":[{"id":"retry-with-budget","explanation":"Claude tries the merge again."}]}`)}, nil
+	}
 	h.prompt = hl.Prompt
 	return assist.Outcome{Output: json.RawMessage(h.plan), CostUSD: 0.05}, nil
+}
+
+func (h *fakeHeadless) diagnosed() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.diagnoses...)
+}
+
+func init() {
+	// Transient retries wait seconds in production; tests can't.
+	retryBackoff = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
 }
 
 // fakeClaude does each bead's scripted work in its worktree.
@@ -150,6 +169,11 @@ for a in "$@"; do [ "$prev" = "--resume" ] && sess="$a"; prev="$a"; done
 echo '{"type":"system","subtype":"init","session_id":"'$sess'","model":"fake","cwd":"'"$PWD"'"}'
 git config user.email t@e.com; git config user.name T
 case "$prompt" in
+  *"Bring outside work into the round"*)
+    case "$prompt" in
+      *stubborn.txt*) ;;
+      *) git checkout --theirs -- . 2>/dev/null; git add -A; git commit -q --no-edit;;
+    esac;;
   *"Resolve the merge conflicts"*)
     printf 'A\nD\n' > conflict.txt; git add -A; git commit -q --no-edit;;
   *"nacred checked your work"*)
@@ -161,7 +185,15 @@ case "$prompt" in
       T-B) echo B >> shared.txt; git add -A; git commit -q -m B;;
       T-C) echo c > c.txt;;
       T-D) echo D > conflict.txt; git add -A; git commit -q -m D;;
-      T-E) echo BROKEN > e.txt; git add -A; git commit -q -m E;;
+      T-E) case "$prompt" in
+             *"Earlier work on this bead"*) echo fixed > e.txt;;
+             *) echo BROKEN > e.txt;;
+           esac; git add -A; git commit -q -m E;;
+      T-G) echo g > stubborn.txt; git add -A; git commit -q -m G;;
+      T-J1) echo '{"j":1}' >> .beads/log.jsonl; git add -A; git commit -q -m J1;;
+      T-J2) echo '{"j":2}' >> .beads/log.jsonl; git add -A; git commit -q -m J2;;
+      T-L1) echo l1 > gen.lock; git add -A; git commit -q -m L1;;
+      T-L2) echo l2 > gen.lock; git add -A; git commit -q -m L2;;
       T-F) echo f > f.txt; git add -A; git commit -q -m F;;
       T-S|T-R) sleep 20;;
     esac;;
@@ -482,21 +514,22 @@ func TestParkSkipAndUnmergedQuestion(t *testing.T) {
 	}
 }
 
-// A merge Ryder asked for that can't be done hands the question back, rather
-// than pausing into the same failure on every resume.
+// A merge Ryder asked for that neither the catalogue nor Claude can settle
+// hands the question back, rather than pausing into the same failure on
+// every resume.
 func TestFailedPreflightMergeAsksAgain(t *testing.T) {
 	beads := newFakeBeads(&fakeBead{ID: "T-B", Title: "Add b", Type: "bug"})
 	plan := `{"summary":"","beads":[],"findings":[
-	 {"kind":"unmerged-work","beads":["T-B"],"branch":"side","files":["clash.txt"],"text":"side edits clash.txt.","question":"","options":[]}]}`
+	 {"kind":"unmerged-work","beads":["T-B"],"branch":"side","files":["stubborn.txt"],"text":"side edits stubborn.txt.","question":"","options":[]}]}`
 	h := newHarness(t, beads, plan)
 	ctx := context.Background()
 	wt := filepath.Join(t.TempDir(), "side")
 	if err := gitx.AddWorktree(ctx, h.repo, wt, "side", "main"); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(wt, "clash.txt"), []byte("side\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, "stubborn.txt"), []byte("side\n"), 0o644)
 	gitx.CommitAll(ctx, wt, "side work")
-	os.WriteFile(filepath.Join(h.repo, "clash.txt"), []byte("main\n"), 0o644)
+	os.WriteFile(filepath.Join(h.repo, "stubborn.txt"), []byte("main\n"), 0o644)
 	gitx.CommitAll(ctx, h.repo, "main work")
 
 	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-B"}})
@@ -520,7 +553,7 @@ func TestFailedPreflightMergeAsksAgain(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	q := again.Questions[0]
-	if q.Answer != "" || !strings.Contains(q.Problem, "clash.txt") {
+	if q.Answer != "" || !strings.Contains(q.Problem, "stubborn.txt") {
 		t.Fatalf("question = %+v", q)
 	}
 	for _, b := range again.Beads {
@@ -535,8 +568,8 @@ func TestFailedPreflightMergeAsksAgain(t *testing.T) {
 	if done.Questions[0].Problem != "" {
 		t.Error("the problem outlived the new answer")
 	}
-	if b, _ := os.ReadFile(filepath.Join(done.Workspace, "clash.txt")); strings.TrimSpace(string(b)) != "main" {
-		t.Errorf("clash.txt = %q, want main's", b)
+	if b, _ := os.ReadFile(filepath.Join(done.Workspace, "stubborn.txt")); strings.TrimSpace(string(b)) != "main" {
+		t.Errorf("stubborn.txt = %q, want main's", b)
 	}
 }
 

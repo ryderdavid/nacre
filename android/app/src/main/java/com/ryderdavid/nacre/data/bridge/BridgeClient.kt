@@ -160,6 +160,16 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun resumeRound(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/resume", Reason())
     suspend fun retryBead(id: String, bead: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/beads/${enc(bead)}/retry", Reason())
 
+    @Serializable private data class Choice(
+        val choice: String,
+        @SerialName("budget_usd") val budgetUsd: Double = 0.0,
+        @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0,
+    )
+
+    /** Carries out one of a stopped round's choices. */
+    suspend fun chooseRound(id: String, choice: String, budgetUsd: Double = 0.0, minutes: Int = 0): Round =
+        send("POST", "/v1/rounds/${enc(id)}/choose", Choice(choice, budgetUsd, minutes))
+
     /** A round's log after [after], then its changes live. */
     fun roundStream(id: String, after: Long = 0): Flow<RoundMessage> = callbackFlow {
         val req = Request.Builder().url(url("/v1/rounds/${enc(id)}/stream?after=$after")).header("Accept", "text/event-stream").build()
