@@ -390,7 +390,7 @@ func TestLinkPrecedence(t *testing.T) {
 	newWatcher := func() *Watcher {
 		w := New(Options{Projects: projects, Procs: fakeProcs{}, Logger: log.New(io.Discard, "", 0)})
 		// The transcript's bd commands reach link through the tail's pass.
-		w.tail(&Session{Record: record(1, sid, "/code/Nacre", "", start), Transcript: transcript})
+		w.tail(&Session{Record: record(1, sid, "/code/Nacre", "", start), Transcript: transcript}, claude.TranscriptOptions{})
 		return w
 	}
 	w := newWatcher()

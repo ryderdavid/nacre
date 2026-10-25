@@ -389,6 +389,11 @@ type TranscriptOptions struct {
 	// — for instance for the `bd` command that links a session to a bead —
 	// without reading the file a second time.
 	Observe func(TranscriptParsed)
+	// Parse, if set, replaces ParseTranscriptEntry. It lets another agent's
+	// on-disk log (Codex's rollout files, see internal/codex) reuse the tail —
+	// offsets, retention, running state and Observe — by translating its own
+	// lines into the same TranscriptParsed shape.
+	Parse func(line []byte) (TranscriptParsed, error)
 }
 
 // TranscriptDelta is the outcome of one TranscriptTail.Read.
@@ -581,7 +586,11 @@ func (t *TranscriptTail) consume(line []byte) {
 		t.state.Malformed++
 		return
 	}
-	p, err := ParseTranscriptEntry(line)
+	parse := ParseTranscriptEntry
+	if t.opts.Parse != nil {
+		parse = t.opts.Parse
+	}
+	p, err := parse(line)
 	if err != nil {
 		t.state.Malformed++
 		return

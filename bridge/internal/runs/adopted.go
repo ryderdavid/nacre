@@ -12,8 +12,9 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 )
 
-// Adopted runs mirror Claude Code sessions an agent started on its own, which
-// nacred found in Claude Code's session registry (see internal/sessions). They
+// Adopted runs mirror Claude Code and Codex sessions an agent started on its
+// own, which nacred found in Claude Code's session registry or Codex's rollout
+// files (see internal/sessions). They
 // deliberately bypass everything in this package that exists for processes
 // nacred owns: they never enter the queue, never take a concurrency slot, are
 // never started or signalled, and a bridge restart does not fail them. What
@@ -117,8 +118,12 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 		started = time.Now()
 	}
 	ts := started.UTC().Format(time.RFC3339)
+	agent := s.Agent
+	if agent == "" {
+		agent = api.AgentClaudeCode
+	}
 	meta := api.Run{
-		ID: id, Origin: api.OriginAdopted, Agent: api.AgentClaudeCode,
+		ID: id, Origin: api.OriginAdopted, Agent: agent,
 		RepoID: s.Repo.ID, RepoName: s.Repo.Name, RepoPath: s.Repo.Path,
 		IssueID: s.IssueID, IssueTitle: s.IssueTitle,
 		Status: api.StatusRunning, Mode: "", Model: "",
@@ -190,7 +195,7 @@ func (m *Manager) refreshAdopted(r *run, s sessions.Session) (api.Run, bool) {
 	return r.meta, true
 }
 
-// endAdopted records that an adopted session's process is gone. The outcome is
+// endAdopted records that an adopted session has ended. The outcome is
 // unknowable — nobody reports a result for a session nacred did not run — so
 // the run ends without an error rather than being called a failure. Caller
 // holds m.mu.
@@ -203,7 +208,12 @@ func (m *Manager) endAdopted(r *run) (api.Run, bool) {
 	r.ensureLoaded()
 	r.meta.EndedAt = now()
 	r.meta.Activity, r.meta.Stale = api.ActivityEnded, false
-	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: "session ended: the Claude Code process is no longer running"})
+	text := "session ended: the Claude Code process is no longer running"
+	if r.meta.Agent == api.AgentCodex {
+		// Codex leaves no pid to check; see internal/sessions/codex.go.
+		text = "session ended: the Codex turn finished (codex exec) or its rollout went quiet"
+	}
+	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: text})
 	r.setStatus(api.StatusSucceeded)
 	_ = r.save()
 	return r.meta, true
@@ -280,9 +290,17 @@ func newerThan(evs []api.RunEvent, watermark string) []api.RunEvent {
 // and which signal linked it to a bead.
 func adoptedNotice(s sessions.Session) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "adopted Claude Code session %s (pid %d", s.SessionID, s.PID)
-	if s.Version != "" {
-		fmt.Fprintf(&b, ", claude %s", s.Version)
+	if s.Agent == api.AgentCodex {
+		fmt.Fprintf(&b, "adopted Codex session %s (", s.SessionID)
+		if s.Version != "" {
+			fmt.Fprintf(&b, "codex %s, ", s.Version)
+		}
+		b.WriteString("no pid: liveness comes from its rollout")
+	} else {
+		fmt.Fprintf(&b, "adopted Claude Code session %s (pid %d", s.SessionID, s.PID)
+		if s.Version != "" {
+			fmt.Fprintf(&b, ", claude %s", s.Version)
+		}
 	}
 	if s.Entrypoint != "" {
 		fmt.Fprintf(&b, ", %s", s.Entrypoint)

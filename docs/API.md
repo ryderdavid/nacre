@@ -97,7 +97,7 @@ is working on the bead but nothing on this computer is:
 person nacred acts for — the actor without its ` via Nacre` suffix, e.g. `Ryder Cobean` for the
 default actor `Ryder Cobean via Nacre` — meaning their own work outside Nacre (another computer, a
 terminal, an agent without adoption). It is a **marker, not a run**: there is no transcript and
-nothing to cancel or follow up. It covers agents nacred cannot adopt (Codex and others), computers
+nothing to cancel or follow up. It covers agents nacred cannot adopt (anything but Claude Code and Codex), computers
 with `adopt_sessions` off, and sessions that ended or were never adopted. A client that also knows
 of a live run linked to the bead on another paired computer should show that run's marker instead.
 
@@ -260,11 +260,25 @@ again or the turn ends. The window is longer than Claude Code's longest foregrou
 
 ### Adopted runs
 When `adopt_sessions` is enabled in nacred's config, nacred also watches Claude Code's own session
-registry (`~/.claude/sessions/`) and mirrors sessions an **agent started on its own** as runs with
-`"origin": "adopted"`. They are linked to the bead the agent moved; a session that moved none is
-reported with an empty `issue_id` rather than a guessed link. `agent` names the tool that owns the
-session (`claude-code` today), `session_name` and `owner_pid` identify it, and `activity` says
-whether it is working, parked or gone.
+registry (`~/.claude/sessions/`) and Codex's rollout files (`~/.codex/sessions/`), and mirrors
+sessions an **agent started on its own** as runs with `"origin": "adopted"`. They are linked to the
+bead the agent moved; a session that moved none is reported with an empty `issue_id` rather than a
+guessed link. `agent` names the tool that owns the session (`claude-code` or `codex`),
+`session_name` and `owner_pid` identify it, and `activity` says whether it is working, parked or
+gone.
+
+A **Codex** session has no pid (`owner_pid` is absent) — Codex keeps no session registry — so its
+liveness comes from its rollout file instead:
+
+- it is `"working"` while a turn is open and the rollout keeps changing, and `"idle"` between turns
+  or after `adopt_idle_minutes` without a write (the latter also `"stale": true`);
+- it ends (`"activity": "ended"`) once the rollout has gone **twice** `adopt_idle_minutes` without
+  a write, or, for a `codex exec` session, as soon as its one turn completes or is aborted, because
+  `codex exec` exits then. A session that writes again after ending resumes the same run;
+- `session_name` is the thread title from `~/.codex/session_index.jsonl`, when Codex gave it one;
+- `cost_usd` stays 0 (Codex writes token counts, not cost), and `resume_command` is
+  `cd … && codex resume <session_id>`. Helper threads Codex spawns for another thread (approval
+  reviewers, subagents) are never adopted.
 
 **They are read-only, and the API says so explicitly.** nacred owns no process for an adopted run,
 so:
@@ -279,8 +293,8 @@ so:
   a run as work in progress for notification or foreground-service purposes — the "run" may be a
   terminal a human leaves open for hours.
 - **`resume_command` is the take-over affordance.** It is the one thing a client can usefully offer
-  for an adopted run: the `cd … && claude --resume <session_id>` line to run on the Mac to pick the
-  session up by hand, instead of nacred reaching into it.
+  for an adopted run: the `cd … && claude --resume <session_id>` (or `codex resume`) line to run on
+  the Mac to pick the session up by hand, instead of nacred reaching into it.
 
 Adopted runs also stay out of nacred's own accounting: they never enter the queue, never occupy a
 `max_concurrent_runs` slot, and are **not** counted by `active_runs` on `Repo` or `/v1/health`,
