@@ -540,6 +540,57 @@ func TestFailedPreflightMergeAsksAgain(t *testing.T) {
 	}
 }
 
+// When the target ships its own version bump while a round runs, landing
+// redoes the round's bump on top of it instead of pausing on the conflict.
+func TestLandRedoesTheBumpOnAMovedTarget(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-F", Title: "Add f", Type: "feature"})
+	h := newHarness(t, beads, `{"summary":"","beads":[],"findings":[]}`)
+	ctx := context.Background()
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := h.wait(t, r.ID, api.RoundReadyToLand)
+	if b, _ := os.ReadFile(filepath.Join(ready.Workspace, "VERSION")); strings.TrimSpace(string(b)) != "0.2.0" {
+		t.Fatalf("round VERSION = %q", b)
+	}
+	// Meanwhile main ships a release of its own.
+	os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.2.0\n"), 0o644)
+	os.WriteFile(filepath.Join(h.repo, "hotfix.txt"), []byte("fix\n"), 0o644)
+	if _, err := gitx.CommitAll(ctx, h.repo, "hotfix 0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	var landed api.Round
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		landed, _, _ = h.m.Get(r.ID)
+		if landed.State == api.RoundLanded {
+			break
+		}
+		if landed.State == api.RoundPaused || time.Now().After(deadline) {
+			t.Fatalf("round = %s %q, want landed", landed.State, landed.PauseReason)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if b, _ := os.ReadFile(filepath.Join(h.repo, "VERSION")); strings.TrimSpace(string(b)) != "0.3.0" {
+		t.Errorf("main VERSION = %q, want 0.3.0 (a minor bump on top of main's 0.2.0)", b)
+	}
+	for _, f := range []string{"hotfix.txt", "f.txt"} {
+		if _, err := os.Stat(filepath.Join(h.repo, f)); err != nil {
+			t.Errorf("main lacks %s", f)
+		}
+	}
+	if !strings.Contains(landed.Version, "0.3.0") {
+		t.Errorf("round version = %q", landed.Version)
+	}
+	if log, _ := gitx.Run(ctx, h.repo, "log", "-1", "--format=%s", "main"); !strings.Contains(log, "on top of main") {
+		t.Errorf("last commit on main = %q, want the redone bump", log)
+	}
+}
+
 func TestCreateRefusals(t *testing.T) {
 	beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "a", Type: "task"}, &fakeBead{ID: "T-X", Title: "x", Type: "task", Status: "closed"})
 	h := newHarness(t, beads, `{"summary":"","beads":[],"findings":[]}`)
