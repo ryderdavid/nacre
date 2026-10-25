@@ -95,6 +95,7 @@ import com.ryderdavid.nacre.ui.common.TypeLabel
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.common.typeIcon
+import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
 import com.ryderdavid.nacre.ui.runs.AgentChip
 import com.ryderdavid.nacre.ui.runs.RunStatusIcon
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -487,14 +488,15 @@ fun RelatedRow(id: String, issue: Issue?, ix: BoardIndex, onOpen: (String) -> Un
 @Composable
 private fun CommentComposer(onSend: (String) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
+    val send = { onSend(text.trim()); text = "" }
     OutlinedTextField(
         value = text,
         onValueChange = { text = it },
         placeholder = { Text("Add a comment") },
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).sendOnHardwareEnter(text.isNotBlank(), send),
         shape = RoundedCornerShape(16.dp),
         trailingIcon = {
-            IconButton(onClick = { onSend(text.trim()); text = "" }, enabled = text.isNotBlank()) {
+            IconButton(onClick = send, enabled = text.isNotBlank()) {
                 Icon(Icons.AutoMirrored.Rounded.Send, "Send comment")
             }
         },
