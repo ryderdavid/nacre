@@ -21,6 +21,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
@@ -43,11 +44,15 @@ type Server struct {
 	Rounds *rounds.Manager
 	Broker *sse.Broker
 	Log    *log.Logger
+	// CodexCheck reports whether beads can run with Codex here; nil checks
+	// the Codex CLI at Config.CodexPath (tests replace it).
+	CodexCheck func(ctx context.Context) codex.Status
 
 	verMu     sync.Mutex
 	verAt     time.Time
 	bdVer     string
 	claudeVer string
+	codexSt   codex.Status
 }
 
 // Handler returns the routed, authenticated and logged HTTP handler.
@@ -263,32 +268,62 @@ func (s *Server) versions(ctx context.Context) (string, string) {
 		if v, err := claude.Version(ctx, s.Config.ClaudePath); err == nil {
 			s.claudeVer = v
 		}
+		s.codexSt = s.checkCodex(ctx)
 		s.verAt = time.Now()
 	}
 	return s.bdVer, s.claudeVer
+}
+
+func (s *Server) checkCodex(ctx context.Context) codex.Status {
+	if s.CodexCheck != nil {
+		return s.CodexCheck(ctx)
+	}
+	return codex.Check(ctx, s.Config.CodexPath, claude.ChildEnv())
+}
+
+// codexStatus returns whether Codex runs can start here. A cached "not
+// available" is rechecked at once, so signing in to Codex on the computer
+// takes effect on the next try rather than minutes later.
+func (s *Server) codexStatus(ctx context.Context) codex.Status {
+	s.versions(ctx)
+	s.verMu.Lock()
+	defer s.verMu.Unlock()
+	if !s.codexSt.Available() {
+		s.codexSt = s.checkCodex(ctx)
+	}
+	return s.codexSt
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	h := s.Config.Host()
 	bdv, cv := s.versions(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
+	cx := s.codexStatus(r.Context())
+	body := map[string]any{
 		"name": version.Name, "version": version.Version, "hostname": ShortHostname(host),
 		"host_id": h.ID, "host_name": h.Name,
-		"bd_version": bdv, "claude_version": cv,
+		"bd_version": bdv, "claude_version": cv, "codex_version": cx.Version,
 		"repos": s.Repos.Count(), "active_runs": s.Runs.ActiveCount(""),
-		"features": s.features(),
-	})
+		"features": s.features(cx),
+	}
+	if !cx.Available() {
+		body["codex_unavailable"] = cx.Reason
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // features lists optional capabilities, so the app can offer only what this
 // computer can actually do (and an older nacred simply reports none).
-func (s *Server) features() []string {
+func (s *Server) features(cx codex.Status) []string {
 	f := []string{}
 	if s.Assist != nil && s.Assist.Available() {
 		// Refine, Draft and the board assistant can run here on this
 		// computer's Claude subscription.
 		f = append(f, api.FeatureClaude)
+	}
+	if cx.Available() {
+		// Beads can be run with the Codex CLI here.
+		f = append(f, api.FeatureCodex)
 	}
 	return f
 }

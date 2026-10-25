@@ -5,7 +5,9 @@ import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.Keys
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
+import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.claude.BeadChatItem
 import com.ryderdavid.nacre.data.claude.BeadChats
@@ -30,8 +32,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** One computer a bead can be sent to. */
-data class RunTarget(val repo: Repo, val online: Boolean)
+/** One computer a bead can be sent to; [health] is what it last reported, null while unreachable. */
+data class RunTarget(val repo: Repo, val online: Boolean, val health: Health? = null) {
+    /** Why this computer can't run the bead with Codex, or null when it can. */
+    val codexBlocker: String? get() = when {
+        !online -> "${repo.hostName.ifBlank { "This computer" }} isn't reachable right now"
+        else -> health?.codexBlocker
+    }
+}
 
 /** Which parts of a refine proposal the user kept. */
 data class RefineSelection(val fields: Set<String>, val children: Set<Int>)
@@ -59,7 +67,10 @@ class BeadDetailViewModel(
     /** Where this bead can run: this repository on each computer, with that computer's status. */
     val runTargets: StateFlow<List<RunTarget>> = combine(repo.groups, repo.hosts) { _, hosts ->
         val members = repo.groupOf(repoKey)?.members ?: listOfNotNull(repo.repo(repoKey))
-        members.map { m -> RunTarget(m, hosts.firstOrNull { it.host.id == m.hostId }?.online == true) }
+        members.map { m ->
+            val c = hosts.firstOrNull { it.host.id == m.hostId }?.connection
+            RunTarget(m, c is Connection.Online, (c as? Connection.Online)?.health)
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** The computer this repository last ran beads on (default: the board's own). */

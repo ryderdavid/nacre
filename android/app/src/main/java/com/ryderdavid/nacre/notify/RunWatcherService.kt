@@ -58,7 +58,7 @@ class RunWatcherService : Service() {
         .setContentTitle(
             when (active.size) {
                 0 -> "Watching Claude Code runs"
-                1 -> "Claude is working on ${active[0].issueId}"
+                1 -> "${active[0].agentName} is working on ${active[0].issueId}"
                 else -> "${active.size} Claude Code runs in progress"
             }
         )

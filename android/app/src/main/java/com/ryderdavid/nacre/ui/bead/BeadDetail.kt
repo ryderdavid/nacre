@@ -195,10 +195,10 @@ fun BeadDetail(
                     text = {
                         Text(
                             when {
-                                active == null -> "Run with Claude Code"
+                                active == null -> "Implement…"
                                 active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
                                 active.isAdopted -> "An agent is working…"
-                                else -> "Claude is working…"
+                                else -> "${active.agentName} is working…"
                             }
                         )
                     },
@@ -362,7 +362,7 @@ private fun DetailBody(
         }
 
         if (runs.isNotEmpty()) {
-            item { SectionHeader("Claude Code runs") }
+            item { SectionHeader("Runs") }
             items(runs, key = { "r:${it.id}" }) { r ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpenRun(r.key) }.padding(vertical = 8.dp),
@@ -373,7 +373,7 @@ private fun DetailBody(
                     Column(Modifier.weight(1f)) {
                         Text(r.lastText.ifBlank { r.status }, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
-                            listOfNotNull(relativeTime(r.createdAt), r.mode.ifBlank { null }).joinToString(" · "),
+                            listOfNotNull(relativeTime(r.createdAt), "Codex".takeIf { r.isCodex }, r.mode.ifBlank { null }).joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

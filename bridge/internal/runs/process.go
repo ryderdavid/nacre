@@ -14,6 +14,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/codex"
 )
 
 const (
@@ -24,18 +25,48 @@ const (
 	pipeDrainTimeout = 3 * time.Second
 )
 
-// execute runs one turn of r as a `claude -p` process and records its output.
-// It runs on its own goroutine; m.wg and m.running were incremented by schedule.
-func (m *Manager) execute(r *run, t claude.Turn, cwd string) {
+// execute runs one turn of r as a `claude -p` process (or `codex exec` for
+// agent api.AgentCodex) and records its output. It runs on its own goroutine;
+// m.wg and m.running were incremented by schedule.
+func (m *Manager) execute(r *run, agent string, t claude.Turn, cwd string) {
 	defer m.wg.Done()
-	err := m.runProcess(r, t, cwd)
+	err := m.runProcess(r, m.command(agent, t), cwd)
 	m.finishTurn(r, err)
 }
 
-func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
-	cmd := exec.Command(m.opts.ClaudePath, t.Args()...)
+// agentCommand is how to run one turn with one agent: the process to start
+// and how to read its stdout.
+type agentCommand struct {
+	name  string // for messages: "claude", "codex"
+	path  string
+	args  []string
+	env   []string // added to the child environment
+	parse func(line []byte) (claude.Parsed, error)
+	// stderrJSON is set when the agent writes stream-json notices to stderr.
+	stderrJSON bool
+	// timed adds the turn's wall time to the run's DurationMS, for an agent
+	// whose result does not report it.
+	timed bool
+	// stopSig is how to ask the agent to stop (0 = SIGTERM); see run.stopSig.
+	stopSig syscall.Signal
+}
+
+func (m *Manager) command(agent string, t claude.Turn) agentCommand {
+	if agent == api.AgentCodex {
+		ct := codex.Turn{Prompt: t.Prompt, Mode: t.Mode, Model: t.Model, Worktree: t.Worktree, Resume: t.Resume}
+		path := m.opts.CodexPath
+		if path == "" {
+			path = "codex"
+		}
+		return agentCommand{name: "codex", path: path, args: ct.Args(), env: t.Env, parse: (&codex.Parser{}).ParseLine, timed: true, stopSig: syscall.SIGINT}
+	}
+	return agentCommand{name: "claude", path: m.opts.ClaudePath, args: t.Args(), env: t.Env, parse: claude.ParseLine, stderrJSON: true}
+}
+
+func (m *Manager) runProcess(r *run, ac agentCommand, cwd string) error {
+	cmd := exec.Command(ac.path, ac.args...)
 	cmd.Dir = cwd
-	cmd.Env = append(claude.ChildEnv(), t.Env...)
+	cmd.Env = append(claude.ChildEnv(), ac.env...)
 	cmd.Stdin = nil // /dev/null
 	// Own process group so cancel can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -60,12 +91,14 @@ func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
 	if startErr != nil {
 		outR.Close()
 		errR.Close()
-		return fmt.Errorf("start claude: %w", startErr)
+		return fmt.Errorf("start %s: %w", ac.name, startErr)
 	}
 	pgid := cmd.Process.Pid
+	started := time.Now()
 
 	r.mu.Lock()
 	r.pgid = pgid
+	r.stopSig = ac.stopSig
 	r.lastOutput = time.Now()
 	if r.cancelReq || r.shutdownReq {
 		r.terminate() // cancel arrived before the process existed
@@ -74,8 +107,8 @@ func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
 
 	var readers sync.WaitGroup
 	readers.Add(2)
-	go func() { defer readers.Done(); m.readStdout(r, outR) }()
-	go func() { defer readers.Done(); m.readStderr(r, errR) }()
+	go func() { defer readers.Done(); m.readStdout(r, outR, ac.parse) }()
+	go func() { defer readers.Done(); m.readStderr(r, errR, ac.stderrJSON) }()
 
 	waitErr := cmd.Wait()
 
@@ -95,6 +128,9 @@ func (m *Manager) runProcess(r *run, t claude.Turn, cwd string) error {
 
 	r.mu.Lock()
 	r.pgid = 0
+	if ac.timed {
+		r.meta.DurationMS += time.Since(started).Milliseconds()
+	}
 	r.mu.Unlock()
 	return waitErr
 }
@@ -113,9 +149,9 @@ func readLines(rd io.Reader, fn func(line []byte)) {
 	}
 }
 
-func (m *Manager) readStdout(r *run, rd io.Reader) {
+func (m *Manager) readStdout(r *run, rd io.Reader, parse func([]byte) (claude.Parsed, error)) {
 	readLines(rd, func(line []byte) {
-		p, err := claude.ParseLine(line)
+		p, err := parse(line)
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		if r.heard() {
@@ -131,7 +167,7 @@ func (m *Manager) readStdout(r *run, rd io.Reader) {
 	})
 }
 
-func (m *Manager) readStderr(r *run, rd io.Reader) {
+func (m *Manager) readStderr(r *run, rd io.Reader, parseJSON bool) {
 	n := 0
 	readLines(rd, func(line []byte) {
 		text := claude.Truncate(strings.TrimRight(string(line), "\r\n"), maxStderrLine)
@@ -146,7 +182,7 @@ func (m *Manager) readStderr(r *run, rd io.Reader) {
 		}
 		// Claude Code writes some stream-json notices (e.g. permission_denied) to
 		// stderr; show those as events rather than raw JSON.
-		if strings.HasPrefix(strings.TrimSpace(text), "{") {
+		if parseJSON && strings.HasPrefix(strings.TrimSpace(text), "{") {
 			if p, err := claude.ParseLine(line); err == nil && len(p.Events) > 0 {
 				m.apply(r, p)
 				return
@@ -219,10 +255,14 @@ func (m *Manager) finishTurn(r *run, waitErr error) {
 		status, errText = api.StatusFailed, res.Text
 	default:
 		status = api.StatusFailed
-		errText = "claude exited without a result"
+		agent := "claude"
+		if r.meta.Agent == api.AgentCodex {
+			agent = "codex"
+		}
+		errText = agent + " exited without a result"
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
-			errText = fmt.Sprintf("claude exited with status %d", ee.ExitCode())
+			errText = fmt.Sprintf("%s exited with status %d", agent, ee.ExitCode())
 		} else if waitErr != nil {
 			errText = waitErr.Error()
 		}

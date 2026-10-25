@@ -129,7 +129,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	// created after the run manager, so the hook is bound late.
 	var roundsRef atomic.Pointer[rounds.Manager]
 	manager, err := runs.New(runs.Options{
-		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, MaxConcurrent: cfg.MaxConcurrentRuns,
+		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
 		StallAfter:     cfg.StallAfter(),
 		Notify: func(event string, data any) {

@@ -149,7 +149,7 @@ class RunNotifier(
         val n = NotificationCompat.Builder(context, CH_STUCK)
             .setSmallIcon(R.drawable.ic_stat_nacre)
             .setContentTitle("${run.issueId} may be stuck")
-            .setContentText("Claude has printed nothing for a while. Open it to cancel and follow up.")
+            .setContentText("${run.agentName} has printed nothing for a while. Open it to cancel and follow up.")
             .setSubText(listOfNotNull(run.hostName.ifBlank { null }, run.repoName).joinToString(" · "))
             .setContentIntent(openRun(context, run.key))
             .setAutoCancel(true)

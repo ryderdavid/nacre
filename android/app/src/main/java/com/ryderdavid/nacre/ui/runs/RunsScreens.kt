@@ -192,7 +192,7 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpe
                 Box(Modifier.padding(pad).fillMaxSize()) {
                     if (runs.isEmpty() && rounds.isEmpty()) MessageState(
                         Icons.Rounded.Terminal, "No runs yet",
-                        "Open a bead and tap “Run with Claude Code” to send it to your Mac, or pick several on a board with “Work several beads until done”.",
+                        "Open a bead and tap “Implement…” to send it to your Mac, or pick several on a board with “Work several beads until done”.",
                     ) else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                         val shownRounds = rounds.filter { it.isActive } + rounds.filterNot { it.isActive }.take(3)
                         if (shownRounds.isNotEmpty()) {
@@ -268,10 +268,10 @@ internal fun activityLabel(activity: String): String? = when (activity) {
 /** The line shown under a transcript that is still going. */
 internal fun workingLabel(r: Run): String = when {
     r.status == "queued" -> "Waiting for a free slot on the Mac…"
-    r.stalled -> "Claude hasn't printed anything since ${relativeTime(r.stalledSince).ifBlank { "a while ago" }}, so it may be stuck. Wait, or cancel it and send a follow-up to carry on."
+    r.stalled -> "${r.agentName} hasn't printed anything since ${relativeTime(r.stalledSince).ifBlank { "a while ago" }}, so it may be stuck. Wait, or cancel it and send a follow-up to carry on."
     r.isAdopted && r.activity == ACTIVITY_IDLE -> "The agent's session is waiting for input on the Mac…"
     r.isAdopted -> "An agent is working in this session…"
-    else -> "Claude is working…"
+    else -> "${r.agentName} is working…"
 }
 
 /** What to call a run: an adopted session may have moved no bead, and then has only its own name. */
@@ -328,7 +328,7 @@ private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: ()
     )
 }
 
-/** Live transcript of one Claude Code run. */
+/** Live transcript of one run, by Claude Code or Codex. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
@@ -433,6 +433,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
             }
             Text(
                 listOfNotNull(
+                    "Codex".takeIf { r.isCodex && !r.isAdopted },
                     RUN_MODES.firstOrNull { it.first == r.mode }?.second?.let { "$it mode" },
                     r.model.ifBlank { null },
                     if (r.worktree) "worktree" else null,
@@ -488,7 +489,7 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                 }
                 Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
                     OutlinedTextField(
-                        text, { text = it }, placeholder = { Text("Follow up with Claude") }, maxLines = 5,
+                        text, { text = it }, placeholder = { Text("Follow up with ${r.agentName}") }, maxLines = 5,
                         shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))

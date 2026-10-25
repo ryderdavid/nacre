@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.RunRequest
+import com.ryderdavid.nacre.data.model.AGENT_CODEX
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
@@ -169,8 +171,9 @@ val RUN_MODES = listOf(
 val RUN_MODELS = listOf("" to "Default", "opus" to "Opus", "sonnet" to "Sonnet", "haiku" to "Haiku", "fable" to "Fable")
 
 /**
- * Configure and send a bead to Claude Code. [targets] are the computers that have this
- * repository; with more than one, the user picks where it runs.
+ * Configure and send a bead to Claude Code or Codex. [targets] are the computers that have this
+ * repository; with more than one, the user picks where it runs. Codex is offered only where the
+ * computer reports it can run it; otherwise its button is disabled and says why.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -189,14 +192,16 @@ fun RunLaunchSheet(
     var model by rememberSaveable { mutableStateOf(prefs.runModel) }
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
     var instructions by rememberSaveable { mutableStateOf("") }
+    var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
+    val hostName = targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"
 
     HandleDismissSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
-            Text("Run with Claude Code", style = MaterialTheme.typography.titleLarge)
+            Text("Implement", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                "Runs on ${targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"} with your Claude subscription. Claude claims the bead, does the work, verifies it and closes it when done.",
+                "Runs on $hostName with Claude Code on your Claude subscription, or with Codex on the ChatGPT account it is signed in to there. The agent claims the bead, does the work, verifies it and closes it when done.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
             )
 
@@ -235,10 +240,11 @@ fun RunLaunchSheet(
                 modifier = Modifier.padding(top = 6.dp),
             )
 
-            Text("Model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+            Text("Claude model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RUN_MODELS.forEach { (key, label) -> FilterChip(selected = model == key, onClick = { model = key }, label = { Text(label) }) }
             }
+            Text("Codex uses the model it is set up with on $hostName.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { worktree = !worktree }, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -255,16 +261,35 @@ fun RunLaunchSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
 
+            val canSend = !sending && targetRepo != null
             Button(
                 onClick = {
                     permission()
+                    sentTo = "claude"
                     onStart(target, RunRequest(mode = mode, model = model.ifBlank { null }, instructions = instructions.ifBlank { null }, worktree = worktree))
                 },
-                enabled = !sending && targets.any { it.repo.key == target },
+                enabled = canSend,
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
             ) {
-                Text(if (sending) "Sending to ${targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"}…" else "Start run")
+                Text(if (sending && sentTo == "claude") "Sending to $hostName…" else "Implement via Claude")
             }
+            val codexBlocker = targetRepo?.codexBlocker
+            FilledTonalButton(
+                onClick = {
+                    permission()
+                    sentTo = AGENT_CODEX
+                    onStart(target, RunRequest(mode = mode, instructions = instructions.ifBlank { null }, worktree = worktree, agent = AGENT_CODEX))
+                },
+                enabled = canSend && codexBlocker == null,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp),
+            ) {
+                Text(if (sending && sentTo == AGENT_CODEX) "Sending to $hostName…" else "Implement via Codex")
+            }
+            if (codexBlocker != null) Text(
+                codexBlocker,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
