@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
+import com.ryderdavid.nacre.data.board.NewBeadForm
 import com.ryderdavid.nacre.data.claude.BeadDraft
 import com.ryderdavid.nacre.data.claude.DraftTurn
 import com.ryderdavid.nacre.data.friendly
@@ -64,22 +66,39 @@ import kotlinx.coroutines.launch
 fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultParent: String?, onDismiss: () -> Unit, onCreated: (Issue) -> Unit) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
-    var title by rememberSaveable { mutableStateOf("") }
-    var description by rememberSaveable { mutableStateOf("") }
-    var acceptance by rememberSaveable { mutableStateOf("") }
-    var design by rememberSaveable { mutableStateOf("") }
-    var type by rememberSaveable { mutableStateOf("task") }
-    var priority by rememberSaveable { mutableStateOf(2) }
-    var labels by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var parent by rememberSaveable { mutableStateOf(defaultParent) }
-    var questions by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var chat by rememberSaveable { mutableStateOf(listOf<DraftTurn>()) }
-    var message by rememberSaveable { mutableStateOf("") }
-    var drafted by rememberSaveable { mutableStateOf(false) }
+    val saved = remember { container.newBeadDrafts.get(repoKey) ?: NewBeadForm(parent = defaultParent) }
+    var title by rememberSaveable { mutableStateOf(saved.title) }
+    var description by rememberSaveable { mutableStateOf(saved.description) }
+    var acceptance by rememberSaveable { mutableStateOf(saved.acceptance) }
+    var design by rememberSaveable { mutableStateOf(saved.design) }
+    var type by rememberSaveable { mutableStateOf(saved.type) }
+    var priority by rememberSaveable { mutableStateOf(saved.priority) }
+    var labels by rememberSaveable { mutableStateOf(saved.labels) }
+    var parent by rememberSaveable { mutableStateOf(saved.parent) }
+    var questions by rememberSaveable { mutableStateOf(saved.questions) }
+    var chat by rememberSaveable { mutableStateOf(saved.chat) }
+    var message by rememberSaveable { mutableStateOf(saved.message) }
+    var drafted by rememberSaveable { mutableStateOf(saved.drafted) }
     var drafting by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var offerApiKey by remember { mutableStateOf(false) }
+    var created by remember { mutableStateOf(false) }
+
+    fun form() = NewBeadForm(title, description, acceptance, design, type, priority, labels, parent, questions, chat, message, drafted)
+
+    // Keep the form as it stands, so any way of dismissing it (tap outside, back, the handle)
+    // leaves the input to come back on the next open (NAC-cjm).
+    SideEffect { if (!created) container.newBeadDrafts.put(repoKey, form()) }
+
+    fun discard() {
+        val blank = NewBeadForm(parent = defaultParent)
+        title = blank.title; description = blank.description; acceptance = blank.acceptance; design = blank.design
+        type = blank.type; priority = blank.priority; labels = blank.labels; parent = blank.parent
+        questions = blank.questions; chat = blank.chat; message = blank.message; drafted = blank.drafted
+        error = null; offerApiKey = false
+        container.newBeadDrafts.clear(repoKey)
+    }
 
     fun parentTitle() = parent?.let { p -> index?.byId?.get(p)?.title }
     fun existingTitles() = index?.issues?.filterNot { it.isClosed }?.map { "${it.id} ${it.title}" }.orEmpty()
@@ -131,15 +150,17 @@ fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultP
     fun create() = scope.launch {
         saving = true; error = null
         try {
-            val created = container.repository.create(
+            val issue = container.repository.create(
                 repoKey,
                 CreateIssue(
                     title = title.trim(), description = description.ifBlank { null }, type = type, priority = priority,
                     parent = parent, labels = labels.ifEmpty { null }, design = design.ifBlank { null }, acceptance = acceptance.ifBlank { null },
                 ),
             )
-            container.repository.notify("Created ${created.id}")
-            onCreated(created)
+            created = true
+            container.newBeadDrafts.clear(repoKey)
+            container.repository.notify("Created ${issue.id}")
+            onCreated(issue)
         } catch (e: Exception) {
             error = e.friendly()
         } finally {
@@ -151,8 +172,13 @@ fun NewBeadSheet(repoKey: String, repoName: String, index: BoardIndex?, defaultP
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState()),
         ) {
-            Text("New bead", style = MaterialTheme.typography.titleLarge)
-            Text("in $repoName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("New bead", style = MaterialTheme.typography.titleLarge)
+                    Text("in $repoName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (form().hasContent) TextButton(onClick = { discard() }, enabled = !drafting && !saving) { Text("Discard draft") }
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 title, { title = it }, label = { Text("Title") }, singleLine = true,

@@ -44,6 +44,9 @@ class AppContainer(app: Application) {
     /** Each bead's chat with Claude, kept until Ryder starts a new conversation. */
     val beadChats = BeadChats(java.io.File(app.filesDir, "bead-chats.json"), scope)
 
+    /** Each board's unfinished new-bead form, kept in memory when the form is dismissed. */
+    val newBeadDrafts = com.ryderdavid.nacre.data.board.NewBeadDrafts()
+
     /**
      * One assistant conversation per board plus the cross-board one, kept for the life
      * of the process (the cross-board one starts fresh after a few idle hours). Repo keys
