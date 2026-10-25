@@ -250,7 +250,10 @@ type UnmergedBranch struct {
 
 // Unmerged lists local and remote branches not merged into target, with the
 // files each changes relative to their merge base with target. Branches
-// whose names start with any of skip are left out.
+// whose names start with any of skip are left out, and so are branches whose
+// every commit is already in target by content: work that reached target
+// through a rebase or cherry-pick isn't outstanding, and merging the stale
+// copy would only conflict with what target has done since.
 func Unmerged(ctx context.Context, repo, target string, skip ...string) ([]UnmergedBranch, error) {
 	out, err := Run(ctx, repo, "for-each-ref", "--format=%(refname:short)", "--no-merged="+target, "refs/heads", "refs/remotes")
 	if err != nil {
@@ -268,7 +271,7 @@ func Unmerged(ctx context.Context, repo, target string, skip ...string) ([]Unmer
 				skipped = true
 			}
 		}
-		if skipped {
+		if skipped || Upstream(ctx, repo, target, name) {
 			continue
 		}
 		files, err := Run(ctx, repo, "diff", "--name-only", target+"..."+name)
@@ -282,6 +285,21 @@ func Unmerged(ctx context.Context, repo, target string, skip ...string) ([]Unmer
 		list = append(list, b)
 	}
 	return list, nil
+}
+
+// Upstream reports whether every commit on branch that target lacks by
+// ancestry is in target anyway as an equivalent patch (git cherry).
+func Upstream(ctx context.Context, repo, target, branch string) bool {
+	out, err := Run(ctx, repo, "cherry", target, branch)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "+") {
+			return false
+		}
+	}
+	return true
 }
 
 // ErrNotFastForward means the target has commits the new commit lacks.

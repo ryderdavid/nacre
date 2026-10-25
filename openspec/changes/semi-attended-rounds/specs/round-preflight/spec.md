@@ -31,11 +31,16 @@ SHALL name the beads involved and explain the finding in a sentence.
 The review SHALL be given every local and remote branch that is not merged into the round's target, with
 the files each one changes, and SHALL report an `unmerged-work` finding for each such branch that touches
 the files or areas a round bead expects to touch. Branches created by rounds that are still active SHALL be
-excluded.
+excluded, and so SHALL branches whose every commit is already in the target by content (rebased or
+cherry-picked in), since their work isn't outstanding.
 
 #### Scenario: Stale base caught
 - **WHEN** a round targeting `main` includes a bead that edits `NewBeadSheet.kt`, and branch `integration-0.3` is not merged into `main` and also changes `NewBeadSheet.kt`
 - **THEN** the plan contains an `unmerged-work` finding naming `integration-0.3`, the bead, and the shared file
+
+#### Scenario: Work already in the target by content
+- **WHEN** branch `nac-j5z.2` isn't an ancestor of `main`, but its only commit reached `main` by rebase and `main` has changed the same file since
+- **THEN** the review isn't told about `nac-j5z.2` and Ryder isn't asked about it
 
 #### Scenario: Unrelated branch ignored
 - **WHEN** an unmerged branch only changes files no round bead expects to touch
@@ -54,6 +59,10 @@ SHALL NOT ask him anything.
 #### Scenario: Merge the unmerged branch first
 - **WHEN** Ryder answers an `unmerged-work` question with "merge it first"
 - **THEN** nacred merges that branch into the integration branch before any bead starts, runs the gates, and records the new base
+
+#### Scenario: The merge Ryder chose can't be done
+- **WHEN** merging the branch Ryder chose to merge first conflicts, or breaks the gates
+- **THEN** the integration branch is left as it was, and the question is open again with the reason shown, so Ryder can choose another answer (or merge the branch by hand and choose to merge again) instead of resuming into the same failure
 
 #### Scenario: No questions
 - **WHEN** the plan contains only overlaps and orderings

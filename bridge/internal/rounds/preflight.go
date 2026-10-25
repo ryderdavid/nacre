@@ -385,14 +385,14 @@ func (r *round) applyDecisions() {
 					why = err.Error()
 				}
 				return func() {
-					r.pause(fmt.Sprintf("Merging %s into the round failed (%s). Merge it into %s by hand, or answer differently.", br, why, r.meta.Branch))
+					r.reopen(br, fmt.Sprintf("Merging %s into the round failed (%s). Choose another answer, or merge it into %s by hand and choose to merge again.", br, why, r.meta.Branch))
 				}
 			}
 			results := r.m.opts.Gates.RunAll(ctx, ws, cfg, beadGates(cfg), true)
 			if !gates.AllOK(results) {
 				_ = gitx.ResetHard(ctx, ws, pre)
 				return func() {
-					r.pause(fmt.Sprintf("With %s merged in, the gates fail: %s", br, failure(results)))
+					r.reopen(br, fmt.Sprintf("With %s merged in, the gates fail: %s. Choose another answer, or fix the branch and choose to merge again.", br, failure(results)))
 				}
 			}
 		}
@@ -402,6 +402,21 @@ func (r *round) applyDecisions() {
 			r.startImplementing()
 		}
 	})
+}
+
+// reopen hands the question about branch back to Ryder when his answer
+// couldn't be carried out, saying why. Pausing instead would only repeat the
+// same failure on resume, since the answer that caused it would still stand.
+func (r *round) reopen(branch, problem string) {
+	for i := range r.meta.Questions {
+		q := &r.meta.Questions[i]
+		if q.Kind == api.FindingUnmergedWork && q.Branch == branch {
+			q.Answer, q.AnsweredAt, q.Problem = "", "", problem
+		}
+	}
+	r.meta.State = api.RoundNeedsDecision
+	r.event("state", "", problem)
+	r.saveLocked()
 }
 
 func (r *round) startImplementing() {

@@ -416,7 +416,7 @@ on the computer that has the repository, without any client connected.
   "plan": {"summary": "…", "beads": [{"id","areas","files","depends_on","needs","human_check"}],
            "findings": [{"id":"f1","kind":"overlap","beads":["NAC-1","NAC-2"],"branch":"","files":[],"text":"…","accepted":false,"unlinked":false}],
            "cost_usd": 0.4},
-  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":""}],
+  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again
   "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…"}, // the merge in progress, if any
   "budget_usd": 25, "spent_usd": 3.1, "time_limit_minutes": 240, "mode": "auto", "model": "",
   "run_ids": ["r_…"],               // every run the round started

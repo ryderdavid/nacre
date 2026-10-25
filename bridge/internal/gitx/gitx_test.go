@@ -150,3 +150,35 @@ func TestUnmergedAndDirtyIgnore(t *testing.T) {
 		t.Errorf("dirty = %v", d)
 	}
 }
+
+func TestUnmergedSkipsWorkAlreadyInTargetByContent(t *testing.T) {
+	repo := newRepo(t)
+	base, _ := RevParse(ctx, repo, "main")
+	wt := filepath.Join(t.TempDir(), "old")
+	AddWorktree(ctx, repo, wt, "old", base)
+	write(t, wt, "b.txt", "b\n")
+	sha, _ := CommitAll(ctx, wt, "add b")
+	// main moves on, takes the same change by cherry-pick, then changes it again.
+	write(t, repo, "m.txt", "m\n")
+	CommitAll(ctx, repo, "main work")
+	if _, err := Run(ctx, repo, "cherry-pick", sha); err != nil {
+		t.Fatal(err)
+	}
+	write(t, repo, "b.txt", "b, improved\n")
+	CommitAll(ctx, repo, "improve b")
+	if IsAncestor(ctx, repo, "old", "main") {
+		t.Fatal("setup: old should not be an ancestor of main")
+	}
+	if !Upstream(ctx, repo, "main", "old") {
+		t.Error("old's only commit is in main by content")
+	}
+	if list, _ := Unmerged(ctx, repo, "main"); len(list) != 0 {
+		t.Errorf("unmerged = %+v, want none", list)
+	}
+	// A further commit of its own makes it outstanding again.
+	write(t, wt, "c.txt", "c\n")
+	CommitAll(ctx, wt, "add c")
+	if list, _ := Unmerged(ctx, repo, "main"); len(list) != 1 || list[0].Name != "old" {
+		t.Errorf("unmerged = %+v, want old", list)
+	}
+}

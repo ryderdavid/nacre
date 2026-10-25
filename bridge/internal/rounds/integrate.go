@@ -262,12 +262,6 @@ func (r *round) startFinish() {
 		return
 	}
 	meta, cfg := clone(r.meta), r.cfg
-	minor := false
-	for _, b := range meta.Beads {
-		if b.State == api.BeadIntegrated && (b.Type == "feature" || b.Type == "epic") {
-			minor = true
-		}
-	}
 	r.meta.Integration = &api.IntegrationStep{Phase: "final"}
 	r.event("build", "", "Every bead is integrated or parked; running the final gates and build")
 	r.saveLocked()
@@ -275,18 +269,11 @@ func (r *round) startFinish() {
 		ws := meta.Workspace
 		version := meta.Version
 		if version == "" && cfg.Version.Bump != "" {
-			level := "patch"
-			if minor {
-				level = "minor"
+			v, err := r.bump(ctx, ws, cfg, meta, "")
+			if err != nil {
+				return func() { r.meta.Integration = nil; r.pause(err.Error()) }
 			}
-			res := r.m.opts.Gates.RunAll(ctx, ws, cfg, []repoconfig.Step{{Name: "version bump", Run: cfg.BumpCommand(minor)}}, true)
-			if !gates.AllOK(res) {
-				return func() { r.meta.Integration = nil; r.pause("The version bump failed: " + failure(res)) }
-			}
-			version = lastLine(res[0].Tail)
-			if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Bump version (%s) for round %s: %s", level, meta.ID, version)); err != nil {
-				return func() { r.meta.Integration = nil; r.pause("Committing the version bump failed: " + err.Error()) }
-			}
+			version = v
 		}
 		results := r.m.opts.Gates.RunAll(ctx, ws, cfg, finalSteps(cfg), true)
 		if gates.AllOK(results) {
@@ -344,6 +331,50 @@ func (r *round) closeBeads(head string) {
 	}
 }
 
+// bumpsMinor says whether the round's version bump is a minor one: it is when
+// a feature or epic was integrated, and a patch otherwise.
+func bumpsMinor(meta api.Round) bool {
+	for _, b := range meta.Beads {
+		if b.State == api.BeadIntegrated && (b.Type == "feature" || b.Type == "epic") {
+			return true
+		}
+	}
+	return false
+}
+
+// bump runs the repository's version bump in ws and commits it, returning the
+// new version. onTop names the branch whose version it starts from, when the
+// bump is being redone after merging it.
+func (r *round) bump(ctx context.Context, ws string, cfg *repoconfig.Config, meta api.Round, onTop string) (string, error) {
+	minor := bumpsMinor(meta)
+	level := "patch"
+	if minor {
+		level = "minor"
+	}
+	res := r.m.opts.Gates.RunAll(ctx, ws, cfg, []repoconfig.Step{{Name: "version bump", Run: cfg.BumpCommand(minor)}}, true)
+	if !gates.AllOK(res) {
+		return "", fmt.Errorf("The version bump failed: %s", failure(res))
+	}
+	version := lastLine(res[0].Tail)
+	msg := fmt.Sprintf("Bump version (%s) for round %s: %s", level, meta.ID, version)
+	if onTop != "" {
+		msg += ", on top of " + onTop
+	}
+	if _, err := gitx.CommitAll(ctx, ws, msg); err != nil {
+		return "", fmt.Errorf("Committing the version bump failed: %v", err)
+	}
+	return version, nil
+}
+
+// bumpCommit finds the round's latest version bump commit in ws, if any.
+func bumpCommit(ctx context.Context, ws, round string) string {
+	sha, err := gitx.Run(ctx, ws, "log", "-1", "--format=%H", "--fixed-strings", "--grep", "for round "+round+": ", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(sha)
+}
+
 // startLand fast-forwards the target to the round's commit, first merging
 // the target in and re-verifying if it moved, then pushes and cleans up.
 func (r *round) startLand() {
@@ -363,7 +394,28 @@ func (r *round) startLand() {
 			return func() { r.pause(meta.Target + " can't be read: " + err.Error()) }
 		}
 		var artifacts []string
+		version := meta.Version
 		if !gitx.IsAncestor(ctx, meta.RepoPath, head, final) {
+			// The round bumped the version from the base it started on. If the
+			// target has moved it may well have bumped too, and merging two bumps
+			// conflicts or lands the wrong number: undo the round's bump, merge,
+			// and bump again from the target's version.
+			bumped := ""
+			if cfg.Version.Bump != "" && version != "" {
+				bumped = bumpCommit(ctx, ws, meta.ID)
+				if bumped != "" {
+					if _, err := gitx.Run(ctx, ws, "revert", "--no-commit", bumped); err != nil {
+						_ = gitx.ResetHard(ctx, ws, final)
+						return func() {
+							r.pause("Undoing the round's version bump before merging " + meta.Target + " failed: " + firstLine(err.Error()))
+						}
+					}
+					if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Undo round %s's version bump to redo it on top of %s", meta.ID, meta.Target)); err != nil {
+						_ = gitx.ResetHard(ctx, ws, final)
+						return func() { r.pause("Undoing the round's version bump failed: " + err.Error()) }
+					}
+				}
+			}
 			res, err := gitx.Merge(ctx, ws, meta.Target, fmt.Sprintf("Merge %s into round %s before landing", meta.Target, meta.ID))
 			if err != nil || len(res.Conflicts) > 0 {
 				_ = gitx.ResetHard(ctx, ws, final)
@@ -375,6 +427,14 @@ func (r *round) startLand() {
 					r.pause(fmt.Sprintf("%s moved since the round started and can't be merged in (%s). Merge it into %s by hand, then land again.", meta.Target, why, meta.Branch))
 				}
 			}
+			if bumped != "" {
+				v, err := r.bump(ctx, ws, cfg, meta, meta.Target)
+				if err != nil {
+					_ = gitx.ResetHard(ctx, ws, final)
+					return func() { r.pause(err.Error()) }
+				}
+				version = v
+			}
 			results := r.m.opts.Gates.RunAll(ctx, ws, cfg, finalSteps(cfg), true)
 			if !gates.AllOK(results) {
 				_ = gitx.ResetHard(ctx, ws, final)
@@ -382,7 +442,7 @@ func (r *round) startLand() {
 					r.pause(fmt.Sprintf("%s moved since the round started, and with its changes the round fails: %s", meta.Target, failure(results)))
 				}
 			}
-			final = res.Commit
+			final, _ = gitx.RevParse(ctx, ws, "HEAD")
 			for _, step := range cfg.Build {
 				if step.Artifact != "" {
 					if p, err := keepArtifact(filepath.Join(ws, step.Artifact), filepath.Join(r.dir, "artifacts")); err == nil {
@@ -403,6 +463,7 @@ func (r *round) startLand() {
 		cleanErr := r.m.opts.Workspaces.RemoveRound(ctx, meta.RepoPath, meta.RepoID, meta.ID, keep)
 		return func() {
 			r.meta.State, r.meta.LandedCommit, r.meta.FinalCommit, r.meta.EndedAt = api.RoundLanded, final, final, stamp()
+			r.meta.Version = version
 			if len(artifacts) > 0 {
 				r.meta.Artifacts = artifacts
 			}

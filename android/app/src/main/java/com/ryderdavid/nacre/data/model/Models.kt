@@ -532,6 +532,8 @@ data class Question(
     val options: List<String> = emptyList(),
     val answer: String = "",
     @SerialName("answered_at") val answeredAt: String = "",
+    /** Why an earlier answer couldn't be carried out, when the question has come back. */
+    val problem: String = "",
 )
 
 @Serializable
