@@ -325,6 +325,6 @@ func adoptedNotice(s sessions.Session) string {
 	} else {
 		b.WriteString("\nno bead linked: this session has not moved one")
 	}
-	b.WriteString("\nnacred did not start this session: it is read-only here, and cannot be cancelled or sent a follow-up.")
+	b.WriteString("\nnacred did not start this session: it cannot be cancelled or resumed from here (resuming would fork it).")
 	return b.String()
 }
