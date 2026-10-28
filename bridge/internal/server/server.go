@@ -23,9 +23,11 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
+	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
 )
@@ -35,15 +37,19 @@ const maxBody = 1 << 20
 
 // Server holds the API's dependencies.
 type Server struct {
-	Config *config.Config
-	Repos  *repos.Registry
-	BD     *bd.Client
-	Runs   *runs.Manager
-	Assist *assist.Runner
+	Updates       *daemonupdate.Manager
+	maintenanceMu sync.Mutex
+	mutations     int
+	Config        *config.Config
+	Repos         *repos.Registry
+	BD            *bd.Client
+	Runs          *runs.Manager
+	Assist        *assist.Runner
 	// Rounds is nil until nacred has started rounds.
-	Rounds *rounds.Manager
-	Broker *sse.Broker
-	Log    *log.Logger
+	Rounds  *rounds.Manager
+	Changes *specflow.Manager
+	Broker  *sse.Broker
+	Log     *log.Logger
 	// CodexCheck reports whether beads can run with Codex here; nil checks
 	// the Codex CLI at Config.CodexPath (tests replace it).
 	CodexCheck func(ctx context.Context) codex.Status
@@ -60,6 +66,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/ping", s.ping)
 	mux.HandleFunc("GET /v1/health", s.health)
+	mux.HandleFunc("GET /v1/daemon/update", s.updateStatus)
+	mux.HandleFunc("POST /v1/daemon/update", s.startUpdate)
 	mux.HandleFunc("GET /v1/config", s.getConfig)
 	mux.HandleFunc("GET /v1/repos", s.listRepos)
 	mux.HandleFunc("GET /v1/repos/{repo}/issues", s.listIssues)
@@ -72,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/deps", s.addDep)
 	mux.HandleFunc("DELETE /v1/repos/{repo}/deps", s.removeDep)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/runs", s.startRun)
+	mux.HandleFunc("GET /v1/repos/{repo}/issues/{id}/change", s.getChange)
+	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/change", s.actOnChange)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
 	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
@@ -97,7 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such route: "+r.Method+" "+r.URL.Path, "")
 	})
-	return s.logRequests(s.auth(mux))
+	return s.logRequests(s.auth(s.maintenance(mux)))
 }
 
 // auth requires the bearer token on every /v1/ route except /v1/ping.
@@ -194,6 +204,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "unknown round", "")
 	case errors.Is(err, rounds.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, specflow.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, specflow.ErrUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err.Error(), "")
 	case errors.As(err, &be) && be.NotFound:
 		writeError(w, http.StatusNotFound, be.Message, be.Detail())
 	case errors.As(err, &be) && be.Invalid:
@@ -301,7 +315,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	bdv, cv := s.versions(r.Context())
 	cx := s.codexStatus(r.Context())
 	body := map[string]any{
-		"name": version.Name, "version": version.Version, "hostname": ShortHostname(host),
+		"name": version.Name, "version": version.Version, "commit": version.Commit, "hostname": ShortHostname(host),
 		"host_id": h.ID, "host_name": h.Name,
 		"bd_version": bdv, "claude_version": cv, "codex_version": cx.Version,
 		"repos": s.Repos.Count(), "active_runs": s.Runs.ActiveCount(""),
@@ -317,6 +331,9 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // computer can actually do (and an older nacred simply reports none).
 func (s *Server) features(cx codex.Status) []string {
 	f := []string{}
+	if s.Updates != nil {
+		f = append(f, "daemon-update")
+	}
 	if s.Assist != nil && s.Assist.Available() {
 		// Refine, Draft and the board assistant can run here on this
 		// computer's Claude subscription.

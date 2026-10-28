@@ -83,6 +83,15 @@ import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.UpdateIssue
+import com.ryderdavid.nacre.data.model.SpecChange
+import com.ryderdavid.nacre.data.model.hasSpecWorkflow
+import com.ryderdavid.nacre.ui.rounds.StartRoundSheet
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.Dot
@@ -127,6 +136,7 @@ fun BeadDetail(
     onClose: () -> Unit,
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
+    onOpenRound: (String) -> Unit,
 ) {
     val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
@@ -135,10 +145,24 @@ fun BeadDetail(
     val runs by vm.runs.collectAsState()
     val busy by vm.busy.collectAsState()
     val prefs by vm.prefs.collectAsState(initial = null)
+    val changeVm = nacreViewModel(key = "change:$repoKey:$beadId") { ChangeViewModel(it.repository, it.settings, repoKey, beadId) }
+    val changeState by changeVm.state.collectAsState()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val container = LocalContainer.current
+    LaunchedEffect(changeVm, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                changeVm.refresh()
+                delay(if (changeVm.state.value.data?.change?.isWorking == true) 4_000 else 20_000)
+            }
+        }
+    }
 
     var editing by remember { mutableStateOf<TextField?>(null) }
     var showRefine by rememberSaveable { mutableStateOf(false) }
     var showRun by rememberSaveable { mutableStateOf(false) }
+    var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(false) }
+    var roundChange by remember { mutableStateOf<SpecChange?>(null) }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }
     var showDepPicker by remember { mutableStateOf(false) }
@@ -190,11 +214,16 @@ fun BeadDetail(
                 // take the place of the button that starts one.
                 val active = runs.firstOrNull { it.isNacreWork } ?: runs.firstOrNull { it.isActive }
                 ExtendedFloatingActionButton(
-                    onClick = { if (active != null) onOpenRun(active.key) else showRun = true },
+                    onClick = {
+                        if (active != null) onOpenRun(active.key)
+                        else if (i.hasSpecWorkflow || changeState.data?.change != null) showChange = true
+                        else showRun = true
+                    },
                     icon = { Icon(if (active != null) Icons.Rounded.Terminal else Icons.Rounded.PlayArrow, null) },
                     text = {
                         Text(
                             when {
+                                active == null && (i.hasSpecWorkflow || changeState.data?.change != null) -> "View change"
                                 active == null -> "Implement…"
                                 active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
                                 active.isAdopted -> "An agent is working…"
@@ -227,6 +256,7 @@ fun BeadDetail(
                 onOpenBead = onOpenBead,
                 onOpenRun = onOpenRun,
                 onComment = vm::addComment,
+                changeCard = { ChangeCard(changeState, i.hasSpecWorkflow, onOpen = { showChange = true }) },
             )
         }
 
@@ -266,6 +296,20 @@ fun BeadDetail(
         ) { showDepPicker = false; vm.addBlocker(it.id) }
         if (showClose) CloseDialog(i.id, onDismiss = { showClose = false }) { showClose = false; vm.close(it) }
         if (showRefine) BeadChatSheet(vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false })
+        if (showChange) ChangeDetail(
+            changeVm, linked = i.hasSpecWorkflow, onDismiss = { showChange = false },
+            onImplement = { approved -> roundChange = approved },
+            onOpenBead = { showChange = false; onOpenBead(it) },
+            onOpenRun = { showChange = false; onOpenRun(it) },
+            onOpenRound = { showChange = false; onOpenRound(it) },
+        )
+        roundChange?.let { approved ->
+            StartRoundSheet(
+                container.repository.repo(repoKey), ix, specChange = approved,
+                onDismiss = { roundChange = null },
+                onStarted = { roundChange = null; showChange = false; onOpenRound(it) },
+            )
+        }
         if (showRun) prefs?.let { p ->
             val targets by vm.runTargets.collectAsState()
             var initial by remember { mutableStateOf<String?>(null) }
@@ -297,6 +341,7 @@ private fun DetailBody(
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
     onComment: (String) -> Unit,
+    changeCard: @Composable () -> Unit,
 ) {
     val lane = ix.laneOf(i)
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp), modifier = Modifier.fillMaxSize().imePadding()) {
@@ -344,6 +389,7 @@ private fun DetailBody(
         item { TextSection("Design", i.design, "Add design notes") { onEdit(TextField.DESIGN) } }
         item { TextSection("Notes", i.notes, "Add notes") { onEdit(TextField.NOTES) } }
         if (i.isClosed && i.closeReason.isNotBlank()) item { TextSection("Close reason", i.closeReason, "", onEdit = null) }
+        item { changeCard() }
 
         val parent = ix.byId[i.parent]
         val children = ix.childrenOf(i.id).sortedWith(compareBy<Issue> { it.isClosed }.thenBy { it.priority }.then(BoardIndex.idOrder))

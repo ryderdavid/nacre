@@ -39,6 +39,9 @@ func (r *round) startMerge(b *api.RoundBead) {
 	r.saveLocked()
 	r.goOp("merge", func(ctx context.Context) func() {
 		ws := meta.Workspace
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		pre, err := gitx.RevParse(ctx, ws, "HEAD")
 		if err != nil {
 			return func() { r.integrationFailed(id, "git couldn't read the integration branch: "+err.Error()) }
@@ -61,6 +64,9 @@ func (r *round) startMerge(b *api.RoundBead) {
 			}
 			res.Commit, _ = gitx.RevParse(ctx, ws, "HEAD")
 		}
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		results := r.m.opts.Gates.RunAll(ctx, ws, cfg, beadGates(cfg), true)
 		if gates.AllOK(results) {
 			return func() {
@@ -80,6 +86,9 @@ func (r *round) startMerge(b *api.RoundBead) {
 // gives up.
 func (r *round) startIntegrationRun(ctx context.Context, step api.IntegrationStep, prompt string) func() {
 	meta := r.metaCopy()
+	if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
+		return r.specStop(err)
+	}
 	bead := step.Bead
 	title := "Integrate round " + meta.ID
 	switch {
@@ -231,6 +240,9 @@ func (r *round) watchIntegration() {
 
 // checkIntegration tests the integration worktree after an integration turn.
 func (r *round) checkIntegration(ctx context.Context, ws, phase, bead string, cfg *repoconfig.Config) (string, []gates.Result) {
+	if err := r.m.guardSpec(ctx, r.metaCopy(), ws); err != nil {
+		return err.Error(), nil
+	}
 	if conflicts, _ := gitx.Conflicts(ctx, ws); len(conflicts) > 0 {
 		return "conflicts remain in: " + list(conflicts, 20), nil
 	}
@@ -267,6 +279,10 @@ func (r *round) integrationRetry(problem string, results []gates.Result, canResu
 		runID, budget := st.RunID, r.remaining()
 		msg := integrationFollowup(problem, results, st.Phase == "final" || st.Phase == "land")
 		r.goOp("integrate-followup", func(ctx context.Context) func() {
+			meta := r.metaCopy()
+			if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
+				return r.specStop(err)
+			}
 			_, err := r.m.opts.Runs.FollowupWith(runID, runs.Followup{Message: msg, MaxBudgetUSD: budget})
 			return func() {
 				if err != nil {
@@ -354,6 +370,9 @@ func (r *round) startFinish() {
 	r.saveLocked()
 	r.goOp("finish", func(ctx context.Context) func() {
 		ws := meta.Workspace
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		version := meta.Version
 		if version == "" && cfg.Version.Bump != "" {
 			v, err := r.bump(ctx, ws, cfg, meta, "")
@@ -380,6 +399,9 @@ func (r *round) startFinish() {
 // the beads and marks the round ready to land.
 func (r *round) finishOK(ctx context.Context, head string, results []gates.Result) func() {
 	meta, cfg := r.metaCopy(), r.cfg
+	if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
+		return r.specStop(err)
+	}
 	var artifacts []string
 	for _, step := range cfg.Build {
 		if step.Artifact == "" {
@@ -408,9 +430,31 @@ func (r *round) closeBeads(head string) {
 		if b.State != api.BeadIntegrated || b.Closed {
 			continue
 		}
+		// Specification sections remain open until the reviewed build lands.
+		// Their epic remains manual regardless of round completion.
+		if b.SpecChangeID != "" && r.meta.State != api.RoundLanded {
+			continue
+		}
 		id, check := b.ID, b.HumanCheck
 		if check != "" {
 			r.note(id, fmt.Sprintf("Built and verified in round %s at %s. Left for you to verify: %s", round, short(head), check))
+			continue
+		}
+		if b.SpecChangeID != "" {
+			change, revision, repoID := b.SpecChangeID, b.SpecRevision, r.meta.RepoID
+			r.goOp("close:"+id, func(ctx context.Context) func() {
+				err := r.m.opts.Beads.Close(ctx, repo, id, fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), change, revision))
+				r.m.repoChanged(repoID)
+				return func() {
+					if err != nil {
+						r.event("note", id, "Landed, but closing the bead failed: "+err.Error())
+						return
+					}
+					if current := r.bead(id); current != nil {
+						current.Closed = true
+					}
+				}
+			})
 			continue
 		}
 		b.Closed = true
@@ -480,6 +524,9 @@ func (r *round) startLand() {
 // changes, goes to a recovery turn.
 func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config) func() {
 	ws, final := meta.Workspace, meta.FinalCommit
+	if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+		return r.specStop(err)
+	}
 	var target string
 	n, err := retry(ctx, func() (e error) { target, e = gitx.RevParse(ctx, meta.RepoPath, "refs/heads/"+meta.Target); return e })
 	if err != nil {
@@ -534,6 +581,9 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 // to a recovery turn.
 func (r *round) afterLandMerge(ctx context.Context, meta api.Round, cfg *repoconfig.Config, rebump bool, notes []string) func() {
 	ws, final := meta.Workspace, meta.FinalCommit
+	if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+		return r.specStop(err)
+	}
 	version := meta.Version
 	if rebump {
 		v, err := r.bump(ctx, ws, cfg, meta, meta.Target)
@@ -568,6 +618,9 @@ func (r *round) afterLandMerge(ctx context.Context, meta api.Round, cfg *repocon
 // its artifacts replace the ones kept at the end of the round.
 func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfig.Config, head, version string, rebuilt bool) func() {
 	ws := meta.Workspace
+	if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+		return r.specStop(err)
+	}
 	var artifacts []string
 	if rebuilt {
 		for _, step := range cfg.Build {
@@ -598,6 +651,9 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 	cleanErr := r.m.opts.Workspaces.RemoveRound(ctx, meta.RepoPath, meta.RepoID, meta.ID, keep)
 	return func() {
 		r.meta.State, r.meta.LandedCommit, r.meta.FinalCommit, r.meta.EndedAt = api.RoundLanded, head, head, stamp()
+		if len(r.meta.SpecContracts) > 0 {
+			r.closeBeads(head)
+		}
 		r.meta.Version, r.meta.Integration = version, nil
 		if len(artifacts) > 0 {
 			r.meta.Artifacts = artifacts

@@ -26,6 +26,7 @@ import (
 const roundUsage = `usage: nacred round <command>
   start [--repo dir|name] [--epic ID] [--budget USD] [--minutes N] BEAD...
                          start a round on this computer's nacred
+                         linked sections require --spec-change ID --spec-revision REV
   status [ROUND]         list active rounds, or show one in detail
   answer ROUND QUESTION ANSWER...
   land ROUND             fast-forward the target and push (as nacre.yaml says)
@@ -136,6 +137,8 @@ func (c *roundClient) start(args []string, out io.Writer) error {
 	epic := fs.String("epic", "", "start from this epic's open children")
 	budget := fs.Float64("budget", 0, "budget in USD (default from nacred's config)")
 	minutes := fs.Int("minutes", 0, "time limit in minutes")
+	specChange := fs.String("spec-change", "", "approved specification workflow id")
+	specRevision := fs.String("spec-revision", "", "exact approved specification revision")
 	var beads []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -156,6 +159,7 @@ func (c *roundClient) start(args []string, out io.Writer) error {
 	var r api.Round
 	if err := c.do("POST", "/v1/repos/"+repoID+"/rounds", map[string]any{
 		"beads": beads, "epic": *epic, "budget_usd": *budget, "time_limit_minutes": *minutes,
+		"spec_change_id": *specChange, "spec_revision": *specRevision,
 	}, &r); err != nil {
 		return err
 	}

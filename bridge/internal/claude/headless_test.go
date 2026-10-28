@@ -81,6 +81,19 @@ func TestHeadlessArgsLeadingDashPrompt(t *testing.T) {
 	}
 }
 
+func TestHeadlessSourceReviewCannotAcquireShell(t *testing.T) {
+	args := Headless{ReadSource: true, ReadRepo: true, AllowedTools: []string{"Bash(*)"}}.Args()
+	if i := index(args, "--tools"); i < 0 || args[i+1] != "Read,Grep,Glob" {
+		t.Fatalf("source reviewer tools: %v", args)
+	}
+	if strings.Contains(strings.Join(args, " "), "Bash") {
+		t.Fatalf("source review acquired a shell: %v", args)
+	}
+	if index(args, "--no-session-persistence") < 0 || index(args, "--safe-mode") < 0 {
+		t.Fatalf("review must be isolated and fresh: %v", args)
+	}
+}
+
 func TestParseLineStructuredOutput(t *testing.T) {
 	line := []byte(`{"type":"result","subtype":"success","is_error":false,"result":"{\"answer\":\"7\"}","structured_output":{"answer":"7"},"session_id":"s1","total_cost_usd":0.002}`)
 	p, err := ParseLine(line)

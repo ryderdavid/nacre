@@ -516,6 +516,11 @@ func (m *Manager) Choose(id, choice string, budgetUSD float64, minutes int) (api
 	if snap.State != api.RoundPaused || snap.Stop == nil {
 		return snap, conflict("the round isn't stopped")
 	}
+	if choice != api.ChoiceCancel {
+		if err := m.guardSpec(m.ctx, snap, snap.Workspace); err != nil {
+			return snap, conflict(err.Error())
+		}
+	}
 	s := *snap.Stop
 	if !hasChoice(s, choice) {
 		return snap, conflict(fmt.Sprintf("%q isn't one of this stop's choices", choice))

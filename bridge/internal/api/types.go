@@ -143,6 +143,9 @@ type Comment struct {
 
 // Run is a Claude Code run dispatched for one bead.
 type Run struct {
+	SpecChangeID  string  `json:"spec_change_id,omitempty"`
+	SpecRevision  string  `json:"spec_revision,omitempty"`
+	SpecSectionID string  `json:"spec_section_id,omitempty"`
 	ID            string  `json:"id"`
 	RepoID        string  `json:"repo_id"`
 	RepoName      string  `json:"repo_name"`
@@ -249,6 +252,10 @@ func (r *Run) Adopted() bool { return r.Origin == OriginAdopted }
 func (r *Run) SetCapabilities() {
 	if !r.Adopted() {
 		r.CanCancel, r.CanFollowup = nil, nil
+		if r.SpecChangeID != "" {
+			followup := false
+			r.CanFollowup = &followup
+		}
 		return
 	}
 	cancel, followup := false, false
@@ -409,10 +416,12 @@ const (
 // pre-flight review to one commit that passes the repository's gates and
 // builds. See openspec/changes/semi-attended-rounds.
 type Round struct {
-	ID       string `json:"id"`
-	RepoID   string `json:"repo_id"`
-	RepoName string `json:"repo_name"`
-	RepoPath string `json:"repo_path"`
+	// SpecContracts pins the reviewed artifacts and section for each linked bead.
+	SpecContracts map[string]SpecContract `json:"spec_contracts,omitempty"`
+	ID            string                  `json:"id"`
+	RepoID        string                  `json:"repo_id"`
+	RepoName      string                  `json:"repo_name"`
+	RepoPath      string                  `json:"repo_path"`
 	// Epic is set when the round was started from an epic.
 	Epic  string `json:"epic,omitempty"`
 	State string `json:"state"`
@@ -471,11 +480,14 @@ func (r *Round) Active() bool {
 
 // RoundBead is one bead's progress in a round.
 type RoundBead struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Type     string `json:"type"`
-	Priority int    `json:"priority"`
-	State    string `json:"state"`
+	SpecChangeID  string `json:"spec_change_id,omitempty"`
+	SpecRevision  string `json:"spec_revision,omitempty"`
+	SpecSectionID string `json:"spec_section_id,omitempty"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Type          string `json:"type"`
+	Priority      int    `json:"priority"`
+	State         string `json:"state"`
 	// After lists the round beads this one waits for: bd dependencies and the
 	// plan's orderings.
 	After []string `json:"after,omitempty"`

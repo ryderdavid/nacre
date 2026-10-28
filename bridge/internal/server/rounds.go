@@ -14,6 +14,8 @@ import (
 // roundRequest starts a round: bead ids, or an epic whose open children
 // become the set.
 type roundRequest struct {
+	SpecChangeID     string   `json:"spec_change_id"`
+	SpecRevision     string   `json:"spec_revision"`
 	Beads            []string `json:"beads"`
 	Epic             string   `json:"epic"`
 	Target           string   `json:"target"`
@@ -47,6 +49,7 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	round, err := s.Rounds.Create(rounds.CreateRequest{
+		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision,
 		RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
 		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes,
 	})

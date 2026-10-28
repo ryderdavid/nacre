@@ -288,6 +288,7 @@ data class RunEvent(
 data class Health(
     val name: String = "",
     val version: String = "",
+    val commit: String = "",
     val hostname: String = "",
     @SerialName("host_id") val hostId: String = "",
     @SerialName("host_name") val hostName: String = "",
@@ -603,6 +604,8 @@ data class StartRound(
     val epic: String? = null,
     @SerialName("budget_usd") val budgetUsd: Double? = null,
     @SerialName("time_limit_minutes") val timeLimitMinutes: Int? = null,
+    @SerialName("spec_change_id") val specChangeId: String? = null,
+    @SerialName("spec_revision") val specRevision: String? = null,
 )
 
 const val ROUND_PLANNING = "planning"

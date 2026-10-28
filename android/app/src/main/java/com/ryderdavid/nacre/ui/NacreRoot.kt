@@ -178,6 +178,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                         onClose = { nav.popBackStack() },
                         onOpenBead = { nav.navigate(BeadRoute(r.repoKey, it)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
+                        onOpenRound = { nav.navigate(RoundRoute(it)) },
                     )
                 }
                 composable<AssistantRoute> { e ->

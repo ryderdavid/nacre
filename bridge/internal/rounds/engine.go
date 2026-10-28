@@ -57,9 +57,11 @@ func (r *round) loop() {
 // and advanced again.
 func (r *round) goOp(key string, work func(ctx context.Context) func()) {
 	r.ops[key] = true
+	r.m.background.Add(1)
 	r.m.wg.Add(1)
 	go func() {
 		defer r.m.wg.Done()
+		defer r.m.background.Add(-1)
 		apply := work(r.m.ctx)
 		r.mu.Lock()
 		delete(r.ops, key)
@@ -74,9 +76,11 @@ func (r *round) goOp(key string, work func(ctx context.Context) func()) {
 
 // async runs a side effect (bd comments and labels) that nothing waits for.
 func (r *round) async(f func(ctx context.Context)) {
+	r.m.background.Add(1)
 	r.m.wg.Add(1)
 	go func() {
 		defer r.m.wg.Done()
+		defer r.m.background.Add(-1)
 		f(r.m.ctx)
 		r.m.repoChanged(r.meta.RepoID)
 	}()
@@ -305,6 +309,9 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 	budget := r.remaining()
 	cfg := r.cfg
 	r.goOp("start:"+id, func(ctx context.Context) func() {
+		if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
+			return r.specStop(err)
+		}
 		tries := 0
 		var ws workspace.Workspace
 		n, err := retry(ctx, func() (e error) {
@@ -323,6 +330,9 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 		}
 		comments, _ := r.m.opts.Beads.Comments(ctx, meta.RepoPath, id)
 		earlier, fixes := r.continueEarlier(ctx, meta, cfg, id, ws)
+		if err := r.m.guardSpec(ctx, meta, ws.Path); err != nil {
+			return r.specStop(err)
+		}
 		prompt := beadPrompt(beadPromptVars{
 			Round: meta, Issue: parseIssue(raw), Comments: comments, Branch: ws.Branch, Base: ws.Base,
 			Decisions: decisions, Shared: shared, Integrated: integrated, Cfg: cfg, Env: env, Earlier: earlier,
@@ -335,6 +345,7 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 				IssueID: id, IssueTitle: b.Title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
 				RoundID: meta.ID, Kind: "bead", Branch: ws.Branch, Workspace: ws.Path, Base: ws.Base,
 				MaxBudgetUSD: budget, Env: env,
+				SpecChangeID: b.SpecChangeID, SpecRevision: b.SpecRevision, SpecSectionID: b.SpecSectionID,
 			})
 			return e
 		})
@@ -463,9 +474,13 @@ func (r *round) followUp(b *api.RoundBead, message string) {
 		return
 	}
 	id, runID, budget := b.ID, b.RunID, r.remaining()
+	meta, ws := clone(r.meta), b.Workspace
 	env := r.m.leases.env(r.meta.ID+"/"+id, r.cfg)
 	b.State = api.BeadRunning
 	r.goOp("followup:"+id, func(ctx context.Context) func() {
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		n, err := retry(ctx, func() error {
 			_, e := r.m.opts.Runs.FollowupWith(runID, runs.Followup{Message: message, MaxBudgetUSD: budget, Env: env})
 			return e
@@ -620,6 +635,10 @@ func (m *Manager) RetryBead(id, beadID string) (api.Round, error) {
 	if r == nil {
 		return api.Round{}, ErrNotFound
 	}
+	snap := r.metaCopy()
+	if err := m.guardSpec(m.ctx, snap, snap.Workspace); err != nil {
+		return snap, conflict(err.Error())
+	}
 	r.mu.Lock()
 	defer r.poke()
 	defer r.mu.Unlock()
@@ -654,6 +673,10 @@ func (m *Manager) SetLimits(id string, budgetUSD float64, minutes int) (api.Roun
 	if r == nil {
 		return api.Round{}, ErrNotFound
 	}
+	snap := r.metaCopy()
+	if err := m.guardSpec(m.ctx, snap, snap.Workspace); err != nil {
+		return snap, conflict(err.Error())
+	}
 	r.mu.Lock()
 	defer r.poke()
 	defer r.mu.Unlock()
@@ -681,6 +704,9 @@ func (m *Manager) Resume(id string) (api.Round, error) {
 	snap := r.metaCopy()
 	if snap.State != api.RoundPaused {
 		return snap, conflict("the round isn't paused")
+	}
+	if err := m.guardSpec(m.ctx, snap, snap.Workspace); err != nil {
+		return snap, conflict(err.Error())
 	}
 	if snap.Stop != nil && snap.Stop.Kind == api.StopLimits {
 		return snap, conflict("the round is at its limits: raise the budget or time limit to carry on")
@@ -745,6 +771,10 @@ func (m *Manager) Land(id string) (api.Round, error) {
 	r := m.get(id)
 	if r == nil {
 		return api.Round{}, ErrNotFound
+	}
+	snap := r.metaCopy()
+	if err := m.guardSpec(m.ctx, snap, snap.Workspace); err != nil {
+		return snap, conflict(err.Error())
 	}
 	r.mu.Lock()
 	defer r.poke()

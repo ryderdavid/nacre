@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
+	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
@@ -37,6 +39,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/server"
 	"github.com/ryderdavid/nacre/bridge/internal/sessions"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
 	"github.com/ryderdavid/nacre/bridge/internal/workspace"
@@ -61,9 +64,14 @@ func main() {
 	fs := flag.NewFlagSet("nacred "+cmd, flag.ExitOnError)
 	configPath := fs.String("config", config.DefaultPath(), "config file path")
 	listen := fs.String("listen", "", "listen address host:port (overrides config)")
+	jsonVersion := fs.Bool("json", false, "report build identity as JSON (version command)")
 	_ = fs.Parse(args)
 
 	if cmd == "version" {
+		if *jsonVersion {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"name": version.Name, "version": version.Version, "commit": version.Commit, "update_protocol": 1})
+			return
+		}
 		fmt.Println(version.Name, version.Version)
 		return
 	}
@@ -72,6 +80,12 @@ func main() {
 		fatal(err)
 	}
 	switch cmd {
+	case "update-worker":
+		if len(fs.Args()) != 1 || *listen == "" {
+			err = fmt.Errorf("update-worker requires an operation ID and service address")
+			break
+		}
+		err = daemonupdate.RunWorker(cfg, *listen, fs.Args()[0])
 	case "serve":
 		err = serve(cfg, *listen)
 	case "pair":
@@ -154,8 +168,36 @@ func serve(cfg *config.Config, listenFlag string) error {
 	go registry.Rescan() // warm the repo list
 
 	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
+	changes, err := specflow.New(specflow.Options{
+		Dir: cfg.ChangesDir(), Beads: client, Headless: assistant,
+		Active: func(path, changeID string) string {
+			return activeChange(path, changeID, roundsRef.Load(), manager)
+		},
+		Evidence: func(path string, change specflow.Change) []specflow.Evidence {
+			return changeEvidence(path, change, roundsRef.Load(), manager, client)
+		},
+		Notify: func(path string) {
+			for _, ref := range registry.Refs() {
+				if sameRepoPath(ref.Path, path) {
+					registry.Invalidate(ref.ID)
+					broker.Publish("repo", map[string]string{"repo_id": ref.ID})
+				}
+			}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("load specification workflows: %w", err)
+	}
+	defer changes.Shutdown(5 * time.Second)
 	workspaces := &workspace.Manager{Root: cfg.WorktreesDir()}
 	roundsMgr, err := rounds.New(rounds.Options{
+		SpecContract: func(ctx context.Context, path, beadID string) (*api.SpecContract, error) {
+			contract, err := changes.Contract(ctx, path, beadID)
+			if err != nil || contract == nil {
+				return nil, err
+			}
+			return executionContract(*contract), nil
+		},
 		Dir: cfg.RoundsDir(), Runs: manager, Beads: client, Headless: assistant,
 		Gates: gates.NewRunner(cfg.MaxConcurrentGates), Workspaces: workspaces,
 		Repo: func(id string) (string, string, error) {
@@ -180,7 +222,8 @@ func serve(cfg *config.Config, listenFlag string) error {
 	roundsRef.Store(roundsMgr)
 	roundsMgr.Start()
 	go sweepWorktrees(workspaces, registry, roundsMgr, logger)
-	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Broker: broker, Log: logger}
+	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Changes: changes, Broker: broker, Log: logger}
+	srv.Updates = daemonupdate.NewService(cfg, addr)
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()

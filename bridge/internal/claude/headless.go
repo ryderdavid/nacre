@@ -35,6 +35,9 @@ type Headless struct {
 	// ReadRepo also lets the call read the working directory: Read, Grep,
 	// Glob and read-only git. Nothing can be written either way.
 	ReadRepo bool
+	// ReadSource permits source inspection without a shell or repository commands.
+	// It takes precedence over ReadRepo and AllowedTools.
+	ReadSource bool
 }
 
 // RepoReadTools are what a ReadRepo call may use besides AllowedTools.
@@ -89,7 +92,9 @@ func (h Headless) Args() []string {
 	if len(h.Schema) > 0 {
 		args = append(args, "--json-schema", string(h.Schema))
 	}
-	if h.ReadRepo {
+	if h.ReadSource {
+		args = append(args, "--tools", "Read,Grep,Glob", "--allowed-tools", "Read", "Grep", "Glob")
+	} else if h.ReadRepo {
 		args = append(args, "--tools", "Bash,Read,Grep,Glob")
 		args = append(args, "--disallowed-tools")
 		args = append(args, bdWriteCommands...)

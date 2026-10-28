@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ const maxStderrTail = 10
 
 // Runner executes headless calls with the configured claude binary.
 type Runner struct {
+	active     atomic.Int64
 	ClaudePath string
 	Timeout    time.Duration
 
@@ -57,6 +59,8 @@ type Outcome struct {
 // passed to emit as it arrives (emit may be nil). The error describes what a
 // person can do about it.
 func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit func(api.RunEvent)) (Outcome, error) {
+	r.active.Add(1)
+	defer r.active.Add(-1)
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout

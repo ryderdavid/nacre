@@ -10,6 +10,9 @@ import com.ryderdavid.nacre.data.bridge.StreamMessage
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.CreateIssue
+import com.ryderdavid.nacre.data.model.DaemonUpdate
+import com.ryderdavid.nacre.data.model.ChangeAction
+import com.ryderdavid.nacre.data.model.ChangeEnvelope
 import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Keys
@@ -89,6 +92,29 @@ class NacreRepository(
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     private val connections = MutableStateFlow<Map<String, Connection>>(emptyMap())
+    private val daemonUpdates = DaemonUpdates(scope)
+    val daemonUpdateStates = daemonUpdates.states
+
+    private fun updateComputers() = paired.value.values.map { p ->
+        UpdateComputer(p.host.id, p.host.hostId, connections.value[p.host.id] is Connection.Online,
+            status = { p.client.daemonUpdate().also { refreshUpdatedComputer(p, it) } },
+            start = { p.client.startDaemonUpdate().also { refreshUpdatedComputer(p, it) } })
+    }
+
+    private suspend fun refreshUpdatedComputer(p: Paired, update: DaemonUpdate) {
+        if (!update.verifiedUpdate) return
+        try {
+            val health = p.client.health()
+            if (paired.value[p.host.id] === p && health.hostId == p.host.hostId) {
+                connections.update { it + (p.host.id to Connection.Online(health)) }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // A transient refresh failure must not replace the durable update result.
+        }
+    }
+    fun refreshDaemonUpdates() = daemonUpdates.refresh(updateComputers())
+    fun updateConnectedComputers() = daemonUpdates.startAll(updateComputers())
 
     val hosts: StateFlow<List<HostState>> = combine(paired, connections) { p, c ->
         p.values.map { HostState(it.host, c[it.host.id] ?: Connection.Connecting) }
@@ -172,6 +198,7 @@ class NacreRepository(
     }
 
     private fun forget(hostId: String) {
+        daemonUpdates.remove(hostId)
         repoLists.update { it - hostId }
         repoErrors.update { it - hostId }
         runLists.update { it - hostId }
@@ -311,6 +338,11 @@ class NacreRepository(
     }
 
     fun issue(key: String, id: String): Issue? = boards[key]?.value?.data?.index?.byId?.get(id)
+
+    suspend fun change(key: String, id: String): ChangeEnvelope = clientFor(key).change(Keys.id(key), id)
+
+    suspend fun changeAction(key: String, id: String, action: ChangeAction): ChangeEnvelope =
+        clientFor(key).changeAction(Keys.id(key), id, action).also { refreshBoard(key, quiet = true) }
 
     /** Optimistic drag-and-drop move with undo. */
     fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {
@@ -453,9 +485,9 @@ class NacreRepository(
     fun round(key: String): Round? = rounds.value.firstOrNull { it.key == key }
 
     /** Starts a round of [beads] in [repoKey]'s repository on that computer. */
-    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null): Round {
+    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null, specChangeId: String? = null, specRevision: String? = null): Round {
         val p = pairedFor(repoKey)
-        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd)).tag(p.host).also(::upsertRound)
+        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd, specChangeId = specChangeId, specRevision = specRevision)).tag(p.host).also(::upsertRound)
     }
 
     suspend fun roundDetail(key: String): BridgeClient.RoundDetail {

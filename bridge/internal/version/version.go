@@ -5,5 +5,8 @@ package version
 // -ldflags "-X github.com/ryderdavid/nacre/bridge/internal/version.Version=...".
 var Version = "0.1.0"
 
+// Commit identifies the exact source selected by the release updater.
+var Commit = ""
+
 // Name is the service name reported by /v1/ping and /v1/health.
 const Name = "nacred"

@@ -30,6 +30,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	}
 	defer m.Shutdown(time.Second)
 	run, err := m.Start(StartRequest{
+		SpecChangeID: "change", SpecRevision: "approved-r2", SpecSectionID: "opaque-section",
 		RepoID: "r", RepoPath: repo, IssueID: "X-1", Mode: "auto", Prompt: "go", Worktree: true,
 		RoundID: "rd1", Kind: "bead", Branch: "nacre/r/rd1/X-1", Workspace: ws, Base: "abc123",
 		MaxBudgetUSD: 4, Env: []string{"NACRE_RESOURCE_EMULATOR=emulator-5554"},
@@ -38,6 +39,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 		t.Fatal(err)
 	}
 	done := waitStatus(t, m, run.ID, api.StatusSucceeded)
+	if done.SpecChangeID != "change" || done.SpecRevision != "approved-r2" || done.SpecSectionID != "opaque-section" {
+		t.Fatalf("run lost specification provenance: %+v", done)
+	}
 	realWS, _ := filepath.EvalSymlinks(ws)
 	if got, _ := filepath.EvalSymlinks(done.SessionCWD); got != realWS {
 		t.Errorf("ran in %q, want %q", done.SessionCWD, ws)

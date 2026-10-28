@@ -267,6 +267,11 @@ func (c *Config) RunsDir() string { return filepath.Join(c.dataDir(), "runs") }
 // RoundsDir holds round state.
 func (c *Config) RoundsDir() string { return filepath.Join(c.dataDir(), "rounds") }
 
+// ChangesDir holds recoverable OpenSpec workflow journals.
+func (c *Config) ChangesDir() string { return filepath.Join(c.dataDir(), "changes") }
+
+func (c *Config) UpdatesDir() string { return filepath.Join(c.dataDir(), "updates") }
+
 // WorktreesDir holds the worktrees rounds work in.
 func (c *Config) WorktreesDir() string { return filepath.Join(c.dataDir(), "worktrees") }
 

@@ -1,12 +1,15 @@
 package com.ryderdavid.nacre.ui.rounds
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -32,6 +35,8 @@ import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Repo
+import com.ryderdavid.nacre.data.model.SpecChange
+import com.ryderdavid.nacre.data.model.hasSpecWorkflow
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.LocalContainer
@@ -41,8 +46,20 @@ import kotlinx.coroutines.launch
 fun roundCandidates(index: BoardIndex): List<Issue> {
     val order = listOf(Lane.READY, Lane.DOING, Lane.BLOCKED)
     return index.issues
-        .filter { !it.isClosed && it.type != "epic" && index.laneOf(it) in order }
+        .filter { !it.isClosed && it.type != "epic" && !it.hasSpecWorkflow && index.laneOf(it) in order }
         .sortedWith(compareBy<Issue> { order.indexOf(index.laneOf(it)) }.thenBy { it.priority }.thenBy { it.id })
+}
+
+/** Preserve the approved section order and never offer unrelated board work in a spec round. */
+fun specificationCandidates(index: BoardIndex, change: SpecChange): List<Issue> =
+    change.implementationIds.mapNotNull(index.byId::get).filterNot { it.isClosed }
+
+fun specificationUnavailable(index: BoardIndex, change: SpecChange): String? = when {
+    change.implementationIds.isEmpty() -> "This change needs a current approval and a complete section mapping."
+    change.implementationIds.any { it !in index.byId } -> "Some approved beads aren't loaded yet. Close this sheet and refresh the board before starting."
+    change.implementationIds.any { index.byId[it]?.type == "epic" } -> "A task section points to an epic. Repair the section mapping before starting."
+    specificationCandidates(index, change).isEmpty() -> "All mapped beads are closed. Closure alone does not verify this change. Review its evidence, or reopen a section bead that still needs implementation."
+    else -> null
 }
 
 /** Why a repository can't take a round, or null when it can. */
@@ -58,21 +75,23 @@ fun roundUnavailable(repo: Repo?): String? = when {
  * works each on its own branch, checks and merges them, and finishes on one commit.
  */
 @Composable
-fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit) {
+fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit, specChange: SpecChange? = null) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
-    var picked by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var budget by rememberSaveable { mutableStateOf("") }
+    var picked by rememberSaveable(specChange?.id, specChange?.revision) { mutableStateOf(specChange?.let { specificationCandidates(index, it).map(Issue::id) }.orEmpty()) }
+    var budget by rememberSaveable(specChange?.id) { mutableStateOf(if (specChange == null) "" else "5") }
     var starting by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
-    val unavailable = roundUnavailable(repo)
-    val candidates = roundCandidates(index)
+    val unavailable = roundUnavailable(repo) ?: specChange?.let { specificationUnavailable(index, it) }
+    val candidates = specChange?.let { specificationCandidates(index, it) } ?: roundCandidates(index)
+    val budgetValid = (budget.isBlank() && specChange == null) || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
 
     HandleDismissSheet(onDismiss = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Work several beads until done", style = MaterialTheme.typography.headlineSmall)
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).navigationBarsPadding().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (specChange == null) "Work several beads until done" else "Implement this change", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "${repo?.hostName?.ifBlank { null } ?: "The computer"} reviews them together first and asks you only where they disagree. " +
+                if (specChange != null) "Only sections from the approved proposal are included. The computer checks this revision again, installs its specification, then implements and verifies the selected work. Landing remains your decision."
+                else "${repo?.hostName?.ifBlank { null } ?: "The computer"} reviews them together first and asks you only where they disagree. " +
                     "Then it works each on its own branch, checks it against the repository's gates, and merges them into one commit that builds.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -80,7 +99,10 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                 Text(unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             } else {
                 Text("Gates: ${repo!!.gates.joinToString(", ")}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                if (specChange != null) Text("${specChange.changeName} · revision ${specChange.revision.take(12)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                if (specChange != null && candidates.size < specChange.implementationIds.size) Text("${specChange.implementationIds.size - candidates.size} closed section beads are omitted. Their evidence remains in the change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (candidates.isEmpty()) Text("No ordinary open work is available. Specification work starts from its Change card.", style = MaterialTheme.typography.bodyMedium)
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
                     items(candidates, key = { it.id }) { issue ->
                         val on = issue.id in picked
                         Row(
@@ -104,6 +126,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                     prefix = { Text("$") }, label = { Text("Budget") },
                     placeholder = { Text("The computer's default") },
                     supportingText = { Text("The round pauses when it has spent this much of your Claude subscription.") },
+                    isError = !budgetValid,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -113,7 +136,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                         error = null
                         scope.launch {
                             try {
-                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull())
+                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull(), specChange?.id, specChange?.revision)
                                 onStarted(round.key)
                             } catch (e: Exception) {
                                 error = e.friendly()
@@ -122,7 +145,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                             }
                         }
                     },
-                    enabled = picked.isNotEmpty() && !starting,
+                    enabled = picked.isNotEmpty() && !starting && budgetValid,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 ) {
                     Text(

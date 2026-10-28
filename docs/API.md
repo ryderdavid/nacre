@@ -325,6 +325,52 @@ the sessions doing work right now. A client that shows each bead's agent session
 asks for both and keeps stale runs out of its runs list and counts itself. Fetching one by id is not
 gated: a client that was handed an adopted run's id can always follow it.
 
+### Specification workflow
+
+| Method | Path | Request | Response |
+| --- | --- | --- | --- |
+| GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
+| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
+
+Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `approve` must name the exact
+reviewed `revision`; it promotes/synchronizes Beads but never starts code execution. Conflicts return
+409, unavailable prerequisites 503. `GET` reports unsupported prerequisites as `available:false`
+with a reason. All routes require the ordinary bearer authentication.
+
+`change` contains `id`, `seed_id`, `epic_id`, `change_name`, `phase`, `revision`, `approved_revision`,
+`summary`, `route`, `rationale`, `references`, `artifacts`, `findings`, `sections`, `retired_sections`,
+`history`, `evidence`, `cost_usd`, `updated_at` and an optional `error`. Artifacts are exact
+`{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from
+`<!-- nacre-section: ID -->` markers, never heading numbers. Findings carry
+`{id,severity,summary,detail,disposition}`. History entries are `{at,kind,text}`.
+
+Phases: `drafting`, `reviewing`, `needs_attention`, `awaiting_approval`, `promoting`, `ready`,
+`stale`, `interrupted`, `covered`. Routes: `new`, `amend`, `repair`, `covered`. Coverage is a reviewed
+read-only recommendation and does not create an epic or close the seed. A proposal action permits
+at most three author/reviewer passes, $5 total and 30 minutes. The bridge persists checkpoints and
+does not silently resume a paid call after restart.
+
+Start implementation through `POST /v1/repos/{repo}/rounds` with approved child `beads`,
+`spec_change_id` and `spec_revision`. A stale or omitted revision, missing workflow, linked epic as
+a task, or mixed contract selection is refused. One or more current section beads may be selected.
+The round stores `spec_contracts`, keyed by bead ID, including exact artifact content and section
+intent. It installs those artifacts in its integration workspace before creating task workspaces.
+Automatic landing is disabled for these rounds. Generic run creation/follow-up cannot bypass the
+round's revision guards; spec runs expose `can_followup:false`.
+
+`Run` and `RoundBead` optionally carry `spec_change_id`, `spec_revision`, `spec_section_id`.
+Evidence entries contain `{section_id,bead_id,run_id?,round_id?,round_state?,verified,build_verified,human_check,landed,note}`.
+`verified` records a passing section run; `build_verified` additionally requires that the section
+is integrated into the round's final commit with passing final gates and build.
+Only a passing verification of the current approved revision counts; unknown, reopened or changed
+work never becomes successful from a checkbox or status alone. Landing, human acceptance and
+OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
+
+Workflow journals live in the bridge data directory's `changes/` folder. Back this up with Beads
+and OpenSpec files: stable `specflow:` and `spec-section:` labels are recovery identities, not a
+replacement for the journal. Lost records fail closed. External file edits invalidate review;
+manual edits to generated bead fields are preserved and require reconciliation before retry.
+
 ### RunRequest
 `{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)", "agent": "claude-code|codex"}`
 All fields optional; defaults come from config.
@@ -509,3 +555,16 @@ Behaviour clients should rely on, as verified against bd 1.2.2 and Claude Code 2
   `failed` with `error: "bridge stopped"` (clean shutdown) or `"bridge restarted"` (found on startup).
 - `RunRequest.prompt` (override) gets the same `{{id}}`/`{{title}}`/`{{repo}}`/`{{instructions}}`
   substitution as the configured template; instructions are appended when it has no placeholder.
+
+
+## Daemon updates
+
+`GET /v1/daemon/update` reads the persistent updater status. `POST /v1/daemon/update` with `{}` requests the latest stable release of the fixed `ryderdavid/nacre` repository. Both require the normal pairing bearer token. No repository, ref, shell command or force option is accepted. `health.features` includes `daemon-update` when this protocol exists; `health.commit` reports build provenance. `nacred version --json` returns version, commit and `update_protocol: 1`.
+
+A successful start returns HTTP 202 with the status object. Repeating a request while active returns the same operation. Busy work or an unsupported installation returns 409 with a user-facing error; unknown request fields return 400. Older daemons return 404/405/501 and need one manual bootstrap installation. During maintenance, other mutations return 503; authenticated reads and update status remain available. Maintenance admission is serialized with mutation admission and checks owned runs, all nonterminal rounds and unfinished round cleanup, assistant calls and specification jobs.
+
+Status fields: `available`, `id`, `host_id`, `phase`, `message`, `active`, `current_version`, `current_commit`, `target_version`, `target_commit`, `started_at`, `updated_at`. Current identity comes from the daemon answering the request. Phases include `idle`, `unavailable`, `checking`, `building`, `restarting`, `rolling_back`, `updated`, `current`, `failed`, `rolled_back`, `recovery_failed` and `interrupted`. Only `updated` with matching current/target version and commit confirms the new release; `current` means no installation was needed. Clients preflight GET to record the prior operation ID and reconcile a lost POST response using GET, never an automatic repeated POST. Historical terminal status with that same ID does not confirm a new request.
+
+The standard macOS LaunchAgent installation is required. The helper is a separate LaunchAgent, uses the existing local gh authentication, resolves the stable tag to a commit, downloads bounded source, builds with `-buildvcs=false`, and verifies the candidate's declared version/commit/update protocol. It preserves the old binary, replaces atomically, restarts the daemon and checks authenticated health against exact version, commit and host ID. Failed verification attempts restoration and separately reports whether the old daemon verified. Source staging is removed; status and `previous-nacred` remain in the `updates` data directory. The operation is bounded; stale or unreadable state never implies success and requires local inspection.
+
+No published release is an explicit failure; main is never a substitute. The updater does not publish releases, force-stop active work, update Android, alter Git checkouts, change pairing configuration, or automatically queue a retry for busy/offline hosts.

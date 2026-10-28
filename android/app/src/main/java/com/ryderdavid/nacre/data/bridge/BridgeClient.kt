@@ -3,6 +3,9 @@ package com.ryderdavid.nacre.data.bridge
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Comment
+import com.ryderdavid.nacre.data.model.DaemonUpdate
+import com.ryderdavid.nacre.data.model.ChangeAction
+import com.ryderdavid.nacre.data.model.ChangeEnvelope
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.Issue
@@ -102,9 +105,27 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     @Serializable private data class ErrorBody(val error: String = "", val detail: String = "")
 
     suspend fun health(): Health = get("/v1/health")
+    suspend fun daemonUpdate(): DaemonUpdate = updateCall(false)
+    suspend fun startDaemonUpdate(): DaemonUpdate = updateCall(true)
+
+    private suspend fun updateCall(start: Boolean): DaemonUpdate {
+        val req = Request.Builder().url(url("/v1/daemon/update")).apply {
+            if (start) post("{}".toRequestBody(JSON))
+        }.build()
+        val updateHttp = http.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
+        val body = withContext(Dispatchers.IO) { updateHttp.newCall(req).await().use { it.checked() } }
+        return json.decodeFromString(body)
+    }
     suspend fun repos(refresh: Boolean = false): List<Repo> = get<Repos>("/v1/repos" + if (refresh) "?refresh=1" else "").repos
     suspend fun board(repo: String): Board = get("/v1/repos/$repo/issues")
     suspend fun detail(repo: String, id: String): Detail = get("/v1/repos/$repo/issues/${enc(id)}")
+    suspend fun change(repo: String, id: String): ChangeEnvelope = try {
+        get("/v1/repos/$repo/issues/${enc(id)}/change")
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) ChangeEnvelope(reason = "Update nacred on this computer to develop OpenSpec changes here.") else throw e
+    }
+    suspend fun changeAction(repo: String, id: String, action: ChangeAction): ChangeEnvelope =
+        send("POST", "/v1/repos/$repo/issues/${enc(id)}/change", action)
     suspend fun create(repo: String, body: CreateIssue): Issue = send<CreateIssue, One>("POST", "/v1/repos/$repo/issues", body).issue
     suspend fun update(repo: String, id: String, body: UpdateIssue): Issue = send<UpdateIssue, One>("PATCH", "/v1/repos/$repo/issues/${enc(id)}", body).issue
     suspend fun close(repo: String, id: String, reason: String? = null): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/close", Reason(reason)).issue

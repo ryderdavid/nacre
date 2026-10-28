@@ -119,6 +119,9 @@ func beadPrompt(v beadPromptVars) string {
 	}
 	s.WriteString("- If an acceptance criterion can only be checked by a person (a physical device, an account, a judgment), say so in your final message and leave it; don't fake it.\n")
 	s.WriteString("\nFinish with a short summary of what you changed and how you checked it.\n")
+	if c, ok := v.Round.SpecContracts[is.ID]; ok {
+		s.WriteString(specContractPrompt(c))
+	}
 	return s.String()
 }
 
@@ -199,7 +202,13 @@ func (v integrationVars) header(mark string) string {
 }
 
 func (v integrationVars) rules(gatesCmd string) string {
-	return fmt.Sprintf("\n## Rules\n- Work only in this worktree, on %s. Don't push, reset, rebase or switch branches.\n- Keep what each bead set out to do; when they truly can't both hold, follow the decisions above, and explain any trade-off in your final message.\n- Commit when done, then run `%s` and fix anything it reports.\n", v.Round.Branch, gatesCmd)
+	text := fmt.Sprintf("\n## Rules\n- Work only in this worktree, on %s. Don't push, reset, rebase or switch branches.\n- Keep what each bead set out to do; when they truly can't both hold, follow the decisions above, and explain any trade-off in your final message.\n- Commit when done, then run `%s` and fix anything it reports.\n", v.Round.Branch, gatesCmd)
+	for _, b := range v.Round.Beads {
+		if c, ok := v.Round.SpecContracts[b.ID]; ok {
+			text += specContractPrompt(c)
+		}
+	}
+	return text
 }
 
 func conflictPrompt(v integrationVars) string {

@@ -58,11 +58,12 @@ type Options struct {
 
 // StartRequest describes a new run.
 type StartRequest struct {
-	RepoID, RepoName, RepoPath string
-	IssueID, IssueTitle        string
-	Mode, Model                string
-	Worktree                   bool
-	Prompt                     string
+	SpecChangeID, SpecRevision, SpecSectionID string
+	RepoID, RepoName, RepoPath                string
+	IssueID, IssueTitle                       string
+	Mode, Model                               string
+	Worktree                                  bool
+	Prompt                                    string
 	// Agent is api.AgentCodex to run the bead with the Codex CLI; "" (or
 	// api.AgentClaudeCode) runs it with Claude Code.
 	Agent string
@@ -186,6 +187,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	t := time.Now()
 	id := newID(t)
 	meta := api.Run{
+		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision, SpecSectionID: req.SpecSectionID,
 		ID: id, RepoID: req.RepoID, RepoName: req.RepoName, RepoPath: req.RepoPath,
 		IssueID: req.IssueID, IssueTitle: req.IssueTitle, Status: api.StatusQueued,
 		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree,

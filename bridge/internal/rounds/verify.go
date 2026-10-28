@@ -80,8 +80,15 @@ func toAPI(rs []gates.Result) []api.GateResult {
 // startVerify checks a bead whose turn ended and decides what happens next.
 func (r *round) startVerify(b *api.RoundBead) {
 	id, ws, base, runID, cfg := b.ID, b.Workspace, b.Base, b.RunID, r.cfg
+	meta := clone(r.meta)
 	r.goOp("verify:"+id, func(ctx context.Context) func() {
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		v := r.m.check(ctx, ws, base, cfg, beadGates(cfg))
+		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
+			return r.specStop(err)
+		}
 		if runID != "" {
 			_ = r.m.opts.Runs.SetVerification(runID, v)
 		}

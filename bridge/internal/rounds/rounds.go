@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
@@ -84,6 +85,9 @@ type Options struct {
 	Workspaces *workspace.Manager
 	// Repo resolves a repository id to its name and path.
 	Repo func(id string) (name, path string, err error)
+	// SpecContract returns the current approved contract, nil for ordinary
+	// beads, and an error for linked work whose approval cannot be proved.
+	SpecContract func(context.Context, string, string) (*api.SpecContract, error)
 	// Mode and Model are used for the round's runs ("" model = CLI default).
 	Mode, Model string
 	// BudgetUSD and TimeLimitMinutes are the defaults for new rounds.
@@ -113,12 +117,13 @@ func (c conflict) Unwrap() error { return ErrConflict }
 type Manager struct {
 	opts Options
 
-	mu     sync.Mutex
-	rounds map[string]*round
-	leases *leases
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu         sync.Mutex
+	rounds     map[string]*round
+	leases     *leases
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	background atomic.Int64
 }
 
 // round is one round's live state. mu guards everything; it is never held
@@ -260,6 +265,8 @@ type CreateRequest struct {
 	Target           string
 	BudgetUSD        float64
 	TimeLimitMinutes int
+	SpecChangeID     string
+	SpecRevision     string
 }
 
 // Create validates the request, makes the integration workspace and starts
@@ -292,6 +299,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		return api.Round{}, conflict("name at least one bead")
 	}
 	beads := make([]api.RoundBead, 0, len(ids))
+	contracts := map[string]api.SpecContract{}
 	for _, id := range ids {
 		raw, err := m.opts.Beads.Get(ctx, path, id)
 		if err != nil {
@@ -301,7 +309,31 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		if is.Status == "closed" {
 			return api.Round{}, conflict(id + " is closed")
 		}
-		beads = append(beads, api.RoundBead{ID: id, Title: is.Title, Type: is.Type, Priority: is.Priority, State: api.BeadWaiting})
+		b := api.RoundBead{ID: id, Title: is.Title, Type: is.Type, Priority: is.Priority, State: api.BeadWaiting}
+		if m.opts.SpecContract != nil {
+			c, err := m.opts.SpecContract(ctx, path, id)
+			if err != nil {
+				return api.Round{}, conflict(fmt.Sprintf("%s: %v", id, err))
+			}
+			if c != nil {
+				if is.Type == "epic" {
+					return api.Round{}, conflict("Choose this change's section beads; its epic is not an implementation task")
+				}
+				pinned := *c
+				pinned.Artifacts = append([]api.SpecArtifact{}, c.Artifacts...)
+				pinned.References = append([]string{}, c.References...)
+				contracts[id] = pinned
+				b.SpecChangeID, b.SpecRevision, b.SpecSectionID = c.ChangeID, c.Revision, c.SectionID
+			} else if specLabelled(is.Labels) {
+				return api.Round{}, conflict("The bead's specification mapping is missing; restore the workflow before starting it")
+			}
+		} else if specLabelled(is.Labels) {
+			return api.Round{}, conflict("Specification workflow state is unavailable; restore it before starting this bead")
+		}
+		beads = append(beads, b)
+	}
+	if err := validateSpecRequest(beads, contracts, req.SpecChangeID, req.SpecRevision); err != nil {
+		return api.Round{}, conflict(err.Error())
 	}
 	m.mu.Lock()
 	for _, other := range m.rounds {
@@ -328,6 +360,15 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	if err != nil {
 		return api.Round{}, fmt.Errorf("integration workspace: %w", err)
 	}
+	if len(contracts) > 0 {
+		if err := installSpecSnapshot(ctx, ws.Path, contracts); err != nil {
+			cleanupErr := m.opts.Workspaces.RemoveRound(ctx, path, req.RepoID, id, nil)
+			if cleanupErr != nil {
+				return api.Round{}, conflict(fmt.Sprintf("The approved specification could not be installed: %v. Its unused workspace remains at %s: %v", err, ws.Path, cleanupErr))
+			}
+			return api.Round{}, conflict("The approved specification could not be installed: " + err.Error())
+		}
+	}
 	budget, limit := req.BudgetUSD, req.TimeLimitMinutes
 	if budget <= 0 {
 		budget = m.opts.BudgetUSD
@@ -340,7 +381,8 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: req.Epic,
 		State: api.RoundPlanning, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: beads, BudgetUSD: budget, TimeLimitMinutes: limit, Mode: m.opts.Mode, Model: m.opts.Model,
-		AutoLand: cfg.Land.Auto, CreatedAt: now, UpdatedAt: now,
+		AutoLand: cfg.Land.Auto && len(contracts) == 0, CreatedAt: now, UpdatedAt: now,
+		SpecContracts: contracts,
 	}
 	dir := filepath.Join(m.opts.Dir, id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -394,6 +436,10 @@ func (m *Manager) Get(id string) (api.Round, []api.RoundEvent, error) {
 }
 
 // List returns rounds, newest first, optionally for one repository.
+// Busy includes terminal rounds whose cleanup or cancelled operation is still
+// running. Check the counter after snapshots to cover terminal transitions.
+func (m *Manager) Busy() bool { return len(m.List("", true)) > 0 || m.background.Load() > 0 }
+
 func (m *Manager) List(repoID string, activeOnly bool) []api.Round {
 	m.mu.Lock()
 	list := make([]*round, 0, len(m.rounds))

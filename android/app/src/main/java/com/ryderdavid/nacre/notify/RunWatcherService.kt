@@ -46,7 +46,12 @@ class RunWatcherService : Service() {
                     delay(1500) // let a follow-up or queued run show up before giving up
                     stopSelf()
                 } else {
-                    runCatching { NotificationManagerCompat.from(this@RunWatcherService).notify(NOTIFICATION_ID, ongoing(active)) }
+                    try {
+                        NotificationManagerCompat.from(this@RunWatcherService).notify(NOTIFICATION_ID, ongoing(active))
+                    } catch (_: SecurityException) {
+                        // Notification permission may be revoked while a run is active.
+                        // Keep watching; the foreground service owns its initial notification.
+                    }
                 }
             }
         }

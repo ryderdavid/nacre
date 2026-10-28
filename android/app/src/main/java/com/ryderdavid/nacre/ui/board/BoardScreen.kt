@@ -242,7 +242,7 @@ fun BoardScreen(
                                             AssistantTarget.Board(repoKey, repo?.name ?: ""), inPane = true,
                                             onClose = { pane = null }, onOpenBead = { _, id -> pane = id }, onOpenRun = onOpenRun,
                                         )
-                                        current != null -> BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun)
+                                        current != null -> BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound)
                                     }
                                 }
                             }

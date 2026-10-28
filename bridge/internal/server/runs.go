@@ -72,6 +72,10 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if err := s.standaloneChangeGuard(r.Context(), path, id, raw); err != nil {
+		s.fail(w, err)
+		return
+	}
 	var issue struct {
 		Title string `json:"title"`
 	}
@@ -141,6 +145,26 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) followupRun(w http.ResponseWriter, r *http.Request) {
+	previous, err := s.Runs.Run(r.PathValue("run"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if previous.SpecChangeID != "" {
+		writeError(w, http.StatusConflict, "Continue this specification task from its round.", "")
+		return
+	}
+	if previous.IssueID != "" && !previous.Adopted() {
+		raw, err := s.BD.Get(r.Context(), previous.RepoPath, previous.IssueID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if err := s.standaloneChangeGuard(r.Context(), previous.RepoPath, previous.IssueID, raw); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	var req struct {
 		Message string `json:"message"`
 		Mode    string `json:"mode"`

@@ -49,6 +49,9 @@ func (r *round) startPreflight() {
 	r.event("plan", "", "Reviewing the beads together before any code is written")
 	r.saveLocked()
 	r.goOp("preflight", func(ctx context.Context) func() {
+		if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
+			return r.specStop(err)
+		}
 		var in preflightInput
 		n, err := retry(ctx, func() (e error) { in, e = r.m.gatherPreflight(ctx, meta); return e })
 		if err != nil {

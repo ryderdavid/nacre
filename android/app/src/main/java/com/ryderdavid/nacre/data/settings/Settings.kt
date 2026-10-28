@@ -103,6 +103,7 @@ class SettingsStore(private val context: Context) {
         val hidden = stringSetPreferencesKey("hidden_repos")
         val pane = intPreferencesKey("detail_pane_dp")
         val notify = booleanPreferencesKey("notify_runs")
+        val changeFeedback = stringPreferencesKey("change_feedback_json")
     }
 
     @Serializable
@@ -143,6 +144,14 @@ class SettingsStore(private val context: Context) {
     }
 
     suspend fun current(): AppSettings = settings.first()
+
+    /** Kept outside AppSettings so a draft does not restart connections or change preferences. */
+    suspend fun changeFeedback(key: String): String = stringMap(context.dataStore.data.first()[K.changeFeedback])[key].orEmpty()
+
+    suspend fun setChangeFeedback(key: String, text: String) = context.dataStore.edit { prefs ->
+        val drafts = stringMap(prefs[K.changeFeedback])
+        prefs[K.changeFeedback] = json.encodeToString(if (text.isEmpty()) drafts - key else drafts + (key to text))
+    }
 
     private suspend fun editHosts(change: (List<StoredHost>) -> List<StoredHost>) = context.dataStore.edit { p ->
         p[K.hosts] = json.encodeToString(change(storedHosts(p)))

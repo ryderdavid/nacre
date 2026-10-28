@@ -53,6 +53,8 @@ type TurnState struct {
 // when claude does, when it times out, or when Cancel is called; a reader
 // going away does not stop it.
 func (r *Runner) Start(cwd string, h claude.Headless) *Turn {
+	// Reserve before starting the goroutine so maintenance cannot race it.
+	r.active.Add(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &Turn{ID: newTurnID(), cancel: cancel, changed: make(chan struct{})}
 
@@ -65,6 +67,7 @@ func (r *Runner) Start(cwd string, h claude.Headless) *Turn {
 	r.turnsMu.Unlock()
 
 	go func() {
+		defer r.active.Add(-1)
 		defer cancel()
 		var seq int64
 		out, err := r.Run(ctx, cwd, h, func(ev api.RunEvent) {

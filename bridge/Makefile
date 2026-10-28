@@ -1,5 +1,6 @@
 VERSION ?= 0.1.0
-LDFLAGS := -s -w -X github.com/ryderdavid/nacre/bridge/internal/version.Version=$(VERSION)
+COMMIT ?=
+LDFLAGS := -s -w -X github.com/ryderdavid/nacre/bridge/internal/version.Version=$(VERSION) -X github.com/ryderdavid/nacre/bridge/internal/version.Commit=$(COMMIT)
 BIN := bin/nacred
 
 .PHONY: build test vet install clean

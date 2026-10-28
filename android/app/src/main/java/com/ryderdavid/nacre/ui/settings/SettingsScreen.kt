@@ -2,6 +2,10 @@ package com.ryderdavid.nacre.ui.settings
 
 import com.ryderdavid.nacre.data.settings.Host
 import com.ryderdavid.nacre.data.HostState
+import com.ryderdavid.nacre.data.model.DaemonUpdate
+import androidx.compose.material.icons.rounded.SystemUpdateAlt
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.foundation.lazy.items
@@ -115,6 +119,9 @@ private val NO_SCANNER = setOf(
 class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     val settings = c.settings.settings
     val hosts = c.repository.hosts
+    val daemonUpdates = c.repository.daemonUpdateStates
+    fun refreshDaemonUpdates() = c.repository.refreshDaemonUpdates()
+    fun updateComputers() = c.repository.updateConnectedComputers()
     val keyStatus = MutableStateFlow<String?>(null)
 
     fun update(t: (AppSettings) -> AppSettings) = viewModelScope.launch { c.settings.update(t) }
@@ -162,6 +169,8 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
     val vm = nacreViewModel { SettingsViewModel(it) }
     val s by vm.settings.collectAsState(initial = null)
     val hosts by vm.hosts.collectAsState()
+    val daemonUpdates by vm.daemonUpdates.collectAsState()
+    LaunchedEffect(hosts.map { it.host.id to it.online }) { vm.refreshDaemonUpdates() }
     val keyStatus by vm.keyStatus.collectAsState()
     var manual by remember { mutableStateOf(false) }
     var editKey by remember { mutableStateOf(false) }
@@ -206,11 +215,26 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
                     supportingContent = { Text("Run `nacred pair` on a Mac and scan the code") },
                 )
             }
-            items(hosts, key = { it.host.id }) { hs -> HostRow(hs, onReconnect = vm::reconnect, onRename = { renaming = hs.host }, onRemove = { removing = hs.host }) }
+            items(hosts, key = { it.host.id }) { hs -> HostRow(hs, update = daemonUpdates[hs.host.id], onReconnect = vm::reconnect, onRename = { renaming = hs.host }, onRemove = { removing = hs.host }) }
             item {
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = ::scan) { Icon(Icons.Rounded.QrCodeScanner, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(if (hosts.isEmpty()) "Scan pairing code" else "Add a computer") }
                     OutlinedButton(onClick = { manual = true }) { Text("Enter manually") }
+                }
+            }
+
+            if (hosts.isNotEmpty()) item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = vm::updateComputers, enabled = hosts.any { it.online } && daemonUpdates.values.none { it.active }) {
+                        Icon(Icons.Rounded.SystemUpdateAlt, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(when {
+                            daemonUpdates.values.any { it.active && it.phase != "loading" } -> "Updating computers…"
+                            daemonUpdates.values.any { it.active } -> "Checking computers…"
+                            else -> "Update connected computers"
+                        })
+                    }
+                    Text("Installs the latest stable Nacre release on each connected computer. Idle daemons restart; busy computers keep their work.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -435,11 +459,12 @@ private fun KeyDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun HostRow(hs: HostState, onReconnect: () -> Unit, onRename: () -> Unit, onRemove: () -> Unit) {
+private fun HostRow(hs: HostState, update: DaemonUpdate?, onReconnect: () -> Unit, onRename: () -> Unit, onRemove: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val (sub, ok) = when (val c = hs.connection) {
         is Connection.Online -> listOfNotNull(
             hs.host.url,
+            c.health.version.takeIf { it.isNotBlank() }?.let { "nacred $it" },
             c.health.bdVersion.takeIf { it.isNotBlank() }?.let { "bd $it" },
             c.health.claudeVersion.takeIf { it.isNotBlank() }?.let { "Claude Code $it" },
             c.health.codexVersion.takeIf { it.isNotBlank() && c.health.runsCodex }?.let { "Codex $it" },
@@ -456,7 +481,15 @@ private fun HostRow(hs: HostState, onReconnect: () -> Unit, onRename: () -> Unit
             )
         },
         headlineContent = { Text(hs.host.name) },
-        supportingContent = { Text(sub) },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(sub)
+                update?.takeIf { it.phase != "idle" }?.let { state ->
+                    Text(state.message, color = if (state.problem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (state.active) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
+                }
+            }
+        },
         trailingContent = {
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${hs.host.name}") }

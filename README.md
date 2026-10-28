@@ -31,6 +31,10 @@ A native Android (Material You) kanban for [beads](https://github.com/steveyegge
 
 Run `nacred` on each Mac (`cd bridge && make install`, set `host_name` in its config if you like) and pair each one from Settings › *Add a computer*. Boards from every computer are listed together, tagged with the computer they live on; the Runs tab shows where each run ran.
 
+Settings › **Update connected computers** asks every reachable Mac to install the latest published stable Nacre GitHub release. Each computer shows its own progress or reason it cannot update. Busy computers keep their work; retry after their runs, rounds, assistant turns or specification jobs finish. Updating idle computers briefly disconnects them while the daemon restarts, then verifies the exact release and computer identity. Failed health checks restore the previous binary.
+
+This requires one initial installation of an update-capable nacred LaunchAgent on each Mac, plus Go and GitHub CLI (`gh`) authenticated for `ryderdavid/nacre`. The updater downloads the release's exact source commit into private staging; it does not alter a working checkout. A stable release must be published with a `vMAJOR.MINOR.PATCH` tag and include update protocol 1. If there is no release, the app reports that condition; it never substitutes the main branch. It does not update the Android app. State and rollback live in the nacred data directory's `updates/` folder. An interrupted helper or failed recovery requires checking the saved rollback on that Mac.
+
 A repository checked out on more than one computer (same git `origin`, SSH host aliases resolved) shows as **one board**. Its *home* computer — first paired, or chosen from the board's menu under *Beads from* — is where the board's beads are read and edited. *Run with Claude Code* then offers **Run on** with each computer that has the checkout, so heavy work can go to the Studio and lighter work to the laptop. A run on a computer whose copy of the beads lacks that bead fails with a clear message: sync the beads (git or a Dolt remote) first.
 
 ## Agent sessions
@@ -80,6 +84,30 @@ The Runs tab shows rounds first, with their decisions, beads, plan, spend and lo
 notification when a round needs a decision, parks a bead, pauses or is ready to land. A Claude
 Code session in a terminal can start one too, with `nacred round start NAC-1 NAC-2 …`. A repository
 needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way rounds do.
+
+## Specification-guided work
+
+A bead's **Change** card connects its intent to OpenSpec. **Develop a proposal** compares accepted
+specifications and active changes, recommends a new change, amendment, repair or existing coverage,
+then runs strict OpenSpec validation and a fresh adversarial review. Findings, source references,
+artifacts and decisions stay visible in the change view and are recorded on the bead. Feedback is
+saved when you leave the view. Each proposal action is bounded to three review passes, $5 and
+30 minutes; an interrupted operation can resume from its saved checkpoint.
+
+Approve the reviewed revision to turn the seed into an epic with one child per task section.
+Approval prepares the work. **Implement change** opens the existing round controls with those
+children and an explicit budget. The round carries the exact approved artifacts into its
+workspaces; later proposal or project-context edits require another review. Generic runs cannot
+bypass that handoff. Retries recover mapped children and preserve manually edited bead content.
+
+The change view distinguishes task progress, verified runs, human checks and landing. A checked
+task or closed bead is not evidence that the specification has been implemented. Specification
+rounds require explicit landing; accepting the result, closing the epic and archiving the OpenSpec
+change remain deliberate final steps. Other beads and rounds keep their existing behavior.
+
+This requires an OpenSpec-enabled repository with project context in `openspec/config.yaml`,
+`AGENTS.md`, the OpenSpec CLI and Claude Code on its bridge. Implementation also needs `nacre.yaml`
+gates. Older bridges show an availability explanation without affecting ordinary bead editing.
 
 ## The board
 
