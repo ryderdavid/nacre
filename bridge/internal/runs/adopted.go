@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -144,6 +145,9 @@ func (m *Manager) newAdopted(s sessions.Session) (*run, api.Run, error) {
 	if m.foldTranscript(r, s, time.Now()) {
 		r.changed()
 	}
+	if m.foldPeer(r, s, time.Now()) {
+		r.changed()
+	}
 	if err := r.save(); err != nil {
 		return nil, api.Run{}, err
 	}
@@ -187,6 +191,9 @@ func (m *Manager) refreshAdopted(r *run, s sessions.Session) (api.Run, bool) {
 	if m.foldTranscript(r, s, time.Now()) {
 		changed = true
 	}
+	if m.foldPeer(r, s, time.Now()) {
+		changed = true
+	}
 	if !changed {
 		return api.Run{}, false
 	}
@@ -208,6 +215,10 @@ func (m *Manager) endAdopted(r *run) (api.Run, bool) {
 	r.ensureLoaded()
 	r.meta.EndedAt = now()
 	r.meta.Activity, r.meta.Stale = api.ActivityEnded, false
+	r.peer = nil
+	if r.meta.CanSendLive || r.meta.LiveSendUnavailable != "" {
+		r.meta.CanSendLive, r.meta.LiveSendUnavailable = false, "the session has ended"
+	}
 	text := "session ended: the Claude Code process is no longer running"
 	if r.meta.Agent == api.AgentCodex {
 		// Codex leaves no pid to check; see internal/sessions/codex.go.
@@ -250,7 +261,7 @@ func (m *Manager) foldTranscript(r *run, s sessions.Session, now time.Time) bool
 		}
 	}
 	meta.Activity, meta.Stale = m.adoptedActivity(s, now)
-	if meta == r.meta {
+	if reflect.DeepEqual(meta, r.meta) {
 		return len(evs) > 0
 	}
 	r.meta = meta
