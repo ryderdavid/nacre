@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390">
+<title>Round preflight spec drift question</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&amp;family=Roboto+Mono&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</head>
+<body>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F7F9FA; color: #181C1D; font-family: Roboto, system-ui, sans-serif; padding: 20px 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px">
+<h1 style="margin: 0; font-size: 20px; font-weight: 400">‹ Round rdtnq2</h1>
+<span style="background: #FFDBC8; color: #7A3A08; font-size: 12px; padding: 4px 10px; border-radius: 8px">Needs decision</span>
+</div>
+<div style="font-size: 13px; color: #3F4849; padding: 0 4px">Preflight · NAC-3s3, NAC-cjm · waiting before any bead starts</div>
+<div style="background: #FFFFFF; border: 1px solid #BEC8C9; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+<span style="align-self: flex-start; background: #E7DEFF; color: #494365; font-size: 12px; padding: 3px 10px; border-radius: 8px">Spec drift</span>
+<div style="font-size: 15px; font-weight: 500">NAC-3s3 changes specified behavior</div>
+<div style="font-size: 13px; color: #3F4849; line-height: 1.45">The bead wants hardware Enter to send. Requirement "Bead chat composer" says Enter inserts a newline.</div>
+<div style="font-family: 'Roboto Mono', monospace; font-size: 11px; color: #3F4849; word-break: break-all">openspec/changes/semi-attended-rounds/specs/round-app/spec.md:42</div>
+<label style="display: flex; gap: 12px; align-items: flex-start; border: 2px solid #00696E; border-radius: 12px; padding: 10px 12px; cursor: pointer"><input type="radio" name="answer" checked style="margin-top: 3px; accent-color: #00696E"><span><span style="display: block; font-size: 14px; font-weight: 500">Amend the spec first</span><span style="display: block; font-size: 12px; color: #3F4849; line-height: 1.4">Leaves this round and starts a proposal for the bead.</span></span></label>
+<label style="display: flex; gap: 12px; align-items: flex-start; border: 1px solid #BEC8C9; border-radius: 12px; padding: 10px 12px; cursor: pointer"><input type="radio" name="answer" style="margin-top: 3px; accent-color: #00696E"><span><span style="display: block; font-size: 14px; font-weight: 500">Proceed as an exception</span><span style="display: block; font-size: 12px; color: #3F4849; line-height: 1.4">Records the decision on the bead; its card shows Touches a spec.</span></span></label>
+<label style="display: flex; gap: 12px; align-items: flex-start; border: 1px solid #BEC8C9; border-radius: 12px; padding: 10px 12px; cursor: pointer"><input type="radio" name="answer" style="margin-top: 3px; accent-color: #00696E"><span><span style="display: block; font-size: 14px; font-weight: 500">Leave it out of this round</span><span style="display: block; font-size: 12px; color: #3F4849; line-height: 1.4">Beads that build on it are left out too.</span></span></label>
+</div>
+<div style="display: flex; justify-content: flex-end"><button style="height: 44px; padding: 0 24px; border: none; border-radius: 22px; background: #00696E; color: #FFFFFF; font: 500 14px Roboto, sans-serif">Answer</button></div>
+<div style="background: #EBEEEF; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; font-weight: 500">Plan</div>
+<div style="font-size: 13px; color: #3F4849">NAC-cjm · no conflicts · starts after your answer</div>
+<div style="font-size: 13px; color: #3F4849">NAC-3s3 · waiting on this question</div>
+</div>
+</div>
+</body>
+</html>
