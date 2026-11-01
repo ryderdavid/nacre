@@ -137,3 +137,14 @@ func (m *Manager) evidenceStates(r *record, stamp string) map[string]string {
 	m.mu.Unlock()
 	return states
 }
+
+// OpenSpecReady reports whether the repository's OpenSpec setup is valid, so
+// New effort, intake and the Proposals lane apply to it.
+func OpenSpecReady(repo string) bool {
+	repo, e := canonicalRepo(repo)
+	if e != nil {
+		return false
+	}
+	_, e = collect(repo)
+	return e == nil
+}

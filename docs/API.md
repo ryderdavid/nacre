@@ -341,7 +341,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
-| GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total}`: the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
+| GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total, openspec}`: `openspec` says the repository's OpenSpec setup is valid (New effort, intake and the Proposals lane apply); the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
 
 Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `develop` may carry
 `intake: {verdict, change_name?}`, the New effort verdict it was confirmed with; the change keeps it

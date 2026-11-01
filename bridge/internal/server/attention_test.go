@@ -50,8 +50,9 @@ func TestAttentionAndChangesRoutes(t *testing.T) {
 		t.Fatalf("without a builder: %d %+v", code, empty)
 	}
 	var none struct {
-		Changes []api.ChangeSummary
-		Total   int
+		Changes  []api.ChangeSummary
+		Total    int
+		OpenSpec bool
 	}
 	changesPath := "/v1/repos/" + discovery.RepoID(repo) + "/changes"
 	if code := get(t, h, changesPath, &none); code != http.StatusOK || none.Changes == nil || none.Total != 0 {
@@ -73,7 +74,7 @@ func TestAttentionAndChangesRoutes(t *testing.T) {
 	if code := get(t, h, "/v1/attention", &got); code != http.StatusOK || len(got.Items) != 1 || got.Items[0].Kind != api.AttentionBeadDecision || got.Items[0].BeadID != "N-1" {
 		t.Fatalf("attention: %d %+v", code, got)
 	}
-	if code := get(t, h, changesPath, &none); code != http.StatusOK || len(none.Changes) != 0 {
+	if code := get(t, h, changesPath, &none); code != http.StatusOK || len(none.Changes) != 0 || none.OpenSpec {
 		t.Fatalf("changes: %d %+v", code, none)
 	}
 	if code := get(t, h, "/v1/repos/nope/changes", nil); code != http.StatusNotFound {

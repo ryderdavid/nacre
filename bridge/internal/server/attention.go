@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 )
 
 // listAttention is Needs you: everything on this computer waiting on Ryder.
@@ -30,5 +31,5 @@ func (s *Server) listChanges(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changes": changes, "total": total})
+	writeJSON(w, http.StatusOK, map[string]any{"changes": changes, "total": total, "openspec": specflow.OpenSpecReady(path)})
 }

@@ -101,3 +101,15 @@ This reviews the design against the source; it does not verify an implementation
 - Add the Proposals lane.
 - `tasks.md` is the plan beads are made from, frozen at approval; borrow beads-plan, Turma and
   boardthatpowder ideas rather than installing them; the archive-time `tasks.md` write goes to NAC-mp6.8.
+
+# Implementation decisions (2026-11-01, NAC-mp6.7.2–.11)
+
+Made while implementing, without stopping to ask, per Ryder's instruction. Each follows the spec
+where it speaks and the design's intent where it doesn't.
+
+- Section beads were created as plain children of NAC-mp6.7 (no `specflow:` labels): this change has
+  no specflow record, and hand-adding labels would make the guards refuse them.
+- The changes summary also reports `openspec` (valid OpenSpec setup), so the app knows when to offer
+  New effort and the Proposals lane without a failed intake call. Not in the design; additive.
+- Spec state uses the theme's violet `secondaryContainer`, matching the mockups; anything waiting on
+  Ryder uses the existing `needsYou`/`needsYouContainer`.
