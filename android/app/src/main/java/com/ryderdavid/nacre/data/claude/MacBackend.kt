@@ -112,6 +112,8 @@ class MacSession(
             sessionId = sessionId,
             bdReads = true,
             keep = true,
+            // This backend can't call the needs_you read tool, so nacred adds the list.
+            needsYou = true,
         )
 
         val host = repo.hostName(Keys.host(runKey)).ifBlank { "the computer" }

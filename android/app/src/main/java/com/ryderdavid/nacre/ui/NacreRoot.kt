@@ -70,6 +70,8 @@ sealed interface DeepLink {
     data class Pair(val request: PairRequest) : DeepLink
     data class OpenRun(val runKey: String) : DeepLink
     data class OpenRound(val roundKey: String) : DeepLink
+    /** A change notification: the bead whose change view to open. */
+    data class OpenChange(val repoKey: String, val beadId: String) : DeepLink
 }
 
 private enum class Tab { BOARDS, RUNS, SETTINGS }
@@ -119,6 +121,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
             is DeepLink.Pair -> { pendingPair = deepLink.request; nav.switchTab(SettingsRoute) }
             is DeepLink.OpenRun -> nav.navigate(RunRoute(deepLink.runKey))
             is DeepLink.OpenRound -> nav.navigate(RoundRoute(deepLink.roundKey))
+            is DeepLink.OpenChange -> nav.navigate(BeadRoute(deepLink.repoKey, deepLink.beadId, openChange = true))
             null -> Unit
         }
         if (deepLink != null) onDeepLinkHandled()

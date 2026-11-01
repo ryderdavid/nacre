@@ -4,6 +4,9 @@ import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.board.BoardFilter
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.model.CreateIssue
+import com.ryderdavid.nacre.data.model.ChangeAction
+import com.ryderdavid.nacre.data.model.FoundRequest
+import com.ryderdavid.nacre.data.model.foundChange
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.UpdateIssue
@@ -111,6 +114,35 @@ class RepoBoardTools(
     override suspend fun addDependency(issueId: String, dependsOnId: String): String {
         repo.addDep(repoKey, issueId, dependsOnId)
         return "$issueId now waits on $dependsOnId."
+    }
+
+    override suspend fun developProposal(id: String, feedback: String?): String {
+        val env = repo.changeAction(repoKey, id, ChangeAction("develop", feedback = feedback.orEmpty()))
+        val c = env.change ?: return "Development didn't start: ${env.reason.ifBlank { "the computer gave no reason" }}"
+        return "Developing a proposal for $id (${c.phase.replace('_', ' ')}). Its independent review runs on the computer; Ryder approves it from Needs you or the change view."
+    }
+
+    override suspend fun proposalNote(id: String?): String {
+        val inventory = id?.let { runCatching { repo.change(repoKey, it).inventory }.getOrNull() }
+        return "Up to \$5 per proposal action" + (inventory?.let { " · compared with ${it.acceptedSpecs} accepted specs and ${it.activeChanges} active changes" } ?: "")
+    }
+
+    override suspend fun foundSomething(foundIn: String, note: String, answer: String): String {
+        val snap = repo.awaitBoard(repoKey)
+        val bead = snap.index.byId[foundIn] ?: return "No bead $foundIn on this board."
+        val change = snap.changes?.changes?.firstOrNull { c -> c.epicId == foundIn || c.sections.any { it.beadId == foundIn } || c.id == bead.foundChange }
+            ?: return "$foundIn doesn't belong to a specification change with an epic."
+        val res = repo.found(repoKey, change.id, FoundRequest(answer, note = note, foundIn = foundIn))
+        val p = res.prefill
+        if (p != null) {
+            // Out of scope: the approved call creates the follow-up straight away, related to the epic.
+            val created = repo.create(repoKey, CreateIssue(title = p.title.ifBlank { note.take(80) }, description = p.description, related = p.related))
+            return "Created ${created.id}, related to ${change.epicId}, for the out-of-scope work."
+        }
+        return when (answer) {
+            "amend" -> "Filed ${res.beadId} under ${change.epicId}. It changes what done means, so it waits in Needs you for Ryder to revise ${change.name} or make it a follow-on."
+            else -> "Added ${res.beadId} under ${change.epicId}; the approved plan is unchanged."
+        }
     }
 
     override suspend fun startRound(ids: List<String>, budgetUsd: Double?): String {

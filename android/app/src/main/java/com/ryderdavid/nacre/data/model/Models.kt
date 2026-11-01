@@ -393,6 +393,8 @@ data class AssistRequest(
     @SerialName("read_repo") val readRepo: Boolean = false,
     /** Keeps the session so the next turn can resume it. */
     val keep: Boolean = false,
+    /** Adds the computer's Needs you list to the prompt (the board assistant on the Mac). */
+    @SerialName("needs_you") val needsYou: Boolean = false,
 )
 
 /** What one [AssistRequest] produced. */

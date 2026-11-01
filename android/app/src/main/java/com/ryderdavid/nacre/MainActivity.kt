@@ -37,6 +37,9 @@ class MainActivity : ComponentActivity() {
         intent ?: return null
         intent.getStringExtra(RunNotifier.EXTRA_RUN)?.let { return DeepLink.OpenRun(it) }
         intent.getStringExtra(RunNotifier.EXTRA_ROUND)?.let { return DeepLink.OpenRound(it) }
+        intent.getStringExtra(RunNotifier.EXTRA_CHANGE_BEAD)?.let { bead ->
+            intent.getStringExtra(RunNotifier.EXTRA_CHANGE_REPO)?.let { return DeepLink.OpenChange(it, bead) }
+        }
         return intent.dataString?.let(PairRequest::parse)?.let(DeepLink::Pair)
     }
 }

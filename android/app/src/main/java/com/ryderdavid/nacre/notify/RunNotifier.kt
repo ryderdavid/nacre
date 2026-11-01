@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import com.ryderdavid.nacre.data.model.AttentionItem
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -71,6 +72,13 @@ internal fun roundNotice(before: Round?, after: Round): RoundNotice? {
     return null
 }
 
+/**
+ * The Needs you items worth a notification: a proposal ready for review and a
+ * change ready to archive, each once, when it first appears.
+ */
+internal fun changeNotices(items: List<AttentionItem>, announced: Set<String>): List<AttentionItem> =
+    items.filter { (it.kind == AttentionItem.PROPOSAL_READY || it.kind == AttentionItem.CHANGE_ARCHIVABLE) && it.id !in announced }
+
 internal fun shouldAnnounceFinish(run: Run, notifyRuns: Boolean, appInForeground: Boolean): Boolean =
     notifyRuns && !appInForeground && !run.isAdopted
 
@@ -96,6 +104,24 @@ class RunNotifier(
         scope.launch {
             repository.roundChanges.collect { (before, after) ->
                 if (settings.current().notifyRuns) roundNotice(before, after)?.let { postRound(after, it) }
+            }
+        }
+        scope.launch {
+            // The first list only records what is already waiting: it is on the
+            // Boards screen, so there is nothing new to announce.
+            var announced: Set<String>? = null
+            repository.attention.collect { items ->
+                if (!repository.attentionSupported.value) return@collect
+                val seen = announced
+                if (seen != null && settings.current().notifyRuns) changeNotices(items, seen).forEach(::postChange)
+                announced = seen.orEmpty() + items.map { it.id }
+            }
+        }
+        scope.launch {
+            repository.workingChanges.collect { w ->
+                if (w.isNotEmpty() && foreground && !RunWatcherService.running) {
+                    withContext(Dispatchers.Main) { runCatching { RunWatcherService.start(context) } }
+                }
             }
         }
         scope.launch {
@@ -125,7 +151,7 @@ class RunNotifier(
             description = "When a Claude Code run has printed nothing for a long time"
         })
         nm.createNotificationChannel(NotificationChannel(CH_ROUNDS, "Rounds that need you", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "When a round needs a decision, parks a bead, pauses, or is ready to land"
+            description = "When a round needs a decision, parks a bead, pauses, or is ready to land, and when a proposal is ready for review or a change is ready to archive"
         })
     }
 
@@ -142,6 +168,27 @@ class RunNotifier(
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .build()
         NotificationManagerCompat.from(context).notify((round.key + notice.title).hashCode(), n)
+    }
+
+    private fun postChange(item: AttentionItem) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val title = if (item.kind == AttentionItem.PROPOSAL_READY) "Proposal ready for your review" else "Change ready to archive"
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_CHANGE_REPO, item.repoKey)
+            putExtra(EXTRA_CHANGE_BEAD, item.beadId)
+        }
+        val n = NotificationCompat.Builder(context, CH_ROUNDS)
+            .setSmallIcon(R.drawable.ic_stat_nacre)
+            .setContentTitle(title)
+            .setContentText(item.title)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(item.title + "\n" + item.why))
+            .setSubText(listOfNotNull(item.hostName.ifBlank { null }, item.repoName.ifBlank { null }).joinToString(" · "))
+            .setContentIntent(PendingIntent.getActivity(context, item.id.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        NotificationManagerCompat.from(context).notify(item.id.hashCode(), n)
     }
 
     private fun postStalled(run: Run) {
@@ -185,6 +232,8 @@ class RunNotifier(
         const val CH_STUCK = "runs_stuck"
         const val EXTRA_RUN = "nacre.run_id"
         const val EXTRA_ROUND = "nacre.round_id"
+        const val EXTRA_CHANGE_REPO = "nacre.change_repo"
+        const val EXTRA_CHANGE_BEAD = "nacre.change_bead"
         const val CH_ROUNDS = "rounds"
 
         fun openRound(context: Context, roundKey: String): PendingIntent {

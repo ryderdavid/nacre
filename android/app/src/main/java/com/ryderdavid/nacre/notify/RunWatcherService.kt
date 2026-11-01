@@ -40,12 +40,13 @@ class RunWatcherService : Service() {
         repo.startEvents()
         watch?.cancel()
         watch = scope.launch {
-            repo.runs.collectLatest { runs ->
+            // Watch while runs are active or proposals are being worked on the computer.
+            kotlinx.coroutines.flow.combine(repo.runs, repo.workingChanges) { runs, w -> runs to w }.collectLatest { (runs, w) ->
                 val active = runsWorthWatching(runs)
-                if (active.isEmpty()) {
+                if (active.isEmpty() && w.isEmpty()) {
                     delay(1500) // let a follow-up or queued run show up before giving up
                     stopSelf()
-                } else {
+                } else if (active.isNotEmpty()) {
                     try {
                         NotificationManagerCompat.from(this@RunWatcherService).notify(NOTIFICATION_ID, ongoing(active))
                     } catch (_: SecurityException) {

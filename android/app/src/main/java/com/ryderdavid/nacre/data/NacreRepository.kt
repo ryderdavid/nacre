@@ -203,6 +203,14 @@ class NacreRepository(
     private val attentionHosts = MutableStateFlow<Set<String>>(emptySet())
     val attentionSupported: StateFlow<Boolean> = attentionHosts.map { it.isNotEmpty() }.stateIn(scope, SharingStarted.Eagerly, false)
 
+    private val working = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Changes being drafted, reviewed or promoted, as "<host>~<change id>": while
+     * any are, the app keeps watching for their events as it does for runs.
+     */
+    val workingChanges: StateFlow<Set<String>> = working
+
     /** Each change phase transition, with its computer, for notifications. */
     private val _changeEvents = MutableSharedFlow<Pair<String, ChangeEvent>>(extraBufferCapacity = 16)
     val changeEvents: SharedFlow<Pair<String, ChangeEvent>> = _changeEvents
@@ -296,6 +304,8 @@ class NacreRepository(
                         }
                         is StreamMessage.ChangeChanged -> {
                             _changeEvents.tryEmit(id to msg.event)
+                            val k = Keys.of(id, msg.event.changeId)
+                            working.update { if (msg.event.phase in WORKING_PHASES) it + k else it - k }
                             Keys.of(id, msg.event.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
                             attentionSoon(p)
                         }
@@ -390,7 +400,10 @@ class NacreRepository(
     suspend fun change(key: String, id: String): ChangeEnvelope = clientFor(key).change(Keys.id(key), id)
 
     suspend fun changeAction(key: String, id: String, action: ChangeAction): ChangeEnvelope =
-        clientFor(key).changeAction(Keys.id(key), id, action).also { refreshBoard(key, quiet = true); refreshAttention(Keys.host(key)) }
+        clientFor(key).changeAction(Keys.id(key), id, action).also { env ->
+            env.change?.takeIf { it.isWorking }?.let { c -> working.update { it + Keys.of(Keys.host(key), c.id) } }
+            refreshBoard(key, quiet = true); refreshAttention(Keys.host(key))
+        }
 
     /** The board's changes as last loaded; null when its computer doesn't report them. */
     fun changes(key: String): ChangesList? = boards[key]?.value?.data?.changes
@@ -633,6 +646,9 @@ fun groupRepos(repos: List<Repo>, hostOrder: List<String>, homeHosts: Map<String
         RepoGroup(id, home, sorted)
     }
 }
+
+/** Phases in which a change's work runs on the computer. */
+val WORKING_PHASES = setOf("drafting", "reviewing", "promoting")
 
 fun Throwable.friendly(): String = when (this) {
     is BridgeException -> message.orEmpty()

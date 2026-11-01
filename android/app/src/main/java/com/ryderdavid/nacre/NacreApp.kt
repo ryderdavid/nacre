@@ -53,7 +53,7 @@ class AppContainer(app: Application) {
 
     fun assistant(repoKey: String, repoName: String): BoardAssistant = synchronized(assistants) {
         assistants.getOrPut(repoKey) {
-            BoardAssistant(backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope)
+            BoardAssistant(backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope, attention = { repository.attention.value })
         }
     }
 
@@ -63,6 +63,7 @@ class AppContainer(app: Application) {
             BoardAssistant(
                 backends, { settings.current() }, AllBoardsRouter(repository, settings), scope,
                 idleResetMs = BoardAssistant.ORCHESTRATOR_IDLE_RESET_MS,
+                attention = { repository.attention.value },
             )
         }
     }

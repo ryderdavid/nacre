@@ -32,6 +32,10 @@ interface BoardTools {
 
     /** Hands several beads to the board's computer as one round. */
     suspend fun startRound(ids: List<String>, budgetUsd: Double?): String = "Rounds aren't available on this board."
+    suspend fun developProposal(id: String, feedback: String?): String = "Proposals aren't available on this board."
+    suspend fun foundSomething(foundIn: String, note: String, answer: String): String = "Specification changes aren't available on this board."
+    /** A line for the approval card of a spending call: its limit and what it is compared with. */
+    suspend fun proposalNote(id: String?): String = "Up to \$5 per proposal action"
 }
 
 /**
@@ -110,6 +114,8 @@ class BoardAssistant(
     private val scope: CoroutineScope,
     /** Idle time after which the next message starts a new conversation; null keeps it forever. */
     private val idleResetMs: Long? = null,
+    /** Needs you across computers, for the needs_you tool. */
+    private val attention: () -> List<com.ryderdavid.nacre.data.model.AttentionItem> = { emptyList() },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val everyBoard = router.only == null
@@ -279,8 +285,13 @@ class BoardAssistant(
         if (missing.isNotEmpty()) return finish(item, "Missing required field(s): ${missing.joinToString()}", failed = true)
 
         // Nothing that changes a bead happens without the user saying yes here,
-        // whichever backend asked for it.
-        if (item.isWrite && !autoApprove.value) {
+        // whichever backend asked for it. Spending calls ask even in auto-apply.
+        val spending = spends(item.name, input)
+        if (spending) runCatching {
+            val note = router.resolve((input["board"] as? JsonPrimitive)?.content).proposalNote((input["id"] as? JsonPrimitive)?.content)
+            _items.update { list -> list.map { if (it is ChatItem.ToolCall && it.id == item.id) it.copy(summary = listOf(it.summary, note).filter(String::isNotBlank).joinToString(" · ")) else it } }
+        }
+        if (item.isWrite && (!autoApprove.value || spending)) {
             val gate = CompletableDeferred<Boolean>()
             approvals[item.id] = gate
             setState(item.id, ChatItem.ToolCall.State.NEEDS_APPROVAL)
@@ -295,6 +306,7 @@ class BoardAssistant(
             val board = s("board")
             val out = when (item.name) {
                 "list_boards" -> router.listBoards(s("query")?.ifBlank { null })
+                "needs_you" -> needsYou()
                 "list_beads" -> router.listBeads(board?.ifBlank { null }, s("lane")?.ifBlank { null }, s("query")?.ifBlank { null }, (input["limit"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 } ?: 50)
                 else -> {
                     // Everything else works on exactly one board; resolving it can fail with advice.
@@ -303,7 +315,16 @@ class BoardAssistant(
                     when (item.name) {
                         "get_bead" -> tools.getBead(s("id")!!)
                         "update_bead" -> tools.updateBead(s("id")!!, input)
-                        "create_bead" -> tools.createBead(input)
+                        "create_bead" -> tools.createBead(input).let { created ->
+                            // One approval covers both; a refused proposal leaves the bead created.
+                            if (s("then_develop") != "true") created
+                            else {
+                                val id = Regex("^Created: (\\S+)").find(created)?.groupValues?.get(1)
+                                if (id == null) created else created + "\n" + runCatching { tools.developProposal(id, null) }.getOrElse { "Its proposal didn't start: ${it.message}" }
+                            }
+                        }
+                        "develop_proposal" -> tools.developProposal(s("id")!!, s("feedback")?.ifBlank { null })
+                        "found_something" -> tools.foundSomething(s("found_in")!!, s("note")!!, s("answer")!!)
                         "close_bead" -> tools.closeBead(s("id")!!, s("reason")?.ifBlank { null })
                         "add_comment" -> tools.addComment(s("id")!!, s("text")!!)
                         "add_dependency" -> tools.addDependency(s("issue_id")!!, s("depends_on_id")!!)
@@ -320,6 +341,15 @@ class BoardAssistant(
         } catch (e: Exception) {
             finish(item, "Error: ${e.message}", failed = true)
         }
+    }
+
+    /** Needs you as lines the model can read. */
+    private fun needsYou(): String {
+        val items = attention()
+        if (items.isEmpty()) return "Nothing is waiting on Ryder."
+        return items.take(40).joinToString("\n") { i ->
+            "- ${i.kind} [${i.repoName}${if (i.beadId.isNotBlank()) " " + i.beadId else ""}${if (i.roundId.isNotBlank()) " round " + i.roundId else ""}] ${i.title}: ${i.why}"
+        } + if (items.size > 40) "\n…and ${items.size - 40} more" else ""
     }
 
     private fun noteBoard(id: String, key: String) {
@@ -389,6 +419,10 @@ class BoardAssistant(
 
             $howTo Changes you make through write tools are shown to Ryder for approval first, so propose concrete edits rather than asking whether to make them. Prefer a few well-aimed calls over many. run_in_claude_code dispatches one bead to Claude Code on Ryder's Mac Studio, which does the coding there. When Ryder asks for several beads to be worked until they're done, propose start_round with them instead: the computer reviews them together, asks Ryder only where they disagree, works each on its own branch, checks and merges them into one commit that passes the gates and builds.
 
+            When Ryder asks what to work on next or what needs him, start from needs_you (or the Needs you list in this prompt): mention what waits on him before suggesting new work.
+
+            Specification proposals: offer develop_proposal, or create_bead with then_develop, only for features or epics whose intent changes behavior an accepted spec or active change covers, or when Ryder asks. Never for chores, small fixes, or beads already linked to a change. Both spend up to ${'$'}5 and always ask Ryder, even when he has turned on auto-apply. If Ryder declines one for a bead, don't offer it again for that bead in this conversation. When work is found while a change is implemented, use found_something: how_order unless it changes what done means.
+
             Answer in short, scannable markdown suited to a phone screen. $refer
         """.trimIndent()
     }
@@ -409,12 +443,15 @@ class BoardAssistant(
                 "list_beads" -> listOfNotNull(s("lane")?.let { "lane: $it" }, s("query")?.let { "\"$it\"" }).joinToString(" · ").ifEmpty { "all beads" }
                 "get_bead" -> s("id").orEmpty()
                 "update_bead" -> "${s("id")}: " + (input?.keys?.filter { it != "id" && it != "board" && (s(it) != null || (it == "labels" && input[it] !is JsonPrimitive)) }?.joinToString() ?: "")
-                "create_bead" -> s("title").orEmpty()
+                "create_bead" -> s("title").orEmpty() + if (s("then_develop") == "true") " · and develop its proposal" else ""
                 "close_bead" -> listOfNotNull(s("id"), s("reason")).joinToString(" · ")
                 "add_comment" -> "${s("id")}: ${s("text")?.take(80)}"
                 "add_dependency" -> "${s("issue_id")} waits on ${s("depends_on_id")}"
                 "run_in_claude_code" -> s("id").orEmpty()
                 "start_round" -> (input?.get("ids") as? JsonArray)?.joinToString(", ") { (it as? JsonPrimitive)?.content.orEmpty() }.orEmpty()
+                "develop_proposal" -> "${s("id")}: develop a proposal"
+                "found_something" -> "${s("found_in")}: ${s("answer")?.replace('_', ' ')} · ${s("note")?.take(60)}"
+                "needs_you" -> "what needs Ryder"
                 else -> ""
             }
             // Cross-board calls name their board; say which one up front.

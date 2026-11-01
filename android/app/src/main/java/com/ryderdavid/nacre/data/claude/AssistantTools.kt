@@ -21,7 +21,14 @@ data class ToolSpec(
     val required: List<String> = emptyList(),
     /** Properties the model may leave out; leaving one out means "no value" or "unchanged". */
     val optional: Set<String> = emptySet(),
+    /** Spends Ryder's subscription on paid calls: always asks, even in auto-apply mode. */
+    val spends: Boolean = false,
 )
+
+/** Whether this call spends: a spending tool, or a create that also develops a proposal. */
+fun spends(name: String, input: kotlinx.serialization.json.JsonObject?): Boolean =
+    BOARD_TOOLS.firstOrNull { it.name == name }?.spends == true ||
+        (name == "create_bead" && (input?.get("then_develop") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true")
 
 private fun str(desc: String) = mapOf("type" to "string", "description" to desc)
 private fun typed(type: String, desc: String) = mapOf("type" to type, "description" to desc)
@@ -72,8 +79,25 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
             "parent" to str("Parent bead id, e.g. an epic, or empty"),
             "acceptance_criteria" to str("Testable acceptance criteria, or empty"),
             "labels" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
+            "then_develop" to typed("boolean", "Also develop a reviewed OpenSpec proposal for it (spends up to \$5; always asks Ryder). Only for features or epics that change behavior a spec or active change covers"),
         ),
-        write = true, required = listOf("title"),
+        write = true, required = listOf("title"), optional = setOf("then_develop"),
+    ),
+    ToolSpec(
+        "develop_proposal",
+        "Develop a reviewed OpenSpec proposal for an existing bead: the computer compares it with the accepted specs and every active change, writes a new change or an amendment, and has it independently reviewed. Spends up to \$5 of Ryder's subscription, so it always asks him first. Requires the user's approval.",
+        mapOf("id" to str("Bead id"), "feedback" to str("What the proposal should take into account, or empty")),
+        write = true, required = listOf("id"), optional = setOf("feedback"), spends = true,
+    ),
+    ToolSpec(
+        "found_something",
+        "Report work found while implementing a specification change, on its epic, a section bead or found bead (found_in). answer: how_order (only how or in what order: a bead under the change's epic), amend (it changes what done means: filed for Ryder to revise the change or make it a follow-on) or out_of_scope (a new bead related to the epic). Requires the user's approval.",
+        mapOf(
+            "found_in" to str("The bead the work was found in: the change's epic, a section bead or a found bead"),
+            "note" to str("One or two sentences: what was found"),
+            "answer" to str("how_order | amend | out_of_scope"),
+        ),
+        write = true, required = listOf("found_in", "note", "answer"),
     ),
     ToolSpec(
         "close_bead", "Close a bead as done. Requires the user's approval.",
@@ -107,6 +131,13 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
     ),
 )
 
+/** Needs you, across computers; offered on the API backend (the Mac backend gets it in the prompt). */
+val NEEDS_YOU = ToolSpec(
+    "needs_you",
+    "List everything waiting on Ryder across his computers: decisions, proposals ready for approval, blocked or stale reviews, round questions, parked beads, rounds ready to land, changes ready to archive and found work, each with why. Call it first when Ryder asks what to work on next or what needs him.",
+    emptyMap(), write = false,
+)
+
 /** Lists the boards; only offered when one conversation spans every board. */
 val LIST_BOARDS = ToolSpec(
     "list_boards",
@@ -120,8 +151,8 @@ val LIST_BOARDS = ToolSpec(
  * boards, and every board-scoped tool takes the board it acts on.
  */
 fun assistantTools(everyBoard: Boolean): List<ToolSpec> {
-    if (!everyBoard) return BOARD_TOOLS
-    return listOf(LIST_BOARDS) + BOARD_TOOLS.map { spec ->
+    if (!everyBoard) return listOf(NEEDS_YOU) + BOARD_TOOLS
+    return listOf(LIST_BOARDS, NEEDS_YOU) + BOARD_TOOLS.map { spec ->
         if (spec.name == "list_beads") spec.copy(
             description = spec.description.replace("on this board ", ""),
             props = mapOf("board" to str("Board name from list_boards. Leaving it out sweeps the ${AllBoardsRouter.MAX_BOARDS_SWEPT} most recently updated boards (a few rows from each, hidden boards skipped); prefer naming the boards whose counts matter")) + spec.props,
