@@ -116,10 +116,28 @@ type Sent struct {
 	From      string
 }
 
+// PartialWrite is Send's error when the write to the session failed after
+// some of the frames had gone out (NAC-jif). The session may already hold the
+// message, so Sent carries its msg_ids: a later receipt or transcript entry
+// can still be matched to it. A send that fails before any byte is written
+// returns a plain error instead.
+type PartialWrite struct {
+	Sent    Sent
+	Written int // bytes written before the failure
+	Err     error
+}
+
+func (e *PartialWrite) Error() string {
+	return fmt.Sprintf("write to the session failed after %d bytes: %v", e.Written, e.Err)
+}
+
+func (e *PartialWrite) Unwrap() error { return e.Err }
+
 // Send runs the guard and delivers content to the session as one peer
 // message, with a notify_when_idle subscription when the session offers it.
 // A nil error means the frames were written, not that the session accepted
-// them: that is what the receipts and the transcript say.
+// them: that is what the receipts and the transcript say. A write that fails
+// partway returns a *PartialWrite.
 func (c *Client) Send(t Target, content string) (Sent, error) {
 	if err := c.Check(t); err != nil {
 		return Sent{}, err
@@ -142,13 +160,17 @@ func (c *Client) Send(t Target, content string) (Sent, error) {
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(sendTimeout))
-	if _, err := conn.Write(data); err != nil {
+	sent := Sent{MsgID: s.MsgID, IdleMsgID: s.IdleMsgID, From: s.From}
+	if n, err := conn.Write(data); err != nil {
+		if n > 0 {
+			return Sent{}, &PartialWrite{Sent: sent, Written: n, Err: err}
+		}
 		return Sent{}, err
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
 	}
-	return Sent{MsgID: s.MsgID, IdleMsgID: s.IdleMsgID, From: s.From}, nil
+	return sent, nil
 }
 
 // keyFile is the JSON in ~/.claude/sessions/<pid>.<hex>.key.

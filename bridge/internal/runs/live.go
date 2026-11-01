@@ -18,8 +18,11 @@ import (
 // it cannot answer a pending permission prompt or run a slash command.
 //
 // Everything here is behind the version guard in internal/peer. A run whose
-// session fails it, or a send that errors, keeps the adopted run read-only:
-// POST .../live answers 409 and POST .../followup is untouched (always 409).
+// session fails it, or a send that errors before writing anything, keeps the
+// adopted run read-only: POST .../live answers 409 and POST .../followup is
+// untouched (always 409). A send whose write failed partway (NAC-jif, an
+// agreed exception to the live-session-sends spec) is recorded at once as
+// unconfirmed with its msg_id, since the session may have the message.
 
 // DefaultLiveConfirmAfter is how long a live send waits for a receipt or its
 // transcript entry before it is reported unconfirmed.
@@ -123,7 +126,8 @@ func reason(err error) string {
 // SendLive hands message to the live session of adopted run id as a peer
 // message, prefixed with LivePrefix(author). It is refused with a conflict —
 // and the run left as it was — when the run is not a live adopted session
-// that passes the guard, or when the send fails.
+// that passes the guard, or when the send fails before writing anything. A
+// send that fails partway through its write is recorded as unconfirmed.
 func (m *Manager) SendLive(id, message, author string) (api.Run, error) {
 	r := m.get(id)
 	if r == nil {
@@ -150,6 +154,11 @@ func (m *Manager) SendLive(id, message, author string) (api.Run, error) {
 
 	// Connecting runs the guard again (liveness, connect probe), without locks.
 	sent, err := m.opts.Live.Send(t, LivePrefix(author)+message)
+	var partial *peer.PartialWrite
+	if errors.As(err, &partial) {
+		m.opts.Logger.Printf("runs: live send to %s (pid %d): %v", id, t.PID, err)
+		sent, err = partial.Sent, nil
+	}
 	if err != nil {
 		var in *peer.Ineligible
 		if errors.As(err, &in) {
@@ -159,16 +168,23 @@ func (m *Manager) SendLive(id, message, author string) (api.Run, error) {
 		return api.Run{}, conflict("live send failed: " + err.Error() + "; the run stays read-only")
 	}
 
+	pm := api.PeerMessage{MsgID: sent.MsgID, Text: message, SentAt: now(), Status: api.PeerSent}
+	if partial != nil {
+		pm.Status, pm.Reason = api.PeerUnconfirmed, partial.Error()
+	}
 	r.mu.Lock()
-	msgs := append(slices.Clone(r.meta.PeerMessages), api.PeerMessage{
-		MsgID: sent.MsgID, Text: message, SentAt: now(), Status: api.PeerSent,
-	})
+	msgs := append(slices.Clone(r.meta.PeerMessages), pm)
 	if len(msgs) > maxPeerMessages {
 		msgs = msgs[len(msgs)-maxPeerMessages:]
 	}
 	r.meta.PeerMessages = msgs
 	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: message})
-	r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: "sent to the live session as a peer message. It shows in the terminal on the Mac and runs as a turn there; it cannot approve prompts or run slash commands."})
+	if partial != nil {
+		r.addEvent(api.RunEvent{Kind: api.KindSystem, IsError: api.Bool(true),
+			Text: "not confirmed: writing your message to the live session failed partway (" + partial.Err.Error() + "), so the session may or may not have it. nacred does not resend; a receipt or the transcript will still confirm it, or check the terminal on the Mac."})
+	} else {
+		r.addEvent(api.RunEvent{Kind: api.KindSystem, Text: "sent to the live session as a peer message. It shows in the terminal on the Mac and runs as a turn there; it cannot approve prompts or run slash commands."})
+	}
 	r.changed()
 	_ = r.save()
 	snap := r.meta
