@@ -2,6 +2,7 @@ package rounds
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,5 +151,103 @@ func TestFinishingAChangeEpicArchivesEvenWithItsWorkOnMain(t *testing.T) {
 	}
 	if marked != "T-E" || beads.bead("T-E").Status != "closed" {
 		t.Fatalf("archived=%q epic=%s", marked, beads.bead("T-E").Status)
+	}
+}
+
+func TestMixedRoundNamesEachEpicsBeads(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-E", Title: "One", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-F", Title: "Add f", Type: "feature", Parent: "T-E"},
+		&fakeBead{ID: "T-A", Title: "Loose", Type: "task"},
+	)
+	h := newHarness(t, beads, emptyPlan)
+	_, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F", "T-A"}})
+	if err == nil || !strings.Contains(err.Error(), "T-E: T-F") || !strings.Contains(err.Error(), "no epic: T-A") {
+		t.Fatalf("refusal = %v", err)
+	}
+}
+
+func TestFinishingAnEpicWhoseBranchIsAlreadyInMainClosesIt(t *testing.T) {
+	ctx := context.Background()
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-E", Title: "Done", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-G", Title: "Old", Type: "task", Parent: "T-E", Status: "closed"},
+	)
+	h := newHarness(t, beads, emptyPlan)
+	if _, err := gitx.Run(ctx, h.repo, "branch", "epic/t-e", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if _, closed, err := h.m.FinishEpic("repo", "T-E"); err != nil || !closed {
+		t.Fatalf("closed=%v err=%v", closed, err)
+	}
+	if beads.bead("T-E").Status != "closed" || gitx.BranchExists(ctx, h.repo, "epic/t-e") {
+		t.Fatal("the merged epic wasn't closed and its branch removed")
+	}
+}
+
+func TestFinishingThatFailsBeforeLandingLeavesMainAndTheEpic(t *testing.T) {
+	ctx := context.Background()
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-E", Title: "Drafts", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-G", Title: "Done", Type: "task", Parent: "T-E", Status: "closed"},
+	)
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{
+		changeOf: func(string, string) string { return "drafts" },
+		archive: func(context.Context, string, string, string) (string, error) {
+			return "", errors.New("openspec archive drafts failed: validation")
+		},
+	})
+	before, _ := gitx.RevParse(ctx, h.repo, "main")
+	fin, _, err := h.m.FinishEpic("repo", "T-E")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused := h.wait(t, fin.ID, api.RoundPaused, api.RoundLanded)
+	if paused.State != api.RoundPaused || !strings.Contains(paused.PauseReason, "openspec archive") {
+		t.Fatalf("round = %s %q", paused.State, paused.PauseReason)
+	}
+	if now, _ := gitx.RevParse(ctx, h.repo, "main"); now != before || beads.bead("T-E").Status != "open" {
+		t.Fatal("a failed finish moved main or closed the epic")
+	}
+	if _, err := h.m.Cancel(fin.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, fin.ID, api.RoundCancelled)
+	if _, _, err := h.m.FinishEpic("repo", "T-E"); err != nil {
+		t.Fatalf("finishing again after a cancelled attempt: %v", err)
+	}
+}
+
+// Approved specification sections land on their own only when asked to;
+// land.auto alone keeps them waiting for Ryder.
+func TestSpecRoundsLandWhenReadyOnlyWhenAsked(t *testing.T) {
+	_, contract := specFixture()
+	repo := testRepo(t)
+	yaml, _ := os.ReadFile(filepath.Join(repo, "nacre.yaml"))
+	os.WriteFile(filepath.Join(repo, "nacre.yaml"), []byte(strings.Replace(string(yaml), "  push: false", "  push: false\n  auto: true", 1)), 0o644)
+	if _, err := gitx.CommitAll(context.Background(), repo, "auto land"); err != nil {
+		t.Fatal(err)
+	}
+	beads := newFakeBeads(&fakeBead{ID: "T-1", Title: "Backend", Type: "task"}, &fakeBead{ID: "T-2", Title: "Backend too", Type: "task"})
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{repo: repo, specContract: func(_ context.Context, _, id string) (*api.SpecContract, error) {
+		c := contract
+		c.BeadID = id
+		return &c, nil
+	}})
+	for _, tc := range []struct {
+		bead string
+		ask  bool
+	}{{"T-1", false}, {"T-2", true}} {
+		r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{tc.bead}, SpecChangeID: contract.ChangeID, SpecRevision: contract.Revision, LandWhenReady: tc.ask})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.AutoLand != tc.ask {
+			t.Fatalf("land_when_ready=%v: auto_land=%v", tc.ask, r.AutoLand)
+		}
+		if _, err := h.m.Cancel(r.ID); err != nil {
+			t.Fatal(err)
+		}
+		h.wait(t, r.ID, api.RoundCancelled)
 	}
 }

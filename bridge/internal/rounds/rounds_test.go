@@ -281,6 +281,7 @@ type harnessOpts struct {
 	archive      func(context.Context, string, string, string) (string, error)
 	archived     func(string, string)
 	changeOf     func(string, string) string
+	specContract func(context.Context, string, string) (*api.SpecContract, error)
 }
 
 func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) *harness {
@@ -319,6 +320,7 @@ func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) 
 		Requirements:  o.requirements,
 		Develop:       o.develop,
 		ArchiveChange: o.archive, ChangeArchived: o.archived, ChangeOf: o.changeOf,
+		SpecContract: o.specContract,
 	})
 	if err != nil {
 		t.Fatal(err)
