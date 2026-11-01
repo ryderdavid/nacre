@@ -249,8 +249,15 @@ still a 409).
 
 ### CreateIssue
 `{"title" (required), "description", "issue_type", "priority", "parent", "labels": [], "design",
-"acceptance_criteria", "notes", "assignee"}` → `bd create --silent …`, then the created issue is
-returned from a fresh list.
+"acceptance_criteria", "notes", "assignee", "related": [], "follow_on_of", "found_comment": {bead,
+comment_id}}` → `bd create --silent …`, then the created issue is returned from a fresh list.
+
+A child of a spec epic (a parent labelled `specflow:<change-id>`) is created with
+`--no-inherit-labels` and gets `found:<change-id>`, so it is ordinary work rather than an unmapped
+linked bead. `related` adds a `related` dependency from the new bead on each listed one;
+`follow_on_of` closes that found bead with "Made a follow-on change: <new>"; `found_comment` posts the
+answered marker for that `Found:` comment. A failure in these links is logged; the bead stays
+created.
 
 ### UpdateIssue
 Any subset of `{"title","description","design","acceptance_criteria","notes","status","priority",
@@ -333,6 +340,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
 | POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
+| POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total}`: the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
 
 Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `develop` may carry
@@ -389,8 +397,33 @@ for the amended change; only then can `target_active` name the round or run usin
 written by hand is not tracked). A repository without valid OpenSpec answers 503; a failed, timed
 out or unreadable call answers 502 with `{error, cost_usd}`.
 
+### Found work
+`FoundRequest` is `{answer, note?, found_in?, before_section?, comment_id?, found_beads?}` for the
+change `{change}` (its `id`), which must have an epic.
+- `how_order`: a bead under the epic labelled `found:<change-id>`, created with
+  `--no-inherit-labels`, with a `discovered-from` dependency on `found_in` when given. It is ordinary
+  work and leaves the approved plan unchanged. `before_section` (a current section id) also makes that
+  section's bead depend on it (`blocks`), which doesn't stale the section.
+- `amend`: the same, also labelled `found-amend`: a pending change to the plan, refused by run and
+  round creation ("a pending amendment …") and skipped by spec drift. It shows in Needs you until it
+  is revised into the change or made a follow-on.
+- `revise`: `found_beads` lists open `found-amend` beads of the change. Their descriptions are joined
+  into one revision's feedback (refused over 12000 characters); `revise` is refused as usual while the
+  change has active work. The change records them as `pending_found`; once that revision is approved
+  and synchronized they are closed with a link to it. A revision started any other way clears
+  `pending_found`, so they return to Needs you.
+- `out_of_scope`: creates nothing; returns `prefill: {title, description, related: [epic],
+  found_comment?}` for New effort.
+- `dismiss`: needs `comment_id` and `found_in`; posts the answered marker.
+With `comment_id` (a `Found:` comment on `found_in`), the note defaults to the comment's text, a
+created bead's description ends "Found in: <bead>; source comment: <id>", and nacred replies on
+`found_in` with `[nacre-found:<comment-id>] answered: … → <bead>`. That marker is what keeps an
+answered comment answered. Spec round agents are told to stay in their section and report found
+work as a `Found:` comment on their bead instead of doing it or creating beads.
+
 `ChangeSummary` is `{id, change_name, phase, revision?, approved_revision?, epic_id?, seed_ids,
-sections, error?, stale_reason?, updated_at}`. `seed_ids` lists the original seed first, then any later seeds that
+sections, error?, stale_reason?, pending_found?, active?, updated_at}`; `active` names the round or
+run implementing the change. `seed_ids` lists the original seed first, then any later seeds that
 amended the change. Each section is `{id, title, bead_id?, evidence}`, `evidence` one of `none`,
 `in_round` (a round that hasn't landed or been cancelled is working on it), `verified` (a passing run
 of the current approved revision) or `landed`, folded from the evidence entries above. Evidence is
@@ -466,9 +499,11 @@ first within each.
 
 `AttentionItem`: `{id, kind, repo, repo_name, bead_id?, change_id?, round_id?, title, why,
 source_ref?, options, created_at}`. `why` is one or two plain sentences that stand alone. Each option
-is `{type:"action", label, method, path, body?}`, an exact request to send as is, or
-`{type:"open", label, target:{kind, repo?, id, revision?}}`, a navigation where `kind` is `bead`,
-`change` (`id` is the seed bead; `revision` the one to review) or `round`.
+is `{type:"action", label, method, path, body?, disabled?}`, an exact request to send as is (when
+`disabled` is set it says why the action can't be used yet), or `{type:"open", label, target}`, a
+navigation where `target.kind` is `bead`, `change` (`id` is the seed bead; `revision` the one to
+review) or `round` with `id`, or a sheet to open with a prefill: `found_something` (`change`,
+`found_in`, `comment_id`, `note`) or `new_effort` (`note`, `related`, `follow_on_of`).
 
 | Kind | Source | Options |
 |---|---|---|
@@ -480,6 +515,7 @@ is `{type:"action", label, method, path, body?}`, an exact request to send as is
 | `round_question` | each unanswered question of a round in `needs_decision` | each answer via `POST /v1/rounds/{round}/answers`; open round |
 | `bead_parked` | parked bead of an active round | `POST /v1/rounds/{round}/beads/{id}/retry`; open round |
 | `round_ready` | round `ready_to_land` | `POST /v1/rounds/{round}/land`; open round |
+| `found_work` | an unanswered `Found:` comment on a spec section bead that has finished in a round (any end state); or an open `found-amend` bead not carried by a revision under way | comment: Answer (opens `found_something`), Dismiss (action), open bead; `found-amend` bead: Revise now (action with every such bead of the change; `disabled` while the change has active work; `why` states how many landed sections a revision reopens), Make it a follow-on change (opens `new_effort`), open bead |
 | `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | open change (its obligations list the CLI archive and epic-close steps) |
 
 A repository whose beads can't be read contributes no items; its board shows the error.

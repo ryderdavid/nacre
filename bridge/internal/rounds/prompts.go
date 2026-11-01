@@ -109,6 +109,9 @@ func beadPrompt(v beadPromptVars) string {
 		fmt.Fprintf(&s, "- Commit your work on %s. Don't merge, rebase onto other branches, push, or switch branches: nacred merges the beads.\n", v.Branch)
 	}
 	fmt.Fprintf(&s, "- Don't close %s or change its status; nacred closes it when the round is verified. You may add bd comments.\n", is.ID)
+	if _, ok := v.Round.SpecContracts[is.ID]; ok {
+		fmt.Fprintf(&s, "- Stay inside this specification section. When you find work outside it, don't do it and don't create beads: add a bd comment on %s that starts `Found:` with one line saying what you found (`bd comments add %s \"Found: …\"`), then carry on. The owner decides what happens to it.\n", is.ID, is.ID)
+	}
 	for _, sh := range v.Shared {
 		fmt.Fprintf(&s, "- Don't change %s.\n", sh)
 	}

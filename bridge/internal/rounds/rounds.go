@@ -316,6 +316,9 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 			return api.Round{}, conflict(id + " is closed")
 		}
 		b := api.RoundBead{ID: id, Title: is.Title, Type: is.Type, Priority: is.Priority, State: api.BeadWaiting}
+		if is.hasLabel(pendingAmendmentLabel) {
+			return api.Round{}, conflict(id + " is a pending amendment to its specification change: revise the change or make it a follow-on")
+		}
 		if m.opts.SpecContract != nil {
 			c, err := m.opts.SpecContract(ctx, path, id)
 			if err != nil {

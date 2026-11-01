@@ -28,6 +28,7 @@ type fakeBeads struct {
 	loseComment    bool
 	failDependency bool
 	beforeGet      func()
+	created        []bd.CreateParams
 }
 
 func newBeads() *fakeBeads {
@@ -63,6 +64,7 @@ func (f *fakeBeads) Create(_ context.Context, _ string, p bd.CreateParams) (stri
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.creates++
+	f.created = append(f.created, p)
 	id := fmt.Sprintf("NAC-%d", f.creates+10)
 	f.issues[id] = issue{ID: id, Title: p.Title, Description: p.Description, Design: p.Design, Acceptance: p.AcceptanceCriteria, Type: p.IssueType, Parent: p.Parent, Labels: p.Labels, Status: "open"}
 	if f.loseCreate {

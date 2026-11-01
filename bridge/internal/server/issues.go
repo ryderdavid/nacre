@@ -8,6 +8,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 )
 
 func (s *Server) listRepos(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +69,15 @@ type createIssueRequest struct {
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Notes              string   `json:"notes"`
 	Assignee           string   `json:"assignee"`
+	// Related adds a related dependency on each listed bead (a follow-on
+	// effort and the epic it came from).
+	Related []string `json:"related"`
+	// FollowOnOf is a found bead this effort replaces as a follow-on change;
+	// it is closed with a link once the new bead exists.
+	FollowOnOf string `json:"follow_on_of"`
+	// FoundComment is a `Found:` comment this effort answers; its marker is
+	// posted once the new bead exists.
+	FoundComment *specflow.FoundComment `json:"found_comment"`
 }
 
 func validPriority(p *int) bool { return p == nil || (*p >= 0 && *p <= 4) }
@@ -93,18 +103,35 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request) {
 	case req.Parent != "" && !validID(req.Parent):
 		writeError(w, http.StatusBadRequest, "invalid parent id", "")
 		return
+	case req.FollowOnOf != "" && !validID(req.FollowOnOf):
+		writeError(w, http.StatusBadRequest, "invalid follow_on_of id", "")
+		return
 	}
-	id, err := s.BD.Create(r.Context(), path, bd.CreateParams{
+	for _, id := range req.Related {
+		if !validID(id) {
+			writeError(w, http.StatusBadRequest, "invalid related id", "")
+			return
+		}
+	}
+	params := bd.CreateParams{
 		Title: req.Title, Description: req.Description, IssueType: req.IssueType,
 		Priority: req.Priority, Parent: req.Parent, Labels: cleanLabels(req.Labels),
 		Design: req.Design, AcceptanceCriteria: req.AcceptanceCriteria, Notes: req.Notes,
 		Assignee: req.Assignee,
-	})
+	}
+	if err := s.underSpecEpic(r.Context(), path, &params); err != nil {
+		s.fail(w, err)
+		return
+	}
+	id, err := s.BD.Create(r.Context(), path, params)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	repoID := r.PathValue("repo")
+	if err := s.afterCreate(r.Context(), path, id, req); err != nil {
+		s.Log.Printf("created %s but couldn't link it: %v", id, err)
+	}
 	s.changed(repoID)
 	s.respondIssue(w, r, path, id, http.StatusCreated)
 }

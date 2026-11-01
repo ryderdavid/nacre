@@ -244,6 +244,8 @@ type CreateParams struct {
 	AcceptanceCriteria string
 	Notes              string
 	Assignee           string
+	// NoInheritLabels keeps a child from copying its parent's labels.
+	NoInheritLabels bool
 }
 
 // Create creates an issue and returns its id.
@@ -267,6 +269,9 @@ func (c *Client) Create(ctx context.Context, repo string, p CreateParams) (strin
 	add("--acceptance", p.AcceptanceCriteria)
 	add("--notes", p.Notes)
 	add("--assignee", p.Assignee)
+	if p.NoInheritLabels {
+		args = append(args, "--no-inherit-labels")
+	}
 	out, err := c.run(ctx, repo, true, args...)
 	if err != nil {
 		return "", err

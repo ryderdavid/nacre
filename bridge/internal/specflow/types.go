@@ -29,6 +29,9 @@ type Action struct {
 	Feedback string `json:"feedback,omitempty"`
 	// Intake is the New effort verdict a develop was confirmed with.
 	Intake *IntakeHint `json:"intake,omitempty"`
+	// FoundBeads are the found beads a revise carries the notes of; set only
+	// by Found, never by the HTTP change action.
+	FoundBeads []string `json:"-"`
 }
 type Artifact struct {
 	Path    string `json:"path"`

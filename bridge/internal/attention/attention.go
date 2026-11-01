@@ -29,6 +29,9 @@ type Builder struct {
 	Issues  func(ctx context.Context, path string) ([]api.Issue, error)
 	Rounds  func() []api.Round
 	Changes func(path string) ([]api.ChangeSummary, error)
+	// Comments reads a bead's comments, for agents' `Found:` reports; nil
+	// leaves them out.
+	Comments func(ctx context.Context, path, id string) ([]api.Comment, error)
 	// Now is replaced in tests.
 	Now func() time.Time
 
@@ -101,7 +104,7 @@ func (b *Builder) Items(ctx context.Context) []api.AttentionItem {
 func group(kind string) int {
 	switch kind {
 	case api.AttentionRoundQuestion, api.AttentionBeadDecision, api.AttentionBeadParked, api.AttentionReviewBlocked,
-		api.AttentionWorkflowInterrupted:
+		api.AttentionWorkflowInterrupted, api.AttentionFoundWork:
 		return 0
 	case api.AttentionProposalReady, api.AttentionApprovalStale:
 		return 1
@@ -132,6 +135,8 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 	if b.Changes != nil {
 		if changes, err := b.Changes(ref.Path); err == nil {
 			items = append(items, changeItems(ref, changes, beads)...)
+			items = append(items, foundBeadItems(ref, changes, beads)...)
+			items = append(items, b.foundCommentItems(ctx, ref, changes)...)
 		}
 	}
 	b.mu.Lock()
@@ -141,12 +146,13 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 }
 
 type bead struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Status    string   `json:"status"`
-	Type      string   `json:"issue_type"`
-	Labels    []string `json:"labels"`
-	UpdatedAt string   `json:"updated_at"`
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	Type        string   `json:"issue_type"`
+	Labels      []string `json:"labels"`
+	UpdatedAt   string   `json:"updated_at"`
 }
 
 func parseBeads(raw []api.Issue) map[string]bead {

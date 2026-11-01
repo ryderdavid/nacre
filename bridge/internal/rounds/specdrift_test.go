@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 )
 
 func boardsIndex(string) (*api.RequirementIndex, error) {
@@ -165,5 +166,25 @@ func TestNoSpecDriftWithoutOpenSpec(t *testing.T) {
 	done := h.wait(t, r.ID, api.RoundReadyToLand, api.RoundNeedsDecision)
 	if done.State != api.RoundReadyToLand || len(done.Questions) != 0 || strings.Contains(h.head.prompt, "Specified behavior") {
 		t.Fatalf("spec drift raised without OpenSpec: %s %+v", done.State, done.Questions)
+	}
+}
+
+func TestPendingAmendmentIsNotRoundWork(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "Add a", Type: "task", Labels: []string{"found:sf1", "found-amend"}})
+	h := newHarness(t, beads, `{"summary":"","beads":[],"findings":[]}`)
+	if _, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A"}}); err == nil || !strings.Contains(err.Error(), "pending amendment") {
+		t.Fatalf("a pending amendment started a round: %v", err)
+	}
+}
+
+func TestSpecRoundPromptKeepsAgentsInTheirSection(t *testing.T) {
+	v := beadPromptVars{Issue: issue{ID: "S-1", Title: "Section"}, Round: api.Round{SpecContracts: map[string]api.SpecContract{"S-1": {ChangeID: "sf1", SectionID: "s1"}}}, Branch: "b", Cfg: &repoconfig.Config{}}
+	got := beadPrompt(v)
+	if !strings.Contains(got, "Stay inside this specification section") || !strings.Contains(got, `bd comments add S-1 "Found:`) {
+		t.Fatalf("spec prompt lacks the found rule:\n%s", got)
+	}
+	v.Round.SpecContracts = nil
+	if strings.Contains(beadPrompt(v), "Stay inside this specification section") {
+		t.Fatal("an ordinary round was given the spec rule")
 	}
 }

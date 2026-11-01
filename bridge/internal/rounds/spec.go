@@ -24,6 +24,10 @@ func validateSpecRequest(beads []api.RoundBead, contracts map[string]api.SpecCon
 	return validateSpecSelection(beads, contracts, change, revision)
 }
 
+// pendingAmendmentLabel marks found work that would change what a change's
+// "done" means; it is a pending change to the plan, not work to run.
+const pendingAmendmentLabel = "found-amend"
+
 func specLabelled(labels []string) bool {
 	for _, l := range labels {
 		if strings.HasPrefix(l, "specflow:") || strings.HasPrefix(l, "spec-section:") {

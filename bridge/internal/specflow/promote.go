@@ -219,6 +219,9 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 	if e = m.closeAliasSeeds(ctx, r); e != nil {
 		return e
 	}
+	if e = m.closePendingFound(ctx, r); e != nil {
+		return e
+	}
 	r.Change.ApprovedRevision = r.Change.Revision
 	r.Change.Phase = "ready"
 	r.Change.Error = ""

@@ -12,7 +12,12 @@ const (
 	AttentionBeadParked          = "bead_parked"
 	AttentionRoundReady          = "round_ready"
 	AttentionChangeArchivable    = "change_archivable"
+	AttentionFoundWork           = "found_work"
 )
+
+// FoundMarker is posted in a reply to a `Found:` comment once it is answered
+// or dismissed, so it never raises a Needs you item again.
+func FoundMarker(commentID string) string { return "[nacre-found:" + commentID + "]" }
 
 // AttentionItem is one thing waiting on Ryder. ID is a digest of the kind and
 // the underlying record and its state, so the same waiting state keeps its id
@@ -41,14 +46,26 @@ type AttentionOption struct {
 	Path   string           `json:"path,omitempty"`
 	Body   map[string]any   `json:"body,omitempty"`
 	Target *AttentionTarget `json:"target,omitempty"`
+	// Disabled says why the option can't be used yet; the app shows it
+	// instead of sending the action.
+	Disabled string `json:"disabled,omitempty"`
 }
 
-// AttentionTarget is where an "open" option navigates: a bead, change or round.
+// AttentionTarget is where an "open" option navigates: a bead, change or
+// round, or a sheet opened with a prefill: "found_something" (Change,
+// FoundIn, CommentID, Note) or "new_effort" (Note, Related, FollowOnOf,
+// FoundIn and CommentID for the comment it answers).
 type AttentionTarget struct {
-	Kind     string `json:"kind"`
-	Repo     string `json:"repo,omitempty"`
-	ID       string `json:"id"`
-	Revision string `json:"revision,omitempty"`
+	Kind       string   `json:"kind"`
+	Repo       string   `json:"repo,omitempty"`
+	ID         string   `json:"id,omitempty"`
+	Revision   string   `json:"revision,omitempty"`
+	Change     string   `json:"change,omitempty"`
+	FoundIn    string   `json:"found_in,omitempty"`
+	CommentID  string   `json:"comment_id,omitempty"`
+	Note       string   `json:"note,omitempty"`
+	Related    []string `json:"related,omitempty"`
+	FollowOnOf string   `json:"follow_on_of,omitempty"`
 }
 
 // Change section evidence, from least to most.
@@ -74,7 +91,11 @@ type ChangeSummary struct {
 	Error string `json:"error,omitempty"`
 	// StaleReason names what broke the approval of a stale change.
 	StaleReason string `json:"stale_reason,omitempty"`
-	UpdatedAt   string `json:"updated_at"`
+	// PendingFound are found beads the revision under way carries.
+	PendingFound []string `json:"pending_found,omitempty"`
+	// Active names the round or run implementing the change, if any.
+	Active    string `json:"active,omitempty"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // SectionSummary is one task section of a change and its evidence.

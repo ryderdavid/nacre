@@ -27,10 +27,10 @@ const retryPath = "openspec/changes/resilient-rounds/specs/round-recovery/spec.m
 
 func TestIntakeVerdicts(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		model         map[string]any
+		name           string
+		model          map[string]any
 		verdict, name2 string
-		fallback      bool
+		fallback       bool
 	}{
 		{"bead", map[string]any{"verdict": "bead", "change_name": "", "rationale": "A typo.", "references": []any{}}, VerdictBead, "", false},
 		{"amend cited", map[string]any{"verdict": "amend", "change_name": "resilient-rounds", "rationale": "Changes retry.", "references": []any{map[string]any{"path": retryPath, "requirement": "Retrying a parked bead"}}}, VerdictAmend, "resilient-rounds", false},
@@ -81,7 +81,9 @@ func TestIntakeNamesActiveWorkOnATrackedChange(t *testing.T) {
 
 func TestIntakeFailuresAndUnavailability(t *testing.T) {
 	repo, model, opts := intakeRepo(t)
-	model.fn = func(context.Context, claude.Headless, int) (any, float64, error) { return nil, 0.5, errors.New("budget exceeded") }
+	model.fn = func(context.Context, claude.Headless, int) (any, float64, error) {
+		return nil, 0.5, errors.New("budget exceeded")
+	}
 	m := newManager(t, opts)
 	if _, err := m.Intake(context.Background(), repo, IntakeDraft{Title: "x"}); err == nil || !strings.Contains(err.Error(), "budget exceeded") {
 		t.Fatalf("err=%v", err)

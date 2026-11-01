@@ -68,6 +68,9 @@ type record struct {
 	ReviewCalls       int                  `json:"review_calls"`
 	Pass              int                  `json:"pass"`
 	PromotionRevision string               `json:"promotion_revision,omitempty"`
+	// PendingFound are found beads whose notes the current revision carries;
+	// they are closed once it is approved and synchronized.
+	PendingFound []string `json:"pending_found,omitempty"`
 }
 type Manager struct {
 	opts            Options
@@ -528,6 +531,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.PendingPrepared = false
 		r.LastCall = nil
 		r.Feedback = a.Feedback
+		r.PendingFound = append([]string(nil), a.FoundBeads...)
 		r.Change.Error = ""
 		r.Change.StaleReason = ""
 		r.Change.Phase = "drafting"

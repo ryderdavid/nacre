@@ -3,6 +3,7 @@ package attention
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,5 +226,70 @@ func TestStaleItemUsesTheNamedReason(t *testing.T) {
 	items := f.b.Items(context.Background())
 	if len(items) != 1 || items[0].Why != "Active change resilient-rounds changed." {
 		t.Fatalf("items=%+v", items)
+	}
+}
+
+func TestFoundWorkItems(t *testing.T) {
+	f := newFixture(t)
+	change := api.ChangeSummary{ID: "sf1", ChangeName: "retain-drafts", Phase: "ready", Revision: "r", ApprovedRevision: "r", EpicID: "E", SeedIDs: []string{"E"},
+		Sections: []api.SectionSummary{{ID: "s1", BeadID: "S-1", Evidence: api.EvidenceLanded}, {ID: "s2", BeadID: "S-2", Evidence: api.EvidenceInRound}}}
+	f.change = []api.ChangeSummary{change}
+	f.beads = issues(t,
+		map[string]any{"id": "F-1", "title": "Archive needs checks", "description": "Archive needs human checks closed.\n\nFound in: S-1", "status": "open", "labels": []string{"found:sf1", "found-amend"}},
+		map[string]any{"id": "F-2", "title": "Order", "status": "open", "labels": []string{"found:sf1"}},
+		map[string]any{"id": "S-2", "title": "Section two", "status": "open"},
+	)
+	f.rounds = []api.Round{{ID: "R1", RepoID: "r1", State: api.RoundImplementing, Beads: []api.RoundBead{
+		{ID: "S-1", SpecChangeID: "sf1", State: api.BeadIntegrated},
+		{ID: "S-2", SpecChangeID: "sf1", State: api.BeadRunning},
+	}}}
+	comments := map[string][]api.Comment{
+		"S-1": {{ID: "c1", Text: "Found: export has no pagination"}, {ID: "c2", Text: "Found: answered already"}, {ID: "c3", Text: api.FoundMarker("c2") + " dismissed"}},
+		"S-2": {{ID: "c4", Text: "Found: still running"}},
+	}
+	f.b.Comments = func(_ context.Context, _, id string) ([]api.Comment, error) { return comments[id], nil }
+
+	items := f.b.Items(context.Background())
+	var amend, comment *api.AttentionItem
+	for i := range items {
+		if items[i].Kind != api.AttentionFoundWork {
+			t.Fatalf("unexpected item %+v", items[i])
+		}
+		if items[i].BeadID == "F-1" {
+			amend = &items[i]
+		} else {
+			comment = &items[i]
+		}
+	}
+	if len(items) != 2 || amend == nil || comment == nil {
+		t.Fatalf("items=%+v", items)
+	}
+	if !strings.Contains(amend.Why, "reopens 1 landed section;") || amend.Options[0].Body["answer"] != "revise" || amend.Options[0].Disabled != "" {
+		t.Fatalf("amend item=%+v", amend)
+	}
+	if tg := amend.Options[1].Target; tg.Kind != "new_effort" || tg.FollowOnOf != "F-1" || tg.Related[0] != "E" || tg.Note != "Archive needs human checks closed." {
+		t.Fatalf("follow-on target=%+v", tg)
+	}
+	if tg := comment.Options[0].Target; comment.BeadID != "S-1" || tg.Kind != "found_something" || tg.CommentID != "c1" || tg.Note != "export has no pagination" {
+		t.Fatalf("comment item=%+v", comment)
+	}
+	if comment.Options[1].Body["answer"] != "dismiss" {
+		t.Fatalf("dismiss=%+v", comment.Options[1])
+	}
+
+	f.change[0].PendingFound = []string{"F-1"}
+	f.change[0].Active = "Round R1 is still active."
+	f.b.Invalidate("/src/nacre")
+	for _, it := range f.b.Items(context.Background()) {
+		if it.BeadID == "F-1" {
+			t.Fatal("found work a revision carries is still offered for revising")
+		}
+	}
+	f.change[0].PendingFound = nil
+	f.b.Invalidate("/src/nacre")
+	for _, it := range f.b.Items(context.Background()) {
+		if it.BeadID == "F-1" && it.Options[0].Disabled != "Round R1 is still active." {
+			t.Fatalf("Revise now not disabled during active work: %+v", it.Options[0])
+		}
 	}
 }

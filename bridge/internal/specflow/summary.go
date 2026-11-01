@@ -100,7 +100,10 @@ func (m *Manager) Summaries(repo string) ([]api.ChangeSummary, int, error) {
 		states := m.evidenceStates(r, stamp)
 		s := api.ChangeSummary{ID: c.ID, ChangeName: c.ChangeName, Phase: c.Phase, Revision: c.Revision,
 			ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases),
-			Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, UpdatedAt: c.UpdatedAt}
+			Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt}
+		if m.opts.Active != nil && c.EpicID != "" {
+			s.Active = m.opts.Active(repo, c.ID)
+		}
 		for _, sec := range c.Sections {
 			ev := states[sec.ID]
 			if ev == "" {
