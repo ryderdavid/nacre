@@ -51,17 +51,34 @@ var RepoReadTools = []string{
 // subcommands that cannot change anything. Writes never happen here — the
 // assistant proposes them and the app applies them through the REST API once
 // the user approves, so approval always happens on the phone.
-var BdReadTools = []string{
-	"Bash(bd list:*)",
-	"Bash(bd show:*)",
-	"Bash(bd comments:*)",
-	"Bash(bd ready:*)",
-	"Bash(bd blocked:*)",
-	"Bash(bd stats:*)",
-	"Bash(bd search:*)",
-	"Bash(bd stale:*)",
-	"Bash(bd orphans:*)",
-	"Bash(bd dep tree:*)",
+var BdReadTools = func() []string {
+	out := make([]string, 0, len(bdReadCommands))
+	for _, c := range bdReadCommands {
+		out = append(out, "Bash(bd "+c+":*)")
+	}
+	return out
+}()
+
+// bdReadCommands are the bd subcommands that cannot change anything.
+var bdReadCommands = []string{
+	"list", "show", "comments", "ready", "blocked", "stats", "search", "stale", "orphans", "dep tree",
+}
+
+// BdReadCommandNames lists the read-only bd subcommands, for prompts.
+func BdReadCommandNames() []string { return append([]string{}, bdReadCommands...) }
+
+// BoardReadTools are BdReadTools for a call that spans several boards. Each
+// board is a directory directly under the call's working directory, read with
+// `bd -C <dir> <command>`; only the named directories are allowed, so the call
+// can read exactly the boards it was given and nothing else.
+func BoardReadTools(dirs []string) []string {
+	out := make([]string, 0, len(dirs)*len(bdReadCommands))
+	for _, d := range dirs {
+		for _, c := range bdReadCommands {
+			out = append(out, "Bash(bd -C "+d+" "+c+":*)")
+		}
+	}
+	return out
 }
 
 // bdWriteCommands are refused outright, in case a permission pattern above

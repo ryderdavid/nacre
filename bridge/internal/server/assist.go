@@ -49,6 +49,9 @@ type assistRequest struct {
 	// NeedsYou adds this computer's Needs you list to the prompt, for the
 	// board assistant, which can't call a read tool on this backend.
 	NeedsYou bool `json:"needs_you"`
+	// Boards are the boards a call across several boards reads, for
+	// POST /v1/claude/stream; the per-repo routes ignore them.
+	Boards []assistBoard `json:"boards,omitempty"`
 }
 
 var effortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
@@ -152,7 +155,7 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turn := s.Assist.Start(path, h)
-	s.streamTurn(w, r, turn, 0, true)
+	s.streamTurn(w, r, turn, 0, &assistTurn{TurnID: turn.ID})
 }
 
 // resumeAssist reattaches to a turn, replaying the events after ?after=seq
@@ -169,7 +172,7 @@ func (s *Server) resumeAssist(w http.ResponseWriter, r *http.Request) {
 	} else if v := r.URL.Query().Get("after"); v != "" {
 		after, _ = strconv.ParseInt(v, 10, 64)
 	}
-	s.streamTurn(w, r, turn, after, false)
+	s.streamTurn(w, r, turn, after, nil)
 }
 
 // cancelAssist stops a turn the person no longer wants.
@@ -186,17 +189,21 @@ func (s *Server) cancelAssist(w http.ResponseWriter, r *http.Request) {
 // assistTurn is the payload of the first "turn" message.
 type assistTurn struct {
 	TurnID string `json:"turn_id"`
+	// Unreadable names the boards a call across boards was asked for but
+	// could not open, so the app can say so rather than skip them silently.
+	Unreadable []unreadableBoard `json:"unreadable,omitempty"`
 }
 
-// streamTurn sends a turn's events after seq "after", then one "done" with
-// the structured answer or one "error". Leaving early, when the client goes
-// away, leaves the turn running.
-func (s *Server) streamTurn(w http.ResponseWriter, r *http.Request, turn *assist.Turn, after int64, announce bool) {
+// streamTurn sends announce (when given) as the first "turn" message, then a
+// turn's events after seq "after", then one "done" with the structured answer
+// or one "error". Leaving early, when the client goes away, leaves the turn
+// running.
+func (s *Server) streamTurn(w http.ResponseWriter, r *http.Request, turn *assist.Turn, after int64, announce *assistTurn) {
 	sw, err := sse.NewWriter(w)
 	if err != nil {
 		return
 	}
-	if announce && sw.Send("", "turn", assistTurn{TurnID: turn.ID}) != nil {
+	if announce != nil && sw.Send("", "turn", announce) != nil {
 		return
 	}
 	ping := time.NewTicker(sse.KeepAlive)

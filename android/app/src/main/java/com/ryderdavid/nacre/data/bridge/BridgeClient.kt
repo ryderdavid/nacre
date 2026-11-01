@@ -75,7 +75,7 @@ sealed interface RoundMessage {
 /** Messages from a streamed `claude -p` turn on the computer. */
 sealed interface AssistMessage {
     /** The id to reattach with if the connection drops; always first from a current nacred. */
-    data class Turn(val id: String) : AssistMessage
+    data class Turn(val id: String, val unreadable: List<String> = emptyList()) : AssistMessage
 
     /** One line of the Mac's own transcript: a thought, a bd command, its output. */
     data class Event(val event: RunEvent) : AssistMessage
@@ -86,6 +86,15 @@ sealed interface AssistMessage {
     /** Claude or nacred gave up; [error] is already phrased for a person. */
     data class Failed(val error: String) : AssistMessage
 }
+
+/** The boards a "turn" message says couldn't be opened, as "name: reason". */
+internal fun unreadableBoards(turn: JsonObject): List<String> =
+    (turn["unreadable"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
+        val o = e as? JsonObject ?: return@mapNotNull null
+        val name = (o["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+        val reason = (o["reason"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+        name.takeIf { it.isNotBlank() }?.let { if (reason.isBlank()) it else "$it: $reason" }
+    }
 
 /** Thin typed client for nacred. One instance per (url, token). */
 class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpClient) {
@@ -262,6 +271,12 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         return assistSse(Request.Builder().url(url("/v1/repos/$repo/claude/stream")).post(body))
     }
 
+    /** Runs one board-assistant turn across several of this computer's boards, streamed as it goes. */
+    fun claudeStreamAcross(req: AssistRequest): Flow<AssistMessage> {
+        val body: RequestBody = json.encodeToString(req).toRequestBody(JSON)
+        return assistSse(Request.Builder().url(url("/v1/claude/stream")).post(body))
+    }
+
     /**
      * Picks a turn back up after the connection dropped: the events after [after], then
      * the rest live. The turn kept running on the computer in the meantime.
@@ -283,7 +298,9 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                 val msg = runCatching {
                     when (type) {
-                        "turn" -> AssistMessage.Turn(json.decodeFromString<JsonObject>(data)["turn_id"]!!.jsonPrimitive.content)
+                        "turn" -> json.decodeFromString<JsonObject>(data).let { o ->
+                            AssistMessage.Turn(o["turn_id"]!!.jsonPrimitive.content, unreadableBoards(o))
+                        }
                         "done" -> AssistMessage.Done(json.decodeFromString<AssistResult>(data))
                         "error" -> AssistMessage.Failed(json.decodeFromString<ErrorBody>(data).error.ifBlank { "Claude failed on the computer" })
                         else -> AssistMessage.Event(json.decodeFromString<RunEvent>(data))

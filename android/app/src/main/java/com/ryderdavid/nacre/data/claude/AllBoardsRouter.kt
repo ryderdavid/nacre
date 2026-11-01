@@ -88,6 +88,12 @@ class AllBoardsRouter(
         return body.ifBlank { "No beads match on the boards read." } + sweepNote(plan)
     }
 
+    /** Every board, hidden ones too (the overview marks them), with each computer's checkout. */
+    override suspend fun span(): BoardSpan {
+        val all = boards()
+        return BoardSpan(all.map { g -> SpanBoard(g.home.name, g.members.map { it.key }) }, listBoards(null))
+    }
+
     /** What a board-less list_beads reads, and what it leaves out. */
     internal data class SweepPlan(val targets: List<RepoGroup>, val notRead: List<RepoGroup>, val hidden: List<RepoGroup>)
 

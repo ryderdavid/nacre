@@ -55,6 +55,9 @@ interface BoardRouter {
 
     /** Beads from [board], or from every board when it is null. */
     suspend fun listBeads(board: String?, lane: String?, query: String?, limit: Int): String
+
+    /** Every board a conversation across boards covers; null for one board. */
+    suspend fun span(): BoardSpan? = null
 }
 
 /** A conversation about one board, where no tool call names a board. */
@@ -221,9 +224,10 @@ class BoardAssistant(
             _items.update { it + ChatItem.Error("Now asking Claude on ${backend.runner.label.lowercase()}. This starts a new conversation.") }
         }
         val only = router.only
-        // A Mac session runs Claude Code on one board's computer, so with no single board
-        // (runKey null) it asks for the API key instead; the API session handles every board.
-        val fresh = backend.session(AssistantBoard(only?.boardKey, only?.boardName ?: "All boards", toolSpecs, system = ::systemPrompt))
+        // A Mac session runs Claude Code in one board's repository; with no single board
+        // (runKey null) it reads every board in [span] instead.
+        val span: (suspend () -> BoardSpan)? = if (only == null) ({ router.span() ?: BoardSpan(emptyList(), "") }) else null
+        val fresh = backend.session(AssistantBoard(only?.boardKey, only?.boardName ?: "All boards", toolSpecs, span, system = ::systemPrompt))
         session = fresh
         runner = backend.runner
         return fresh
