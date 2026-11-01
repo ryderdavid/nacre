@@ -11,6 +11,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
+	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 )
@@ -45,6 +46,9 @@ type assistRequest struct {
 	ReadRepo bool `json:"read_repo"`
 	// Keep saves the session so the next turn can resume it.
 	Keep bool `json:"keep"`
+	// NeedsYou adds this computer's Needs you list to the prompt, for the
+	// board assistant, which can't call a read tool on this backend.
+	NeedsYou bool `json:"needs_you"`
 }
 
 var effortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
@@ -98,6 +102,9 @@ func (s *Server) assistJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h, bad := req.headless()
+	if bad == "" && req.NeedsYou && s.Attention != nil {
+		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
+	}
 	if bad != "" {
 		writeError(w, http.StatusBadRequest, bad, "")
 		return
@@ -137,6 +144,9 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h, bad := req.headless()
+	if bad == "" && req.NeedsYou && s.Attention != nil {
+		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
+	}
 	if bad != "" {
 		writeError(w, http.StatusBadRequest, bad, "")
 		return

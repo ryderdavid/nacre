@@ -447,7 +447,7 @@ also use the network; `bypassPermissions` runs with no sandbox.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
-"session_id": "", "bd_reads": false, "read_repo": false, "keep": false}`
+"session_id": "", "bd_reads": false, "read_repo": false, "keep": false, "needs_you": false}`
 
 Runs one `claude -p` in the repo on **this computer's Claude subscription**, which is how the app's
 Refine, Draft and board-assistant features work without an API key on the phone. The app owns the
@@ -462,6 +462,9 @@ it read the repository: `Read`, `Grep`, `Glob` and read-only `git log|diff|show|
 the assistant returns the changes it wants as proposals and the app applies the approved ones
 through the routes above, so every change still goes through the user. `keep` saves the session so
 the next turn can continue it with `session_id` (`--resume`).
+
+`needs_you` appends this computer's Needs you list (at most 8 KB: kind, repository, ids, title and
+why per item) to the prompt, for the board assistant on this backend, which can't call a read tool.
 
 `output` is the answer validated against `schema` (the CLI's `structured_output`); `text` is the raw
 final message. A failure is a 502 with `{"error"}` carrying Claude's own wording.

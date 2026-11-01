@@ -293,3 +293,21 @@ func TestFoundWorkItems(t *testing.T) {
 		}
 	}
 }
+
+func TestContextForTheMacAssistant(t *testing.T) {
+	if got := Context(nil); !strings.Contains(got, "Nothing is waiting on Ryder.") {
+		t.Fatalf("empty context=%q", got)
+	}
+	items := []api.AttentionItem{{Kind: api.AttentionProposalReady, RepoName: "nacre", BeadID: "N-5", ChangeID: "sf1", Title: "Proposal ready: retain-drafts", Why: "Approve it."}}
+	got := Context(items)
+	if !strings.Contains(got, "- proposal_ready [nacre N-5 sf1] Proposal ready: retain-drafts: Approve it.") {
+		t.Fatalf("context=%q", got)
+	}
+	many := make([]api.AttentionItem, 400)
+	for i := range many {
+		many[i] = api.AttentionItem{Kind: "bead_decision", RepoName: "nacre", BeadID: "N-1", Title: strings.Repeat("t", 40), Why: strings.Repeat("w", 40)}
+	}
+	if got := Context(many); len(got) > MaxContext+100 || !strings.Contains(got, "more.") {
+		t.Fatalf("unbounded context: %d bytes", len(got))
+	}
+}
