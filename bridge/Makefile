@@ -1,6 +1,8 @@
 # Release tags supply the version; later commits and local edits remain visible.
 # Archives without git metadata can supply VERSION and COMMIT explicitly.
-VERSION ?= $(shell v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null) && echo "$${v\#v}" || { v=$$(git describe --always --dirty 2>/dev/null) && echo "dev-$$v" || echo dev; })
+GIT_TAG_VERSION := $(shell git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null | sed 's/^v//')
+GIT_REVISION := $(shell git describe --always --dirty 2>/dev/null)
+VERSION ?= $(if $(GIT_TAG_VERSION),$(GIT_TAG_VERSION),$(if $(GIT_REVISION),dev-$(GIT_REVISION),dev))
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
 LDFLAGS := -s -w -X github.com/ryderdavid/nacre/bridge/internal/version.Version=$(VERSION) -X github.com/ryderdavid/nacre/bridge/internal/version.Commit=$(COMMIT)
 BIN := bin/nacred
