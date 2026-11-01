@@ -196,7 +196,11 @@ case "$prompt" in
       T-L1) echo l1 > gen.lock; git add -A; git commit -q -m L1;;
       T-L2) echo l2 > gen.lock; git add -A; git commit -q -m L2;;
       T-F) echo f > f.txt; git add -A; git commit -q -m F;;
-      T-S|T-R) sleep 20;;
+      T-S) # Keep talking until the test has seen the session, then go quiet.
+           while [ -n "$NACRE_TEST_STALL_GATE" ] && [ ! -e "$NACRE_TEST_STALL_GATE" ]; do
+             echo '{"type":"system","subtype":"status"}'; sleep 0.05
+           done; sleep 20;;
+      T-R) sleep 20;;
     esac;;
   *"You stopped responding"*|*"ended with an error"*)
     echo s > s.txt; git add -A; git commit -q -m "carried on";;
@@ -704,10 +708,32 @@ const emptyPlan = `{"summary":"","beads":[],"findings":[]}`
 
 // A run that goes quiet is stopped and resumed once without asking anyone.
 func TestStalledRunIsResumedOnce(t *testing.T) {
+	// The fake prints until the gate exists, so the stall can only come
+	// after its session is known: a slow start under load can't be mistaken
+	// for the quiet spell this test is about. The limit only has to cover
+	// the fake's startup.
+	gate := filepath.Join(t.TempDir(), "go-quiet")
+	t.Setenv("NACRE_TEST_STALL_GATE", gate)
 	beads := newFakeBeads(&fakeBead{ID: "T-S", Title: "Slow", Type: "task"})
-	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{stallAfter: 300 * time.Millisecond})
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{stallAfter: 2 * time.Second})
 	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-S"}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		got, _, _ := h.m.Get(r.ID)
+		if b := got.Beads[0]; b.RunID != "" {
+			if run, _ := h.runs.Run(b.RunID); run.Status == api.StatusRunning && run.SessionID != "" {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the run never reported a session: %+v", got.Beads[0])
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	done := h.wait(t, r.ID, api.RoundReadyToLand)
