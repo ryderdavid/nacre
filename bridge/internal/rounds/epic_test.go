@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -343,5 +344,35 @@ func TestLandingMergesAgainWhenTheTargetMovesAtTheLastMoment(t *testing.T) {
 		if _, err := gitx.Run(ctx, h.repo, "show", "main:"+f); err != nil {
 			t.Errorf("main lacks %s", f)
 		}
+	}
+}
+
+// When the target keeps moving past the retries, the landing pauses and Try
+// again works without any change from Ryder.
+func TestALandingThatKeptLosingTheRaceCanBeTriedAgain(t *testing.T) {
+	h := newHarness(t, newFakeBeads(&fakeBead{ID: "T-F", Title: "Add f", Type: "feature"}), emptyPlan)
+	var losing atomic.Bool
+	losing.Store(true)
+	fastForward = func(ctx context.Context, repo, target, sha string) error {
+		if losing.Load() {
+			return gitx.ErrNotFastForward
+		}
+		return gitx.FastForward(ctx, repo, target, sha)
+	}
+	t.Cleanup(func() { fastForward = gitx.FastForward })
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused := h.wait(t, r.ID, api.RoundPaused, api.RoundLanded)
+	if paused.State != api.RoundPaused || paused.Stop == nil {
+		t.Fatalf("round = %s", paused.State)
+	}
+	losing.Store(false)
+	if _, err := h.m.Choose(r.ID, api.ChoiceContinue, 0, 0); err != nil {
+		t.Fatalf("Try again after the target moved: %v", err)
+	}
+	if landed := h.wait(t, r.ID, api.RoundLanded, api.RoundPaused); landed.State != api.RoundLanded {
+		t.Fatalf("round = %s %q", landed.State, landed.PauseReason)
 	}
 }
