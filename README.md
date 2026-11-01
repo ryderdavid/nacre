@@ -56,6 +56,22 @@ finishing.
 
 ## Rounds
 
+To get one bead done, open it and tap **Implement…**, then **Work until done**. That's a round of one
+bead: it gets its own worktree, nacred checks the result itself against `nacre.yaml`, and with
+**Land when it passes** on (the default) it commits, lands, pushes and closes the bead without
+waiting for you. **Or just run it** starts a plain Claude Code or Codex run that leaves checking,
+committing and closing to you.
+
+Every epic has a branch. Work on an epic's beads lands on `epic/<id>`, not on `main`, so `main` only
+moves when the epic is finished. An open epic's detail shows how many of its beads are closed, offers
+**Work the other N until done**, and once they are all closed, **Finish epic**. That merges the
+branch into `main` with every gate and the build and one version bump, pushes it, closes the epic and
+deletes its branch. For a specification change's epic, Finish also archives the change, merging its
+requirements into `openspec/specs`. Needs you offers the same Finish when an epic is done, and asks
+about beads stuck in progress that nothing has worked on for a day (**Work until done** or **Back to
+Ready**). Pushing `main` is where Nacre stops: building and publishing releases belongs to the
+repository's own CI.
+
 To get several beads done together, open a board's menu and choose **Work several beads until
 done**, pick the beads, and optionally a budget. That computer's `nacred` carries them as a
 **round**, without the phone attached:

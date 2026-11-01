@@ -542,7 +542,9 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `bead_parked` | parked bead of an active round | `POST /v1/rounds/{round}/beads/{id}/retry`; open round |
 | `round_ready` | round `ready_to_land` | `POST /v1/rounds/{round}/land`; open round |
 | `found_work` | an unanswered `Found:` comment on a spec section bead that has finished in a round (any end state); or an open `found-amend` bead not carried by a revision under way | comment: Answer (opens `found_something`), Dismiss (action), open bead; `found-amend` bead: Revise now (action with every such bead of the change; `disabled` while the change has active work; `why` states how many landed sections a revision reopens), Make it a follow-on change (opens `new_effort`), open bead |
-| `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | open change (its obligations list the CLI archive and epic-close steps) |
+| `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | Finish: archive and merge (`POST /v1/repos/{repo}/epics/{epic}/finish`); open change |
+| `epic_finishable` | an open epic, not a change's, with at least one bead under it and all of them closed | Finish epic (`POST /v1/repos/{repo}/epics/{epic}/finish`); open epic |
+| `bead_stuck` | a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
 
 A repository whose beads can't be read contributes no items; its board shows the error.
 
@@ -553,7 +555,8 @@ on the computer that has the repository, without any client connected.
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, or a bead is in another active round |
+| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes", "land_when_ready"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, a bead is in another active round, or the beads belong to different epics |
+| POST | `/v1/repos/{repo}/epics/{id}/finish` | – | `{"round": Round}` (201): a round that finishes the epic; or `{"closed": true}` (200) when its work is already on the landing target and it has no change to archive. 409 while beads under it are open or a round still works on its branch |
 | GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
 | GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |
 | GET | `/v1/rounds/{round}/stream[?after=seq]` | – | SSE: `event: event` (RoundEvent, `id: seq`) for log entries after `after`, and `event: round` (Round) whenever it changes; honours `Last-Event-ID` |
@@ -565,6 +568,18 @@ on the computer that has the repository, without any client connected.
 | POST | `/v1/rounds/{round}/cancel` | – | `Round` (branches are kept) |
 | POST | `/v1/rounds/{round}/resume` | – | `Round`; the `continue` choice: 409 unless `paused`, at a limit, or when nothing has changed since the failure |
 | POST | `/v1/rounds/{round}/beads/{id}/retry` | – | `Round`; puts a parked or skipped bead back |
+
+**Epic branches.** A round lands where its beads belong: beads under an epic land on the epic's
+branch, `epic/<lower-case id>`, made from `land.target` the first time and pushed with `land.push`;
+other beads land on `land.target`. One round can't mix epics (409). Epic-branch rounds neither bump
+nor tag the version. Finishing an epic is a round with no beads (`finish_epic` names the epic) that
+starts from the epic's branch, or from `land.target` when nothing is left on the branch but the
+epic's change still needs archiving. For a change's epic it runs `openspec archive <change> --yes`
+in the round's workspace and commits it. Then it runs every gate and the build with one minor
+version bump, lands on `land.target` without waiting, pushes, closes the epic, deletes its branch
+here and on `origin`, and the change's workflow ends in the phase `archived`. `land_when_ready` (or
+`land.auto` in `nacre.yaml` for rounds without specification sections) lands a round as soon as it
+is verified; the round reports it as `auto_land`.
 
 `/v1/events` also carries `event: round` with the Round on every change.
 
