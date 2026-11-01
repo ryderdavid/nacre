@@ -50,8 +50,9 @@ cherry-picked in), since their work isn't outstanding.
 ### Requirement: Contradictions, ambiguities and unmerged work become questions
 Every `contradiction`, `ambiguity` and `unmerged-work` finding SHALL become a question for Ryder with
 suggested answers (for `unmerged-work`: merge the branch into the round's base first, ignore it, or stop),
-and the round SHALL be `needs_decision` until every question has an answer. The other finding types
-SHALL NOT ask him anything.
+and the round SHALL be `needs_decision` until every question has an answer. The review's other finding
+types SHALL NOT ask him anything; findings other specifications define, such as spec drift, ask as those
+specifications say.
 
 #### Scenario: Waiting for an answer
 - **WHEN** the plan contains one contradiction and two overlaps

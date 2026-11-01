@@ -13,7 +13,8 @@ only for decisions that are genuinely his.
 
 - **Rounds.** A new unit of work above a run: a set of beads in one repository that nacred carries from
   plan to a single integration commit. A round runs on the Mac without the phone attached and has a
-  visible state (planning, needs decision, implementing, integrating, ready to land, landed, parked).
+  visible state (planning, needs decision, implementing, integrating, ready to land, landed, paused,
+  cancelled), and each bead's own state, including parked.
 - **Pre-flight review before any code.** A round first reads every bead and the repository and reports
   where their intentions collide: contradictory designs, overlapping areas, implied ordering, shared
   artifacts such as the version number. Contradictions and ambiguities become questions for Ryder and

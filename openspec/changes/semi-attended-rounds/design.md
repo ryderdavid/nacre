@@ -150,8 +150,8 @@ For each verified bead, in order: `git merge --no-ff` its branch into the integr
 - **Conflict** → an integration turn: claude in the integration worktree, given both beads' text, the
   pre-flight decisions and the conflicted hunks; it must resolve, commit, and pass the gates.
 - **Gates fail after merge** → an integration turn to fix, attributed to the merged bead.
-After `fix_attempts` failed integration turns, nacred resets the integration branch to its pre-merge SHA,
-parks the bead with the reason, and moves on.
+After `fix_attempts` failed integration turns, and once the round-recovery ladder is spent, nacred resets
+the integration branch to its pre-merge SHA, parks the bead with the reason, and moves on.
 
 All git that moves branches (merge, reset, branch delete, push) is done by nacred directly. Agents
 only edit and commit inside their own worktree, which keeps them clear of the permission classifier's
@@ -175,7 +175,8 @@ acceptance criteria need a human (label `human`, or flagged by pre-flight) stay 
 "verify: …" note; the rest are closed with a reason naming the round and commit. Landing
 fast-forwards `land.target` to the integration commit; if the target moved, nacred merges the target
 in, re-runs gates, and only then fast-forwards. `push: true` pushes the target. `auto: true` lands
-without the tap. Afterwards nacred removes the round's worktrees and branches.
+without the tap for rounds without specification sections; a round asked to land when ready lands
+without it too, and an epic's beads land on the epic's branch (epic-completion). Afterwards nacred removes the round's worktrees and branches.
 
 ### 11. Entry points
 - **API**: `POST /v1/repos/{repo}/rounds {"beads":[…] | "epic":…, "target", "budget_usd"}`, plus
@@ -198,7 +199,7 @@ state intact; Ryder can raise the limit and resume.
   build. Gradle caches are shared across worktrees.
 - [Pre-flight misses a real conflict] → Integration still catches it; the integration turn sees the
   decisions made so far, and a parked bead is a visible, recoverable outcome rather than a bad merge.
-- [Pre-flight over-asks, making rounds feel attended] → Only `contradiction` and `ambiguity` ask;
+- [Pre-flight over-asks, making rounds feel attended] → Only `contradiction`, `ambiguity` and `unmerged-work` ask, plus spec drift as spec-surfacing specifies;
   everything else resolves by ordering. The question count is shown so the prompt can be tuned.
 - [Stacking overlapping beads serializes work that could have been parallel] → Accepted: correctness
   first. Ryder can override ordering in the plan.
