@@ -66,7 +66,7 @@
 <!-- nacre-section: ssw-plan -->
 ## 9. Plan and progress
 
-- [ ] 9.1 Archive readiness waits for open `found:` beads; `tasks.md`-edited stale reason — `cd bridge && go test -race ./internal/specflow`
+- [x] 9.1 Archive readiness waits for open `found:` beads; `tasks.md`-edited stale reason — `cd bridge && go test -race ./internal/specflow`
 - [ ] 9.2 Change detail Work section and epic header: sections in plan order with bead status and evidence, "needs a new round" after a revision, "Added during work" group, checkboxes labelled Plan — `cd android && ./gradlew -q testDebugUnitTest`
 
 <!-- nacre-section: ssw-verify -->
