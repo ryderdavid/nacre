@@ -71,6 +71,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import android.provider.Settings
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -96,6 +107,16 @@ import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.theme.MonoFamily
 import com.ryderdavid.nacre.ui.theme.Nacre
+import com.ryderdavid.nacre.data.model.liveRunIssueIds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ReposViewModel(private val repo: NacreRepository, private val settings: SettingsStore) : ViewModel() {
@@ -103,6 +124,19 @@ class ReposViewModel(private val repo: NacreRepository, private val settings: Se
     val groups = repo.groups
     val hosts = repo.hosts
     val prefs = settings.settings
+
+    /**
+     * The bar slices to light on each board (by group id): a run of the repository on any computer,
+     * from Nacre or adopted from an agent, lights its bead. A board with a live run has its beads
+     * loaded so each lands in the segment of its current status; they then follow repo changes.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val barRuns: StateFlow<Map<String, Map<Int, Set<Int>>>> = combine(repo.runs, repo.groups) { runs, gs ->
+        gs.mapNotNull { g -> liveRunIssueIds(runs, g.members.mapTo(HashSet()) { it.key }).takeIf { it.isNotEmpty() }?.let { g to it } }
+    }.distinctUntilChanged().flatMapLatest { live ->
+        if (live.isEmpty()) flowOf(emptyMap())
+        else combine(live.map { (g, ids) -> repo.board(g.home.key).map { b -> g.id to runSlices(g.home.counts, ids, b.data?.index?.issues) } }) { it.toMap() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun refresh() = repo.refreshRepos(rescan = true)
 
@@ -140,6 +174,7 @@ fun ReposScreen(
     val container = LocalContainer.current
     val state by vm.repos.collectAsState()
     val groups by vm.groups.collectAsState()
+    val barRuns by vm.barRuns.collectAsState()
     val hosts by vm.hosts.collectAsState()
     var hostFilter by rememberSaveable { mutableStateOf<String?>(null) }
     val prefs by vm.prefs.collectAsState(initial = null)
@@ -234,7 +269,7 @@ fun ReposScreen(
                                 }
                                 items(visible, key = { it.id }) { g ->
                                     RepoCard(
-                                        g, showComputers = hosts.size > 1, pinned = g.id in p.pinnedRepos,
+                                        g, showComputers = hosts.size > 1, pinned = g.id in p.pinnedRepos, runSlices = barRuns[g.id].orEmpty(),
                                         onOpen = { onOpen(g.home) }, onPin = { vm.togglePin(g.id) }, onHide = { vm.hide(g.id) },
                                     )
                                 }
@@ -324,7 +359,7 @@ private fun SummaryTile(label: String, n: Int, modifier: Modifier, highlight: Bo
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOpen: () -> Unit, onPin: () -> Unit, onHide: () -> Unit) {
+private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, runSlices: Map<Int, Set<Int>>, onOpen: () -> Unit, onPin: () -> Unit, onHide: () -> Unit) {
     val r = g.home
     val activeRuns = g.members.sumOf { it.activeRuns }
     var menu by remember { mutableStateOf(false) }
@@ -369,7 +404,7 @@ private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOp
             if (r.error.isNotBlank()) {
                 Text(r.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
             } else {
-                StatusBar(r.counts)
+                StatusBar(r.counts, runSlices = runSlices)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val c = r.counts
@@ -389,20 +424,42 @@ private fun RepoCard(g: RepoGroup, showComputers: Boolean, pinned: Boolean, onOp
     }
 }
 
-/** A segmented bar showing the share of beads in each state. */
+/**
+ * A segmented bar showing the share of beads in each state. Each segment is one fixed-width slice
+ * per bead it counts, never drawn apart; the slices in [runSlices] (segment → slice indexes, as
+ * the top-level runSlices works them out) are beads with a live run, and pulse toward white. With animations turned off in
+ * the system settings they hold a steady light tint instead.
+ */
 @Composable
-fun StatusBar(c: Repo.Counts, modifier: Modifier = Modifier) {
+fun StatusBar(c: Repo.Counts, modifier: Modifier = Modifier, runSlices: Map<Int, Set<Int>> = emptyMap()) {
     val total = c.total.coerceAtLeast(1)
-    val parts = listOf(
-        c.inProgress + c.hooked to Nacre.colors.doing,
-        c.open to Nacre.colors.ready,
-        c.blocked to Nacre.colors.blocked,
-        c.deferred + c.pinned to Nacre.colors.later,
-        c.closed to MaterialTheme.colorScheme.outlineVariant,
-    ).filter { it.first > 0 }
+    val colors = listOf(Nacre.colors.doing, Nacre.colors.ready, Nacre.colors.blocked, Nacre.colors.later, MaterialTheme.colorScheme.outlineVariant)
+    val parts = barCounts(c).mapIndexed { seg, n -> Triple(seg, n, colors[seg]) }.filter { it.second > 0 }
+    val glow = if (runSlices.isEmpty()) 0f else runGlow()
     Row(modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        parts.forEach { (n, color) -> Box(Modifier.weight(n.toFloat() / total).fillMaxHeight().background(color)) }
+        parts.forEach { (seg, n, color) ->
+            val lit = runSlices[seg].orEmpty()
+            Box(
+                Modifier.weight(n.toFloat() / total).fillMaxHeight().background(color).then(
+                    if (lit.isEmpty()) Modifier else Modifier.drawBehind {
+                        val w = size.width / n
+                        lit.forEach { i -> drawRect(Color.White.copy(alpha = glow), topLeft = Offset(i * w, 0f), size = Size(w, size.height)) }
+                    },
+                ),
+            )
+        }
     }
+}
+
+/** How far a running bead's slice is lifted toward white: a gentle pulse, or steady without animations. */
+@Composable
+private fun runGlow(): Float {
+    val resolver = LocalContext.current.contentResolver
+    val animationsOff = remember(resolver) { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
+    if (animationsOff) return 0.22f
+    val t = rememberInfiniteTransition(label = "run-slice")
+    val a by t.animateFloat(0f, 0.38f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "glow")
+    return a
 }
 
 /** Which computer a board is on; for a repo on several computers, the filled one is home. */
