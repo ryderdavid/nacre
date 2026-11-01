@@ -13,6 +13,11 @@ const (
 	AttentionRoundReady          = "round_ready"
 	AttentionChangeArchivable    = "change_archivable"
 	AttentionFoundWork           = "found_work"
+	// AttentionEpicFinishable: every bead under an open epic is closed; its
+	// branch can be merged into the landing target and the epic closed.
+	AttentionEpicFinishable = "epic_finishable"
+	// AttentionBeadStuck: a bead marked in progress that nothing is working on.
+	AttentionBeadStuck = "bead_stuck"
 )
 
 // FoundMarker is posted in a reply to a `Found:` comment once it is answered

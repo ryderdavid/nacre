@@ -32,6 +32,9 @@ type Builder struct {
 	// Comments reads a bead's comments, for agents' `Found:` reports; nil
 	// leaves them out.
 	Comments func(ctx context.Context, path, id string) ([]api.Comment, error)
+	// Working reports whether a run or round is working on a bead; nil
+	// leaves stuck beads out of the list.
+	Working func(repoID, beadID string) bool
 	// Now is replaced in tests.
 	Now func() time.Time
 
@@ -132,8 +135,10 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 	}
 	beads := parseBeads(raw)
 	items := beadItems(ref, beads)
+	items = append(items, b.stuckItems(ref, beads)...)
 	if b.Changes != nil {
 		if changes, err := b.Changes(ref.Path); err == nil {
+			items = append(items, epicItems(ref, beads, changes)...)
 			items = append(items, changeItems(ref, changes, beads)...)
 			items = append(items, foundBeadItems(ref, changes, beads)...)
 			items = append(items, b.foundCommentItems(ctx, ref, changes)...)
@@ -152,6 +157,7 @@ type bead struct {
 	Status      string   `json:"status"`
 	Type        string   `json:"issue_type"`
 	Labels      []string `json:"labels"`
+	Parent      string   `json:"parent"`
 	UpdatedAt   string   `json:"updated_at"`
 }
 
@@ -259,13 +265,94 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 			item.Kind = api.AttentionChangeArchivable
 			item.BeadID = c.EpicID
 			item.Title = name + " is ready to archive"
-			item.Why = fmt.Sprintf("All %d sections landed with evidence for the approved revision. Archiving the change and closing its epic are still steps for the computer: open the change for them.", len(c.Sections))
-			item.Options = []api.AttentionOption{openChange}
+			item.Why = fmt.Sprintf("All %d sections landed with evidence for the approved revision. Finishing archives the change, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections))
+			item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Finish: archive and merge"), openChange}
 		default:
 			continue
 		}
 		item.ID = digest(item.Kind, ref.ID, c.ID, c.Phase, c.Revision)
 		out = append(out, item)
+	}
+	return out
+}
+
+func finishEpic(repo, epic, label string) api.AttentionOption {
+	return action(label, "POST", "/v1/repos/"+repo+"/epics/"+epic+"/finish", nil)
+}
+
+// epicItems lists open epics whose beads are all closed, other than a
+// change's epic, which is finished from its archive item.
+func epicItems(ref repos.Ref, beads map[string]bead, changes []api.ChangeSummary) []api.AttentionItem {
+	ofChange := map[string]bool{}
+	for _, c := range changes {
+		if c.EpicID != "" {
+			ofChange[c.EpicID] = true
+		}
+	}
+	children := map[string][]bead{}
+	for _, b := range beads {
+		if b.Parent != "" {
+			children[b.Parent] = append(children[b.Parent], b)
+		}
+	}
+	var out []api.AttentionItem
+	for _, e := range beads {
+		kids := children[e.ID]
+		if e.Type != "epic" || e.Status == "closed" || len(kids) == 0 || ofChange[e.ID] {
+			continue
+		}
+		last := ""
+		done := true
+		for _, k := range kids {
+			done = done && k.Status == "closed"
+			if k.UpdatedAt > last {
+				last = k.UpdatedAt
+			}
+		}
+		if !done {
+			continue
+		}
+		out = append(out, api.AttentionItem{
+			ID: digest(api.AttentionEpicFinishable, ref.ID, e.ID, last), Kind: api.AttentionEpicFinishable,
+			Repo: ref.ID, RepoName: ref.Name, BeadID: e.ID, Title: e.Title + " is done",
+			Why:       fmt.Sprintf("All %d beads under %s are closed. Finishing merges the epic's branch into the main branch with every gate and the build, pushes it and closes the epic.", len(kids), e.ID),
+			CreatedAt: last,
+			Options:   []api.AttentionOption{finishEpic(ref.ID, e.ID, "Finish epic"), open("Open epic", "bead", ref.ID, e.ID)},
+		})
+	}
+	return out
+}
+
+// StuckAfter is how long a bead can sit in progress with nothing working on
+// it before Needs you asks what to do with it.
+const StuckAfter = 24 * time.Hour
+
+// stuckItems lists beads marked in progress that no run or round is working
+// on and that haven't changed for StuckAfter.
+func (b *Builder) stuckItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
+	if b.Working == nil {
+		return nil
+	}
+	var out []api.AttentionItem
+	for _, x := range beads {
+		if x.Status != "in_progress" || x.Type == "epic" || b.Working(ref.ID, x.ID) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, x.UpdatedAt)
+		if err != nil || b.now().Sub(at) < StuckAfter {
+			continue
+		}
+		out = append(out, api.AttentionItem{
+			ID: digest(api.AttentionBeadStuck, ref.ID, x.ID, x.UpdatedAt), Kind: api.AttentionBeadStuck,
+			Repo: ref.ID, RepoName: ref.Name, BeadID: x.ID, Title: x.Title + " is stuck in progress",
+			Why:       x.ID + " has been in progress since " + at.Format("Jan 2") + " with nothing working on it. Work it until it's done (it lands and closes when it passes every gate), or put it back in Ready.",
+			CreatedAt: x.UpdatedAt,
+			Options: []api.AttentionOption{
+				action("Work until done", "POST", "/v1/repos/"+ref.ID+"/rounds", map[string]any{"beads": []string{x.ID}, "land_when_ready": true}),
+				action("Back to Ready", "PATCH", "/v1/repos/"+ref.ID+"/issues/"+x.ID, map[string]any{"status": "open"}),
+				open("Open bead", "bead", ref.ID, x.ID),
+			},
+		})
 	}
 	return out
 }

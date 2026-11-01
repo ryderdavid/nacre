@@ -212,7 +212,7 @@ func TestChangeArchivableOnlyWhenEverySectionLanded(t *testing.T) {
 			if got != tc.want {
 				t.Fatalf("archivable=%v want %v: %+v", got, tc.want, items)
 			}
-			if got && (items[0].Options[0].Target.Kind != "change" || items[0].BeadID != "E") {
+			if got && (items[0].Options[0].Path != "/v1/repos/r1/epics/E/finish" || items[0].Options[1].Target.Kind != "change" || items[0].BeadID != "E") {
 				t.Fatalf("item=%+v", items[0])
 			}
 		})
@@ -322,5 +322,47 @@ func TestFoundCommentsOutliveTheirRound(t *testing.T) {
 	items := f.b.Items(context.Background())
 	if len(items) != 1 || items[0].Kind != api.AttentionFoundWork {
 		t.Fatalf("items=%+v", items)
+	}
+}
+
+func TestFinishedEpicsAndStuckBeads(t *testing.T) {
+	f := newFixture(t)
+	old := f.now.Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	recent := f.now.Add(-time.Hour).UTC().Format(time.RFC3339)
+	working := map[string]bool{"N-busy": true}
+	f.b.Working = func(_, id string) bool { return working[id] }
+	f.beads = issues(t,
+		map[string]any{"id": "N-E", "title": "Drafts", "issue_type": "epic", "status": "open"},
+		map[string]any{"id": "N-1", "title": "a", "issue_type": "task", "status": "closed", "parent": "N-E", "updated_at": old},
+		map[string]any{"id": "N-O", "title": "Open epic", "issue_type": "epic", "status": "open"},
+		map[string]any{"id": "N-2", "title": "b", "issue_type": "task", "status": "open", "parent": "N-O"},
+		map[string]any{"id": "N-C", "title": "Change epic", "issue_type": "epic", "status": "open"},
+		map[string]any{"id": "N-3", "title": "c", "issue_type": "task", "status": "closed", "parent": "N-C"},
+		map[string]any{"id": "N-stuck", "title": "Forgotten", "issue_type": "task", "status": "in_progress", "updated_at": old},
+		map[string]any{"id": "N-busy", "title": "Running", "issue_type": "task", "status": "in_progress", "updated_at": old},
+		map[string]any{"id": "N-new", "title": "Just claimed", "issue_type": "task", "status": "in_progress", "updated_at": recent},
+	)
+	f.change = []api.ChangeSummary{{ID: "c1", ChangeName: "drafts", Phase: "ready", EpicID: "N-C"}}
+	byKind := map[string][]api.AttentionItem{}
+	for _, it := range f.b.Items(context.Background()) {
+		byKind[it.Kind] = append(byKind[it.Kind], it)
+	}
+	epics := byKind[api.AttentionEpicFinishable]
+	if len(epics) != 1 || epics[0].BeadID != "N-E" {
+		t.Fatalf("finishable epics = %+v", epics)
+	}
+	if o := epics[0].Options[0]; o.Method != "POST" || o.Path != "/v1/repos/r1/epics/N-E/finish" {
+		t.Fatalf("finish option = %+v", o)
+	}
+	stuck := byKind[api.AttentionBeadStuck]
+	if len(stuck) != 1 || stuck[0].BeadID != "N-stuck" {
+		t.Fatalf("stuck = %+v", stuck)
+	}
+	work := stuck[0].Options[0]
+	if work.Path != "/v1/repos/r1/rounds" || work.Body["land_when_ready"] != true {
+		t.Fatalf("work option = %+v", work)
+	}
+	if back := stuck[0].Options[1]; back.Method != "PATCH" || back.Body["status"] != "open" {
+		t.Fatalf("back option = %+v", back)
 	}
 }

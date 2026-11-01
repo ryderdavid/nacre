@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // Label is the LaunchAgent label.
@@ -116,11 +117,30 @@ func Install(p Paths, configPath string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "wrote %s\n", p.Plist)
-	if b, err := exec.Command("launchctl", "bootstrap", domain(), p.Plist).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v: %s", err, bytes.TrimSpace(b))
+	if err := bootstrap(p.Plist); err != nil {
+		return err
 	}
 	fmt.Fprintf(out, "loaded %s (logs: %s)\n", Label, p.Log)
 	return nil
+}
+
+// bootstrap loads the agent. bootout returns before launchd has finished
+// removing the old instance, and loading meanwhile fails with error 5, so wait
+// for it to go and retry a few times rather than leave the daemon unloaded.
+func bootstrap(plist string) error {
+	var last error
+	for attempt := 0; attempt < 8; attempt++ {
+		for i := 0; i < 20 && exec.Command("launchctl", "print", domain()+"/"+Label).Run() == nil; i++ {
+			time.Sleep(250 * time.Millisecond)
+		}
+		b, err := exec.Command("launchctl", "bootstrap", domain(), plist).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		last = fmt.Errorf("launchctl bootstrap: %v: %s", err, bytes.TrimSpace(b))
+		time.Sleep(time.Second)
+	}
+	return last
 }
 
 // Uninstall unloads the agent and removes the plist (the binary is kept).

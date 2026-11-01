@@ -107,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rounds/{round}/plan", s.editRoundPlan)
 	mux.HandleFunc("POST /v1/rounds/{round}/limits", s.setRoundLimits)
 	mux.HandleFunc("POST /v1/rounds/{round}/land", s.landRound)
+	mux.HandleFunc("POST /v1/repos/{repo}/epics/{id}/finish", s.finishEpic)
 	mux.HandleFunc("POST /v1/rounds/{round}/cancel", s.cancelRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/resume", s.resumeRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/choose", s.chooseRound)

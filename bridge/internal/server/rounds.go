@@ -21,6 +21,7 @@ type roundRequest struct {
 	Target           string   `json:"target"`
 	BudgetUSD        float64  `json:"budget_usd"`
 	TimeLimitMinutes int      `json:"time_limit_minutes"`
+	LandWhenReady    bool     `json:"land_when_ready"`
 }
 
 func (s *Server) roundsReady(w http.ResponseWriter) bool {
@@ -51,7 +52,7 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 	round, err := s.Rounds.Create(rounds.CreateRequest{
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision,
 		RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
-		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes,
+		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes, LandWhenReady: req.LandWhenReady,
 	})
 	if err != nil {
 		s.fail(w, err)
@@ -175,6 +176,27 @@ func (s *Server) landRound(w http.ResponseWriter, r *http.Request) {
 	if s.roundsReady(w) {
 		s.roundResult(w, func() (api.Round, error) { return s.Rounds.Land(r.PathValue("round")) })
 	}
+}
+
+// finishEpic merges a finished epic's branch into the landing target, or
+// closes the epic when its work is already there.
+func (s *Server) finishEpic(w http.ResponseWriter, r *http.Request) {
+	if !s.roundsReady(w) {
+		return
+	}
+	if _, ok := s.repoPath(w, r); !ok {
+		return
+	}
+	round, closed, err := s.Rounds.FinishEpic(r.PathValue("repo"), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if closed {
+		writeJSON(w, http.StatusOK, map[string]any{"closed": true})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"round": round})
 }
 
 func (s *Server) cancelRound(w http.ResponseWriter, r *http.Request) {

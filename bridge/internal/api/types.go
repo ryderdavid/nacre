@@ -473,8 +473,11 @@ type Round struct {
 	LandedCommit string `json:"landed_commit,omitempty"`
 	Tag          string `json:"tag,omitempty"`
 	Pushed       bool   `json:"pushed,omitempty"`
-	AutoLand     bool   `json:"auto_land,omitempty"`
-	Error        string `json:"error,omitempty"`
+	// FinishEpic names the epic whose branch this round merges into Target;
+	// such a round has no beads of its own.
+	FinishEpic string `json:"finish_epic,omitempty"`
+	AutoLand   bool   `json:"auto_land,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // Active reports whether the round can still change.

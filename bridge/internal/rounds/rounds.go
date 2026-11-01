@@ -104,7 +104,12 @@ type Options struct {
 	Notify func(event string, data any)
 	// RepoChanged is called after the round writes to a repository's beads.
 	RepoChanged func(repoID string)
-	Logger      *log.Logger
+	// ArchiveChange archives and commits, in a finishing round's workspace,
+	// the specification change an epic belongs to, returning its name or ""
+	// for an epic without one. ChangeArchived is told once that has landed.
+	ArchiveChange  func(ctx context.Context, repoPath, workspace, epic string) (string, error)
+	ChangeArchived func(repoPath, epic string)
+	Logger         *log.Logger
 }
 
 // Errors returned to API callers.
@@ -273,6 +278,9 @@ type CreateRequest struct {
 	TimeLimitMinutes int
 	SpecChangeID     string
 	SpecRevision     string
+	// LandWhenReady lands the round as soon as it is verified, without
+	// waiting for Ryder, even for approved specification sections.
+	LandWhenReady bool
 }
 
 // Create validates the request, makes the integration workspace and starts
@@ -305,6 +313,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		return api.Round{}, conflict("name at least one bead")
 	}
 	beads := make([]api.RoundBead, 0, len(ids))
+	issues := make([]issue, 0, len(ids))
 	contracts := map[string]api.SpecContract{}
 	for _, id := range ids {
 		raw, err := m.opts.Beads.Get(ctx, path, id)
@@ -315,6 +324,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		if is.Status == "closed" {
 			return api.Round{}, conflict(id + " is closed")
 		}
+		issues = append(issues, is)
 		b := api.RoundBead{ID: id, Title: is.Title, Type: is.Type, Priority: is.Priority, State: api.BeadWaiting}
 		if is.hasLabel(pendingAmendmentLabel) {
 			return api.Round{}, conflict(id + " is a pending amendment to its specification change: revise the change or make it a follow-on")
@@ -360,7 +370,19 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	}
 	m.mu.Unlock()
 
-	target := req.Target
+	// An epic's work lands on the epic's own branch; finishing the epic
+	// merges it into the landing target.
+	target, epic := req.Target, req.Epic
+	if epic == "" {
+		if epic, err = m.sharedEpic(ctx, path, issues); err != nil {
+			return api.Round{}, err
+		}
+	}
+	if target == "" && epic != "" {
+		if target, err = ensureEpicBranch(ctx, path, epic, cfg.Land.Target); err != nil {
+			return api.Round{}, conflict(err.Error())
+		}
+	}
 	if target == "" {
 		target = cfg.Land.Target
 	}
@@ -387,10 +409,10 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	}
 	now := stamp()
 	meta := api.Round{
-		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: req.Epic,
+		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: epic,
 		State: api.RoundPlanning, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: beads, BudgetUSD: budget, TimeLimitMinutes: limit, Mode: m.opts.Mode, Model: m.opts.Model,
-		AutoLand: cfg.Land.Auto && len(contracts) == 0, CreatedAt: now, UpdatedAt: now,
+		AutoLand: req.LandWhenReady || (cfg.Land.Auto && len(contracts) == 0), CreatedAt: now, UpdatedAt: now,
 		SpecContracts: contracts,
 	}
 	dir := filepath.Join(m.opts.Dir, id)

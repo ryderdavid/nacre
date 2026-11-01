@@ -360,7 +360,7 @@ func (r *round) integrated(id, commit string) {
 // startFinish bumps the version once and runs every gate and the build on
 // the integration branch.
 func (r *round) startFinish() {
-	if r.integratedCount() == 0 {
+	if r.integratedCount() == 0 && r.meta.FinishEpic == "" {
 		reason := "No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round."
 		if r.allLeftOut() {
 			reason = "Every bead was left out at pre-flight, so there is nothing to land. Cancel the round."
@@ -377,8 +377,25 @@ func (r *round) startFinish() {
 		if err := r.m.guardSpec(ctx, meta, ws); err != nil {
 			return r.specStop(err)
 		}
+		archived := ""
+		if meta.FinishEpic != "" && r.m.opts.ArchiveChange != nil {
+			name, err := r.m.opts.ArchiveChange(ctx, meta.RepoPath, ws, meta.FinishEpic)
+			if err != nil {
+				return func() {
+					r.meta.Integration = nil
+					r.stop(api.Stop{Kind: api.StopGitError, Phase: "final", Reason: err.Error()})
+				}
+			}
+			archived = name
+		}
+		noteArchive := func() {
+			if archived != "" {
+				r.event("note", meta.FinishEpic, "Archived OpenSpec change "+archived+" with the epic's work")
+			}
+		}
 		version := meta.Version
-		if version == "" && cfg.Version.Bump != "" {
+		// Versions move only where work lands for good, not on epic branches.
+		if version == "" && cfg.Version.Bump != "" && landsOnTarget(meta, cfg) {
 			v, err := r.bump(ctx, ws, cfg, meta, "")
 			if err != nil {
 				return func() {
@@ -392,10 +409,10 @@ func (r *round) startFinish() {
 		if gates.AllOK(results) {
 			head, _ := gitx.RevParse(ctx, ws, "HEAD")
 			apply := r.finishOK(ctx, head, results)
-			return func() { r.meta.Version = version; apply() }
+			return func() { noteArchive(); r.meta.Version = version; apply() }
 		}
 		start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "final", Problem: failure(results)}, finalPrompt(r.integrationVars("", nil, results)))
-		return func() { r.meta.Version = version; start() }
+		return func() { noteArchive(); r.meta.Version = version; start() }
 	})
 }
 
@@ -471,6 +488,10 @@ func (r *round) closeBeads(head string) {
 // bumpsMinor says whether the round's version bump is a minor one: it is when
 // a feature or epic was integrated, and a patch otherwise.
 func bumpsMinor(meta api.Round) bool {
+	if meta.FinishEpic != "" {
+		// A finished epic is a feature's worth of work arriving at once.
+		return true
+	}
 	for _, b := range meta.Beads {
 		if b.State == api.BeadIntegrated && (b.Type == "feature" || b.Type == "epic") {
 			return true
@@ -625,8 +646,11 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 	if err := r.m.guardSpec(ctx, meta, ws); err != nil {
 		return r.specStop(err)
 	}
-	tag := cfg.TagName(version)
-	if cfg.Version.Tag != "" && tag == "" {
+	tag := ""
+	if landsOnTarget(meta, cfg) {
+		tag = cfg.TagName(version)
+	}
+	if cfg.Version.Tag != "" && tag == "" && landsOnTarget(meta, cfg) {
 		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The version bump didn't print a usable release version for tagging: " + version})
 	}
 	var artifacts []string
@@ -657,6 +681,10 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 				pushErr = "tag " + tag + ": " + err.Error()
 			}
 		}
+	}
+	var epicNotes []string
+	if meta.FinishEpic != "" {
+		epicNotes = r.finishedEpic(ctx, meta, head, cfg.Land.Push && pushErr == "")
 	}
 	dropped := r.dropCarried(ctx, meta)
 	keep := map[string]bool{}
@@ -690,6 +718,12 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			text += "; the push failed: " + firstLine(pushErr)
 		}
 		r.eventWith(api.RoundEvent{Kind: "land", Text: text, Commit: head})
+		if meta.FinishEpic != "" && len(epicNotes) == 0 {
+			r.event("note", meta.FinishEpic, meta.FinishEpic+" is finished: closed, and its branch "+EpicBranch(meta.FinishEpic)+" removed")
+		}
+		for _, n := range epicNotes {
+			r.event("note", meta.FinishEpic, n)
+		}
 		if len(dropped) > 0 {
 			r.event("note", "", "Removed the earlier rounds' kept branches this round continued: "+strings.Join(dropped, ", "))
 		}

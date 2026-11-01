@@ -28,6 +28,7 @@ import (
 
 type fakeBead struct {
 	ID, Title, Type, Status string
+	Parent                  string
 	Labels                  []string
 	After                   []string // blocks dependencies
 	Comments                []string
@@ -57,7 +58,7 @@ func (f *fakeBeads) raw(b *fakeBead) api.Issue {
 	for _, a := range b.After {
 		deps = append(deps, map[string]string{"issue_id": b.ID, "depends_on_id": a, "type": "blocks"})
 	}
-	m := map[string]any{"id": b.ID, "title": b.Title, "issue_type": b.Type, "status": b.Status, "priority": 2,
+	m := map[string]any{"id": b.ID, "title": b.Title, "issue_type": b.Type, "status": b.Status, "priority": 2, "parent": b.Parent,
 		"labels": b.Labels, "dependencies": deps, "description": "Do " + b.Title + "."}
 	raw, _ := json.Marshal(m)
 	return raw

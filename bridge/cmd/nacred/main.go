@@ -209,7 +209,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 			}
 			return executionContract(*contract), nil
 		},
-		Requirements: specflow.RequirementIndex,
+		Requirements:   specflow.RequirementIndex,
+		ArchiveChange:  changes.ArchiveInto,
+		ChangeArchived: changes.MarkArchived,
 		Develop: func(ctx context.Context, path, beadID, feedback string) error {
 			_, err := changes.Act(ctx, path, beadID, specflow.Action{Action: "develop", Feedback: feedback})
 			return err
@@ -247,6 +249,19 @@ func serve(cfg *config.Config, listenFlag string) error {
 			changes.Refresh(context.Background(), path)
 			list, _, err := changes.Summaries(path)
 			return list, err
+		},
+		Working: func(repoID, beadID string) bool {
+			if len(manager.List(runs.Filter{RepoID: repoID, IssueID: beadID, ActiveOnly: true, IncludeAdopted: true})) > 0 {
+				return true
+			}
+			for _, r := range roundsMgr.List(repoID, true) {
+				for _, b := range r.Beads {
+					if b.ID == beadID {
+						return true
+					}
+				}
+			}
+			return false
 		},
 	}
 	go invalidateAttention(broker, registry, needsYou)
