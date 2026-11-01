@@ -309,3 +309,25 @@ func TestHealthRequiresAuthenticatedExactHostAndBuild(t *testing.T) {
 		t.Fatal("accepted wrong commit")
 	}
 }
+
+func TestExtractSkipsPaxGlobalHeader(t *testing.T) {
+	// GitHub source tarballs begin with a pax_global_header entry that
+	// archive/tar yields as an ordinary header; it is not the archive root.
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	tw := tar.NewWriter(gz)
+	if e := tw.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, Format: tar.FormatPAX, Xattrs: map[string]string{"comment": "git"}}); e != nil {
+		t.Fatal(e)
+	}
+	_ = tw.WriteHeader(&tar.Header{Name: "root/", Typeflag: tar.TypeDir, Mode: 0700})
+	_ = tw.WriteHeader(&tar.Header{Name: "root/bridge/go.mod", Typeflag: tar.TypeReg, Mode: 0600})
+	_ = tw.Close()
+	_ = gz.Close()
+	dir := t.TempDir()
+	if e := extract(bytes.NewReader(b.Bytes()), dir); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := os.Stat(filepath.Join(dir, "bridge", "go.mod")); e != nil {
+		t.Fatal(e)
+	}
+}
