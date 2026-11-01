@@ -445,10 +445,10 @@ func (r *round) finishOK(ctx context.Context, head string, results []gates.Resul
 // closeBeads closes integrated beads against the final commit, except those
 // only a person can check, which stay open with what's left.
 func (r *round) closeBeads(head string) {
-	repo, round := r.meta.RepoPath, r.meta.ID
+	round := r.meta.ID
 	for i := range r.meta.Beads {
 		b := &r.meta.Beads[i]
-		if b.State != api.BeadIntegrated || b.Closed {
+		if b.State != api.BeadIntegrated || b.Closed || r.ops["close:"+b.ID] {
 			continue
 		}
 		// Specification sections remain open until the reviewed build lands.
@@ -462,27 +462,36 @@ func (r *round) closeBeads(head string) {
 			continue
 		}
 		if b.SpecChangeID != "" {
-			change, revision, repoID := b.SpecChangeID, b.SpecRevision, r.meta.RepoID
-			r.goOp("close:"+id, func(ctx context.Context) func() {
-				err := r.m.opts.Beads.Close(ctx, repo, id, fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), change, revision))
-				r.m.repoChanged(repoID)
-				return func() {
-					if err != nil {
-						r.event("note", id, "Landed, but closing the bead failed: "+err.Error())
-						return
-					}
-					if current := r.bead(id); current != nil {
-						current.Closed = true
-					}
-				}
-			})
+			change, revision := b.SpecChangeID, b.SpecRevision
+			r.closeBead(id, fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), change, revision))
 			continue
 		}
-		b.Closed = true
-		r.async(func(ctx context.Context) {
-			_ = r.m.opts.Beads.Close(ctx, repo, id, fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head)))
-		})
+		r.closeBead(id, fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head)))
 	}
+}
+
+// closeBead closes a finished bead, retrying transient failures. A close
+// that still fails (the bead waits on an open bead, say) is recorded on the
+// round's bead and logged, so Needs you can offer to close it, instead of the
+// bead silently staying open.
+func (r *round) closeBead(id, reason string) {
+	repo, repoID := r.meta.RepoPath, r.meta.RepoID
+	r.goOp("close:"+id, func(ctx context.Context) func() {
+		_, err := retry(ctx, func() error { return r.m.opts.Beads.Close(ctx, repo, id, reason) })
+		r.m.repoChanged(repoID)
+		return func() {
+			current := r.bead(id)
+			if current == nil {
+				return
+			}
+			if err != nil {
+				current.CloseError = firstLine(err.Error())
+				r.event("note", id, "Its work is done, but closing "+id+" failed: "+current.CloseError+". Close it from Needs you.")
+				return
+			}
+			current.Closed, current.CloseError = true, ""
+		}
+	})
 }
 
 // bumpsMinor says whether the round's version bump is a minor one: it is when

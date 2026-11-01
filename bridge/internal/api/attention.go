@@ -18,6 +18,8 @@ const (
 	AttentionEpicFinishable = "epic_finishable"
 	// AttentionBeadStuck: a bead marked in progress that nothing is working on.
 	AttentionBeadStuck = "bead_stuck"
+	// AttentionBeadUnclosed: a round finished a bead's work but couldn't close it.
+	AttentionBeadUnclosed = "bead_unclosed"
 )
 
 // FoundMarker is posted in a reply to a `Found:` comment once it is answered

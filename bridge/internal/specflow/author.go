@@ -500,7 +500,7 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 				if e = m.checkpoint(r); e != nil {
 					return e
 				}
-				return fmt.Errorf("The independent review found blocking problems in %s as written. Revise to have Nacre address them (up to $5), with your guidance if you like.", r.Change.ChangeName)
+				return fmt.Errorf("The independent review found blocking problems in %s as written. Fix the files yourself and review them again, or Revise to have Nacre address them (up to $5), with your guidance if you like.", r.Change.ChangeName)
 			} else if blockers(result.Findings) {
 				history(r, "review", "Independent review identified blocking findings.")
 				r.Stage = "author"

@@ -48,6 +48,7 @@ fun attentionLabel(kind: String) = when (kind) {
     AttentionItem.FOUND_WORK -> "Found work"
     AttentionItem.EPIC_FINISHABLE -> "Epic done"
     AttentionItem.BEAD_STUCK -> "Stuck in progress"
+    AttentionItem.BEAD_UNCLOSED -> "Done, still open"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 

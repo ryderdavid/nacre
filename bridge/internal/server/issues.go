@@ -257,12 +257,18 @@ func (s *Server) closeIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Reason string `json:"reason"`
+		// Force closes it even while beads it waits on are open.
+		Force bool `json:"force"`
 	}
 	if err := decode(r, &req, true); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
 		return
 	}
-	if err := s.BD.Close(r.Context(), path, id, strings.TrimSpace(req.Reason)); err != nil {
+	closeIt := s.BD.Close
+	if req.Force {
+		closeIt = s.BD.CloseForce
+	}
+	if err := closeIt(r.Context(), path, id, strings.TrimSpace(req.Reason)); err != nil {
 		s.fail(w, err)
 		return
 	}
