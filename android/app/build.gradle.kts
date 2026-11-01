@@ -12,8 +12,8 @@ android {
         applicationId = "com.ryderdavid.nacre"
         minSdk = 31
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.12.0"
+        versionCode = 20
+        versionName = "0.11.0"
     }
 
     buildTypes {
