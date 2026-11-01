@@ -278,7 +278,11 @@ func (r *round) maybeStart(b *api.RoundBead) {
 	}
 	ready, lost := r.prerequisites(b)
 	if lost != "" {
-		b.State, b.Reason = api.BeadSkipped, fmt.Sprintf("It builds on %s, which was parked", lost)
+		how := "was parked"
+		if other := r.bead(lost); other != nil && strings.HasPrefix(other.Reason, leftOutPrefix) {
+			how = "was left out"
+		}
+		b.State, b.Reason = api.BeadSkipped, fmt.Sprintf("It builds on %s, which %s", lost, how)
 		r.event("bead", b.ID, "Skipped: "+b.Reason)
 		r.note(b.ID, fmt.Sprintf("Round %s skipped this bead: %s. Start a new round for it once %s is done.", r.meta.ID, b.Reason, lost))
 		r.saveLocked()

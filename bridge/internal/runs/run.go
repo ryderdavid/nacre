@@ -26,14 +26,14 @@ type run struct {
 	metaVer   uint64
 	subs      map[chan struct{}]struct{}
 
-	pending     *claude.Turn // turn waiting in the queue
-	pgid        int          // process group of the running agent, 0 if none
+	pending *claude.Turn // turn waiting in the queue
+	pgid    int          // process group of the running agent, 0 if none
 	// stopSig is what terminate sends first (0 = SIGTERM). Codex runs each
 	// command in a process group of its own, out of reach of a signal to
 	// pgid, and only kills them itself on SIGINT.
-	stopSig syscall.Signal
-	cancelReq   bool         // user asked to cancel the current turn
-	shutdownReq bool         // bridge is shutting down
+	stopSig     syscall.Signal
+	cancelReq   bool // user asked to cancel the current turn
+	shutdownReq bool // bridge is shutting down
 	turnResult  *claude.Result
 	stderrTail  []string
 	lastOutput  time.Time // when the running claude last printed anything

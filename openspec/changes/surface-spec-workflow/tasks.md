@@ -10,10 +10,10 @@
 <!-- nacre-section: ssw-preflight -->
 ## 2. Spec drift in preflight
 
-- [ ] 2.1 Exported, bounded `RequirementIndex` that skips repositories without valid OpenSpec — `cd bridge && go test -race ./internal/specflow`
-- [ ] 2.2 `spec-drift` finding with required citation and fixed options; exception answer's comment and `spec-touch:` label — `cd bridge && go test -race ./internal/rounds`
-- [ ] 2.3 Leave-out answer: `BeadSkipped` with reason, note, dependents skipped with "was left out" wording — `cd bridge && go test -race ./internal/rounds`
-- [ ] 2.4 Amend-first answer: leave the round, start `develop`, reopen the question on refusal — `cd bridge && go test -race ./internal/rounds ./internal/specflow`
+- [x] 2.1 Exported, bounded `RequirementIndex` that skips repositories without valid OpenSpec — `cd bridge && go test -race ./internal/specflow`
+- [x] 2.2 `spec-drift` finding with required citation and fixed options; exception answer's comment and `spec-touch:` label — `cd bridge && go test -race ./internal/rounds`
+- [x] 2.3 Leave-out answer: `BeadSkipped` with reason, note, dependents skipped with "was left out" wording — `cd bridge && go test -race ./internal/rounds`
+- [x] 2.4 Amend-first answer: leave the round, start `develop`, reopen the question on refusal — `cd bridge && go test -race ./internal/rounds ./internal/specflow`
 
 <!-- nacre-section: ssw-archive -->
 ## 3. Stale reasons and readiness to archive

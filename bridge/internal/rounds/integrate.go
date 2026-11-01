@@ -361,7 +361,11 @@ func (r *round) integrated(id, commit string) {
 // the integration branch.
 func (r *round) startFinish() {
 	if r.integratedCount() == 0 {
-		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: "No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round."})
+		reason := "No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round."
+		if r.allLeftOut() {
+			reason = "Every bead was left out at pre-flight, so there is nothing to land. Cancel the round."
+		}
+		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: reason})
 		return
 	}
 	meta, cfg := clone(r.meta), r.cfg

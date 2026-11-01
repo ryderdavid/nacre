@@ -539,6 +539,18 @@ Finding kinds: `contradiction` and `ambiguity` (asked as questions), `overlap` a
 `after` sequencing), `shared-artifact` (runs are told to leave it alone), `unmerged-work` (asked: merge
 the branch into the round first, ignore it, or stop).
 
+`spec-drift` (asked): one bead would change behavior a requirement specifies. Only raised in
+repositories with a valid OpenSpec setup, never for spec section beads or beads labelled `found:`,
+and only when the finding cites a requirement from nacred's index of accepted specs and active
+changes (at most 24 KB; whole capabilities left out are listed in the plan's `spec_unchecked`). The
+finding and question carry `requirement: {capability, title, path, line}`. The answers are fixed:
+`Amend the spec first` (nacred starts proposal development for the bead with the requirement as
+feedback and leaves the bead out; if development is refused the question reopens with that reason as
+`problem` and the bead stays), `Proceed as an exception` (a decision comment and a
+`spec-touch:<capability>` label on the bead, which stays ordinary work) and `Leave it out of this
+round` (the bead is skipped with a reason starting "Left out"; beads that build on it are skipped as
+having built on one that "was left out"). A question's `applied` is set once its answer is carried out.
+
 ### RoundEvent
 `{"seq", "ts", "kind", "bead", "text", "commit", "gates":[GateResult]}`; kind is one of `state`,
 `plan`, `question`, `answer`, `bead`, `verify`, `merge`, `conflict`, `gates`, `build`, `land`, `note`,

@@ -209,6 +209,11 @@ func serve(cfg *config.Config, listenFlag string) error {
 			}
 			return executionContract(*contract), nil
 		},
+		Requirements: specflow.RequirementIndex,
+		Develop: func(ctx context.Context, path, beadID, feedback string) error {
+			_, err := changes.Act(ctx, path, beadID, specflow.Action{Action: "develop", Feedback: feedback})
+			return err
+		},
 		Dir: cfg.RoundsDir(), Runs: manager, Beads: client, Headless: assistant,
 		Gates: gates.NewRunner(cfg.MaxConcurrentGates), Workspaces: workspaces,
 		Repo: func(id string) (string, string, error) {

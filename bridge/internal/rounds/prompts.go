@@ -345,6 +345,7 @@ func preflightPrompt(meta api.Round, in preflightInput, cfg *repoconfig.Config) 
 			fmt.Fprintf(&s, "- %s: %s\n", u.Name, list(u.Files, maxUnmergedFiles))
 		}
 	}
+	specDriftPrompt(&s, in)
 	s.WriteString("\n## What the round owns\nThe round, not any bead, bumps the version once at the end")
 	if cfg != nil && cfg.Version.Bump != "" {
 		fmt.Fprintf(&s, " (`%s`)", cfg.Version.Bump)
@@ -367,6 +368,7 @@ Then the findings, each with a kind:
 - ordering: one bead needs another's result. List the beads in the order they must happen.
 - shared-artifact: something several beads would each change. List the beads; say what it is in text.
 - unmerged-work: a branch above changes what a bead will touch. Give the branch, the beads and the shared files.
+- spec-drift: only when the prompt lists specified behavior; see there. Leave requirement_path and requirement empty for every other kind.
 Keep text to one or two sentences. An empty findings list is a fine answer.
 `)
 	return s.String()
@@ -397,15 +399,18 @@ var preflightSchema = map[string]any{
 			"type": "array",
 			"items": map[string]any{
 				"type": "object", "additionalProperties": false,
-				"required": []string{"kind", "beads", "branch", "files", "text", "question", "options"},
+				"required": []string{"kind", "beads", "branch", "files", "text", "question", "options", "requirement_path", "requirement"},
 				"properties": map[string]any{
-					"kind":     map[string]any{"type": "string", "enum": []string{api.FindingContradiction, api.FindingAmbiguity, api.FindingOverlap, api.FindingOrdering, api.FindingSharedArtifact, api.FindingUnmergedWork}},
+					"kind":     map[string]any{"type": "string", "enum": []string{api.FindingContradiction, api.FindingAmbiguity, api.FindingOverlap, api.FindingOrdering, api.FindingSharedArtifact, api.FindingUnmergedWork, api.FindingSpecDrift}},
 					"beads":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"branch":   map[string]any{"type": "string"},
 					"files":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"text":     map[string]any{"type": "string"},
 					"question": map[string]any{"type": "string"},
 					"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					// Empty except for a spec-drift finding.
+					"requirement_path": map[string]any{"type": "string"},
+					"requirement":      map[string]any{"type": "string"},
 				},
 			},
 		},

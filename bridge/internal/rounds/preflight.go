@@ -32,6 +32,8 @@ const (
 type preflightInput struct {
 	Beads    []preflightBead
 	Unmerged []gitx.UnmergedBranch
+	// Index is the requirement index for the spec-drift check; nil skips it.
+	Index *api.RequirementIndex
 }
 
 type preflightBead struct {
@@ -39,6 +41,8 @@ type preflightBead struct {
 	Comments []api.Comment
 	// After lists round beads this one depends on in bd.
 	After []string
+	// SpecExempt beads are never reported for spec drift.
+	SpecExempt bool
 }
 
 // startPreflight runs the read-only review of the round's beads. Reading
@@ -105,7 +109,7 @@ func (m *Manager) gatherPreflight(ctx context.Context, meta api.Round) (prefligh
 		}
 		is := parseIssue(raw)
 		comments, _ := m.opts.Beads.Comments(ctx, meta.RepoPath, b.ID)
-		pb := preflightBead{Issue: is, Comments: comments}
+		pb := preflightBead{Issue: is, Comments: comments, SpecExempt: specExempt(is)}
 		for _, d := range is.Dependencies {
 			if d.Type == "blocks" && ids[d.DependsOnID] && d.DependsOnID != b.ID {
 				pb.After = append(pb.After, d.DependsOnID)
@@ -124,6 +128,13 @@ func (m *Manager) gatherPreflight(ctx context.Context, meta api.Round) (prefligh
 			}
 		}
 		in.Unmerged = unmerged
+	}
+	// Spec rounds carry their pinned contracts; ordinary rounds are checked
+	// against what is specified, when the repository has OpenSpec.
+	if len(meta.SpecContracts) == 0 && m.opts.Requirements != nil {
+		if ix, err := m.opts.Requirements(meta.RepoPath); err == nil && ix != nil && (len(ix.Requirements) > 0 || len(ix.Omitted) > 0) {
+			in.Index = ix
+		}
 	}
 	return in, nil
 }
@@ -147,12 +158,16 @@ type planAnswer struct {
 		Text     string   `json:"text"`
 		Question string   `json:"question"`
 		Options  []string `json:"options"`
+		// RequirementPath and Requirement are what a spec-drift finding cites.
+		RequirementPath string `json:"requirement_path"`
+		Requirement     string `json:"requirement"`
 	} `json:"findings"`
 }
 
 var findingKinds = map[string]bool{
 	api.FindingContradiction: true, api.FindingAmbiguity: true, api.FindingOverlap: true,
 	api.FindingOrdering: true, api.FindingSharedArtifact: true, api.FindingUnmergedWork: true,
+	api.FindingSpecDrift: true,
 }
 
 // questionDraft is a finding's question text and suggested answers.
@@ -181,6 +196,13 @@ func parsePlan(raw json.RawMessage, meta api.Round, in preflightInput) (*api.Pla
 		branches[u.Name] = true
 	}
 	plan := &api.Plan{Summary: strings.TrimSpace(a.Summary)}
+	exempt := map[string]bool{}
+	for _, b := range in.Beads {
+		exempt[b.Issue.ID] = b.SpecExempt
+	}
+	if in.Index != nil {
+		plan.SpecUnchecked = in.Index.Omitted
+	}
 	for _, b := range a.Beads {
 		if !inRound[b.ID] {
 			continue
@@ -196,7 +218,15 @@ func parsePlan(raw json.RawMessage, meta api.Round, in preflightInput) (*api.Pla
 			continue
 		}
 		beads := only(f.Beads, inRound, "")
+		var req *api.RequirementRef
 		switch f.Kind {
+		case api.FindingSpecDrift:
+			// Only one bead, not exempt, citing a requirement from the index.
+			found, ok := in.Index.Find(strings.TrimSpace(f.RequirementPath), strings.TrimSpace(f.Requirement))
+			if !ok || len(beads) != 1 || exempt[beads[0]] {
+				continue
+			}
+			req = &found
 		case api.FindingUnmergedWork:
 			if !branches[f.Branch] || len(beads) == 0 {
 				continue
@@ -210,7 +240,7 @@ func parsePlan(raw json.RawMessage, meta api.Round, in preflightInput) (*api.Pla
 				continue
 			}
 		}
-		fd := api.Finding{ID: fmt.Sprintf("f%d", i+1), Kind: f.Kind, Beads: beads, Branch: f.Branch, Files: f.Files, Text: strings.TrimSpace(f.Text)}
+		fd := api.Finding{ID: fmt.Sprintf("f%d", i+1), Kind: f.Kind, Beads: beads, Branch: f.Branch, Files: f.Files, Text: strings.TrimSpace(f.Text), Requirement: req}
 		plan.Findings = append(plan.Findings, fd)
 		drafts[fd.ID] = questionDraft{text: strings.TrimSpace(f.Question), options: f.Options}
 	}
@@ -286,6 +316,8 @@ func (r *round) applyPlan(plan *api.Plan, drafts map[string]questionDraft, in pr
 			for i := 1; i < len(f.Beads); i++ {
 				r.addAfter(f.Beads[i], f.Beads[i-1])
 			}
+		case api.FindingSpecDrift:
+			questions = append(questions, specDriftQuestion(f))
 		case api.FindingContradiction, api.FindingAmbiguity, api.FindingUnmergedWork:
 			d := drafts[f.ID]
 			q := api.Question{ID: "q" + strings.TrimPrefix(f.ID, "f"), FindingID: f.ID, Kind: f.Kind, Beads: f.Beads, Branch: f.Branch, Text: d.text, Options: d.options}
@@ -306,6 +338,9 @@ func (r *round) applyPlan(plan *api.Plan, drafts map[string]questionDraft, in pr
 		summary += ". " + plan.Summary
 	}
 	r.event("plan", "", summary)
+	if len(plan.SpecUnchecked) > 0 {
+		r.event("plan", "", "Spec drift wasn't checked against these capabilities, to keep the review within its bound: "+strings.Join(plan.SpecUnchecked, ", "))
+	}
 	for _, b := range r.meta.Beads {
 		r.note(b.ID, r.planNote(b, byID[b.ID]))
 	}
@@ -379,6 +414,10 @@ func (r *round) allAnswered() bool {
 // breaks the gates, goes to a recovery turn; once it is in, applyDecisions
 // runs again and moves on to the next branch.
 func (r *round) applyDecisions() {
+	if r.specDriftPending() {
+		r.applySpecDrift()
+		return
+	}
 	var merge []string
 	why := map[string]string{}
 	for _, q := range r.meta.Questions {

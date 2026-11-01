@@ -88,6 +88,12 @@ type Options struct {
 	// SpecContract returns the current approved contract, nil for ordinary
 	// beads, and an error for linked work whose approval cannot be proved.
 	SpecContract func(context.Context, string, string) (*api.SpecContract, error)
+	// Requirements returns the repository's requirement index for the
+	// spec-drift check; nil, or an error, skips the check.
+	Requirements func(repoPath string) (*api.RequirementIndex, error)
+	// Develop starts proposal development for a bead with feedback, for the
+	// spec-drift answer "Amend the spec first". An error is why it was refused.
+	Develop func(ctx context.Context, repoPath, beadID, feedback string) error
 	// Mode and Model are used for the round's runs ("" model = CLI default).
 	Mode, Model string
 	// BudgetUSD and TimeLimitMinutes are the defaults for new rounds.

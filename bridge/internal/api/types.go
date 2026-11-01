@@ -410,6 +410,9 @@ const (
 	FindingOrdering       = "ordering"
 	FindingSharedArtifact = "shared-artifact"
 	FindingUnmergedWork   = "unmerged-work"
+	// FindingSpecDrift: a bead would change behavior a cited requirement
+	// specifies. Only raised in repositories with a valid OpenSpec setup.
+	FindingSpecDrift = "spec-drift"
 )
 
 // Round is a set of beads in one repository that nacred carries from a
@@ -522,6 +525,9 @@ type Plan struct {
 	Beads    []PlanBead `json:"beads"`
 	Findings []Finding  `json:"findings"`
 	CostUSD  float64    `json:"cost_usd"`
+	// SpecUnchecked names capabilities the spec-drift check left out to stay
+	// within its index bound.
+	SpecUnchecked []string `json:"spec_unchecked,omitempty"`
 }
 
 // PlanBead is what the review expects one bead to touch.
@@ -547,6 +553,8 @@ type Finding struct {
 	Accepted bool `json:"accepted,omitempty"`
 	// Unlinked is set when Ryder said an overlap needn't be sequenced.
 	Unlinked bool `json:"unlinked,omitempty"`
+	// Requirement is what a spec-drift finding cites.
+	Requirement *RequirementRef `json:"requirement,omitempty"`
 }
 
 // Question is a finding that needs Ryder's decision.
@@ -563,6 +571,11 @@ type Question struct {
 	// Problem says why an earlier answer couldn't be carried out, when the
 	// question has come back to be answered again.
 	Problem string `json:"problem,omitempty"`
+	// Requirement is what a spec-drift question cites.
+	Requirement *RequirementRef `json:"requirement,omitempty"`
+	// Applied is set once nacred has carried out a spec-drift answer, so it
+	// isn't repeated when other questions are answered again.
+	Applied bool `json:"applied,omitempty"`
 }
 
 // IntegrationStep is the merge nacred is working through.
