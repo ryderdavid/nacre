@@ -2,6 +2,7 @@ package rounds
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -206,7 +207,7 @@ func TestLandingStopDiagnosesAndRefusesToRepeat(t *testing.T) {
 	if s.Choices[0].Explanation != "Claude tries the merge again." {
 		t.Errorf("diagnosis didn't explain the choice: %q", s.Choices[0].Explanation)
 	}
-	if len(s.Attempted) == 0 || !strings.HasPrefix(s.Attempted[0], "turn:land-merge") {
+	if strings.Join(s.Attempted, ",") != "fix:version,turn:land-merge×1" {
 		t.Errorf("attempted = %v", s.Attempted)
 	}
 	if stopped.OverheadUSD <= 0 {
@@ -234,6 +235,87 @@ func TestLandingStopDiagnosesAndRefusesToRepeat(t *testing.T) {
 	h.wait(t, r.ID, api.RoundLanded)
 	if b, _ := os.ReadFile(filepath.Join(h.repo, "stubborn.txt")); strings.TrimSpace(string(b)) != "main" {
 		t.Errorf("stubborn.txt = %q", b)
+	}
+}
+
+// The fingerprint is saved before the diagnosis, which can take minutes: a
+// continue sent while Claude is still diagnosing is refused when nothing has
+// changed, rather than replaying the failure.
+func TestContinueDuringDiagnosisIsRefusedWithoutAChange(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-G", Title: "Add g", Type: "task"})
+	h := newHarness(t, beads, noFindings)
+	hold := make(chan struct{})
+	h.head.mu.Lock()
+	h.head.hold = hold
+	h.head.mu.Unlock()
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(hold)
+		}
+	}
+	t.Cleanup(release)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-G"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundReadyToLand)
+	commitOnMain(t, h.repo, map[string]string{"stubborn.txt": "main\n"}, "main changes stubborn")
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	stopped := h.waitFor(t, r.ID, "a fingerprinted stop", func(x api.Round) bool {
+		return x.State == api.RoundPaused && x.Stop != nil && x.Stop.Fingerprint != ""
+	})
+	if stopped.Stop.Diagnosis != nil {
+		t.Fatal("the diagnosis finished while it was held")
+	}
+	if _, err := h.m.Choose(r.ID, api.ChoiceContinue, 0, 0); err == nil || !strings.Contains(err.Error(), "Nothing has changed") {
+		t.Fatalf("continue during the diagnosis: err = %v", err)
+	}
+	release()
+	h.waitFor(t, r.ID, "the diagnosis", func(x api.Round) bool {
+		return x.Stop != nil && x.Stop.Diagnosis != nil
+	})
+	if _, err := h.m.Choose(r.ID, api.ChoiceContinue, 0, 0); err == nil || !strings.Contains(err.Error(), "Nothing has changed") {
+		t.Fatalf("continue after the diagnosis: err = %v", err)
+	}
+}
+
+// A continue sent before the fingerprint is recorded waits for it rather
+// than going ahead unchecked.
+func TestContinueBeforeFingerprintIsAskedToWait(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-G", Title: "Add g", Type: "task"})
+	h := newHarness(t, beads, noFindings)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-G"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundReadyToLand)
+	commitOnMain(t, h.repo, map[string]string{"stubborn.txt": "main\n"}, "main changes stubborn")
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor(t, r.ID, "a fingerprinted stop", func(x api.Round) bool {
+		return x.State == api.RoundPaused && x.Stop != nil && x.Stop.Fingerprint != ""
+	})
+	// Put the stop back as it is in the moment before its fingerprint lands.
+	rd := h.m.get(r.ID)
+	rd.mu.Lock()
+	rd.meta.Stop.Fingerprint = ""
+	rd.ops["fingerprint"] = true
+	rd.mu.Unlock()
+	_, err = h.m.Choose(r.ID, api.ChoiceContinue, 0, 0)
+	rd.mu.Lock()
+	delete(rd.ops, "fingerprint")
+	state := rd.meta.State
+	rd.mu.Unlock()
+	if err == nil || !strings.Contains(err.Error(), "still recording") {
+		t.Fatalf("continue before the fingerprint: err = %v", err)
+	}
+	if state != api.RoundPaused {
+		t.Errorf("state = %s, want paused", state)
 	}
 }
 
@@ -420,5 +502,80 @@ func TestRecoveryPromptContracts(t *testing.T) {
 	}
 	if p := beadPrompt(base); strings.Contains(p, "Earlier work") {
 		t.Error("a fresh bead was told about earlier work")
+	}
+}
+
+// nacred restarting mid-ladder: the rungs a landing ran before the restart
+// (the version fix and the recovery turn) are saved as they run, so the
+// reloaded round doesn't run them again, and its stop lists them all.
+func TestLandingLadderSurvivesReload(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "gate")
+	t.Setenv("NACRE_TEST_LAND_GATE", gate)
+	t.Cleanup(func() { os.WriteFile(gate, nil, 0o644) })
+	beads := newFakeBeads(&fakeBead{ID: "T-G", Title: "Add g", Type: "task"})
+	o := harnessOpts{runsDir: t.TempDir(), roundsDir: t.TempDir(), wsRoot: t.TempDir()}
+	h := newHarnessWith(t, beads, noFindings, o)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-G"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundReadyToLand)
+	// main moves its version and a file the round changed: the version fix
+	// runs, then the conflict goes to a recovery turn, which holds.
+	commitOnMain(t, h.repo, map[string]string{"VERSION": "0.1.1\n", "stubborn.txt": "main\n"}, "main changes stubborn")
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	mid := h.waitFor(t, r.ID, "the landing's recovery turn", func(x api.Round) bool {
+		if x.Integration == nil || x.Integration.RunID == "" {
+			return false
+		}
+		run, _ := h.runs.Run(x.Integration.RunID)
+		return run.Status == api.StatusRunning && run.SessionID != ""
+	})
+	want := []string{"fix:version", "turn:land-merge×1"}
+	if got := mid.Integration.Attempted; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("attempted mid-ladder = %v, want %v", got, want)
+	}
+	// What a reload reads is what was saved, not what is in memory.
+	saved, err := os.ReadFile(filepath.Join(o.roundsDir, r.ID, "round.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk api.Round
+	if err := json.Unmarshal(saved, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.Integration == nil || strings.Join(onDisk.Integration.Attempted, ",") != strings.Join(want, ",") {
+		t.Errorf("round.json doesn't hold the rungs run so far: %+v", onDisk.Integration)
+	}
+	h.m.Shutdown(5 * time.Second)
+	h.runs.Shutdown(5 * time.Second)
+
+	o.repo = h.repo
+	h2 := newHarnessWith(t, beads, noFindings, o)
+	stopped := h2.waitFor(t, r.ID, "the landing stop", func(x api.Round) bool {
+		return x.State == api.RoundPaused && x.Stop != nil
+	})
+	s := stopped.Stop
+	if s.Kind != api.StopMergeConflict || s.Phase != "land" {
+		t.Fatalf("stop = %+v", s)
+	}
+	// fix_attempts is 1: the turn that ran before the restart was the only one.
+	if strings.Join(s.Attempted, ",") != strings.Join(want, ",") {
+		t.Errorf("stop attempted = %v, want %v", s.Attempted, want)
+	}
+	_, evs, _ := h2.m.Get(r.ID)
+	sent := 0
+	for _, e := range evs {
+		if e.Kind == "recover" && strings.Contains(e.Text, "Sent to Claude to fix") {
+			sent++
+		}
+	}
+	if sent != 1 {
+		t.Errorf("recovery turns started = %d, want 1 across the restart", sent)
+	}
+	if head, _ := gitx.RevParse(context.Background(), stopped.Workspace, "HEAD"); head != stopped.FinalCommit {
+		t.Errorf("the failed landing merge wasn't undone: HEAD %s, final %s", head, stopped.FinalCommit)
 	}
 }

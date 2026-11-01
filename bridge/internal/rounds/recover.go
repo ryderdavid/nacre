@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,6 +83,43 @@ func (r *round) retried(bead, what string, attempts int) {
 	if attempts > 1 {
 		r.event("recover", bead, fmt.Sprintf("%s worked on try %d after a transient error", what, attempts))
 	}
+}
+
+// ---- attempts ----
+
+// attempt records rungs on the integration step in progress and saves the
+// round at once, so a reload mid-ladder knows they ran and doesn't run them
+// again. A turn rung replaces the same phase's earlier count. Caller holds
+// r.mu.
+func (r *round) attempt(rungs ...string) {
+	st := r.meta.Integration
+	if st == nil || len(rungs) == 0 {
+		return
+	}
+	for _, rung := range rungs {
+		if prefix, _, ok := strings.Cut(rung, "×"); ok && strings.HasPrefix(rung, "turn:") {
+			st.Attempted = slices.DeleteFunc(st.Attempted, func(a string) bool { return strings.HasPrefix(a, prefix+"×") })
+		}
+		if !slices.Contains(st.Attempted, rung) {
+			st.Attempted = append(st.Attempted, rung)
+		}
+	}
+	r.saveLocked()
+}
+
+// turnRung names n recovery turns in phase.
+func turnRung(phase string, n int) string { return fmt.Sprintf("turn:%s×%d", phase, max(n, 1)) }
+
+// fixRungs names mechanical fixes as rungs ("fix:<kind>[:<file>]").
+func fixRungs(fixes []string) []string {
+	out := make([]string, 0, len(fixes))
+	for _, f := range fixes {
+		if !strings.HasPrefix(f, "fix:") {
+			f = "fix:" + f
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // ---- mechanical fixes ----
@@ -224,37 +262,68 @@ func (r *round) stop(s api.Stop) {
 // stopFn is stop as the result of a background operation.
 func (r *round) stopFn(s api.Stop) func() { return func() { r.stop(s) } }
 
-// afterStop fingerprints the failure and diagnoses it. Caller holds r.mu.
+// afterStop records the state the step failed in, then diagnoses it. The
+// fingerprint is its own quick operation, saved before the diagnosis starts:
+// the diagnosis can take minutes, and a "continue" sent meanwhile must still
+// find the fingerprint, or it would replay the failure. Caller holds r.mu.
 func (r *round) afterStop() {
+	if r.meta.Stop == nil {
+		return
+	}
+	r.fingerprintStop()
+	r.diagnoseStop()
+}
+
+// fingerprintStop records the state the current stop happened in, if it is
+// about the repository and has none yet. Caller holds r.mu.
+func (r *round) fingerprintStop() {
+	cur := r.meta.Stop
+	if cur == nil || cur.Fingerprint != "" || !stateful(cur.Kind) || r.ops["fingerprint"] {
+		return
+	}
+	s, meta := *cur, clone(r.meta)
+	r.goOp("fingerprint", func(ctx context.Context) func() {
+		fp := r.m.fingerprint(ctx, meta, s)
+		return func() {
+			cur := r.meta.Stop
+			if cur == nil || r.meta.State != api.RoundPaused {
+				return
+			}
+			if cur.Reason != s.Reason {
+				// The round stopped again while this ran; record that stop.
+				r.fingerprintStop()
+				return
+			}
+			cur.Fingerprint = fp
+		}
+	})
+}
+
+// diagnoseStop asks Claude what is wrong with the current stop, when the
+// budget allows. Caller holds r.mu.
+func (r *round) diagnoseStop() {
 	if r.meta.Stop == nil || r.ops["diagnose"] {
 		return
 	}
 	s, meta, events := *r.meta.Stop, clone(r.meta), r.recentEvents(30)
-	diagnose := s.Kind != api.StopLimits && s.Kind != api.StopLegacy && r.remaining() >= diagnosisCapUSD
+	if s.Kind == api.StopLimits || s.Kind == api.StopLegacy || r.remaining() < diagnosisCapUSD {
+		return
+	}
 	r.goOp("diagnose", func(ctx context.Context) func() {
-		fp := ""
-		if stateful(s.Kind) {
-			fp = r.m.fingerprint(ctx, meta, s)
-		}
-		var d *diagnosis
-		if diagnose {
-			d = r.m.diagnose(ctx, meta, s, events)
-		}
+		d := r.m.diagnose(ctx, meta, s, events)
 		return func() {
-			if d != nil {
-				r.meta.OverheadUSD += d.cost
-			}
-			cur := r.meta.Stop
-			if cur == nil || r.meta.State != api.RoundPaused || cur.Reason != s.Reason {
+			if d == nil {
 				return
 			}
-			cur.Fingerprint = fp
-			if d != nil && d.Summary != "" {
-				cur.Diagnosis = &api.Diagnosis{Summary: d.Summary, Cause: d.Cause, CostUSD: d.cost}
-				for i := range cur.Choices {
-					if e := d.explain[cur.Choices[i].ID]; e != "" {
-						cur.Choices[i].Explanation = e
-					}
+			r.meta.OverheadUSD += d.cost
+			cur := r.meta.Stop
+			if cur == nil || r.meta.State != api.RoundPaused || cur.Reason != s.Reason || d.Summary == "" {
+				return
+			}
+			cur.Diagnosis = &api.Diagnosis{Summary: d.Summary, Cause: d.Cause, CostUSD: d.cost}
+			for i := range cur.Choices {
+				if e := d.explain[cur.Choices[i].ID]; e != "" {
+					cur.Choices[i].Explanation = e
 				}
 			}
 		}
@@ -561,8 +630,12 @@ func (m *Manager) Choose(id, choice string, budgetUSD float64, minutes int) (api
 		r.resumeFromStop(fmt.Sprintf("Trying again with $%.2f left", r.remaining()))
 	case api.ChoiceContinue:
 		// A landing whose target moved needs no change from Ryder: trying
-		// again merges the target as it is now.
+		// again merges the target as it is now, so its fingerprint doesn't
+		// matter.
 		moved := s.Phase == "land" && strings.Contains(s.Reason, gitx.ErrNotFastForward.Error())
+		if !moved && (r.ops["fingerprint"] || r.meta.Stop.Fingerprint != s.Fingerprint) {
+			return clone(r.meta), conflict("The round is still recording the state it stopped in; try again in a moment.")
+		}
 		if s.Fingerprint != "" && fp == s.Fingerprint && !moved {
 			return clone(r.meta), conflict("Nothing has changed since this failed, so it would fail the same way. Fix it first, or pick another choice.")
 		}

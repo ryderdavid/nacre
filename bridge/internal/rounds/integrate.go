@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,7 +80,7 @@ func (r *round) startMerge(b *api.RoundBead) {
 				r.integrated(id, res.Commit)
 			}
 		}
-		return r.startIntegrationRun(ctx, api.IntegrationStep{Bead: id, Phase: "gates", PreMerge: pre, Problem: failure(results)},
+		return r.startIntegrationRun(ctx, api.IntegrationStep{Bead: id, Phase: "gates", PreMerge: pre, Problem: failure(results), Attempted: fixRungs(fixes)},
 			gatesPrompt(r.integrationVars(id, nil, results)))
 	})
 }
@@ -128,11 +129,15 @@ func (r *round) startIntegrationRun(ctx context.Context, step api.IntegrationSte
 			r.meta.State = api.RoundIntegrating
 		}
 		r.retried(bead, "Starting the integration turn", n)
+		// What ran before this turn, then the turn itself, saved as it
+		// starts: a reload must not run either again.
+		r.attempt(append(append([]string(nil), step.Attempted...), tries(n)...)...)
 		if err != nil {
 			r.integrationFailed(bead, "the integration run couldn't start: "+err.Error())
 			return
 		}
 		st.RunID, st.Attempts = run.ID, 1
+		r.attempt(turnRung(step.Phase, 1))
 		r.meta.RunIDs = append(r.meta.RunIDs, run.ID)
 		kind := "gates"
 		switch step.Phase {
@@ -279,6 +284,7 @@ func (r *round) integrationRetry(problem string, results []gates.Result, canResu
 	if st.Attempts < r.cfg.Limits.FixAttempts && canResume && r.remaining() >= minTurnBudget {
 		st.Attempts++
 		st.Problem = problem
+		r.attempt(turnRung(st.Phase, st.Attempts))
 		runID, budget := st.RunID, r.remaining()
 		msg := integrationFollowup(problem, results, st.Phase == "final" || st.Phase == "land")
 		r.goOp("integrate-followup", func(ctx context.Context) func() {
@@ -308,7 +314,10 @@ func (r *round) integrationFailed(bead, problem string) {
 		st = &api.IntegrationStep{Bead: bead}
 	}
 	pre, ws, phase := st.PreMerge, r.meta.Workspace, st.Phase
-	attempted := []string{fmt.Sprintf("turn:%s×%d", phase, max(st.Attempts, 1))}
+	attempted := append([]string(nil), st.Attempted...)
+	if st.Attempts > 0 && !slices.Contains(attempted, turnRung(phase, st.Attempts)) {
+		attempted = append(attempted, turnRung(phase, st.Attempts))
+	}
 	// undo resets the integration branch, then records the outcome.
 	undo := func(then func()) {
 		r.goOp("reset", func(ctx context.Context) func() {
@@ -601,7 +610,7 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 			problem := "git reported conflicts in: " + list(res.Conflicts, 20)
 			log, _ := gitx.Run(ctx, meta.RepoPath, "log", "--oneline", "-30", final+".."+meta.Target)
 			v := r.integrationVars("", res.Conflicts, nil)
-			start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land-merge", PreMerge: final, Rebump: rebump, Problem: problem},
+			start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land-merge", PreMerge: final, Rebump: rebump, Problem: problem, Attempted: fixRungs(notes)},
 				incomingPrompt(v, incoming{Name: meta.Target, Log: log, Landing: true}))
 			return func() {
 				r.recordFixes("", "the version", notes)
@@ -634,7 +643,7 @@ func (r *round) afterLandMerge(ctx context.Context, meta api.Round, cfg *repocon
 	if !gates.AllOK(results) {
 		log, _ := gitx.Run(ctx, meta.RepoPath, "log", "--oneline", "-30", final+".."+meta.Target)
 		v := r.integrationVars("", nil, results)
-		start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land", PreMerge: final, Problem: failure(results)},
+		start := r.startIntegrationRun(ctx, api.IntegrationStep{Phase: "land", PreMerge: final, Problem: failure(results), Attempted: fixRungs(notes)},
 			incomingPrompt(v, incoming{Name: meta.Target, Log: log, Landing: true}))
 		return func() {
 			r.recordFixes("", "merging "+meta.Target, notes)

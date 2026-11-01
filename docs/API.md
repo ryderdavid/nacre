@@ -697,9 +697,12 @@ is verified; the round reports it as `auto_land`.
            "cost_usd": 0.4},
   "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again
   "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…",
-                  "branch":"","rebump":false}, // the merge in progress, if any. phase: merge | conflict | gates | final for the
+                  "branch":"","rebump":false,"attempted":["fix:version","turn:land-merge×1"]},
+                                    // the merge in progress, if any. phase: merge | conflict | gates | final for the
                                     // round's own merges; preflight-merge (branch set) for unmerged work Ryder chose to bring
-                                    // in; land-merge | land for a target that moved before landing
+                                    // in; land-merge | land for a target that moved before landing. attempted: the recovery
+                                    // rungs run so far, saved as each runs so a restart doesn't repeat one; it becomes
+                                    // stop.attempted if the step gives up
   "budget_usd": 25, "spent_usd": 3.1, "overhead_usd": 0.04, // overhead: diagnoses, part of spent "time_limit_minutes": 240, "mode": "auto", "model": "",
   "run_ids": ["r_…"],               // every run the round started
   "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
