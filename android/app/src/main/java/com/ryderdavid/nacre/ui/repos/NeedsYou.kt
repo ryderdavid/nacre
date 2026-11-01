@@ -131,3 +131,22 @@ private fun NeedsYouCard(item: AttentionItem, busy: Boolean, showComputer: Boole
         }
     }
 }
+
+
+/**
+ * Says which computers run a nacred too old for Needs you and what came with it
+ * (proposals, Work until done, finishing epics), instead of those simply being
+ * empty there.
+ */
+@Composable
+fun OutdatedNacredNote(computers: List<String>) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Update nacred on ${computers.joinToString(", ")}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Its nacred is older than this app, so Needs you, proposals, Work until done and finishing epics stay empty there. Update it from Settings › Update connected computers, or install it on that computer.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

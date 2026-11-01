@@ -202,6 +202,9 @@ class NacreRepository(
 
     /** Whether any paired computer reports Needs you at all. */
     private val attentionHosts = MutableStateFlow<Set<String>>(emptySet())
+    /** Paired computers whose nacred predates Needs you, so its newer features stay empty there. */
+    private val outdatedHosts = MutableStateFlow<Map<String, String>>(emptyMap())
+    val outdatedComputers: StateFlow<List<String>> = outdatedHosts.map { it.values.sorted() }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     val attentionSupported: StateFlow<Boolean> = attentionHosts.map { it.isNotEmpty() }.stateIn(scope, SharingStarted.Eagerly, false)
 
     private val working = MutableStateFlow<Set<String>>(emptySet())
@@ -249,6 +252,7 @@ class NacreRepository(
         roundLists.update { it - hostId }
         attentionLists.update { it - hostId }
         attentionHosts.update { it - hostId }
+        outdatedHosts.update { it - hostId }
         connections.update { it - hostId }
         boards.keys.filter { Keys.host(it) == hostId }.forEach { boards.remove(it) }
     }
@@ -431,8 +435,10 @@ class NacreRepository(
             if (items == null) {
                 attentionHosts.update { it - p.host.id }
                 attentionLists.update { it - p.host.id }
+                outdatedHosts.update { it + (p.host.id to p.host.name) }
             } else {
                 attentionHosts.update { it + p.host.id }
+                outdatedHosts.update { it - p.host.id }
                 attentionLists.update { it + (p.host.id to items.map { i -> i.copy(hostId = p.host.id, hostName = p.host.name) }) }
             }
         } catch (e: Exception) {
