@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.data.board.BoardFilter
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.friendly
@@ -72,6 +75,30 @@ fun specificationUnavailable(index: BoardIndex, change: SpecChange): String? = w
     else -> null
 }
 
+/**
+ * The candidates to list given the board's filter (NAC-3mc): with [keepBoardFilter], the board's
+ * epic, type and needs-you scope; always the sheet's own [query], which starts as the board's search.
+ */
+fun scopedCandidates(candidates: List<Issue>, index: BoardIndex, boardFilter: BoardFilter?, query: String, keepBoardFilter: Boolean): List<Issue> {
+    val scope = if (keepBoardFilter && boardFilter != null) boardFilter.copy(query = query) else BoardFilter(query = query)
+    return candidates.filter { index.matches(it, scope) }
+}
+
+/** What the board's filter narrows a round to, beyond its search, or null when nothing. */
+fun boardScopeLabel(index: BoardIndex, f: BoardFilter?): String? {
+    if (f == null) return null
+    val parts = listOfNotNull(
+        when (f.epic) {
+            "" -> null
+            BoardFilter.NO_EPIC -> "outside any epic"
+            else -> "under ${index.byId[f.epic]?.title ?: f.epic}"
+        },
+        f.types.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(", "),
+        "needing you".takeIf { f.needsYou },
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
 /** Why a repository can't take a round, or null when it can. */
 fun roundUnavailable(repo: Repo?): String? = when {
     repo == null -> "This board isn't loaded yet."
@@ -85,7 +112,11 @@ fun roundUnavailable(repo: Repo?): String? = when {
  * works each on its own branch, checks and merges them, and finishes on one commit.
  */
 @Composable
-fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit, specChange: SpecChange? = null) {
+fun StartRoundSheet(
+    repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit, specChange: SpecChange? = null,
+    /** The board's search and epic filter when the sheet opened; the list starts narrowed to it. */
+    boardFilter: BoardFilter? = null,
+) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     val prefs by container.settings.settings.collectAsState(initial = null)
@@ -100,6 +131,11 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val unavailable = roundUnavailable(repo) ?: specChange?.let { specificationUnavailable(index, it) }
     val candidates = specChange?.let { specificationCandidates(index, it) } ?: roundCandidates(index, repo?.let { container.repository.changes(it.key) })
+    var query by rememberSaveable { mutableStateOf(boardFilter?.query.orEmpty()) }
+    val scopeLabel = if (specChange == null) boardScopeLabel(index, boardFilter) else null
+    var keepScope by rememberSaveable { mutableStateOf(scopeLabel != null) }
+    val shown = if (specChange != null) candidates else scopedCandidates(candidates, index, boardFilter, query, keepScope)
+    val hiddenPicks = picked.count { id -> shown.none { it.id == id } }
     val budgetValid = (budget.isBlank() && specChange == null) || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
 
     HandleDismissSheet(onDismiss = onDismiss) {
@@ -118,8 +154,22 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                 if (specChange != null) Text("${specChange.changeName} · revision ${specChange.revision.take(12)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 if (specChange != null && candidates.size < specChange.implementationIds.size) Text("${specChange.implementationIds.size - candidates.size} closed section beads are omitted. Their evidence remains in the change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (candidates.isEmpty()) Text("No ordinary open work is available. Specification work starts from its Change card.", style = MaterialTheme.typography.bodyMedium)
+                if (specChange == null && candidates.isNotEmpty()) {
+                    OutlinedTextField(
+                        value = query, onValueChange = { query = it }, singleLine = true,
+                        placeholder = { Text("Search titles, ids, labels") },
+                        shape = RoundedCornerShape(28.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (scopeLabel != null) FilterChip(
+                        selected = keepScope, onClick = { keepScope = !keepScope },
+                        label = { Text("Only $scopeLabel", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                    if (shown.isEmpty()) Text("Nothing open matches. Clear the search to see all ${candidates.size}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (hiddenPicks > 0) Text("$hiddenPicks picked not shown by this search", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
-                    items(candidates, key = { it.id }) { issue ->
+                    items(shown, key = { it.id }) { issue ->
                         val on = issue.id in picked
                         Row(
                             Modifier.fillMaxWidth().clickable { picked = if (on) picked - issue.id else picked + issue.id }.padding(vertical = 4.dp),

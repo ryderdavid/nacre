@@ -408,7 +408,27 @@ func TestRoundEndToEnd(t *testing.T) {
 	if !strings.Contains(strings.Join(beads.bead("T-A").Labels, ","), "round:"+r.ID) {
 		t.Error("bead not labelled with the round")
 	}
+	if r.LandPush == nil || *r.LandPush {
+		t.Errorf("land_push should resolve to nacre.yaml's push: false, got %v", r.LandPush)
+	}
 	done := h.wait(t, r.ID, api.RoundReadyToLand)
+	if done.LandPush == nil || *done.LandPush {
+		t.Errorf("ready-to-land round should say it won't push, got %v", done.LandPush)
+	}
+	changes, err := h.m.Changes(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changes.Head != done.FinalCommit || changes.Base != done.Base || len(changes.Commits) == 0 {
+		t.Errorf("changes: base %s head %s, %d commits", changes.Base, changes.Head, len(changes.Commits))
+	}
+	files := map[string]api.RoundFile{}
+	for _, f := range changes.Files {
+		files[f.Path] = f
+	}
+	if f, ok := files["shared.txt"]; !ok || f.Added == 0 {
+		t.Errorf("changes should include shared.txt's added lines: %+v", changes.Files)
+	}
 
 	if !strings.Contains(h.head.prompt, markPreflight) || !strings.Contains(h.head.prompt, "T-C") {
 		t.Errorf("pre-flight prompt: %.300s", h.head.prompt)
@@ -717,6 +737,9 @@ func TestCreateRefusals(t *testing.T) {
 	if _, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-nope"}}); err == nil {
 		t.Error("missing bead accepted")
 	}
+	if _, err := h.m.Changes("nope"); err != ErrNotFound {
+		t.Errorf("changes of an unknown round: %v", err)
+	}
 	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A"}})
 	if err != nil {
 		t.Fatal(err)
@@ -825,6 +848,9 @@ func TestRoundSurvivesRestart(t *testing.T) {
 	done := h2.wait(t, r.ID, api.RoundReadyToLand)
 	if b := done.Beads[0]; b.State != api.BeadIntegrated || b.FixAttempts != 1 {
 		t.Errorf("after restart: %+v", b)
+	}
+	if done.LandPush == nil || *done.LandPush {
+		t.Errorf("land_push not resolved again after a restart: %v", done.LandPush)
 	}
 	if run, _ := h2.runs.Run(done.Beads[0].RunID); run.Turns != 2 {
 		t.Errorf("the interrupted run wasn't followed up in its session: %d turns", run.Turns)

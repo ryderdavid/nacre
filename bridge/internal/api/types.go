@@ -530,6 +530,9 @@ type Round struct {
 	LandedCommit string `json:"landed_commit,omitempty"`
 	Tag          string `json:"tag,omitempty"`
 	Pushed       bool   `json:"pushed,omitempty"`
+	// LandPush says whether landing will push Target, resolved from the
+	// round's nacre.yaml (land.push); nil when that couldn't be read.
+	LandPush *bool `json:"land_push,omitempty"`
 	// FinishEpic names the epic whose branch this round merges into Target;
 	// such a round has no beads of its own.
 	FinishEpic string `json:"finish_epic,omitempty"`
@@ -668,6 +671,31 @@ type IntegrationStep struct {
 	// rung runs, so a reload mid-ladder doesn't repeat one, and becomes the
 	// stop's Attempted if the step gives up.
 	Attempted []string `json:"attempted,omitempty"`
+}
+
+// RoundChanges is what a round's result adds to the commit it started from,
+// so it can be reviewed before landing.
+type RoundChanges struct {
+	Base    string        `json:"base"`
+	Head    string        `json:"head"`
+	Commits []RoundCommit `json:"commits"`
+	Files   []RoundFile   `json:"files"`
+	// MoreCommits counts commits left out of Commits.
+	MoreCommits int `json:"more_commits,omitempty"`
+}
+
+// RoundCommit is one commit in a round's result.
+type RoundCommit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
+}
+
+// RoundFile is one changed file in a round's result.
+type RoundFile struct {
+	Path    string `json:"path"`
+	Added   int    `json:"added"`
+	Deleted int    `json:"deleted"`
+	Binary  bool   `json:"binary,omitempty"`
 }
 
 // RoundEvent is one line of a round's log.

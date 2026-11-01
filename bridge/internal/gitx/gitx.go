@@ -167,6 +167,60 @@ func CommitsBetween(ctx context.Context, dir, base, head string) (int, error) {
 	return strconv.Atoi(out)
 }
 
+// Commit is one commit's id and subject line.
+type Commit struct {
+	SHA     string
+	Subject string
+}
+
+// Log lists up to max commits reachable from head but not from base, newest first.
+func Log(ctx context.Context, dir, base, head string, max int) ([]Commit, error) {
+	out, err := Run(ctx, dir, "log", "--format=%H%x1f%s", "-n", strconv.Itoa(max), base+".."+head)
+	if err != nil {
+		return nil, err
+	}
+	var list []Commit
+	for _, line := range strings.Split(out, "\n") {
+		sha, subject, ok := strings.Cut(line, "\x1f")
+		if ok {
+			list = append(list, Commit{SHA: sha, Subject: subject})
+		}
+	}
+	return list, nil
+}
+
+// FileChange is one file's added and deleted line counts between two commits;
+// Binary files have no line counts.
+type FileChange struct {
+	Path           string
+	Added, Deleted int
+	Binary         bool
+}
+
+// DiffStat lists the files that differ between base and head.
+func DiffStat(ctx context.Context, dir, base, head string) ([]FileChange, error) {
+	out, err := Run(ctx, dir, "diff", "--numstat", "--no-renames", base, head)
+	if err != nil {
+		return nil, err
+	}
+	var list []FileChange
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.SplitN(line, "\t", 3)
+		if len(f) != 3 {
+			continue
+		}
+		c := FileChange{Path: f[2]}
+		if f[0] == "-" {
+			c.Binary = true
+		} else {
+			c.Added, _ = strconv.Atoi(f[0])
+			c.Deleted, _ = strconv.Atoi(f[1])
+		}
+		list = append(list, c)
+	}
+	return list, nil
+}
+
 // IsAncestor reports whether a is an ancestor of (or equal to) b.
 func IsAncestor(ctx context.Context, dir, a, b string) bool {
 	_, err := Run(ctx, dir, "merge-base", "--is-ancestor", a, b)
