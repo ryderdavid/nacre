@@ -2,10 +2,12 @@ package specflow
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 func TestSummariesListPlannedFirstWithAliasesAndEvidence(t *testing.T) {
@@ -96,5 +98,47 @@ func TestChangeGetCarriesInventorySummary(t *testing.T) {
 	env, err := m.Get(context.Background(), repo, "NAC-1")
 	if err != nil || env.Inventory == nil || env.Inventory.AcceptedSpecs != 1 || env.Inventory.ActiveChanges != 1 {
 		t.Fatalf("inventory=%+v err=%v", env.Inventory, err)
+	}
+}
+
+func TestAmendingSeedClosesOnceItsRevisionIsApproved(t *testing.T) {
+	repo, b, model, opts := fixture(t)
+	m := newManager(t, opts)
+	first := approve(t, m, repo, develop(t, m, repo))
+	b.edit("NAC-2", func(is *issue) {
+		*is = issue{ID: "NAC-2", Title: "Restore focus", Description: "Restore keyboard focus with the draft", Type: "task", Status: "open"}
+	})
+	model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
+		if h.System == authorSystem {
+			a := goodAuthor(first)
+			for i := range a.Artifacts {
+				if strings.HasSuffix(a.Artifacts[i].Path, "/design.md") {
+					a.Artifacts[i].Content += "\nRestore keyboard focus."
+				}
+			}
+			return a, 0.1, nil
+		}
+		return normalModel(ctx, h, n)
+	}
+	second := act(t, m, repo, "NAC-2", Action{Action: "develop"})
+	b.edit("NAC-2", func(is *issue) {
+		if is.Status == "closed" {
+			t.Fatal("seed closed before its revision was approved")
+		}
+	})
+	approve(t, m, repo, second)
+	b.edit("NAC-2", func(is *issue) {
+		if is.Status != "closed" {
+			t.Fatalf("amending seed still %s after approval", is.Status)
+		}
+	})
+	b.edit("NAC-1", func(is *issue) {
+		if is.Status == "closed" {
+			t.Fatal("the original seed (the epic) was closed")
+		}
+	})
+	list, _, _ := m.Summaries(repo)
+	if len(list) != 1 || len(list[0].SeedIDs) != 2 || list[0].SeedIDs[1] != "NAC-2" {
+		t.Fatalf("summary seeds=%+v", list)
 	}
 }

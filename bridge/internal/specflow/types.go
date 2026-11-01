@@ -102,6 +102,7 @@ type Beads interface {
 	Create(context.Context, string, bd.CreateParams) (string, error)
 	Update(context.Context, string, string, bd.UpdateParams) error
 	Reopen(context.Context, string, string) error
+	Close(ctx context.Context, repo, id, reason string) error
 	DepAdd(context.Context, string, string, string, string) error
 	DepRemove(context.Context, string, string, string) error
 	Comments(context.Context, string, string) ([]api.Comment, error)

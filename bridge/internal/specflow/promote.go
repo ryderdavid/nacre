@@ -216,6 +216,9 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 	if e = m.decisionComments(ctx, r, "promotion"); e != nil {
 		return e
 	}
+	if e = m.closeAliasSeeds(ctx, r); e != nil {
+		return e
+	}
 	r.Change.ApprovedRevision = r.Change.Revision
 	r.Change.Phase = "ready"
 	r.Change.Error = ""
@@ -284,4 +287,34 @@ func (m *Manager) decisionComments(ctx context.Context, r *record, phase string)
 		}
 	}
 	return nil
+}
+
+// closeAliasSeeds closes the beads that amended an existing change once their
+// revision is approved and synchronized: their intent now lives in the change
+// and its epic. Closing is idempotent, so a resumed promotion repeats it safely.
+func (m *Manager) closeAliasSeeds(ctx context.Context, r *record) error {
+	for _, id := range r.Aliases {
+		if id == r.Change.SeedID || id == r.Change.EpicID {
+			continue
+		}
+		is, e := m.getIssue(ctx, r.Repo, id)
+		if e != nil {
+			return e
+		}
+		if is.Status == "closed" {
+			continue
+		}
+		reason := fmt.Sprintf("Folded into %s at revision %s; the work continues under %s.", r.Change.ChangeName, short(r.Change.Revision), r.Change.EpicID)
+		if e = m.opts.Beads.Close(ctx, r.Repo, id, reason); e != nil {
+			return fmt.Errorf("close %s after its amendment was approved: %w", id, e)
+		}
+	}
+	return nil
+}
+
+func short(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
 }

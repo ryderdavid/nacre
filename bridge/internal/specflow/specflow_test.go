@@ -97,6 +97,9 @@ func (f *fakeBeads) Update(_ context.Context, _, id string, p bd.UpdateParams) e
 func (f *fakeBeads) Reopen(ctx context.Context, repo, id string) error {
 	return f.Update(ctx, repo, id, bd.UpdateParams{Status: ptr("open")})
 }
+func (f *fakeBeads) Close(ctx context.Context, repo, id, _ string) error {
+	return f.Update(ctx, repo, id, bd.UpdateParams{Status: ptr("closed")})
+}
 func (f *fakeBeads) DepAdd(_ context.Context, _, id, target, typ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
