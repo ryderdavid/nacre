@@ -113,6 +113,7 @@ of a live run linked to the bead on another paired computer should show that run
   "status": "queued|running|succeeded|failed|cancelled",
   "mode": "auto",                   // claude --permission-mode
   "model": "",                      // claude --model ("" = Claude Code default)
+  "effort": "medium",               // effort level the run started with; omitted = the agent's default
   "worktree": false,
   "session_id": "uuid or empty until init",
   "created_at": "…", "started_at": "…", "ended_at": "…",
@@ -319,8 +320,13 @@ asks for both and keeps stale runs out of its runs list and counts itself. Fetch
 gated: a client that was handed an adopted run's id can always follow it.
 
 ### RunRequest
-`{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)", "agent": "claude-code|codex"}`
+`{"mode": "auto|acceptEdits|plan|bypassPermissions|dontAsk", "model": "", "effort": "", "instructions": "extra text appended to the prompt", "worktree": false, "prompt": "full override (rare)", "agent": "claude-code|codex"}`
 All fields optional; defaults come from config.
+
+`effort` is an effort level of the chosen agent, kept for follow-ups: for Claude Code one of
+`low|medium|high|xhigh|max` (`claude --effort`), for Codex one of `low|medium|high|xhigh|max|ultra`
+(`-c model_reasoning_effort=…`; not every Codex model takes every level). Any other value is a 400;
+`""` leaves it to the agent's own default.
 
 `agent` `"codex"` runs the bead with the OpenAI Codex CLI (`codex exec --json`) instead of Claude
 Code; `""` or `"claude-code"` is Claude Code. It answers 409 with `codex_unavailable`'s reason as

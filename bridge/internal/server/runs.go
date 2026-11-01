@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +16,11 @@ import (
 
 // runRequest is the RunRequest body.
 type runRequest struct {
-	Mode         string `json:"mode"`
-	Model        string `json:"model"`
+	Mode  string `json:"mode"`
+	Model string `json:"model"`
+	// Effort is an effort level of the chosen agent (api.ClaudeEfforts,
+	// api.CodexEfforts); "" leaves it to the agent's default.
+	Effort       string `json:"effort"`
 	Instructions string `json:"instructions"`
 	Worktree     bool   `json:"worktree"`
 	Prompt       string `json:"prompt"`
@@ -47,6 +51,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid mode", "one of: "+strings.Join(api.Modes, ", "))
 		return
 	}
+	efforts := api.ClaudeEfforts
 	switch req.Agent {
 	case "", api.AgentClaudeCode:
 		req.Agent = ""
@@ -54,6 +59,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 			req.Model = s.Config.DefaultModel
 		}
 	case api.AgentCodex:
+		efforts = api.CodexEfforts
 		// default_model names a Claude model; Codex keeps its own default.
 		if st := s.codexStatus(r.Context()); !st.Available() {
 			writeError(w, http.StatusConflict, "codex unavailable", st.Reason)
@@ -65,6 +71,10 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(req.Model, "-") {
 		writeError(w, http.StatusBadRequest, "invalid model", "")
+		return
+	}
+	if req.Effort != "" && !slices.Contains(efforts, req.Effort) {
+		writeError(w, http.StatusBadRequest, "invalid effort", "one of: "+strings.Join(efforts, ", "))
 		return
 	}
 	raw, err := s.BD.Get(r.Context(), path, id)
@@ -87,7 +97,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	run, err := s.Runs.Start(runs.StartRequest{
 		RepoID: repoID, RepoName: repo.Name, RepoPath: path,
 		IssueID: id, IssueTitle: issue.Title,
-		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree, Prompt: text, Agent: req.Agent,
+		Mode: req.Mode, Model: req.Model, Effort: req.Effort, Worktree: req.Worktree, Prompt: text, Agent: req.Agent,
 	})
 	if err != nil {
 		s.fail(w, err)

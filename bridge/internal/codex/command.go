@@ -16,8 +16,11 @@ type Turn struct {
 	Prompt string
 	// Mode is a run permission mode (api.Modes); see sandboxArgs for how each
 	// maps onto Codex's sandbox and approval settings.
-	Mode     string
-	Model    string // --model ("" = Codex's configured default)
+	Mode  string
+	Model string // --model ("" = Codex's configured default)
+	// Effort is the reasoning effort ("" = Codex's configured default),
+	// passed as a -c override so a follow-up (exec resume) keeps it too.
+	Effort   string
 	Worktree bool   // --worktree (first turn only)
 	Resume   string // thread id to resume for follow-ups
 }
@@ -38,6 +41,9 @@ func (t Turn) Args() []string {
 	args = append(args, sandboxArgs(t.Mode)...)
 	if t.Model != "" {
 		args = append(args, "--model", t.Model)
+	}
+	if t.Effort != "" {
+		args = append(args, "-c", `model_reasoning_effort="`+t.Effort+`"`)
 	}
 	if t.Resume == "" && t.Worktree {
 		args = append(args, "--worktree")

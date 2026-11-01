@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.model.ACTIVITY_ENDED
 import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
 import com.ryderdavid.nacre.data.model.ACTIVITY_WORKING
+import com.ryderdavid.nacre.data.model.EFFORT_LABELS
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.RunEvent
 import com.ryderdavid.nacre.notify.RunNotifier
@@ -436,6 +437,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
                     "Codex".takeIf { r.isCodex && !r.isAdopted },
                     RUN_MODES.firstOrNull { it.first == r.mode }?.second?.let { "$it mode" },
                     r.model.ifBlank { null },
+                    EFFORT_LABELS[r.effort]?.let { "$it effort" },
                     if (r.worktree) "worktree" else null,
                     r.durationMs.takeIf { it > 0 }?.let { formatDuration(it) },
                     RunNotifier.cost(r),

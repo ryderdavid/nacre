@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,7 +38,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
@@ -82,7 +80,6 @@ import com.ryderdavid.nacre.data.claude.ClaudeService
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.data.settings.ThemeMode
-import com.ryderdavid.nacre.ui.bead.RUN_MODELS
 import com.ryderdavid.nacre.ui.bead.RUN_MODES
 import com.ryderdavid.nacre.ui.common.SectionHeader
 import com.ryderdavid.nacre.ui.common.nacreViewModel
@@ -265,17 +262,11 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
                 }
             }
 
-            item { Header("Claude Code runs") }
+            // Model and effort are picked per agent on the implement screen, starting from each agent's defaults.
+            item { Header("Implement runs") }
             item {
                 Labeled("Default permissions", RUN_MODES.first { it.first == p.runMode }.third) {
                     Segmented(RUN_MODES.map { it.first to it.second }, p.runMode) { v -> vm.update { it.copy(runMode = v) } }
-                }
-            }
-            item {
-                Labeled("Default model") {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RUN_MODELS.forEach { (k, l) -> FilterChip(selected = p.runModel == k, onClick = { vm.update { it.copy(runModel = k) } }, label = { Text(l) }) }
-                    }
                 }
             }
             item { SwitchRow(Icons.Rounded.AccountTree, "Use a git worktree by default", "Keeps runs off your working checkout", p.runWorktree) { v -> vm.update { it.copy(runWorktree = v) } } }

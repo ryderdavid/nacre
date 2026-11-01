@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -53,7 +52,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.RunRequest
-import com.ryderdavid.nacre.data.model.AGENT_CODEX
+import com.ryderdavid.nacre.data.model.AgentChoice
+import com.ryderdavid.nacre.data.model.CLAUDE_AGENT
+import com.ryderdavid.nacre.data.model.CODEX_AGENT
+import com.ryderdavid.nacre.data.model.EFFORT_LABELS
+import com.ryderdavid.nacre.data.model.RUN_AGENTS
+import com.ryderdavid.nacre.data.model.runAgent
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
@@ -168,12 +172,20 @@ val RUN_MODES = listOf(
     Triple("bypassPermissions", "Bypass", "Everything allowed, no checks. Only for trusted repos."),
 )
 
-val RUN_MODELS = listOf("" to "Default", "opus" to "Opus", "sonnet" to "Sonnet", "haiku" to "Haiku", "fable" to "Fable")
+/** What each [RUN_MODES] mode means for a Codex run (nacred maps them onto Codex's sandbox). */
+val CODEX_MODE_NOTES = mapOf(
+    "plan" to "Read-only sandbox. Codex investigates and proposes a plan.",
+    "acceptEdits" to "Edits inside the repository; no network, nothing outside it.",
+    "auto" to "Edits inside the repository, with network access.",
+    "bypassPermissions" to "No sandbox at all. Only for trusted repos.",
+)
 
 /**
- * Configure and send a bead to Claude Code or Codex. [targets] are the computers that have this
- * repository; with more than one, the user picks where it runs. Codex is offered only where the
- * computer reports it can run it; otherwise its button is disabled and says why.
+ * Configure and send a bead to Claude Code or Codex. The switch at the top picks the agent first;
+ * the model and effort below it come from that agent only, and flipping it starts them over at
+ * the agent's defaults. [targets] are the computers that have this repository; with more than
+ * one, the user picks where it runs. Codex can be picked anywhere, but a run starts only where the
+ * computer reports it can run Codex; otherwise the sheet says why.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -189,10 +201,15 @@ fun RunLaunchSheet(
     var target by rememberSaveable { mutableStateOf(initialTarget) }
     val targetRepo = targets.firstOrNull { it.repo.key == target }
     var mode by rememberSaveable { mutableStateOf(prefs.runMode) }
-    var model by rememberSaveable { mutableStateOf(prefs.runModel) }
+    // Saved as plain strings; AgentChoice keeps model and effort within the chosen agent.
+    var agentWire by rememberSaveable { mutableStateOf(CLAUDE_AGENT.wire) }
+    var modelId by rememberSaveable { mutableStateOf(CLAUDE_AGENT.defaultModel) }
+    var effortLevel by rememberSaveable { mutableStateOf(CLAUDE_AGENT.defaultEffort) }
+    val agent = runAgent(agentWire)
+    val choice = AgentChoice(agent, modelId, effortLevel).withModel(modelId)
+    fun choose(c: AgentChoice) { agentWire = c.agent.wire; modelId = c.model; effortLevel = c.effort }
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
     var instructions by rememberSaveable { mutableStateOf("") }
-    var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
     val hostName = targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"
 
@@ -200,9 +217,23 @@ fun RunLaunchSheet(
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
             Text("Implement", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                RUN_AGENTS.forEachIndexed { i, a ->
+                    SegmentedButton(
+                        selected = agent == a,
+                        onClick = { if (agent != a) choose(AgentChoice.defaults(a)) },
+                        shape = SegmentedButtonDefaults.itemShape(i, RUN_AGENTS.size),
+                    ) { Text(a.label) }
+                }
+            }
+            val codexBlocker = targetRepo?.codexBlocker.takeIf { agent == CODEX_AGENT }
             Text(
-                "Runs on $hostName with Claude Code on your Claude subscription, or with Codex on the ChatGPT account it is signed in to there. The agent claims the bead, does the work, verifies it and closes it when done.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                codexBlocker ?: if (agent == CODEX_AGENT) "Runs on $hostName with Codex on the ChatGPT account it is signed in to there. Codex claims the bead, does the work, verifies it and closes it when done."
+                else "Runs on $hostName with Claude Code on your Claude subscription. Claude claims the bead, does the work, verifies it and closes it when done.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (codexBlocker != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
             )
 
             if (targets.size > 1) {
@@ -234,17 +265,23 @@ fun RunLaunchSheet(
                 }
             }
             Text(
-                RUN_MODES.first { it.first == mode }.third,
+                CODEX_MODE_NOTES[mode].takeIf { agent == CODEX_AGENT } ?: RUN_MODES.first { it.first == mode }.third,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (mode == "bypassPermissions") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
             )
 
-            Text("Claude model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+            Text("Model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RUN_MODELS.forEach { (key, label) -> FilterChip(selected = model == key, onClick = { model = key }, label = { Text(label) }) }
+                agent.models.forEach { m -> FilterChip(selected = choice.model == m.id, onClick = { choose(choice.withModel(m.id)) }, label = { Text(m.label) }) }
             }
-            Text("Codex uses the model it is set up with on $hostName.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Text(if (agent == CODEX_AGENT) "Reasoning effort" else "Effort", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                agent.model(choice.model).efforts.forEach { e ->
+                    FilterChip(selected = choice.effort == e, onClick = { choose(choice.withEffort(e)) }, label = { Text(EFFORT_LABELS[e] ?: e) })
+                }
+            }
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { worktree = !worktree }, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -261,35 +298,16 @@ fun RunLaunchSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
 
-            val canSend = !sending && targetRepo != null
             Button(
                 onClick = {
                     permission()
-                    sentTo = "claude"
-                    onStart(target, RunRequest(mode = mode, model = model.ifBlank { null }, instructions = instructions.ifBlank { null }, worktree = worktree))
+                    onStart(target, choice.request(mode, instructions.ifBlank { null }, worktree))
                 },
-                enabled = canSend,
+                enabled = !sending && targetRepo != null && codexBlocker == null,
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
             ) {
-                Text(if (sending && sentTo == "claude") "Sending to $hostName…" else "Implement via Claude")
+                Text(if (sending) "Sending to $hostName…" else "Implement with ${agent.label}")
             }
-            val codexBlocker = targetRepo?.codexBlocker
-            FilledTonalButton(
-                onClick = {
-                    permission()
-                    sentTo = AGENT_CODEX
-                    onStart(target, RunRequest(mode = mode, instructions = instructions.ifBlank { null }, worktree = worktree, agent = AGENT_CODEX))
-                },
-                enabled = canSend && codexBlocker == null,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp),
-            ) {
-                Text(if (sending && sentTo == AGENT_CODEX) "Sending to $hostName…" else "Implement via Codex")
-            }
-            if (codexBlocker != null) Text(
-                codexBlocker,
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
         }
     }
 }

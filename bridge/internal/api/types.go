@@ -69,6 +69,14 @@ const (
 // Modes is the set of permission modes accepted for runs (claude --permission-mode).
 var Modes = []string{"auto", "acceptEdits", "plan", "bypassPermissions", "dontAsk"}
 
+// ClaudeEfforts are the effort levels Claude Code accepts (claude --effort).
+var ClaudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+// CodexEfforts are the reasoning effort levels the Codex CLI accepts
+// (model_reasoning_effort). Not every Codex model takes every level; the
+// app offers each model only the ones it supports.
+var CodexEfforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+
 // ValidMode reports whether m is an accepted permission mode.
 func ValidMode(m string) bool {
 	for _, x := range Modes {
@@ -143,15 +151,18 @@ type Comment struct {
 
 // Run is a Claude Code run dispatched for one bead.
 type Run struct {
-	ID            string  `json:"id"`
-	RepoID        string  `json:"repo_id"`
-	RepoName      string  `json:"repo_name"`
-	RepoPath      string  `json:"repo_path"`
-	IssueID       string  `json:"issue_id"`
-	IssueTitle    string  `json:"issue_title"`
-	Status        string  `json:"status"`
-	Mode          string  `json:"mode"`
-	Model         string  `json:"model"`
+	ID         string `json:"id"`
+	RepoID     string `json:"repo_id"`
+	RepoName   string `json:"repo_name"`
+	RepoPath   string `json:"repo_path"`
+	IssueID    string `json:"issue_id"`
+	IssueTitle string `json:"issue_title"`
+	Status     string `json:"status"`
+	Mode       string `json:"mode"`
+	Model      string `json:"model"`
+	// Effort is the effort level the run was started with ("" = the
+	// agent's default). Extension to API.md.
+	Effort        string  `json:"effort,omitempty"`
 	Worktree      bool    `json:"worktree"`
 	SessionID     string  `json:"session_id"`
 	CreatedAt     string  `json:"created_at"`

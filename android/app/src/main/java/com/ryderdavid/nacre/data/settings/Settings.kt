@@ -46,7 +46,6 @@ data class AppSettings(
     val claudeModel: String = DEFAULT_MODEL,
     val claudeEffort: String = "medium",
     val runMode: String = "auto",
-    val runModel: String = "",
     val runWorktree: Boolean = false,
     val dynamicColor: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -95,7 +94,6 @@ class SettingsStore(private val context: Context) {
         val model = stringPreferencesKey("claude_model")
         val effort = stringPreferencesKey("claude_effort")
         val runMode = stringPreferencesKey("run_mode")
-        val runModel = stringPreferencesKey("run_model")
         val runWorktree = booleanPreferencesKey("run_worktree")
         val dynamic = booleanPreferencesKey("dynamic_color")
         val theme = stringPreferencesKey("theme_mode")
@@ -131,7 +129,6 @@ class SettingsStore(private val context: Context) {
             claudeModel = p[K.model] ?: AppSettings.DEFAULT_MODEL,
             claudeEffort = p[K.effort] ?: "medium",
             runMode = p[K.runMode] ?: "auto",
-            runModel = p[K.runModel].orEmpty(),
             runWorktree = p[K.runWorktree] ?: false,
             dynamicColor = p[K.dynamic] ?: true,
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
@@ -193,7 +190,6 @@ class SettingsStore(private val context: Context) {
             it[K.model] = next.claudeModel
             it[K.effort] = next.claudeEffort
             it[K.runMode] = next.runMode
-            it[K.runModel] = next.runModel
             it[K.runWorktree] = next.runWorktree
             it[K.dynamic] = next.dynamicColor
             it[K.theme] = next.themeMode.name
