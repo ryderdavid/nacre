@@ -3,8 +3,9 @@
 // session it adopted instead of forking it with `claude -p --resume`.
 //
 // The protocol is undocumented and was read off Claude Code 2.1.309/2.1.310
-// (spike NAC-j5z.12); everything here is guarded so that a session that does
-// not look exactly like the ones tested keeps the adopted run read-only.
+// (spike NAC-j5z.12), then sent against by hand on 2.1.312; everything here
+// is guarded so that a session that does not look exactly like the ones
+// tested keeps the adopted run read-only.
 //
 // Wire format: NDJSON over an AF_UNIX stream socket at the session record's
 // messagingSocketPath. One connection per send: connect, write the lines,
