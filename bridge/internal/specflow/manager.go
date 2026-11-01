@@ -499,7 +499,11 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.PromotionRevision = a.Revision
 		history(r, "approval", "Owner approved revision "+a.Revision+". Synchronizing the epic and section beads.")
 	} else if a.Action == "resume" {
-		if r.Change.Phase != "interrupted" && r.Change.Phase != "needs_attention" {
+		// An adopted change not yet approved can always take its files again
+		// for another review, e.g. after Ryder edited them.
+		unapprovedAdoption := r.Change.Adoption != nil && r.Pass == 0 && r.Change.ApprovedRevision == "" && r.Stage != "promote" &&
+			(r.Change.Phase == "awaiting_approval" || r.Change.Phase == "stale")
+		if r.Change.Phase != "interrupted" && r.Change.Phase != "needs_attention" && !unapprovedAdoption {
 			return Envelope{}, fmt.Errorf("%w: this change has no interrupted operation to resume", ErrConflict)
 		}
 		if r.Stage == "promote" {
