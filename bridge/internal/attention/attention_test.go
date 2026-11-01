@@ -311,3 +311,16 @@ func TestContextForTheMacAssistant(t *testing.T) {
 		t.Fatalf("unbounded context: %d bytes", len(got))
 	}
 }
+
+func TestFoundCommentsOutliveTheirRound(t *testing.T) {
+	f := newFixture(t)
+	f.change = []api.ChangeSummary{{ID: "sf1", ChangeName: "x", Phase: "ready", EpicID: "E", SeedIDs: []string{"E"}}}
+	f.rounds = []api.Round{{ID: "R1", RepoID: "r1", State: api.RoundLanded, Beads: []api.RoundBead{{ID: "S-1", SpecChangeID: "sf1", State: api.BeadIntegrated}}}}
+	f.b.Comments = func(context.Context, string, string) ([]api.Comment, error) {
+		return []api.Comment{{ID: "c1", Text: "Found: something outside"}}, nil
+	}
+	items := f.b.Items(context.Background())
+	if len(items) != 1 || items[0].Kind != api.AttentionFoundWork {
+		t.Fatalf("items=%+v", items)
+	}
+}

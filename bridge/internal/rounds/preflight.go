@@ -222,8 +222,10 @@ func parsePlan(raw json.RawMessage, meta api.Round, in preflightInput) (*api.Pla
 		switch f.Kind {
 		case api.FindingSpecDrift:
 			// Only one bead, not exempt, citing a requirement from the index.
-			found, ok := in.Index.Find(strings.TrimSpace(f.RequirementPath), strings.TrimSpace(f.Requirement))
+			path, title := citation(f.RequirementPath, f.Requirement)
+			found, ok := in.Index.Find(path, title)
 			if !ok || len(beads) != 1 || exempt[beads[0]] {
+				plan.SpecSetAside = append(plan.SpecSetAside, fmt.Sprintf("%s (%s %s)", strings.Join(f.Beads, ", "), path, title))
 				continue
 			}
 			req = &found
@@ -338,6 +340,9 @@ func (r *round) applyPlan(plan *api.Plan, drafts map[string]questionDraft, in pr
 		summary += ". " + plan.Summary
 	}
 	r.event("plan", "", summary)
+	if len(plan.SpecSetAside) > 0 {
+		r.event("plan", "", "Spec drift the review reported without a citation from the requirement index was set aside: "+strings.Join(plan.SpecSetAside, "; "))
+	}
 	if len(plan.SpecUnchecked) > 0 {
 		r.event("plan", "", "Spec drift wasn't checked against these capabilities, to keep the review within its bound: "+strings.Join(plan.SpecUnchecked, ", "))
 	}

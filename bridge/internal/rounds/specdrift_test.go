@@ -188,3 +188,24 @@ func TestSpecRoundPromptKeepsAgentsInTheirSection(t *testing.T) {
 		t.Fatal("an ordinary round was given the spec rule")
 	}
 }
+
+func TestSpecDriftCitationsAreNormalized(t *testing.T) {
+	for _, tc := range [][4]string{
+		{"openspec/changes/chat/specs/boards/spec.md:12", "Requirement: Enter inserts a newline", "openspec/changes/chat/specs/boards/spec.md", "Enter inserts a newline"},
+		{"`openspec/specs/x/spec.md`", `"Enter inserts a newline"`, "openspec/specs/x/spec.md", "Enter inserts a newline"},
+		{"openspec/specs/x/spec.md", "Enter inserts a newline", "openspec/specs/x/spec.md", "Enter inserts a newline"},
+	} {
+		if p, title := citation(tc[0], tc[1]); p != tc[2] || title != tc[3] {
+			t.Fatalf("citation(%q, %q) = %q, %q", tc[0], tc[1], p, title)
+		}
+	}
+	in := preflightInput{Index: func() *api.RequirementIndex { ix, _ := boardsIndex(""); return ix }(), Beads: []preflightBead{{Issue: issue{ID: "T-A"}}}}
+	meta := api.Round{Beads: []api.RoundBead{{ID: "T-A"}}}
+	raw := []byte(`{"summary":"","beads":[],"findings":[
+	 {"kind":"spec-drift","beads":["T-A"],"branch":"","files":[],"text":"x","question":"","options":[],"requirement_path":"openspec/changes/chat/specs/boards/spec.md:12","requirement":"Requirement: Enter inserts a newline"},
+	 {"kind":"spec-drift","beads":["T-A"],"branch":"","files":[],"text":"y","question":"","options":[],"requirement_path":"openspec/specs/none/spec.md","requirement":"Made up"}]}`)
+	plan, _, err := parsePlan(raw, meta, in)
+	if err != nil || len(plan.Findings) != 1 || plan.Findings[0].Requirement == nil || len(plan.SpecSetAside) != 1 {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+}

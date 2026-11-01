@@ -528,6 +528,9 @@ type Plan struct {
 	// SpecUnchecked names capabilities the spec-drift check left out to stay
 	// within its index bound.
 	SpecUnchecked []string `json:"spec_unchecked,omitempty"`
+	// SpecSetAside describes spec-drift findings dropped for not citing a
+	// listed requirement, so the round says so instead of losing them.
+	SpecSetAside []string `json:"spec_set_aside,omitempty"`
 }
 
 // PlanBead is what the review expects one bead to touch.

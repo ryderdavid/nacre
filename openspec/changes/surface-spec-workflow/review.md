@@ -133,5 +133,12 @@ where it speaks and the design's intent where it doesn't.
 - The emulator walkthrough (docs/SURFACE_SPEC_WORKFLOW_VERIFICATION.md) found and fixed a bug: a
   `discovered-from` link from a found bead to its own epic, which bd refuses. The emulator keeps a
   paired, now offline, "Walkthrough" computer; remove it in Settings.
-- Task 10.2 (one real cycle to ready-to-archive) is left open: it needs this nacred deployed and real
-  Claude Code rounds.
+- Task 10.2 ran on the isolated walkthrough nacred with real Claude Code rather than on the Mac
+  Studio's production nacred, so Ryder's boards and running work weren't touched; about $5 of
+  subscription was spent. It found and fixed: spec-drift findings dropped for citation format,
+  landing refused by identical untracked change artifacts, "Try again" refused forever after a
+  landing failure (fingerprint ignored the checkout), and Needs you missing `Found:` comments once a
+  round ended. Section human checks were closed by hand in the fixture to reach ready-to-archive.
+- The landing fix clears only untracked files whose bytes equal what the landing commit adds; it
+  never removes anything that differs. This touches round landing (semi-attended-rounds /
+  spec-guided-beads behavior), listed here because it was needed to land any spec round.

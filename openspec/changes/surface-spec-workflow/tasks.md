@@ -73,4 +73,4 @@
 ## 10. Verification
 
 - [x] 10.1 Cover and unfolded screens on the Fold: inbox, chips, epic detail, New effort, Proposals lane, Found something — `nacred gates --build`, then a device walkthrough recorded on the bead
-- [ ] 10.2 One real cycle: a New effort routed to a change (or the assistant proposes one), Ryder approves, a round lands, and Needs you reports the change ready to archive — `nacred gates`, then `openspec validate --all --strict` on the landed target, with run and round ids recorded on the beads
+- [x] 10.2 One real cycle: a New effort routed to a change (or the assistant proposes one), Ryder approves, a round lands, and Needs you reports the change ready to archive — `nacred gates`, then `openspec validate --all --strict` on the landed target, with run and round ids recorded on the beads

@@ -240,7 +240,8 @@ func serve(cfg *config.Config, listenFlag string) error {
 	go sweepWorktrees(workspaces, registry, roundsMgr, logger)
 	needsYou := &attention.Builder{
 		Repos: registry.Refs, Issues: client.List, Comments: client.Comments,
-		Rounds: func() []api.Round { return roundsMgr.List("", true) },
+		// Ended rounds too: their spec beads' Found: comments still wait on Ryder.
+		Rounds: func() []api.Round { return roundsMgr.List("", false) },
 		Changes: func(path string) ([]api.ChangeSummary, error) {
 			// Approvals that went stale for any reason are named before listing.
 			changes.Refresh(context.Background(), path)

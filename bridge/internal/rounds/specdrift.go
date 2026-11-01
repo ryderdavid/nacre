@@ -46,7 +46,7 @@ func specDriftPrompt(s *strings.Builder, in preflightInput) {
 			exempt = append(exempt, b.Issue.ID)
 		}
 	}
-	s.WriteString("\nReport a spec-drift finding when one bead would change behavior that a requirement above specifies, so building it as written would contradict the requirement. Give that one bead, requirement_path and requirement exactly as listed (the title after \"Requirement: \"), and in text what conflicts. Don't report a bead that merely mentions or extends the area without contradicting it.")
+	s.WriteString("\nReport a spec-drift finding when one bead would change behavior that a requirement above specifies, so building it as written would contradict the requirement. Give that one bead; requirement_path is the file path alone, without the :line, and requirement is the title after \"Requirement: \", both exactly as listed; in text say what conflicts. Report it as a spec-drift finding even when it is the only problem, never only in the summary. Don't report a bead that merely mentions or extends the area without contradicting it.")
 	if len(exempt) > 0 {
 		fmt.Fprintf(s, " Never report spec drift for %s: they already belong to a specification change.", strings.Join(exempt, ", "))
 	}
@@ -170,4 +170,29 @@ func (r *round) allLeftOut() bool {
 		}
 	}
 	return len(r.meta.Beads) > 0
+}
+
+// citation normalizes what the review cites the way the index lists it: a
+// path without its ":line", a title without "Requirement:" or quotes.
+func citation(path, title string) (string, string) {
+	path = strings.Trim(strings.TrimSpace(path), "`\"'")
+	if i := strings.LastIndexByte(path, ':'); i > 0 && allDigits(path[i+1:]) {
+		path = path[:i]
+	}
+	title = strings.TrimSpace(title)
+	title = strings.TrimSpace(strings.TrimPrefix(title, "Requirement:"))
+	title = strings.Trim(title, "`\"'“”")
+	return path, title
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

@@ -9,7 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -322,12 +324,50 @@ func FastForward(ctx context.Context, repo, target, sha string) error {
 	}
 	for _, wt := range wts {
 		if wt.Branch == target {
+			if err := clearIdenticalUntracked(ctx, wt.Path, old, sha); err != nil {
+				return err
+			}
 			_, err := Run(ctx, wt.Path, "merge", "--ff-only", sha)
 			return err
 		}
 	}
 	_, err = Run(ctx, repo, "update-ref", "refs/heads/"+target, sha, old)
 	return err
+}
+
+// clearIdenticalUntracked removes untracked files in the worktree at dir that
+// the commits old..sha add with exactly the same content, so the fast-forward
+// isn't refused for them: a specification change's artifacts are written to
+// the checkout untracked and land again in the round's commit. A file that
+// differs in any byte is left alone, and the merge refuses as before.
+func clearIdenticalUntracked(ctx context.Context, dir, old, sha string) error {
+	added, err := Run(ctx, dir, "diff", "--name-only", "--diff-filter=A", old, sha)
+	if err != nil {
+		return err
+	}
+	for _, p := range strings.Split(strings.TrimSpace(added), "\n") {
+		if p == "" {
+			continue
+		}
+		local := filepath.Join(dir, filepath.FromSlash(p))
+		have, err := os.ReadFile(local)
+		if err != nil {
+			continue // absent (or unreadable): nothing to clear
+		}
+		if _, err := Run(ctx, dir, "ls-files", "--error-unmatch", "--", p); err == nil {
+			continue // tracked: the merge handles it
+		}
+		cmd := exec.CommandContext(ctx, "git", "show", sha+":"+p)
+		cmd.Dir = dir
+		want, err := cmd.Output()
+		if err != nil || !bytes.Equal(want, have) {
+			continue
+		}
+		if err := os.Remove(local); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Push pushes branch to remote.

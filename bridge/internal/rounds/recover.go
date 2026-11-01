@@ -383,6 +383,11 @@ func (m *Manager) fingerprint(ctx context.Context, meta api.Round, s api.Stop) s
 		parts = append(parts, "status="+status)
 	}
 	ref("target", meta.RepoPath, "refs/heads/"+meta.Target)
+	// Landing moves the checkout: clearing what blocked it there is a change.
+	if s.Kind == api.StopGitError || s.Phase == "land" {
+		status, _ := gitx.Run(ctx, meta.RepoPath, "status", "--porcelain", "--untracked-files=all")
+		parts = append(parts, "checkout="+status)
+	}
 	if s.Branch != "" {
 		ref("branch", meta.RepoPath, s.Branch)
 	}
