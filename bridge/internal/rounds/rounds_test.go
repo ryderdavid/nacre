@@ -3,6 +3,7 @@ package rounds
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -40,6 +41,8 @@ type fakeBeads struct {
 	mu    sync.Mutex
 	beads map[string]*fakeBead
 	deps  [][2]string
+	// failClose makes Close refuse a bead with this error.
+	failClose map[string]string
 }
 
 func newFakeBeads(bs ...*fakeBead) *fakeBeads {
@@ -112,6 +115,9 @@ func (f *fakeBeads) Update(_ context.Context, _, id string, p bd.UpdateParams) e
 func (f *fakeBeads) Close(_ context.Context, _, id, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if msg := f.failClose[id]; msg != "" {
+		return errors.New(msg)
+	}
 	if b := f.beads[id]; b != nil {
 		b.Status, b.CloseReason = "closed", reason
 	}
@@ -281,6 +287,7 @@ type harnessOpts struct {
 	archive      func(context.Context, string, string, string) (string, error)
 	archived     func(string, string)
 	changeOf     func(string, string) string
+	specContract func(context.Context, string, string) (*api.SpecContract, error)
 }
 
 func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) *harness {
@@ -319,6 +326,7 @@ func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) 
 		Requirements:  o.requirements,
 		Develop:       o.develop,
 		ArchiveChange: o.archive, ChangeArchived: o.archived, ChangeOf: o.changeOf,
+		SpecContract: o.specContract,
 	})
 	if err != nil {
 		t.Fatal(err)

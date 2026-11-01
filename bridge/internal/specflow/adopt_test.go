@@ -82,6 +82,9 @@ func TestAdoptReviewsAsWrittenLinksBeadsAndKeepsFinishedWorkClosed(t *testing.T)
 	if model.count() != 1 || model.calls[0].System != reviewerSystem {
 		t.Fatalf("adoption must run exactly one independent review, got %d calls", model.count())
 	}
+	if b := model.calls[0].MaxBudgetUSD; b != AdoptReviewBudgetUSD {
+		t.Fatalf("adoption review budget = %v, want %v", b, AdoptReviewBudgetUSD)
+	}
 	if len(c.Sections) != 3 || c.Sections[0].ID != "rd-save" || c.Sections[0].BeadID != "NAC-2" || c.Sections[1].BeadID != "" {
 		t.Fatalf("sections = %+v", c.Sections)
 	}
@@ -176,6 +179,17 @@ func TestAdoptStopsInsteadOfRedraftingOnBlockingReview(t *testing.T) {
 	if c.Phase != "needs_attention" || model.count() != 1 || len(c.Findings) != 1 || !strings.Contains(c.Error, "as written") {
 		t.Fatalf("phase=%s calls=%d findings=%d error=%s", c.Phase, model.count(), len(c.Findings), c.Error)
 	}
+
+	// Ryder fixes the files himself; resuming reviews them again, no author.
+	write(t, repo, "openspec/changes/retain-drafts/design.md", "Keep the existing screen. Save drafts locally; when saving fails, keep the draft in memory and say so.\n")
+	model.fn = nil
+	c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
+	if c.Phase != "awaiting_approval" || model.count() != 2 || model.calls[1].System != reviewerSystem {
+		t.Fatalf("after fixing by hand: phase=%s calls=%d error=%s", c.Phase, model.count(), c.Error)
+	}
+	if !strings.Contains(readRepo(t, repo, "openspec/changes/retain-drafts/design.md"), "keep the draft in memory") {
+		t.Fatal("the hand-fixed file was rewritten")
+	}
 }
 
 func TestAdoptRefusals(t *testing.T) {
@@ -199,5 +213,28 @@ func TestAdoptRefusals(t *testing.T) {
 	write(t, repo, "openspec/changes/half-done/proposal.md", "## Why\nx\n")
 	if _, e := m.Act(ctx, repo, "NAC-9", Action{Action: "adopt", ChangeName: "half-done"}); !errors.Is(e, ErrConflict) {
 		t.Fatalf("incomplete change: %v", e)
+	}
+}
+
+// Resuming an adoption that stopped before its review takes the files again,
+// so specifications that moved meanwhile don't block it.
+func TestResumedAdoptionRetakesTheFiles(t *testing.T) {
+	repo, _, model, m := adoptFixture(t)
+	calls := 0
+	model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
+		calls++
+		if calls == 1 {
+			return nil, 0.85, errors.New("Reached maximum budget")
+		}
+		return normalModel(ctx, h, n)
+	}
+	c := act(t, m, repo, "NAC-1", Action{Action: "adopt", ChangeName: "retain-drafts"})
+	if c.Phase != "needs_attention" {
+		t.Fatalf("phase = %s", c.Phase)
+	}
+	write(t, repo, "openspec/changes/other-work/proposal.md", "## Why\nSomething else.\n")
+	c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
+	if c.Phase != "awaiting_approval" || c.Error != "" {
+		t.Fatalf("resumed adoption: phase=%s error=%s", c.Phase, c.Error)
 	}
 }

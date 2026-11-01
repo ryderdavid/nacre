@@ -48,6 +48,7 @@ data class AttentionItem(
         const val FOUND_WORK = "found_work"
         const val EPIC_FINISHABLE = "epic_finishable"
         const val BEAD_STUCK = "bead_stuck"
+        const val BEAD_UNCLOSED = "bead_unclosed"
     }
 }
 

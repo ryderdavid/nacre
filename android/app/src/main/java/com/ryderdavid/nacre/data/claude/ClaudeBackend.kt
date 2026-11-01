@@ -58,16 +58,26 @@ interface ClaudeBackend {
 /**
  * The board a conversation is about. [runKey] is the repo key a Mac-hosted
  * session runs `claude -p` in; it is null when the conversation spans several
- * boards, which only the API backend can do today. [tools] is the catalogue
- * this conversation offers, so a conversation that covers several boards can
- * widen it without either backend knowing how.
+ * boards, and then [span] says which ones, so the Mac can read them all in one
+ * call. [tools] is the catalogue this conversation offers, so a conversation
+ * that covers several boards can widen it without either backend knowing how.
  */
 class AssistantBoard(
     val runKey: String?,
     val name: String,
     val tools: List<ToolSpec> = BOARD_TOOLS,
+    val span: (suspend () -> BoardSpan)? = null,
     val system: suspend () -> String,
 )
+
+/**
+ * The boards a conversation across boards covers. [overview] is what
+ * list_boards would answer, for a backend that can't call it.
+ */
+class BoardSpan(val boards: List<SpanBoard>, val overview: String)
+
+/** One board, by the name proposals use, with its checkout on each computer as repo keys. */
+data class SpanBoard(val name: String, val keys: List<String>)
 
 /** A conversation with Claude. The session owns the history; the caller owns the UI. */
 interface AssistantSession {

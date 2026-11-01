@@ -443,7 +443,13 @@ data class AssistRequest(
     val keep: Boolean = false,
     /** Adds the computer's Needs you list to the prompt (the board assistant on the Mac). */
     @SerialName("needs_you") val needsYou: Boolean = false,
+    /** The boards a turn across boards reads (POST /v1/claude/stream only). */
+    val boards: List<AssistBoardRef> = emptyList(),
 )
+
+/** One board a turn across boards reads: its repo id on that computer, and its name in the app. */
+@Serializable
+data class AssistBoardRef(val repo: String, val name: String)
 
 /** What one [AssistRequest] produced. */
 @Serializable

@@ -387,3 +387,27 @@ func TestStaleButAsApprovedChangeCanStillBeFinished(t *testing.T) {
 		t.Fatalf("a stale change still as approved: %+v", items)
 	}
 }
+
+func TestDoneButUnclosedBeadsOfferCloseAnyway(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t,
+		map[string]any{"id": "N-1", "title": "Assistant everywhere", "issue_type": "task", "status": "open"},
+		map[string]any{"id": "N-2", "title": "Closed since", "issue_type": "task", "status": "closed"},
+	)
+	f.rounds = []api.Round{{ID: "rd1", RepoID: "r1", State: api.RoundLanded, Beads: []api.RoundBead{
+		{ID: "N-1", Title: "Assistant everywhere", State: api.BeadIntegrated, CloseError: "cannot close N-1: blocked by open issues [N-9]"},
+		{ID: "N-2", Title: "Closed since", State: api.BeadIntegrated, CloseError: "database is locked"},
+	}}}
+	var got []api.AttentionItem
+	for _, it := range f.b.Items(context.Background()) {
+		if it.Kind == api.AttentionBeadUnclosed {
+			got = append(got, it)
+		}
+	}
+	if len(got) != 1 || got[0].BeadID != "N-1" || !strings.Contains(got[0].Why, "blocked by open issues") {
+		t.Fatalf("unclosed items = %+v", got)
+	}
+	if o := got[0].Options[0]; o.Path != "/v1/repos/r1/issues/N-1/close" || o.Body["force"] != true {
+		t.Fatalf("close option = %+v", o)
+	}
+}

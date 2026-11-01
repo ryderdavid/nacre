@@ -119,6 +119,7 @@ import com.ryderdavid.nacre.ui.common.MessageState
 import com.ryderdavid.nacre.ui.common.formatDuration
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
+import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
 import com.ryderdavid.nacre.ui.rounds.RoundDetail
 import com.ryderdavid.nacre.ui.rounds.RoundRow
 import com.ryderdavid.nacre.ui.theme.MonoFamily
@@ -493,12 +494,14 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                     RUN_MODES.forEach { (key, label, _) -> FilterChip(selected = mode == key, onClick = { mode = key }, label = { Text(label) }) }
                 }
                 Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
+                    val canSend = text.isNotBlank() && !sending
+                    val send = { onFollowUp(text.trim(), mode); text = "" }
                     OutlinedTextField(
                         text, { text = it }, placeholder = { Text("Follow up with ${r.agentName}") }, maxLines = 5,
-                        shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f).sendOnHardwareEnter(canSend, send),
                     )
                     Spacer(Modifier.width(8.dp))
-                    FilledIconButton(onClick = { onFollowUp(text.trim(), mode); text = "" }, enabled = text.isNotBlank() && !sending, modifier = Modifier.size(52.dp)) {
+                    FilledIconButton(onClick = send, enabled = canSend, modifier = Modifier.size(52.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.Send, "Send follow-up")
                     }
                 }

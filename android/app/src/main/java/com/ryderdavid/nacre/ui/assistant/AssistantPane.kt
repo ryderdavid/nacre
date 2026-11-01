@@ -68,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import com.ryderdavid.nacre.data.claude.BOARDS_STEP
 import com.ryderdavid.nacre.data.claude.CONNECTION_STEP
 import com.ryderdavid.nacre.data.claude.ChatItem
 import com.ryderdavid.nacre.data.claude.ChatItem.ToolCall.State as S
@@ -75,6 +76,7 @@ import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.MessageState
+import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
 import com.ryderdavid.nacre.ui.theme.MonoFamily
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -162,19 +164,21 @@ fun AssistantPane(
         bottomBar = {
             Surface(color = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface) {
                 Row(Modifier.fillMaxWidth().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom) {
+                    val canSend = !busy && input.isNotBlank() && prefs?.claudeConfigured == true
+                    val send = { assistant.send(input); input = "" }
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
                         placeholder = { Text(if (everyBoard) "Ask about any board" else "Ask about this board") },
                         maxLines = 5,
                         shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).sendOnHardwareEnter(canSend, send),
                     )
                     Spacer(Modifier.width(8.dp))
                     if (busy) FilledIconButton(onClick = assistant::stop, modifier = Modifier.size(52.dp)) { Icon(Icons.Rounded.Stop, "Stop") }
                     else FilledIconButton(
-                        onClick = { assistant.send(input); input = "" },
-                        enabled = input.isNotBlank() && prefs?.claudeConfigured == true,
+                        onClick = send,
+                        enabled = canSend,
                         modifier = Modifier.size(52.dp),
                     ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
                 }
@@ -282,6 +286,7 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 private fun toolTitle(name: String) = when (name) {
     "bd" -> "Read the board on the Mac"
     CONNECTION_STEP -> "Connection"
+    BOARDS_STEP -> "Boards not read"
     "list_boards" -> "Looked at the boards"
     "list_beads" -> "Looked at beads"
     "get_bead" -> "Read bead"

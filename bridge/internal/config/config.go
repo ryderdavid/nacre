@@ -275,6 +275,11 @@ func (c *Config) UpdatesDir() string { return filepath.Join(c.dataDir(), "update
 // WorktreesDir holds the worktrees rounds work in.
 func (c *Config) WorktreesDir() string { return filepath.Join(c.dataDir(), "worktrees") }
 
+// AssistBoardsDir is where a board assistant call that spans several boards
+// runs: one symlink per board, read with `bd -C <link>`. It stays put so a
+// conversation's later turns can resume the session claude saved there.
+func (c *Config) AssistBoardsDir() string { return filepath.Join(c.dataDir(), "assist-boards") }
+
 func (c *Config) dataDir() string {
 	d := c.DataDir
 	if d == "" {

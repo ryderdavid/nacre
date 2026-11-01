@@ -50,4 +50,4 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 
 - [x] 7.1 README "Rounds" section: what a round fixes by itself and when it stops; `docs/API.md` complete — G-specs
 - [x] 7.2 Replay the two incidents end to end on a scratch repository through a trial nacred: a stale rebased branch chosen for merging, and a target that ships its own release mid-round; both finish without a stop — G-bridge, then by hand
-- [ ] 7.3 Ryder: one real round on Nacre's own beads with the upgraded nacred; note any stop that still needed him
+- [x] 7.3 Ryder: one real round on Nacre's own beads with the upgraded nacred; note any stop that still needed him — 2026-11-01: round rdtnuaevyam (NAC-xlr, nacred 0.10.0) landed on its own; main had moved, and the version clash was settled mechanically ("bump undone and redone on top of the target"); nothing needed Ryder

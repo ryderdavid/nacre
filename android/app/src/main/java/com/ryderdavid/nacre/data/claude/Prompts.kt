@@ -116,6 +116,42 @@ object Prompts {
     }
 
     /**
+     * [macAssistant] for a conversation across boards: one call on [host] reads
+     * every board it holds with `bd -C`, which nacred explains along with the
+     * board directories. [overview] stands in for list_boards, which this
+     * backend can't call; [elsewhere] are the boards the call can't read.
+     */
+    fun macAcrossBoards(base: String, tools: List<ToolSpec>, overview: String, host: String, elsewhere: List<String>): String = buildString {
+        appendLine(base)
+        appendLine()
+        appendLine("## How you work here")
+        appendLine()
+        appendLine("You are running as Claude Code on $host, Ryder's computer, with every board it holds in reach. list_boards and needs_you are not tools here: the board overview below is what list_boards would say, and the Needs you list is in the prompt. Use the overview's counts to choose which boards matter, then read only those.")
+        appendLine()
+        appendLine("To look things up, run read-only bd commands with Bash against one board at a time, as the section on this computer's boards describes. Add `--json` when you want structured output. Nothing else is available to you — no files, no web, no other commands — and anything that would change a bead is refused.")
+        appendLine()
+        appendLine("You cannot change beads yourself, and you must not try. Instead put every change you want in `proposals`, each one naming a tool and its arguments from the catalogue below, with `board` set to the board's name exactly as the overview gives it. Ryder sees each proposal in the app, approves or declines it, and the app applies the approved ones. So propose concrete edits rather than asking whether to make them, and say in `reply` what you are proposing and why. If a following turn tells you what was applied or declined, carry on from there and never re-propose something that was declined.")
+        appendLine()
+        appendLine("`reply` is what Ryder reads: short, scannable markdown for a phone screen, beads by id and title with the board each is on. Do not put JSON in it, and do not repeat the proposals field by field — he can see them. When a board that matters couldn't be read, say so in `reply` rather than answering as if you had covered it.")
+        appendLine()
+        appendLine("## Board overview")
+        appendLine()
+        appendLine(overview.ifBlank { "(No overview available.)" })
+        if (elsewhere.isNotEmpty()) {
+            appendLine()
+            appendLine("## Boards you can't read from here")
+            appendLine()
+            appendLine("These are on other computers, so this call can't read them. If the question touches them, tell Ryder they weren't read; he can ask on that board, or use his API key, which reaches every computer.")
+            appendLine()
+            elsewhere.forEach { appendLine("- $it") }
+        }
+        appendLine()
+        appendLine("## Proposal catalogue")
+        appendLine()
+        append(writeToolCatalogue(tools))
+    }
+
+    /**
      * The shape a Mac-hosted turn answers in: prose for Ryder, plus the writes
      * it would like to make.
      */

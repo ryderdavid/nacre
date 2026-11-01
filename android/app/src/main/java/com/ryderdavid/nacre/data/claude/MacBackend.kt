@@ -4,6 +4,7 @@ import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.bridge.AssistMessage
 import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.friendly
+import com.ryderdavid.nacre.data.model.AssistBoardRef
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Keys
@@ -89,23 +90,27 @@ class MacSession(
     /** A turn that lost its connection, kept so Retry can pick it back up. */
     private var pending: TurnProgress? = null
 
+    /** Across boards, the computer this conversation runs on; its session lives there. */
+    private var acrossHost: String? = null
+
+    /** Boards already reported as unreadable in this conversation, so each is said once. */
+    private val reported = mutableSetOf<String>()
+
     override fun reset() {
         sessionId = ""
         pending = null
+        acrossHost = null
+        reported.clear()
     }
 
     override suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult {
-        val runKey = board.runKey ?: throw ClaudeUnavailableException(
-            "Asking across every board needs the Claude API; choose \"Claude API key\" in Settings for that.",
-            offerApiKey = true,
-        )
         val s = settings()
-        val req = AssistRequest(
-            prompt = when (input) {
-                is TurnInput.Say -> input.text
-                is TurnInput.Answers -> Prompts.outcomes(input.answers)
-            },
-            system = Prompts.macAssistant(board.system(), board.tools),
+        val prompt = when (input) {
+            is TurnInput.Say -> input.text
+            is TurnInput.Answers -> Prompts.outcomes(input.answers)
+        }
+        val base = AssistRequest(
+            prompt = prompt,
             schema = Prompts.proposalsSchema(board.tools).toSchemaJson(),
             model = s.claudeModel,
             effort = s.claudeEffort,
@@ -115,6 +120,33 @@ class MacSession(
             // This backend can't call the needs_you read tool, so nacred adds the list.
             needsYou = true,
         )
+        val runKey: String
+        val req: AssistRequest
+        val start: (AssistRequest) -> Flow<AssistMessage>
+        val single = board.runKey
+        if (single != null) {
+            runKey = single
+            req = base.copy(system = Prompts.macAssistant(board.system(), board.tools))
+            start = { repo.claudeStream(runKey, it) }
+        } else {
+            // Across boards: one call on one computer reads every board it holds.
+            val span = board.span?.invoke() ?: BoardSpan(emptyList(), "")
+            val plan = planAcross(span.boards, s.hosts.map { it.id }, acrossHost)
+                ?: throw ClaudeUnavailableException("No boards are reachable. Pair a computer in Settings, or check that nacred is running.")
+            acrossHost = plan.hostId
+            runKey = plan.read.first().second
+            val here = repo.hostName(plan.hostId).ifBlank { "this computer" }
+            val elsewhere = plan.elsewhere.map { b ->
+                val on = b.keys.map { repo.hostName(Keys.host(it)).ifBlank { "another computer" } }.distinct()
+                "${b.name}: only on ${on.joinToString(" and ").ifBlank { "another computer" }}, not on $here"
+            }
+            report(sink, elsewhere)
+            req = base.copy(
+                system = Prompts.macAcrossBoards(board.system(), board.tools, span.overview, here, elsewhere),
+                boards = plan.read.map { (name, key) -> AssistBoardRef(Keys.id(key), name) },
+            )
+            start = { repo.claudeStreamAcross(plan.hostId, it) }
+        }
 
         val host = repo.hostName(Keys.host(runKey)).ifBlank { "the computer" }
         // A Retry of a turn that lost its connection picks the same turn back up: it
@@ -127,13 +159,13 @@ class MacSession(
             translate {
                 val resumable = progress.turn
                 try {
-                    val first = if (resumable != null) repo.claudeResume(runKey, resumable, progress.lastSeq) else repo.claudeStream(runKey, req)
-                    followTurn(first, progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting)
+                    val first = if (resumable != null) repo.claudeResume(runKey, resumable, progress.lastSeq) else start(req)
+                    followTurn(first, progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting, noted = { report(sink, it) })
                 } catch (e: BridgeException) {
                     if (resumable == null || e.code != 404) throw e
                     // The computer has forgotten that turn; ask again.
                     progress = TurnProgress(req.prompt)
-                    followTurn(repo.claudeStream(runKey, req), progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting)
+                    followTurn(start(req), progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting, noted = { report(sink, it) })
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -165,6 +197,20 @@ class MacSession(
             sink.text(reply)
         }
         return TurnResult(calls, if (calls.isEmpty()) TurnStop.DONE else TurnStop.CALLS)
+    }
+
+    /**
+     * Says which boards this conversation can't read, once each, as a failed
+     * step: a board left out is reported, never skipped in silence. Claude is
+     * told the same in its prompt, so its answer says so too.
+     */
+    private fun report(sink: TurnSink, boards: List<String>) {
+        val fresh = boards.filter { reported.add(it) }
+        if (fresh.isEmpty()) return
+        val id = "boards-" + UUID.randomUUID().toString().take(8)
+        val n = fresh.size
+        sink.aside(id, BOARDS_STEP, if (n == 1) "1 board can't be read on the Mac" else "$n boards can't be read on the Mac")
+        sink.asideDone(id, fresh.joinToString("\n"), true)
     }
 
     /**
@@ -212,6 +258,28 @@ internal fun macAnswer(output: JsonObject, turn: String = UUID.randomUUID().toSt
     return answer.reply to calls
 }
 
+/**
+ * Where a turn across boards runs: [hostId], and the boards it reads there as
+ * (name, repo key). [elsewhere] are the boards with no checkout on that computer.
+ */
+internal data class AcrossPlan(val hostId: String, val read: List<Pair<String, String>>, val elsewhere: List<SpanBoard>)
+
+/**
+ * Picks the computer a turn across boards runs on: [pinned] if it still holds
+ * a board (a conversation's session lives on one computer), otherwise the one
+ * holding the most boards, earlier in [hostOrder] on a tie. Null when no
+ * computer holds any.
+ */
+internal fun planAcross(boards: List<SpanBoard>, hostOrder: List<String>, pinned: String? = null): AcrossPlan? {
+    fun on(host: String) = boards.mapNotNull { b -> b.keys.firstOrNull { Keys.host(it) == host }?.let { b.name to it } }
+    val hosts = boards.flatMap { b -> b.keys.map(Keys::host) }.distinct()
+    if (hosts.isEmpty()) return null
+    val rank = hostOrder.withIndex().associate { (i, h) -> h to i }
+    val host = pinned?.takeIf { it in hosts }
+        ?: hosts.sortedWith(compareByDescending<String> { h -> on(h).size }.thenBy { rank[it] ?: Int.MAX_VALUE }).first()
+    return AcrossPlan(host, on(host), boards.filter { b -> b.keys.none { Keys.host(it) == host } })
+}
+
 /** How far a Mac turn has got, so it can be reattached after a dropped connection. */
 internal class TurnProgress(val prompt: String) {
     var turn: String? = null
@@ -256,6 +324,7 @@ internal suspend fun followTurn(
     resume: (turn: String, after: Long) -> Flow<AssistMessage>,
     relay: (RunEvent) -> Unit,
     dropped: DropListener,
+    noted: (unreadable: List<String>) -> Unit = {},
     budgetMs: Long = RECONNECT_BUDGET_MS,
     pause: suspend (attempt: Int) -> Unit = { delay(reconnectDelay(it)) },
     now: () -> Long = System::currentTimeMillis,
@@ -272,7 +341,10 @@ internal suspend fun followTurn(
                     dropped.back()
                 }
                 when (msg) {
-                    is AssistMessage.Turn -> progress.turn = msg.id
+                    is AssistMessage.Turn -> {
+                        progress.turn = msg.id
+                        if (msg.unreadable.isNotEmpty()) noted(msg.unreadable)
+                    }
                     is AssistMessage.Event -> {
                         val seq = msg.event.seq
                         if (seq == 0L || seq > progress.lastSeq) {
@@ -323,6 +395,9 @@ private class Reconnecting(private val sink: TurnSink, private val host: String)
         id = null
     }
 }
+
+/** The step name for boards a turn across boards couldn't read. */
+const val BOARDS_STEP = "boards"
 
 /** The step name for a dropped-and-recovered connection. */
 const val CONNECTION_STEP = "connection"

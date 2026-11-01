@@ -45,7 +45,10 @@ fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextActio
     ) else ChangeNextAction("refresh", "Check approval", "This change does not have a complete, current approval and bead mapping.")
     "stale" -> ChangeNextAction("revise", "Review updated proposal", "The proposal or project context changed. A new independent review is required before implementation.")
     "interrupted" -> ChangeNextAction("resume", "Resume workflow", "Continues the saved workflow on the computer. This may use more of your subscription.")
-    "needs_attention" -> ChangeNextAction("revise", "Revise proposal", "Add guidance below, then run another bounded author and reviewer cycle.")
+    "needs_attention" -> if (change.adoption != null && change.approvedRevision.isBlank() && feedback.isBlank()) ChangeNextAction(
+        "resume", "Review the files again",
+        "After fixing the change's files yourself, an independent review checks them again (up to $2.50). To have Nacre address the findings instead, add guidance below and Revise.",
+    ) else ChangeNextAction("revise", "Revise proposal", "Add guidance below, then run another bounded author and reviewer cycle.")
     else -> null
     }
 }

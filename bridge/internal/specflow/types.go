@@ -147,6 +147,9 @@ type Options struct {
 }
 
 const MaxActionCostUSD = 5.0
+
+// AdoptReviewBudgetUSD bounds the one independent review of an adopted change.
+const AdoptReviewBudgetUSD = 2.5
 const MaxPasses = 3
 const OperationTimeout = 30 * time.Minute
 

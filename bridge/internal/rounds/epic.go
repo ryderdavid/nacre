@@ -123,6 +123,16 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 		change = m.opts.ChangeOf(path, epic)
 	}
 	merged := !gitx.BranchExists(ctx, path, branch) || gitx.IsAncestor(ctx, path, "refs/heads/"+branch, "refs/heads/"+target)
+	if merged && change != "" {
+		// A finish that landed the archive but stopped before closing the
+		// epic: the change is no longer active on the target, so just end it.
+		if _, err := gitx.Run(ctx, path, "cat-file", "-e", "refs/heads/"+target+":openspec/changes/"+change); err != nil {
+			if m.opts.ChangeArchived != nil {
+				m.opts.ChangeArchived(path, epic)
+			}
+			change = ""
+		}
+	}
 	if merged && change == "" {
 		if err := m.opts.Beads.Close(ctx, path, epic, "Every bead is done and its work is already on "+target+"."); err != nil {
 			return api.Round{}, false, err

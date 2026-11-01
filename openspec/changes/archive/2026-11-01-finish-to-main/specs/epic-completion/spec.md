@@ -5,6 +5,10 @@ The app SHALL offer Work until done first when a bead is implemented: a round of
 when it passes unless Ryder switches that off. A plain run SHALL remain available as a secondary
 choice that leaves checking, committing and closing to Ryder.
 
+#### Scenario: Approved specification sections
+- **WHEN** Ryder asks a round of approved specification sections to land when ready
+- **THEN** it lands without waiting; without being asked, `land.auto` alone still leaves such a round waiting for him
+
 #### Scenario: One tap to finished work
 - **WHEN** Ryder taps Work until done on a bead outside any epic
 - **THEN** a round works it in its own worktree, checks every gate and the build, lands it on the landing target, pushes it and closes the bead without waiting for him
@@ -20,7 +24,7 @@ mixes beads of different epics, or epic beads with beads outside any epic.
 
 #### Scenario: Mixed round
 - **WHEN** Ryder starts a round with beads from two epics
-- **THEN** nacred refuses it, naming the beads of each epic
+- **THEN** nacred refuses it, naming each epic and its beads
 
 ### Requirement: Finishing an epic
 Once every bead under an open epic is closed, finishing SHALL merge the epic's branch into the landing
@@ -35,6 +39,14 @@ change to archive SHALL simply be closed.
 #### Scenario: Nothing to merge
 - **WHEN** an epic has no branch, or its branch is already in the target, and it has no change to archive
 - **THEN** nacred closes the epic without starting a round
+
+#### Scenario: Finishing fails part-way
+- **WHEN** archiving, a gate or the build fails before landing
+- **THEN** the finishing round pauses with the reason and its choices, the target and the epic are untouched, and Finish can be started again once it is cancelled
+
+#### Scenario: Closing after landing fails
+- **WHEN** closing the epic or removing its branch fails after the target was pushed
+- **THEN** the landing stands, the round's log says what failed, and Finish epic later closes the epic as having nothing left to merge
 
 ### Requirement: Finishing a change's epic archives the change
 Finishing the epic of an approved specification change SHALL archive the change in the finishing

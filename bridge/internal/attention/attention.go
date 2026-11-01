@@ -45,6 +45,7 @@ type Builder struct {
 type cached struct {
 	at    time.Time
 	items []api.AttentionItem
+	beads map[string]bead
 }
 
 // Invalidate drops the cached items of the repository at path.
@@ -90,6 +91,10 @@ func (b *Builder) Items(ctx context.Context) []api.AttentionItem {
 		for _, r := range b.Rounds() {
 			if ref, ok := byID[r.RepoID]; ok {
 				items = append(items, roundItems(ref, r)...)
+				b.mu.Lock()
+				beads := b.cache[ref.Path].beads
+				b.mu.Unlock()
+				items = append(items, unclosedItems(ref, r, beads)...)
 			}
 		}
 	}
@@ -145,7 +150,7 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 		}
 	}
 	b.mu.Lock()
-	b.cache[ref.Path] = cached{b.now(), items}
+	b.cache[ref.Path] = cached{b.now(), items, beads}
 	b.mu.Unlock()
 	return items
 }
@@ -359,6 +364,32 @@ func (b *Builder) stuckItems(ref repos.Ref, beads map[string]bead) []api.Attenti
 				action("Work until done", "POST", "/v1/repos/"+ref.ID+"/rounds", map[string]any{"beads": []string{x.ID}, "land_when_ready": true}),
 				action("Back to Ready", "PATCH", "/v1/repos/"+ref.ID+"/issues/"+x.ID, map[string]any{"status": "open"}),
 				open("Open bead", "bead", ref.ID, x.ID),
+			},
+		})
+	}
+	return out
+}
+
+// unclosedItems lists beads whose work a round finished but couldn't close,
+// while they are still open.
+func unclosedItems(ref repos.Ref, r api.Round, beads map[string]bead) []api.AttentionItem {
+	var out []api.AttentionItem
+	for _, rb := range r.Beads {
+		if rb.CloseError == "" || rb.Closed {
+			continue
+		}
+		if b, ok := beads[rb.ID]; !ok || b.Status == "closed" {
+			continue
+		}
+		reason := fmt.Sprintf("Done in round %s; gates and build pass", r.ID)
+		out = append(out, api.AttentionItem{
+			ID: digest(api.AttentionBeadUnclosed, ref.ID, r.ID, rb.ID, rb.CloseError), Kind: api.AttentionBeadUnclosed,
+			Repo: ref.ID, RepoName: ref.Name, BeadID: rb.ID, RoundID: r.ID, Title: rb.Title + " is done but still open",
+			Why:       "Round " + r.ID + " finished its work, but closing it failed: " + rb.CloseError,
+			CreatedAt: r.UpdatedAt,
+			Options: []api.AttentionOption{
+				action("Close anyway", "POST", "/v1/repos/"+ref.ID+"/issues/"+rb.ID+"/close", map[string]any{"reason": reason, "force": true}),
+				open("Open bead", "bead", ref.ID, rb.ID),
 			},
 		})
 	}
