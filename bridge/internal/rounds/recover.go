@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,6 +83,43 @@ func (r *round) retried(bead, what string, attempts int) {
 	if attempts > 1 {
 		r.event("recover", bead, fmt.Sprintf("%s worked on try %d after a transient error", what, attempts))
 	}
+}
+
+// ---- attempts ----
+
+// attempt records rungs on the integration step in progress and saves the
+// round at once, so a reload mid-ladder knows they ran and doesn't run them
+// again. A turn rung replaces the same phase's earlier count. Caller holds
+// r.mu.
+func (r *round) attempt(rungs ...string) {
+	st := r.meta.Integration
+	if st == nil || len(rungs) == 0 {
+		return
+	}
+	for _, rung := range rungs {
+		if prefix, _, ok := strings.Cut(rung, "×"); ok && strings.HasPrefix(rung, "turn:") {
+			st.Attempted = slices.DeleteFunc(st.Attempted, func(a string) bool { return strings.HasPrefix(a, prefix+"×") })
+		}
+		if !slices.Contains(st.Attempted, rung) {
+			st.Attempted = append(st.Attempted, rung)
+		}
+	}
+	r.saveLocked()
+}
+
+// turnRung names n recovery turns in phase.
+func turnRung(phase string, n int) string { return fmt.Sprintf("turn:%s×%d", phase, max(n, 1)) }
+
+// fixRungs names mechanical fixes as rungs ("fix:<kind>[:<file>]").
+func fixRungs(fixes []string) []string {
+	out := make([]string, 0, len(fixes))
+	for _, f := range fixes {
+		if !strings.HasPrefix(f, "fix:") {
+			f = "fix:" + f
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // ---- mechanical fixes ----

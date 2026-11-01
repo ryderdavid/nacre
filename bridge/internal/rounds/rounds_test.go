@@ -186,7 +186,8 @@ git config user.email t@e.com; git config user.name T
 case "$prompt" in
   *"Bring outside work into the round"*)
     case "$prompt" in
-      *stubborn.txt*) ;;
+      *stubborn.txt*) # Hold the turn while a test restarts nacred under it.
+        while [ -n "$NACRE_TEST_LAND_GATE" ] && [ ! -e "$NACRE_TEST_LAND_GATE" ]; do sleep 0.05; done;;
       *) git checkout --theirs -- . 2>/dev/null; git add -A; git commit -q --no-edit;;
     esac;;
   *"Resolve the merge conflicts"*)

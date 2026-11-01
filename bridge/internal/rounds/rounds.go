@@ -748,6 +748,7 @@ func clone(r api.Round) api.Round {
 	}
 	if r.Integration != nil {
 		st := *r.Integration
+		st.Attempted = append([]string(nil), r.Integration.Attempted...)
 		c.Integration = &st
 	}
 	if r.Stop != nil {
