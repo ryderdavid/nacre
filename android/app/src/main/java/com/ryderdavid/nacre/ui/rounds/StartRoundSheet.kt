@@ -60,6 +60,8 @@ fun specificationCandidates(index: BoardIndex, change: SpecChange): List<Issue> 
     change.implementationIds.mapNotNull(index.byId::get).filterNot { it.isClosed }
 
 fun specificationUnavailable(index: BoardIndex, change: SpecChange): String? = when {
+    // Explain a stale approval instead of failing with a conflict when the round starts.
+    change.phase == "stale" -> com.ryderdavid.nacre.ui.bead.staleText(change.staleReason)
     change.implementationIds.isEmpty() -> "This change needs a current approval and a complete section mapping."
     change.implementationIds.any { it !in index.byId } -> "Some approved beads aren't loaded yet. Close this sheet and refresh the board before starting."
     change.implementationIds.any { index.byId[it]?.type == "epic" } -> "A task section points to an epic. Repair the section mapping before starting."

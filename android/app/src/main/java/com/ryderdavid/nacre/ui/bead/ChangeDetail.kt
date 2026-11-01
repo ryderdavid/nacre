@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.ui.bead
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +83,7 @@ fun ChangeCard(state: Loadable<ChangeEnvelope>, linked: Boolean, onOpen: () -> U
             }
             Text(
                 when {
+                    change != null && change.phase == "stale" -> staleText(change.staleReason)
                     change != null -> change.summary.ifBlank { "Review the proposal, decisions and linked implementation work." }
                     linked -> envelope?.reason?.ifBlank { null } ?: "This bead belongs to a specification workflow. Its record must be available before implementation."
                     envelope != null && !envelope.available -> envelope.reason
@@ -114,6 +116,10 @@ fun ChangeDetail(
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
     onOpenRound: (String) -> Unit,
+    /** The change as the board knows it: section evidence and found work under way. */
+    summary: com.ryderdavid.nacre.data.model.ChangeSummary? = null,
+    /** Beads added under the epic while the change was worked. */
+    foundWork: List<com.ryderdavid.nacre.data.model.Issue> = emptyList(),
 ) {
     val state by vm.state.collectAsState()
     val sending by vm.sending.collectAsState()
@@ -202,7 +208,8 @@ fun ChangeDetail(
                             if (working) Text("Work continues on the computer when you leave this view.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
                             if (change.epicId.isNotBlank()) TextButton(onClick = { onOpenBead(change.epicId) }) { Text("Open epic ${change.epicId}") }
                         }
-                        if (change.error.isNotBlank()) item { MessageCard("Needs attention", change.error, error = true) }
+                        if (change.phase == "stale") item { MessageCard("Why the review needs updating", staleText(change.staleReason)) }
+                        else if (change.error.isNotBlank()) item { MessageCard("Needs attention", change.error, error = true) }
                         item {
                             ExpandableChangeSection(changeRouteLabel(change.route), "Why this approach", key = "route:${change.id}") {
                                 MarkdownText(change.rationale.ifBlank { "The recommendation is being developed." })
@@ -213,10 +220,11 @@ fun ChangeDetail(
                             val title = when {
                                 artifact.path.endsWith("proposal.md") -> "Proposal"
                                 artifact.path.endsWith("design.md") -> "Design"
-                                artifact.path.endsWith("tasks.md") -> "Work"
+                                artifact.path.endsWith("tasks.md") -> if (change.hasCurrentApproval) "Plan, as approved" else "Plan"
                                 else -> "Behavior · ${artifact.path.substringBeforeLast('/').substringAfterLast('/')}"
                             }
-                            ExpandableChangeSection(title, artifact.path, "artifact:${change.id}:${artifact.path}") { MarkdownText(artifact.content) }
+                            val subtitle = if (artifact.path.endsWith("tasks.md") && change.hasCurrentApproval) "Its boxes are the plan, not progress; progress comes from the beads below" else artifact.path
+                            ExpandableChangeSection(title, subtitle, "artifact:${change.id}:${artifact.path}") { MarkdownText(artifact.content) }
                         }
                         if (change.findings.isNotEmpty()) {
                             item { SectionHeader("Independent review · ${change.findings.size}") }
@@ -226,6 +234,7 @@ fun ChangeDetail(
                                 }
                             }
                         }
+                        if (change.sections.isNotEmpty() && change.epicId.isNotBlank()) item { PlanProgress(change, summary, foundWork, onOpenBead) }
                         if (change.sections.isNotEmpty()) {
                             item { EvidenceSummary(change) }
                             items(change.sections, key = { "section:${it.id}" }) { section ->
@@ -325,5 +334,55 @@ private fun ExpandableChangeSection(title: String, subtitle: String, key: String
             }
         }
         if (expanded) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
+    }
+}
+
+/**
+ * Work, from beads: the approved sections in plan order with each bead's
+ * evidence, then the beads added under the epic since. tasks.md stays the
+ * approved plan; nothing here is ticked back into it.
+ */
+@Composable
+private fun PlanProgress(change: SpecChange, summary: com.ryderdavid.nacre.data.model.ChangeSummary?, found: List<com.ryderdavid.nacre.data.model.Issue>, onOpenBead: (String) -> Unit) {
+    val evidence = summary?.sections?.associate { it.id to it.evidence }.orEmpty()
+    // After a later revision is approved, sections without fresh evidence need running again.
+    val revised = change.history.count { it.kind == "promotion" } > 1
+    val landed = change.sections.count { evidence[it.id] == "landed" }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Work · from beads", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text("$landed of ${change.sections.size} landed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            change.sections.forEachIndexed { n, s ->
+                val e = evidence[s.id] ?: "none"
+                val label = if (e == "none" && revised) "needs a new round" else com.ryderdavid.nacre.ui.board.evidenceLabel(e)
+                Row(Modifier.fillMaxWidth().clickable(enabled = s.beadId.isNotBlank()) { onOpenBead(s.beadId) }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${n + 1}  ${s.title}", style = MaterialTheme.typography.bodyMedium)
+                        if (s.beadId.isNotBlank()) Text(s.beadId, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (found.isNotEmpty()) {
+                Text("Added during work", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                found.forEach { f ->
+                    val state = when {
+                        f.isClosed -> "closed"
+                        "found-amend" in f.labels && summary?.pendingFound?.contains(f.id) == true -> "in revision"
+                        "found-amend" in f.labels -> "changes done · decide"
+                        else -> "open · how/order"
+                    }
+                    Row(Modifier.fillMaxWidth().clickable { onOpenBead(f.id) }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(f.title, style = MaterialTheme.typography.bodyMedium)
+                            Text(f.id, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(state, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
     }
 }

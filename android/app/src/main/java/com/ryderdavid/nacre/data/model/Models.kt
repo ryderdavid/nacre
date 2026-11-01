@@ -482,6 +482,8 @@ data class Round(
 @Serializable
 data class RoundBead(
     val id: String,
+    /** Set on a spec section bead: the change its pinned contract belongs to. */
+    @SerialName("spec_change_id") val specChangeId: String = "",
     val title: String = "",
     val type: String = "",
     val priority: Int = 2,

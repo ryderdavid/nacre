@@ -78,6 +78,8 @@ import com.ryderdavid.nacre.data.model.BEAD_INTEGRATED
 import com.ryderdavid.nacre.data.model.BEAD_INTEGRATING
 import com.ryderdavid.nacre.data.model.BEAD_PARKED
 import com.ryderdavid.nacre.data.model.BEAD_RUNNING
+import androidx.compose.runtime.produceState
+import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.data.model.BEAD_SKIPPED
 import com.ryderdavid.nacre.data.model.BEAD_VERIFYING
 import com.ryderdavid.nacre.data.model.BEAD_WAITING
@@ -202,6 +204,10 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
     val busy by vm.busy.collectAsState()
     var menu by remember { mutableStateOf(false) }
     var confirmCancel by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf(false) }
+    var foundPrefill by remember { mutableStateOf<com.ryderdavid.nacre.data.model.NewEffortPrefill?>(null) }
+    // A spec round can report work found outside its sections, while it runs and after.
+    val specBeads = round?.beads?.filter { it.specChangeId.isNotBlank() }.orEmpty()
 
     Scaffold(
         topBar = {
@@ -219,10 +225,11 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
                     }
                 },
                 actions = {
-                    if (round?.isActive == true) {
+                    if (round?.isActive == true || specBeads.isNotEmpty()) {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Round options") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Cancel round") }, onClick = { menu = false; confirmCancel = true })
+                            if (specBeads.isNotEmpty()) DropdownMenuItem(text = { Text("Found something") }, onClick = { menu = false; found = true })
+                            if (round?.isActive == true) DropdownMenuItem(text = { Text("Cancel round") }, onClick = { menu = false; confirmCancel = true })
                         }
                     }
                 },
@@ -270,6 +277,9 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
         confirmButton = { TextButton(onClick = { confirmCancel = false; vm.cancel() }) { Text("Cancel round") } },
         dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text("Keep it running") } },
     )
+    val r = round
+    if (found && r != null) RoundFoundSheet(r, specBeads.map { it.id }, onDismiss = { found = false }, onOutOfScope = { found = false; foundPrefill = it })
+    foundPrefill?.let { p -> if (r != null) RoundEffortSheet(r.repoKey, p, onDone = { foundPrefill = null }) }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -645,3 +655,28 @@ private fun EventRow(e: RoundEvent) {
 /** Shown when no round is picked in the wide layout. */
 @Composable
 fun NoRoundSelected() = Box(Modifier.fillMaxSize()) { MessageState(Icons.Rounded.RocketLaunch, "Pick a round", null) }
+
+/** Found something from a spec round: asks which of its section beads the work was found in. */
+@Composable
+private fun RoundFoundSheet(r: Round, beads: List<String>, onDismiss: () -> Unit, onOutOfScope: (com.ryderdavid.nacre.data.model.NewEffortPrefill) -> Unit) {
+    val container = LocalContainer.current
+    val snapshot by produceState<com.ryderdavid.nacre.data.BoardSnapshot?>(null, r.repoKey) { value = runCatching { container.repository.awaitBoard(r.repoKey) }.getOrNull() }
+    val changeId = r.beads.firstOrNull { it.specChangeId.isNotBlank() }?.specChangeId ?: return
+    val change = snapshot?.changesById?.get(changeId) ?: return
+    // Default to the bead whose run is open, else the first section bead.
+    val running = r.beads.firstOrNull { it.id in beads && it.state == BEAD_RUNNING }?.id
+    com.ryderdavid.nacre.ui.bead.FoundSomethingSheet(
+        r.repoKey, change, foundIn = running ?: beads.firstOrNull(), onDismiss = onDismiss, onOutOfScope = onOutOfScope, roundBeads = beads,
+    )
+}
+
+@Composable
+private fun RoundEffortSheet(repoKey: String, prefill: com.ryderdavid.nacre.data.model.NewEffortPrefill, onDone: () -> Unit) {
+    val container = LocalContainer.current
+    val snapshot by produceState<com.ryderdavid.nacre.data.BoardSnapshot?>(null, repoKey) { value = runCatching { container.repository.awaitBoard(repoKey) }.getOrNull() }
+    val s = snapshot ?: return
+    com.ryderdavid.nacre.ui.board.NewBeadSheet(
+        repoKey, s.repo.name, s.index, defaultParent = null, onDismiss = onDone, onCreated = { onDone() },
+        effort = s.changes?.openspec == true, prefill = prefill,
+    )
+}

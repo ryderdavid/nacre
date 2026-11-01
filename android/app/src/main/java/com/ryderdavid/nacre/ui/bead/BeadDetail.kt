@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
+import com.ryderdavid.nacre.data.model.foundChange
 import com.ryderdavid.nacre.data.model.ActiveElsewhere
 import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.data.model.Issue
@@ -164,6 +165,14 @@ fun BeadDetail(
     var showRun by rememberSaveable { mutableStateOf(false) }
     var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(openChange) }
     val boardChanges = LocalContainer.current.repository.board(repoKey).collectAsState().value.data?.changes
+    var showFound by remember { mutableStateOf(false) }
+    var foundPrefill by remember { mutableStateOf<com.ryderdavid.nacre.data.model.NewEffortPrefill?>(null) }
+    // The change this bead belongs to on the board: as its epic, a section, or found work.
+    val boardChange = issue?.let { i -> boardChanges?.changes?.firstOrNull { c -> c.epicId == i.id || c.sections.any { it.beadId == i.id } || c.id == i.foundChange } }
+    // Found something is for promoted changes: their epic, sections and found work.
+    val foundChange = boardChange?.takeIf { it.epicId.isNotBlank() }
+    // Unlinked beads develop a proposal from the overflow menu and Refine, not a card.
+    val developable = issue != null && !issue!!.hasSpecWorkflow && boardChange == null && changeState.data?.change == null && changeState.data?.available == true
     var roundChange by remember { mutableStateOf<SpecChange?>(null) }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }
@@ -200,6 +209,14 @@ fun BeadDetail(
                                 text = { Text(if ("human" in i.labels) "Clear “needs you”" else "Mark as needing you") },
                                 leadingIcon = { Icon(Icons.Rounded.Flag, null) },
                                 onClick = { menu = false; vm.toggleNeedsYou() },
+                            )
+                            if (developable) DropdownMenuItem(
+                                text = { Text("Develop a proposal") }, leadingIcon = { Icon(AiIcon, null) },
+                                onClick = { menu = false; showChange = true },
+                            )
+                            if (foundChange != null) DropdownMenuItem(
+                                text = { Text("Found something") }, leadingIcon = { Icon(Icons.Rounded.Flag, null) },
+                                onClick = { menu = false; showFound = true },
                             )
                             if (i.isClosed) DropdownMenuItem(text = { Text("Reopen") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.setStatus("open") })
                             else DropdownMenuItem(text = { Text("Close…") }, leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) }, onClick = { menu = false; showClose = true })
@@ -258,7 +275,16 @@ fun BeadDetail(
                 onOpenBead = onOpenBead,
                 onOpenRun = onOpenRun,
                 onComment = vm::addComment,
-                changeCard = { ChangeCard(changeState, i.hasSpecWorkflow, onOpen = { showChange = true }) },
+                changeCard = {
+                    val epicOf = boardChanges?.changes?.firstOrNull { it.epicId == i.id }
+                    when {
+                        epicOf != null -> Unit
+                        i.hasSpecWorkflow || changeState.data?.change != null -> ChangeCard(changeState, i.hasSpecWorkflow, onOpen = { showChange = true })
+                    }
+                },
+                epicHeader = boardChanges?.changes?.firstOrNull { it.epicId == i.id }?.let { c ->
+                    { EpicChangeHeader(c, changeState.data?.change, ix, onOpenChange = { showChange = true }, onOpenBead = onOpenBead) }
+                },
             )
         }
 
@@ -297,9 +323,25 @@ fun BeadDetail(
             onDismiss = { showDepPicker = false },
         ) { showDepPicker = false; vm.addBlocker(it.id) }
         if (showClose) CloseDialog(i.id, onDismiss = { showClose = false }) { showClose = false; vm.close(it) }
-        if (showRefine) BeadChatSheet(vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false })
+        if (showRefine) BeadChatSheet(
+            vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false },
+            onDevelop = if (developable) ({ showRefine = false; showChange = true }) else null,
+        )
+        if (showFound && foundChange != null) FoundSomethingSheet(
+            repoKey, foundChange, foundIn = i.id, onDismiss = { showFound = false },
+            onOutOfScope = { showFound = false; foundPrefill = it },
+        )
+        foundPrefill?.let { p ->
+            com.ryderdavid.nacre.ui.board.NewBeadSheet(
+                repoKey, container.repository.repo(repoKey)?.name.orEmpty(), ix, defaultParent = null,
+                onDismiss = { foundPrefill = null }, onCreated = { foundPrefill = null },
+                effort = boardChanges?.openspec == true, prefill = p,
+            )
+        }
         if (showChange) ChangeDetail(
             changeVm, linked = i.hasSpecWorkflow, onDismiss = { showChange = false },
+            summary = boardChange ?: boardChanges?.changes?.firstOrNull { i.id in it.seedIds },
+            foundWork = (boardChange ?: boardChanges?.changes?.firstOrNull { i.id in it.seedIds })?.let { c -> ix.issues.filter { it.foundChange == c.id } }.orEmpty(),
             onImplement = { approved -> roundChange = approved },
             onOpenBead = { showChange = false; onOpenBead(it) },
             onOpenRun = { showChange = false; onOpenRun(it) },
@@ -345,6 +387,7 @@ private fun DetailBody(
     onOpenRun: (String) -> Unit,
     onComment: (String) -> Unit,
     changeCard: @Composable () -> Unit,
+    epicHeader: (@Composable () -> Unit)? = null,
 ) {
     val lane = ix.workflowLane(i, changes)
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp), modifier = Modifier.fillMaxSize().imePadding()) {
@@ -376,6 +419,8 @@ private fun DetailBody(
             }
         }
 
+        // A spec epic leads with its change, above everything else about the bead.
+        if (epicHeader != null) item { epicHeader() }
         val blockers = i.blockerIds
         item {
             SectionHeader("Waits on", trailing = { TextButton(onClick = onAddBlocker) { Text("Add") } })

@@ -110,7 +110,7 @@ private fun look(mode: ChatMode, id: String) = when (mode) {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit) {
+fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit, onDevelop: (() -> Unit)? = null) {
     val items by vm.chat.collectAsState()
     val thinking by vm.chatThinking.collectAsState()
     val failure by vm.chatFailure.collectAsState()
@@ -148,6 +148,10 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
                 IconButton(onClick = vm::newConversation, enabled = items.isNotEmpty() && !thinking) {
                     Icon(Icons.Rounded.AddComment, "New conversation")
                 }
+            }
+            // Refining the bead itself is the usual move; a reviewed proposal is the quiet alternative.
+            if (onDevelop != null) androidx.compose.material3.TextButton(onClick = onDevelop, modifier = Modifier.padding(start = 12.dp)) {
+                Text("Develop a proposal instead…")
             }
 
             if (items.isNotEmpty() || thinking || failure != null) LazyColumn(
