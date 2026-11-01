@@ -41,12 +41,17 @@ import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import kotlinx.coroutines.launch
+import com.ryderdavid.nacre.data.model.ChangesList
+import com.ryderdavid.nacre.data.model.isPendingAmendment
 
-/** The beads a round can take from a board: everything open except epics, ready work first. */
-fun roundCandidates(index: BoardIndex): List<Issue> {
+/**
+ * The beads a round can take from a board: everything open except epics, ready work
+ * first. Beads whose proposal is still being planned, and pending amendments, aren't work yet.
+ */
+fun roundCandidates(index: BoardIndex, changes: ChangesList? = null): List<Issue> {
     val order = listOf(Lane.READY, Lane.DOING, Lane.BLOCKED)
     return index.issues
-        .filter { !it.isClosed && it.type != "epic" && !it.hasSpecWorkflow && index.laneOf(it) in order }
+        .filter { !it.isClosed && it.type != "epic" && !it.hasSpecWorkflow && !it.isPendingAmendment && index.workflowLane(it, changes) in order }
         .sortedWith(compareBy<Issue> { order.indexOf(index.laneOf(it)) }.thenBy { it.priority }.thenBy { it.id })
 }
 
@@ -83,7 +88,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
     var starting by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val unavailable = roundUnavailable(repo) ?: specChange?.let { specificationUnavailable(index, it) }
-    val candidates = specChange?.let { specificationCandidates(index, it) } ?: roundCandidates(index)
+    val candidates = specChange?.let { specificationCandidates(index, it) } ?: roundCandidates(index, repo?.let { container.repository.changes(it.key) })
     val budgetValid = (budget.isBlank() && specChange == null) || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
 
     HandleDismissSheet(onDismiss = onDismiss) {

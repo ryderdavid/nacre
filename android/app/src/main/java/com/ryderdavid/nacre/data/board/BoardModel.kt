@@ -1,5 +1,7 @@
 package com.ryderdavid.nacre.data.board
 
+import com.ryderdavid.nacre.data.model.ChangeSummary
+import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Issue
 
 /**
@@ -7,6 +9,8 @@ import com.ryderdavid.nacre.data.model.Issue
  * open blocker is shown as Blocked, so Ready really means "nothing stands in the way".
  */
 enum class Lane(val key: String, val title: String) {
+    /** Changes being planned; derived from change records, never a bd status. */
+    PROPOSED("proposed", "Proposals"),
     READY("ready", "Ready"),
     DOING("doing", "In progress"),
     BLOCKED("blocked", "Blocked"),
@@ -16,7 +20,8 @@ enum class Lane(val key: String, val title: String) {
     /** The bd status a bead gets when it is dropped into this lane. */
     val status: String
         get() = when (this) {
-            READY -> "open"
+            // Nothing drops into Proposals; "open" only keeps this total.
+            PROPOSED, READY -> "open"
             DOING -> "in_progress"
             BLOCKED -> "blocked"
             LATER -> "deferred"
@@ -26,7 +31,8 @@ enum class Lane(val key: String, val title: String) {
 
 enum class GroupBy(val title: String) { WORKFLOW("Workflow"), PRIORITY("Priority"), TYPE("Type") }
 
-data class Column(val key: String, val title: String, val issues: List<Issue>, val total: Int)
+/** [note] qualifies the column, e.g. when only some of its changes are listed. */
+data class Column(val key: String, val title: String, val issues: List<Issue>, val total: Int, val note: String = "")
 
 data class EpicSummary(val id: String, val title: String, val total: Int, val done: Int) {
     val fraction get() = if (total == 0) 0f else done.toFloat() / total
@@ -132,15 +138,29 @@ class BoardIndex(val issues: List<Issue>) {
         return true
     }
 
-    fun columns(groupBy: GroupBy, filter: BoardFilter, doneLimit: Int = 25): List<Column> {
+    /**
+     * The Workflow lane, with Proposals for beads that seed a change still being
+     * planned. Only Workflow columns and stats use it; everything else keeps [laneOf].
+     */
+    fun workflowLane(issue: Issue, changes: ChangesList?): Lane =
+        if (proposalOf(issue, changes) != null) Lane.PROPOSED else laneOf(issue)
+
+    /** The change [issue] seeds while it is being planned, if any. */
+    fun proposalOf(issue: Issue, changes: ChangesList?): ChangeSummary? {
+        if (changes == null || !changes.openspec || issue.isClosed) return null
+        return changes.changes.firstOrNull { c -> c.planning && issue.id in c.seedIds && issue.id != c.epicId }
+    }
+
+    fun columns(groupBy: GroupBy, filter: BoardFilter, doneLimit: Int = 25, changes: ChangesList? = null): List<Column> {
         val visible = issues.filter { matches(it, filter) }
         return when (groupBy) {
             GroupBy.WORKFLOW -> {
-                val byLane = visible.groupBy { laneOf(it) }
-                Lane.entries.map { lane ->
-                    val all = sortLane(lane, byLane[lane].orEmpty())
+                val byLane = visible.groupBy { workflowLane(it, changes) }
+                Lane.entries.filter { it != Lane.PROPOSED || changes?.openspec == true }.map { lane ->
+                    val all = if (lane == Lane.PROPOSED) sortProposals(byLane[lane].orEmpty(), changes!!) else sortLane(lane, byLane[lane].orEmpty())
                     val shown = if (lane == Lane.DONE) all.take(doneLimit) else all
-                    Column(lane.key, lane.title, shown, all.size)
+                    val note = if (lane == Lane.PROPOSED && changes!!.total > changes.changes.size) "Showing ${changes.changes.size} of ${changes.total} changes" else ""
+                    Column(lane.key, lane.title, shown, all.size, note)
                 }
             }
             GroupBy.PRIORITY -> {
@@ -161,8 +181,20 @@ class BoardIndex(val issues: List<Issue>) {
         }
     }
 
-    fun stats(filter: BoardFilter): Map<Lane, Int> =
-        issues.filter { matches(it, filter.copy(needsYou = false)) }.groupingBy { laneOf(it) }.eachCount()
+    fun stats(filter: BoardFilter, changes: ChangesList? = null): Map<Lane, Int> =
+        issues.filter { matches(it, filter.copy(needsYou = false)) }.groupingBy { workflowLane(it, changes) }.eachCount()
+
+    /** Waiting on Ryder first, then being worked, then judged covered; newest first within each. */
+    private fun sortProposals(list: List<Issue>, changes: ChangesList): List<Issue> {
+        fun rank(c: ChangeSummary?) = when (c?.phase) {
+            "awaiting_approval", "needs_attention", "stale", "interrupted" -> 0
+            "covered" -> 2
+            else -> 1
+        }
+        return list.map { it to proposalOf(it, changes) }
+            .sortedWith(compareBy<Pair<Issue, ChangeSummary?>> { rank(it.second) }.thenByDescending { it.second?.updatedAt.orEmpty() })
+            .map { it.first }
+    }
 
     fun needsYouCount(filter: BoardFilter): Int =
         issues.count { it.needsYou && matches(it, filter.copy(needsYou = false)) }
@@ -204,6 +236,8 @@ sealed interface MoveAction {
 fun moveActionFor(columnKey: String): MoveAction? = when {
     columnKey.startsWith("p") && columnKey.length == 2 -> MoveAction.SetPriority(columnKey[1].digitToInt())
     columnKey.startsWith("t:") -> MoveAction.SetType(columnKey.removePrefix("t:"))
+    // Proposals move by approval, not by dragging.
+    columnKey == Lane.PROPOSED.key -> null
     else -> Lane.entries.firstOrNull { it.key == columnKey }?.let { lane ->
         if (lane == Lane.DONE) MoveAction.Close else MoveAction.SetStatus(lane.status)
     }

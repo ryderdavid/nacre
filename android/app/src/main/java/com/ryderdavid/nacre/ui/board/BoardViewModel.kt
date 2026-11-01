@@ -51,8 +51,8 @@ class BoardViewModel(private val repo: NacreRepository, val repoKey: String) : V
         val ix = snap.index
         val ui = BoardUi(
             snapshot = snap,
-            columns = ix.columns(g, f, doneLimit = if (all) Int.MAX_VALUE else 25),
-            stats = ix.stats(f),
+            columns = ix.columns(g, f, doneLimit = if (all) Int.MAX_VALUE else 25, changes = snap.changes),
+            stats = ix.stats(f, snap.changes),
             needsYou = ix.needsYouCount(f),
             epics = ix.epics,
             looseCount = ix.issues.count { ix.epicOf(it) == null },

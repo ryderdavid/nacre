@@ -21,10 +21,13 @@ class RepoBoardTools(
 
     private suspend fun index(): BoardIndex = repo.awaitBoard(repoKey).index
 
+    /** Lanes as the board shows them: a bead whose change is being planned is "proposed". */
+    private fun BoardIndex.lane(i: Issue) = workflowLane(i, repo.changes(repoKey))
+
     private fun line(ix: BoardIndex, i: Issue): String {
         val blockers = ix.openBlockers(i)
         return buildString {
-            append(i.id).append(" [").append(ix.laneOf(i).key).append("] P").append(i.priority).append(' ').append(i.type)
+            append(i.id).append(" [").append(ix.lane(i).key).append("] P").append(i.priority).append(' ').append(i.type)
             append(" — ").append(i.title)
             if (i.needsYou) append(" (needs Ryder)")
             if (blockers.isNotEmpty()) append(" (waits on ").append(blockers.joinToString()).append(')')
@@ -39,9 +42,9 @@ class RepoBoardTools(
             when (lane) {
                 null, "", "all" -> true
                 "open" -> !i.isClosed
-                else -> ix.laneOf(i).key == lane
+                else -> ix.lane(i).key == lane
             }
-        }.sortedWith(compareBy<Issue> { ix.laneOf(it).ordinal }.thenBy { it.priority }.then(BoardIndex.idOrder))
+        }.sortedWith(compareBy<Issue> { ix.lane(it).ordinal }.thenBy { it.priority }.then(BoardIndex.idOrder))
         if (rows.isEmpty()) return "No beads match."
         val shown = rows.take(limit.coerceIn(1, 200))
         return shown.joinToString("\n") { line(ix, it) } + if (rows.size > shown.size) "\n… ${rows.size - shown.size} more" else ""

@@ -88,7 +88,9 @@ fun columnColor(key: String) = when {
 @Composable
 fun StatStrip(ui: BoardUi, filter: BoardFilter, onLane: (Lane) -> Unit, onNeedsYou: () -> Unit, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(Lane.READY, Lane.DOING, Lane.BLOCKED).forEach { lane ->
+        // Proposals get a tile only when there are some, so other boards look as before.
+        val proposals = ui.stats[Lane.PROPOSED] ?: 0
+        listOfNotNull(Lane.PROPOSED.takeIf { proposals > 0 }, Lane.READY, Lane.DOING, Lane.BLOCKED).forEach { lane ->
             StatTile(lane.title, ui.stats[lane] ?: 0, Nacre.colors.lane(lane), selected = false, onClick = { onLane(lane) }, modifier = Modifier.weight(1f))
         }
         StatTile("Needs you", ui.needsYou, Nacre.colors.needsYou, selected = filter.needsYou, onClick = onNeedsYou, modifier = Modifier.weight(1f))
@@ -163,7 +165,10 @@ private fun ColumnHeader(col: Column, groupBy: GroupBy) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Dot(columnColor(col.key), 10)
         Spacer(Modifier.width(8.dp))
-        Text(col.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1)
+        Column(Modifier.weight(1f)) {
+            Text(col.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            if (col.note.isNotBlank()) Text(col.note, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
         Text("${col.total}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -179,29 +184,40 @@ private fun CardList(
     onShowMore: (() -> Unit)?,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
+    onClose: (Issue) -> Unit = {},
 ) {
     if (col.issues.isEmpty()) {
         Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Rounded.Inbox, null, tint = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(6.dp))
-            Text("Nothing here for this filter", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (col.key == Lane.PROPOSED.key) "No changes being planned. Start a New effort." else "Nothing here for this filter",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         return
     }
     LazyColumn(modifier, contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(col.issues, key = { it.id }) { issue ->
             val isDragged = drag.dragging?.id == issue.id
-            BeadCard(
-                issue = issue,
-                index = index,
-                running = issue.id in ui.running,
-                selected = issue.id == selectedId,
-                modifier = Modifier
-                    .animateItem()
-                    .alpha(if (isDragged) 0.3f else 1f)
-                    .dragSource(drag, issue, col.key)
-                    .clickable { onOpen(issue) },
-            )
+            Column(Modifier.animateItem()) {
+                BeadCard(
+                    issue = issue,
+                    index = index,
+                    running = issue.id in ui.running,
+                    selected = issue.id == selectedId,
+                    changes = ui.snapshot.changes,
+                    modifier = Modifier
+                        .alpha(if (isDragged) 0.3f else 1f)
+                        // Proposals move by approval, not by dragging.
+                        .then(if (col.key == Lane.PROPOSED.key) Modifier else Modifier.dragSource(drag, issue, col.key))
+                        .clickable { onOpen(issue) },
+                )
+                // A proposal judged already covered is usually closed; offer that right on the card.
+                if (col.key == Lane.PROPOSED.key && index.proposalOf(issue, ui.snapshot.changes)?.phase == "covered") {
+                    TextButton(onClick = { onClose(issue) }) { Text("Close ${issue.id} as covered") }
+                }
+            }
         }
         if (onShowMore != null && col.total > col.issues.size) item {
             TextButton(onClick = onShowMore, modifier = Modifier.fillMaxWidth()) { Text("Show ${col.total - col.issues.size} more") }
@@ -221,6 +237,7 @@ fun WideBoard(
     onOpen: (Issue) -> Unit,
     onShowMoreDone: () -> Unit,
     modifier: Modifier = Modifier,
+    onClose: (Issue) -> Unit = {},
 ) {
     val rowState = rememberLazyListState()
     var viewport by remember { mutableStateOf(Rect.Zero) }
@@ -266,7 +283,7 @@ fun WideBoard(
                     shape = RoundedCornerShape(24.dp),
                     color = if (hovered) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceContainer,
                     border = if (hovered) BorderStroke(2.dp, columnColor(col.key)) else null,
-                    modifier = Modifier.width(colWidth).fillMaxHeight().dropTarget(drag, col.key),
+                    modifier = Modifier.width(colWidth).fillMaxHeight().then(if (col.key == Lane.PROPOSED.key) Modifier else Modifier.dropTarget(drag, col.key)),
                 ) {
                     Column {
                         ColumnHeader(col, groupBy)
@@ -274,6 +291,7 @@ fun WideBoard(
                             col, index, ui, selectedId, drag, onOpen,
                             onShowMore = if (col.key == Lane.DONE.key) onShowMoreDone else null,
                             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 96.dp),
+                            onClose = onClose,
                         )
                     }
                 }
@@ -293,8 +311,10 @@ fun CompactBoard(
     onOpen: (Issue) -> Unit,
     onShowMoreDone: () -> Unit,
     modifier: Modifier = Modifier,
+    onClose: (Issue) -> Unit = {},
 ) {
-    val pager = rememberPagerState { ui.columns.size }
+    // The pager opens on Ready even when Proposals comes first.
+    val pager = rememberPagerState(initialPage = ui.columns.indexOfFirst { it.key == Lane.READY.key }.coerceAtLeast(0)) { ui.columns.size }
     val scope = rememberCoroutineScope()
     val index = ui.snapshot.index
 
@@ -332,6 +352,7 @@ fun CompactBoard(
                     onShowMore = if (col.key == Lane.DONE.key) onShowMoreDone else null,
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
                     modifier = Modifier.fillMaxSize(),
+                    onClose = onClose,
                 )
             }
         }
@@ -341,7 +362,7 @@ fun CompactBoard(
             exit = slideOutVertically { it } + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            LaneDock(ui.columns, drag, groupBy)
+            LaneDock(ui.columns.filter { it.key != Lane.PROPOSED.key }, drag, groupBy)
         }
     }
 }

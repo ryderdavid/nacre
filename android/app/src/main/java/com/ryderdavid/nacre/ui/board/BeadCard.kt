@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.model.ActiveElsewhere
+import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.ui.common.BeadId
@@ -64,7 +65,10 @@ fun BeadCard(
     selected: Boolean,
     modifier: Modifier = Modifier,
     lifted: Boolean = false,
+    /** The board's changes, for the spec chip; null on older bridges. */
+    changes: ChangesList? = null,
 ) {
+    val chip = specChip(issue, changes)
     val blockers = if (!issue.isClosed) index.openBlockers(issue) else emptyList()
     val crumb = index.breadcrumb(issue)
     val elsewhere = issue.elsewhere(liveRun = running)
@@ -114,7 +118,10 @@ fun BeadCard(
                     Spacer(Modifier.height(8.dp))
                     WaitsOn(blockers, index)
                 }
-                if (issue.isEpic) {
+                if (chip != null && chip.strip.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    SectionStrip(chip.strip)
+                } else if (issue.isEpic) {
                     val kids = index.descendants(issue.id)
                     if (kids.isNotEmpty()) {
                         val done = kids.count { it.isClosed }
@@ -130,13 +137,16 @@ fun BeadCard(
                         }
                     }
                 }
-                val hasFooter = issue.labels.any { it != "human" } || issue.commentCount > 0 || issue.assignee.isNotBlank()
+                val labels = issue.labels.filter { it != "human" && (chip == null || !isSpecLabel(it)) }
+                val hasFooter = chip != null || labels.isNotEmpty() || issue.commentCount > 0 || issue.assignee.isNotBlank()
                 if (hasFooter) {
                     Spacer(Modifier.height(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                        val labels = issue.labels.filter { it != "human" }
-                        labels.take(3).forEach { LabelChip(it) }
-                        if (labels.size > 3) LabelChip("+${labels.size - 3}")
+                        // The spec chip takes the first label slot, then two other labels.
+                        val room = if (chip != null) 2 else 3
+                        chip?.let { SpecChipView(it) }
+                        labels.take(room).forEach { LabelChip(it) }
+                        if (labels.size > room) LabelChip("+${labels.size - room}")
                         if (issue.commentCount > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
                                 Icon(Icons.AutoMirrored.Rounded.Comment, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.outline)

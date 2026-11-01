@@ -203,7 +203,7 @@ fun BoardScreen(
                         // When the board narrows to one lane at a time, show the open bead's lane.
                         LaunchedEffect(boardWide, pane) {
                             val ix = ui.snapshot.index
-                            if (!boardWide && groupBy == GroupBy.WORKFLOW) pane?.let { ix.byId[it] }?.let { scrollTo = ix.laneOf(it) }
+                            if (!boardWide && groupBy == GroupBy.WORKFLOW) pane?.let { ix.byId[it] }?.let { scrollTo = ix.workflowLane(it, ui.snapshot.changes) }
                         }
                         Column(Modifier.fillMaxSize()) {
                             if (searching) OutlinedTextField(
@@ -221,10 +221,10 @@ fun BoardScreen(
                                 }
                                 if (boardWide) WideBoard(
                                     ui, groupBy, selectedId = pane, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
-                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true },
+                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
                                 ) else CompactBoard(
                                     ui, groupBy, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
-                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true },
+                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
                                 )
                             }
                         }

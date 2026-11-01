@@ -163,6 +163,7 @@ fun BeadDetail(
     var showRefine by rememberSaveable { mutableStateOf(false) }
     var showRun by rememberSaveable { mutableStateOf(false) }
     var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(openChange) }
+    val boardChanges = LocalContainer.current.repository.board(repoKey).collectAsState().value.data?.changes
     var roundChange by remember { mutableStateOf<SpecChange?>(null) }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }
@@ -245,7 +246,7 @@ fun BeadDetail(
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             DetailBody(
-                i, ix, comments, runs,
+                i, ix, boardChanges, comments, runs,
                 onEdit = { editing = it },
                 onStatus = vm::setStatus,
                 onPriority = { vm.save(UpdateIssue(priority = it)) },
@@ -329,6 +330,7 @@ fun BeadDetail(
 private fun DetailBody(
     i: Issue,
     ix: BoardIndex,
+    changes: com.ryderdavid.nacre.data.model.ChangesList?,
     comments: List<com.ryderdavid.nacre.data.model.Comment>,
     runs: List<Run>,
     onEdit: (TextField) -> Unit,
@@ -344,7 +346,7 @@ private fun DetailBody(
     onComment: (String) -> Unit,
     changeCard: @Composable () -> Unit,
 ) {
-    val lane = ix.laneOf(i)
+    val lane = ix.workflowLane(i, changes)
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp), modifier = Modifier.fillMaxSize().imePadding()) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

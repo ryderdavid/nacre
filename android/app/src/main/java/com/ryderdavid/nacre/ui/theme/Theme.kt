@@ -75,8 +75,11 @@ data class NacreColors(
     val decision: Color,
     val chore: Color,
     val running: Color,
+    /** Specification state: proposals, phases, sections. */
+    val spec: Color,
 ) {
     fun lane(lane: Lane) = when (lane) {
+        Lane.PROPOSED -> spec
         Lane.READY -> ready
         Lane.DOING -> doing
         Lane.BLOCKED -> blocked
@@ -121,6 +124,7 @@ private fun nacreColors(scheme: ColorScheme, dark: Boolean): NacreColors {
         decision = h(0xFFB5560F, 0xFFF0A160),
         chore = scheme.outline,
         running = h(0xFF6A4FB3, 0xFFC4B0FF),
+        spec = scheme.secondary,
     )
 }
 
