@@ -179,6 +179,17 @@ func TestAdoptStopsInsteadOfRedraftingOnBlockingReview(t *testing.T) {
 	if c.Phase != "needs_attention" || model.count() != 1 || len(c.Findings) != 1 || !strings.Contains(c.Error, "as written") {
 		t.Fatalf("phase=%s calls=%d findings=%d error=%s", c.Phase, model.count(), len(c.Findings), c.Error)
 	}
+
+	// Ryder fixes the files himself; resuming reviews them again, no author.
+	write(t, repo, "openspec/changes/retain-drafts/design.md", "Keep the existing screen. Save drafts locally; when saving fails, keep the draft in memory and say so.\n")
+	model.fn = nil
+	c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
+	if c.Phase != "awaiting_approval" || model.count() != 2 || model.calls[1].System != reviewerSystem {
+		t.Fatalf("after fixing by hand: phase=%s calls=%d error=%s", c.Phase, model.count(), c.Error)
+	}
+	if !strings.Contains(readRepo(t, repo, "openspec/changes/retain-drafts/design.md"), "keep the draft in memory") {
+		t.Fatal("the hand-fixed file was rewritten")
+	}
 }
 
 func TestAdoptRefusals(t *testing.T) {

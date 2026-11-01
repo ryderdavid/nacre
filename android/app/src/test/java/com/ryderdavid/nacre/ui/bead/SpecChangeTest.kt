@@ -153,4 +153,11 @@ class SpecChangeTest {
         assertEquals("epic/nac-mp6", com.ryderdavid.nacre.data.model.epicBranch("NAC-mp6"))
         assertEquals("Finishing NAC-E: merging epic/nac-e into main", com.ryderdavid.nacre.ui.rounds.beadSummary(finish.round!!))
     }
+
+    @Test fun anAdoptedChangeStoppedByItsReviewCanBeReviewedAgainAfterHandFixes() {
+        val stopped = approved.copy(phase = "needs_attention", approvedRevision = "", adoption = com.ryderdavid.nacre.data.model.ChangeAdoption())
+        assertEquals("resume", changeNextAction(stopped)?.action)
+        assertEquals("revise", changeNextAction(stopped, feedback = "Add the failure path")?.action)
+        assertEquals("revise", changeNextAction(stopped.copy(adoption = null))?.action)
+    }
 }

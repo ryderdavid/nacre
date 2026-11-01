@@ -514,9 +514,10 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 			if r.Stage == "" {
 				r.Stage = "author"
 			}
-			if r.Change.Adoption != nil && r.Pass == 0 && r.Change.ApprovedRevision == "" && r.Stage != "author" {
-				// An adoption not yet reviewed takes the change's files again as
-				// they are now, so specifications that moved meanwhile don't block it.
+			if r.Change.Adoption != nil && r.Pass == 0 && r.Change.ApprovedRevision == "" {
+				// An adoption takes the change's files again as they are now and
+				// reviews those: after its review stopped, or after Ryder fixed
+				// the files himself following blocking findings.
 				r.Stage = "adopt"
 				r.LastCall = nil
 			}
