@@ -202,7 +202,7 @@ fun RunLaunchSheet(
     onDismiss: () -> Unit,
     /** Where finished work lands: the bead's epic branch, or the main branch. */
     landsOn: String = "main",
-    onWorkUntilDone: ((targetKey: String, landWhenReady: Boolean) -> Unit)? = null,
+    onWorkUntilDone: ((targetKey: String, landWhenReady: Boolean, goal: GoalOptions) -> Unit)? = null,
     onStart: (targetKey: String, RunRequest) -> Unit,
 ) {
     var target by rememberSaveable { mutableStateOf(initialTarget) }
@@ -230,6 +230,10 @@ fun RunLaunchSheet(
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
             Text("Implement", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // Above both buttons: the goal applies to Work until done and to a plain run.
+            Column(Modifier.padding(top = 8.dp)) {
+                GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !sending)
+            }
             if (onWorkUntilDone != null) {
                 Text(
                     "Claude works on it in its own worktree on $hostName. nacred checks the result itself: a clean commit, every gate and the build in nacre.yaml, sending it back with what failed. Then it commits, lands on $landsOn, pushes and closes the bead.",
@@ -243,7 +247,7 @@ fun RunLaunchSheet(
                     Switch(checked = landWhenReady, onCheckedChange = { landWhenReady = it })
                 }
                 Button(
-                    onClick = { permission(); sentTo = "round"; onWorkUntilDone(target, landWhenReady) },
+                    onClick = { permission(); sentTo = "round"; onWorkUntilDone(target, landWhenReady, goal) },
                     enabled = !sending && targetRepo != null,
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
                 ) { Text(if (sending && sentTo == "round") "Sending to $hostName…" else "Work until done") }
@@ -330,7 +334,6 @@ fun RunLaunchSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
 
-            GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !sending)
 
             val canSend = !sending && targetRepo != null && codexBlocker == null
             val runButton: @Composable (onClick: () -> Unit, enabled: Boolean, modifier: Modifier, content: @Composable RowScope.() -> Unit) -> Unit =
