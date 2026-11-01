@@ -15,9 +15,10 @@ findings. The review SHALL NOT modify the repository or the beads beyond posting
 - **THEN** it runs in plan mode with only read access to the repository and bd, and the working tree is unchanged afterwards
 
 ### Requirement: Classify findings
-Each finding SHALL be one of `contradiction`, `ambiguity`, `overlap`, `ordering`, `shared-artifact` or
-`unmerged-work`, and
-SHALL name the beads involved and explain the finding in a sentence.
+Each finding of the beads' review SHALL be one of `contradiction`, `ambiguity`, `overlap`, `ordering`,
+`shared-artifact` or `unmerged-work`, and SHALL name the beads involved and explain the finding in a
+sentence. Pre-flight MAY add findings that other specifications define, such as spec-surfacing's spec
+drift.
 
 #### Scenario: Contradiction
 - **WHEN** one bead asks for the chat bar to always show and another asks for it to hide on scroll
