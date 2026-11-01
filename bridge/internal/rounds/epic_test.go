@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -311,5 +312,36 @@ func activeChange(t *testing.T, repo, name string) {
 	}
 	if _, err := gitx.CommitAll(context.Background(), repo, "Change "+name); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The target moving between landing's merge and its fast-forward merges again
+// instead of pausing.
+func TestLandingMergesAgainWhenTheTargetMovesAtTheLastMoment(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t, newFakeBeads(&fakeBead{ID: "T-F", Title: "Add f", Type: "feature"}), emptyPlan)
+	var once sync.Once
+	fastForward = func(ctx context.Context, repo, target, sha string) error {
+		once.Do(func() {
+			os.WriteFile(filepath.Join(repo, "late.txt"), []byte("late\n"), 0o644)
+			if _, err := gitx.CommitAll(ctx, repo, "A late commit on main"); err != nil {
+				t.Error(err)
+			}
+		})
+		return gitx.FastForward(ctx, repo, target, sha)
+	}
+	t.Cleanup(func() { fastForward = gitx.FastForward })
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	landed := h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+	if landed.State != api.RoundLanded {
+		t.Fatalf("round = %s %q", landed.State, landed.PauseReason)
+	}
+	for _, f := range []string{"late.txt", "f.txt"} {
+		if _, err := gitx.Run(ctx, h.repo, "show", "main:"+f); err != nil {
+			t.Errorf("main lacks %s", f)
+		}
 	}
 }
