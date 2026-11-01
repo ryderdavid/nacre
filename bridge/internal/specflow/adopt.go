@@ -210,9 +210,11 @@ func (m *Manager) startAdoption(ctx context.Context, repo, id string, a Action) 
 	return r, nil
 }
 
-// applyAdoption takes the change's files as written: tasks.md gets durable
-// section markers (existing ones are kept) and sections are linked to beads
-// that already exist under the seed. Nothing else in the change is rewritten.
+// applyAdoption takes the change's files as written: the workflow's copy of
+// tasks.md gets durable section markers (existing ones are kept) and sections
+// are linked to beads that already exist under the seed. The checkout is
+// never written: rounds install the marked copy in their workspace, so the
+// markers reach git in a commit rather than as an uncommitted edit.
 func (m *Manager) applyAdoption(ctx context.Context, r *record) error {
 	name := r.Change.ChangeName
 	inv, e := collect(r.Repo)
@@ -249,12 +251,6 @@ func (m *Manager) applyAdoption(ctx context.Context, r *record) error {
 	}
 	r.Generated = map[string]generated{}
 	if e := m.linkSections(ctx, r, sections); e != nil {
-		return e
-	}
-	if e := writeArtifacts(r.Repo, artifacts, inv.Digests); e != nil {
-		return e
-	}
-	if inv, e = collect(r.Repo); e != nil {
 		return e
 	}
 	refs := []string{}

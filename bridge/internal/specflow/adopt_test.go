@@ -88,9 +88,13 @@ func TestAdoptReviewsAsWrittenLinksBeadsAndKeepsFinishedWorkClosed(t *testing.T)
 	if got := c.Adoption; got == nil || len(got.Completed) != 2 || len(got.Linked) != 1 {
 		t.Fatalf("adoption = %+v", got)
 	}
-	tasks := readRepo(t, repo, "openspec/changes/retain-drafts/tasks.md")
-	if strings.Count(tasks, "nacre-section:") != 3 || !strings.Contains(tasks, "nacre-section: rd-save") {
-		t.Fatalf("tasks.md markers:\n%s", tasks)
+	if readRepo(t, repo, "openspec/changes/retain-drafts/tasks.md") != adoptTasks {
+		t.Fatal("adoption wrote to the checkout's tasks.md")
+	}
+	for _, a := range c.Artifacts {
+		if strings.HasSuffix(a.Path, "/tasks.md") && (strings.Count(a.Content, "nacre-section:") != 3 || !strings.Contains(a.Content, "nacre-section: rd-save")) {
+			t.Fatalf("the workflow's tasks.md lacks durable markers:\n%s", a.Content)
+		}
 	}
 	if readRepo(t, repo, "openspec/changes/retain-drafts/proposal.md") != proposal {
 		t.Fatal("adoption rewrote the proposal")
