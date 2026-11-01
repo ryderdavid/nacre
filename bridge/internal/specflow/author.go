@@ -54,7 +54,13 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	if remaining < 0.05 {
 		return nil, fmt.Errorf("The $%.2f budget for this proposal action has been reached. Review the saved work before starting another revision.", MaxActionCostUSD)
 	}
-	cap := math.Min(0.85, remaining)
+	perCall := 0.85
+	if review && r.Change.Adoption != nil && r.Pass == 0 {
+		// Adopting has one review of a whole finished change, often large,
+		// instead of an author and reviewer sharing the action's budget.
+		perCall = AdoptReviewBudgetUSD
+	}
+	cap := math.Min(perCall, remaining)
 	cap = math.Floor(cap*100) / 100
 	system, schema, kind := authorSystem, authorSchema, "author"
 	if review {
