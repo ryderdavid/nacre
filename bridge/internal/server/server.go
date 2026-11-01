@@ -28,6 +28,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
+	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 	"github.com/ryderdavid/nacre/bridge/internal/version"
@@ -58,12 +59,20 @@ type Server struct {
 	// CodexCheck reports whether beads can run with Codex here; nil checks
 	// the Codex CLI at Config.CodexPath (tests replace it).
 	CodexCheck func(ctx context.Context) codex.Status
+	// Sessions takes hook hints for the session watcher (POST /v1/sessions);
+	// nil when adopt_sessions is off, which makes the route a no-op.
+	Sessions SessionHinter
 
 	verMu     sync.Mutex
 	verAt     time.Time
 	bdVer     string
 	claudeVer string
 	codexSt   codex.Status
+}
+
+// SessionHinter is the part of the session watcher POST /v1/sessions uses.
+type SessionHinter interface {
+	Nudge(sessions.Hint) bool
 }
 
 // Handler returns the routed, authenticated and logged HTTP handler.
@@ -101,7 +110,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)
 	mux.HandleFunc("POST /v1/runs/{run}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/{run}/followup", s.followupRun)
+	mux.HandleFunc("POST /v1/runs/{run}/live", s.sendLive)
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("POST /v1/sessions", s.hintSession)
 	mux.HandleFunc("POST /v1/repos/{repo}/rounds", s.createRound)
 	mux.HandleFunc("GET /v1/rounds", s.listRounds)
 	mux.HandleFunc("GET /v1/rounds/{round}", s.getRound)

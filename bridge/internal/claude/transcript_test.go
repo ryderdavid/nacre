@@ -701,3 +701,39 @@ func TestFindTranscript(t *testing.T) {
 		}
 	}
 }
+
+// A message another session (nacred included) sent over the messaging socket
+// is a meta user entry with a peer origin: not shown as a prompt, but its
+// msg_id is collected so the sender can confirm delivery.
+func TestPeerOriginUserEntry(t *testing.T) {
+	line := `{"type":"user","isMeta":true,"timestamp":"2026-10-24T22:00:00.000Z","sessionId":"s","message":{"role":"user","content":"Another Claude session sent a message: Ryder (via Nacre): hi"},"origin":{"kind":"peer","from":"uds:/tmp/cc-socks/777.sock","verifiedPeerPid":777,"msg_id":"m-1"}}`
+	p, err := ParseTranscriptEntry([]byte(line))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PeerMsgID != "m-1" || len(p.Events) != 0 {
+		t.Fatalf("parsed = %+v", p)
+	}
+	// Another origin kind is not a peer message.
+	other, _ := ParseTranscriptEntry([]byte(`{"type":"user","isMeta":true,"message":{"role":"user","content":"x"},"origin":{"kind":"hook","msg_id":"m-2"}}`))
+	if other.PeerMsgID != "" {
+		t.Fatalf("non-peer origin = %+v", other)
+	}
+
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tail := NewTranscriptTail(path, TranscriptOptions{})
+	if _, err := tail.Read(); err != nil {
+		t.Fatal(err)
+	}
+	st := tail.State()
+	if !reflect.DeepEqual(st.PeerMsgIDs, []string{"m-1"}) || st.UserPrompts != 0 {
+		t.Fatalf("state = %+v", st)
+	}
+	st.PeerMsgIDs[0] = "changed"
+	if tail.State().PeerMsgIDs[0] != "m-1" {
+		t.Fatal("State must not share PeerMsgIDs with the tail")
+	}
+}

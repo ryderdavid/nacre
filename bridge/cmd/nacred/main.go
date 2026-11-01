@@ -5,6 +5,7 @@
 //
 //	nacred [serve] [--listen host:port] [--config path]
 //	nacred pair | token | version | install | uninstall [--config path]
+//	nacred hook [--config path] [--settings]   (a Claude Code hook; see README)
 package main
 
 import (
@@ -35,6 +36,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
+	"github.com/ryderdavid/nacre/bridge/internal/peer"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
@@ -51,6 +53,12 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		cmd, args = args[0], args[1:]
+	}
+	if cmd == "hook" {
+		// A Claude Code hook (NAC-j5z.10): it must never fail or slow the
+		// agent's session, so it reads the config without creating one and
+		// always exits 0.
+		os.Exit(runHook(args, os.Stdin, os.Stdout))
 	}
 	if cmd == "gates" {
 		// Runs on its own: no config, no server, and flags of its own.
@@ -104,7 +112,7 @@ func main() {
 	case "uninstall":
 		err = launchd.Uninstall(launchd.DefaultPaths(config.Home()), os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates|round] [--config path] [--listen host:port]\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates|round|hook] [--config path] [--listen host:port]\n", cmd)
 		os.Exit(2)
 	}
 	if err != nil {
@@ -143,10 +151,25 @@ func serve(cfg *config.Config, listenFlag string) error {
 	// Rounds hear about their runs through the run notifications. They are
 	// created after the run manager, so the hook is bound late.
 	var roundsRef atomic.Pointer[rounds.Manager]
+	// Live sends into adopted sessions (NAC-j5z.15). Receipts reach the run
+	// manager, which is created next, so the handler is bound late.
+	var managerRef atomic.Pointer[runs.Manager]
+	live := &peer.Client{
+		KeyDir: sessions.DefaultDir(config.Home()),
+		Alive:  func(pid int, procStart string) bool { return sessions.Alive(nil, pid, procStart) },
+		Handle: func(f peer.Frame) {
+			if m := managerRef.Load(); m != nil {
+				m.PeerFrame(f)
+			}
+		},
+		Logger: logger,
+	}
+	defer live.Close()
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
 		StallAfter:     cfg.StallAfter(),
+		Live:           live,
 		Notify: func(event string, data any) {
 			broker.Publish(event, data)
 			if run, ok := data.(api.Run); ok {
@@ -164,6 +187,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	if err != nil {
 		return fmt.Errorf("load runs: %w", err)
 	}
+	managerRef.Store(manager)
 	registry.ActiveRuns = manager.ActiveCount
 	registry.AdoptedRuns = manager.AdoptedCount
 	go registry.Rescan() // warm the repo list
@@ -272,7 +296,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
 	if cfg.AdoptSessions {
-		go adoptSessions(baseCtx, cfg, registry, manager, logger)
+		w := adoptSessions(cfg, registry, manager, logger)
+		srv.Sessions = w // POST /v1/sessions nudges it (NAC-j5z.10)
+		go w.Run(baseCtx)
 	} else {
 		// End adopted runs left active by an earlier start that had adoption
 		// enabled; nothing will report their sessions as finished now.
@@ -315,8 +341,8 @@ func serve(cfg *config.Config, listenFlag string) error {
 
 // adoptSessions watches Claude Code's session registry and Codex's rollout
 // files so that sessions an agent started on its own show up as read-only
-// adopted runs (NAC-j5z, NAC-j5z.11).
-func adoptSessions(ctx context.Context, cfg *config.Config, registry *repos.Registry, manager *runs.Manager, logger *log.Logger) {
+// adopted runs (NAC-j5z, NAC-j5z.11). The caller runs the returned watcher.
+func adoptSessions(cfg *config.Config, registry *repos.Registry, manager *runs.Manager, logger *log.Logger) *sessions.Watcher {
 	w := sessions.New(sessions.Options{
 		Dir:           sessions.DefaultDir(config.Home()),
 		Projects:      sessions.DefaultProjectsDir(config.Home()),
@@ -346,7 +372,7 @@ func adoptSessions(ctx context.Context, cfg *config.Config, registry *repos.Regi
 		Logger:          logger,
 	})
 	logger.Printf("adopting agent-owned Claude Code sessions from %s and Codex sessions from %s", sessions.DefaultDir(config.Home()), sessions.DefaultCodexHome(config.Home()))
-	w.Run(ctx)
+	return w
 }
 
 // pair prints the pairing deep link as a terminal QR code and as text.

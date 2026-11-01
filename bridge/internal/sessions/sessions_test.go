@@ -665,3 +665,31 @@ func TestPollLinksFromTheSharedTranscriptPass(t *testing.T) {
 		t.Fatalf("after link: %q, %d scan states", got[0].IssueID, len(w.scan.state))
 	}
 }
+
+func TestRecordCarriesThePeerFields(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "40605.json"), `{"pid":40605,"sessionId":"d57a","cwd":"/a","procStart":"Sat Oct 24 00:25:54 2026","version":"2.1.309","peerProtocol":1,"peerFeatures":["notify_idle","reply_across_default_dirs","artifact_yield"],"kind":"interactive","entrypoint":"cli","pidDomain":"darwin","messagingSocketPath":"/tmp/cc-socks/40605.sock"}`)
+	recs, err := ReadDir(dir)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("ReadDir = %+v, %v", recs, err)
+	}
+	p := recs[0].Peer()
+	if p.PID != 40605 || p.Protocol != 1 || p.SocketPath != "/tmp/cc-socks/40605.sock" || p.PIDDomain != "darwin" ||
+		p.Kind != "interactive" || p.Entrypoint != "cli" || p.ProcStart != "Sat Oct 24 00:25:54 2026" || !p.NotifyIdle() {
+		t.Fatalf("Peer = %+v", p)
+	}
+}
+
+func TestAliveChecksOneRecord(t *testing.T) {
+	start := time.Now().Truncate(time.Second)
+	procs := fakeProcs{42: start}
+	if !Alive(procs, 42, start.UTC().Format(procStartLayout)) {
+		t.Fatal("matching start time must be alive")
+	}
+	if Alive(procs, 42, start.Add(-time.Hour).UTC().Format(procStartLayout)) {
+		t.Fatal("a reused pid must not be alive")
+	}
+	if Alive(procs, 43, start.UTC().Format(procStartLayout)) {
+		t.Fatal("a dead pid must not be alive")
+	}
+}

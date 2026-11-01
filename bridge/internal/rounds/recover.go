@@ -560,7 +560,10 @@ func (m *Manager) Choose(id, choice string, budgetUSD float64, minutes int) (api
 		}
 		r.resumeFromStop(fmt.Sprintf("Trying again with $%.2f left", r.remaining()))
 	case api.ChoiceContinue:
-		if s.Fingerprint != "" && fp == s.Fingerprint {
+		// A landing whose target moved needs no change from Ryder: trying
+		// again merges the target as it is now.
+		moved := s.Phase == "land" && strings.Contains(s.Reason, gitx.ErrNotFastForward.Error())
+		if s.Fingerprint != "" && fp == s.Fingerprint && !moved {
 			return clone(r.meta), conflict("Nothing has changed since this failed, so it would fail the same way. Fix it first, or pick another choice.")
 		}
 		r.resumeFromStop("Carrying on after a change")

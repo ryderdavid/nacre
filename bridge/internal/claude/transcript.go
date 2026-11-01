@@ -94,6 +94,9 @@ type TranscriptParsed struct {
 	Sidechain bool
 	// Assistant marks a model turn, whether or not it produced events.
 	Assistant bool
+	// PeerMsgID is the msg_id of a user entry another session sent over the
+	// messaging socket (origin.kind "peer"): how a sender confirms delivery.
+	PeerMsgID string
 
 	SessionID string
 	CWD       string
@@ -122,6 +125,13 @@ type transcriptEntry struct {
 	IsMeta           bool `json:"isMeta"`
 	IsCompactSummary bool `json:"isCompactSummary"`
 	IsAPIError       bool `json:"isApiErrorMessage"`
+
+	// origin of a user entry another session injected over the messaging
+	// socket: {"kind":"peer","from":"uds:…","msg_id":"…"}.
+	Origin *struct {
+		Kind  string `json:"kind"`
+		MsgID string `json:"msg_id"`
+	} `json:"origin"`
 
 	// assistant error entries
 	Error string `json:"error"`
@@ -168,6 +178,9 @@ func ParseTranscriptEntry(line []byte) (TranscriptParsed, error) {
 	switch e.Type {
 	case "user":
 		p.Events = userEvents(e)
+		if e.Origin != nil && e.Origin.Kind == "peer" {
+			p.PeerMsgID = e.Origin.MsgID
+		}
 	case "assistant":
 		p.Assistant = true
 		p.Model = e.messageModel()
@@ -372,7 +385,15 @@ type TranscriptState struct {
 	Malformed int // lines that did not parse, or were too long
 	Sidechain int // subagent entries dropped by the sidechain filter
 	Dropped   int // events evicted by the retention cap
+
+	// PeerMsgIDs are the msg_ids of the newest peer-origin user entries
+	// (messages other sessions, nacred included, sent over the messaging
+	// socket), oldest first, at most maxPeerMsgIDs.
+	PeerMsgIDs []string
 }
+
+// maxPeerMsgIDs bounds TranscriptState.PeerMsgIDs.
+const maxPeerMsgIDs = 64
 
 // TranscriptOptions configures a TranscriptTail. The zero value is usable.
 type TranscriptOptions struct {
@@ -489,7 +510,11 @@ func (t *TranscriptTail) Path() string { return t.path }
 func (t *TranscriptTail) Offset() int64 { return t.offset }
 
 // State is the metadata derived so far.
-func (t *TranscriptTail) State() TranscriptState { return t.state }
+func (t *TranscriptTail) State() TranscriptState {
+	st := t.state
+	st.PeerMsgIDs = append([]string(nil), st.PeerMsgIDs...)
+	return st
+}
 
 // Events returns the retained events, oldest first.
 func (t *TranscriptTail) Events() []api.RunEvent { return t.EventsAfter(0) }
@@ -636,6 +661,13 @@ func (t *TranscriptTail) applyMeta(p TranscriptParsed) {
 		if v != "" {
 			*dst = v
 		}
+	}
+	if p.PeerMsgID != "" {
+		ids := append(t.state.PeerMsgIDs, p.PeerMsgID)
+		if len(ids) > maxPeerMsgIDs {
+			ids = append([]string(nil), ids[len(ids)-maxPeerMsgIDs:]...)
+		}
+		t.state.PeerMsgIDs = ids
 	}
 	set(&t.state.SessionID, p.SessionID)
 	set(&t.state.CWD, p.CWD)
