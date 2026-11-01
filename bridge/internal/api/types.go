@@ -490,11 +490,14 @@ type RoundBead struct {
 	SpecChangeID  string `json:"spec_change_id,omitempty"`
 	SpecRevision  string `json:"spec_revision,omitempty"`
 	SpecSectionID string `json:"spec_section_id,omitempty"`
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Type          string `json:"type"`
-	Priority      int    `json:"priority"`
-	State         string `json:"state"`
+	// CloseError says why closing the bead failed after its work was done;
+	// the bead stays open and Needs you offers to close it.
+	CloseError string `json:"close_error,omitempty"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Type       string `json:"type"`
+	Priority   int    `json:"priority"`
+	State      string `json:"state"`
 	// After lists the round beads this one waits for: bd dependencies and the
 	// plan's orderings.
 	After []string `json:"after,omitempty"`

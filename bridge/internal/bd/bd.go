@@ -362,6 +362,17 @@ func (c *Client) Close(ctx context.Context, repo, id, reason string) error {
 	return err
 }
 
+// CloseForce closes an issue even while issues it depends on are open.
+func (c *Client) CloseForce(ctx context.Context, repo, id, reason string) error {
+	args := []string{"close", "--force"}
+	if reason != "" {
+		args = append(args, "--reason="+reason)
+	}
+	args = append(args, "--", id)
+	_, err := c.run(ctx, repo, true, args...)
+	return err
+}
+
 // Reopen reopens a closed issue.
 func (c *Client) Reopen(ctx context.Context, repo, id string) error {
 	_, err := c.run(ctx, repo, true, "reopen", "--", id)

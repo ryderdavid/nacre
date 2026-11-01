@@ -3,6 +3,7 @@ package rounds
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -40,6 +41,8 @@ type fakeBeads struct {
 	mu    sync.Mutex
 	beads map[string]*fakeBead
 	deps  [][2]string
+	// failClose makes Close refuse a bead with this error.
+	failClose map[string]string
 }
 
 func newFakeBeads(bs ...*fakeBead) *fakeBeads {
@@ -112,6 +115,9 @@ func (f *fakeBeads) Update(_ context.Context, _, id string, p bd.UpdateParams) e
 func (f *fakeBeads) Close(_ context.Context, _, id, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if msg := f.failClose[id]; msg != "" {
+		return errors.New(msg)
+	}
 	if b := f.beads[id]; b != nil {
 		b.Status, b.CloseReason = "closed", reason
 	}

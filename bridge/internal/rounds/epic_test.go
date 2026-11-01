@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
@@ -249,5 +250,29 @@ func TestSpecRoundsLandWhenReadyOnlyWhenAsked(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.wait(t, r.ID, api.RoundCancelled)
+	}
+}
+
+// A bead whose close fails stays open with the reason on the round, instead
+// of the failure being dropped.
+func TestAFailedCloseIsRecordedOnTheRound(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-F", Title: "Add f", Type: "feature"})
+	beads.failClose = map[string]string{"T-F": "cannot close T-F: blocked by open issues [T-Z]"}
+	h := newHarness(t, beads, emptyPlan)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	landed := h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && landed.Beads[0].CloseError == "" {
+		time.Sleep(20 * time.Millisecond)
+		landed, _, _ = h.m.Get(r.ID)
+	}
+	if b := landed.Beads[0]; b.Closed || !strings.Contains(b.CloseError, "blocked by open issues") {
+		t.Fatalf("bead = %+v", b)
+	}
+	if beads.bead("T-F").Status == "closed" {
+		t.Fatal("the fake closed a bead it was told to refuse")
 	}
 }
