@@ -113,3 +113,25 @@ where it speaks and the design's intent where it doesn't.
   New effort and the Proposals lane without a failed intake call. Not in the design; additive.
 - Spec state uses the theme's violet `secondaryContainer`, matching the mockups; anything waiting on
   Ryder uses the existing `needsYou`/`needsYouContainer`.
+- Intake's answer also lists every active change's name, so the Amend override can offer changes
+  that have no specflow record (hand-written ones). Additive.
+- An "Already covered" verdict offers "Create as a bead anyway" (and the other routes) but not "Open
+  the covering change": the cited change may be hand-written and have no change view. Its
+  citations are shown instead.
+- `found_something` is not a spending tool: its amend answer files a pending amendment and never
+  revises by itself (design §10), so only Revise now spends. From the assistant, out of scope
+  creates the related bead directly once approved, since the assistant can't open New effort.
+- Found beads get their own chips ("Changes <change>" for pending amendments, "Added to <change>"),
+  which the spec's chip list didn't name; they follow its one-chip, first-slot rule.
+- Change notifications come from Needs you items appearing (proposal ready, ready to archive), on the
+  round channel, whether or not the app is in front, like round notices. The first list after
+  start only records what is already waiting, so opening the app doesn't replay old items.
+- "Needs a new round" in the plan view is shown for a section without evidence once the change has
+  been promoted more than once (a later revision was approved).
+- Release: app 0.9.0 (code 16) and nacred built as 0.9.0. Not installed on the Mac Studio, not
+  tagged or published, not merged to main: Ryder's call.
+- The emulator walkthrough (docs/SURFACE_SPEC_WORKFLOW_VERIFICATION.md) found and fixed a bug: a
+  `discovered-from` link from a found bead to its own epic, which bd refuses. The emulator keeps a
+  paired, now offline, "Walkthrough" computer; remove it in Settings.
+- Task 10.2 (one real cycle to ready-to-archive) is left open: it needs this nacred deployed and real
+  Claude Code rounds.

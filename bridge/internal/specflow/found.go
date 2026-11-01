@@ -178,7 +178,9 @@ func (m *Manager) createFound(ctx context.Context, r *record, req FoundRequest, 
 	if e != nil {
 		return "", e
 	}
-	if req.FoundIn != "" {
+	// Found on the epic itself, the parent link already says where it came
+	// from, and bd refuses a child's dependency on its own parent.
+	if req.FoundIn != "" && req.FoundIn != r.Change.EpicID {
 		if e = m.opts.Beads.DepAdd(ctx, r.Repo, id, req.FoundIn, "discovered-from"); e != nil {
 			return id, fmt.Errorf("%s was created but its discovered-from link failed: %w", id, e)
 		}

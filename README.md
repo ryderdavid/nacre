@@ -87,7 +87,25 @@ needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way r
 
 ## Specification-guided work
 
-A bead's **Change** card connects its intent to OpenSpec. **Develop a proposal** compares accepted
+**Needs you**, at the top of Boards, lists everything waiting on you across your computers:
+decisions and human checks, proposals ready for approval, blocked or stale reviews, interrupted
+workflows, round questions, parked beads, rounds ready to land, changes ready to archive and found
+work. Each item says why and offers its answers inline; Boards carries its own badge with the count,
+and the board assistant starts from the same list when you ask what needs you.
+
+In a repository with OpenSpec, the board's button is **New effort**. Continuing runs one cheap intake
+check against your specs and active changes and suggests just a bead, a new change, an amendment of a
+named change, or already covered; you confirm or pick another route, and only a confirmed change
+develops a proposal (up to $5, and the button says so). Beads whose change is still being planned sit
+in a **Proposals** lane before Ready. Cards carry one spec chip (phase, section and evidence, "Closed,
+not verified", "Touches a spec", found work), spec epics show a section strip and open with their
+change, and a stale approval names what changed. **Found something**, on spec epics, their beads and
+spec rounds, sorts discovered work by whether it changes what "done" means: a bead under the epic, a
+pending amendment that asks before revising (and says how many landed sections that would reopen),
+or a follow-on effort. Agents in spec rounds report such work as `Found:` comments instead of doing it.
+The approved `tasks.md` is the plan; progress is read from beads.
+
+Develop a proposal for an existing bead from **Refine** or its overflow menu. **Develop a proposal** compares accepted
 specifications and active changes, recommends a new change, amendment, repair or existing coverage,
 then runs strict OpenSpec validation and a fresh adversarial review. Findings, source references,
 artifacts and decisions stay visible in the change view and are recorded on the bead. Feedback is

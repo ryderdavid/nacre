@@ -138,3 +138,23 @@ func TestFoundNeedsAPromotedChange(t *testing.T) {
 		t.Fatalf("unknown change: %v", err)
 	}
 }
+
+func TestFoundOnTheEpicNeedsNoDiscoveredFromLink(t *testing.T) {
+	repo, b, _, opts := fixture(t)
+	m := newManager(t, opts)
+	c := approve(t, m, repo, develop(t, m, repo))
+	res, err := m.Found(context.Background(), repo, c.ID, FoundRequest{Answer: FoundHowOrder, Note: "Migrate first", FoundIn: c.EpicID, BeforeSection: c.Sections[1].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.edit(res.BeadID, func(is *issue) {
+		if hasDependency(*is, c.EpicID, "discovered-from") {
+			t.Fatal("a child was linked to its own parent")
+		}
+	})
+	b.edit(c.Sections[1].BeadID, func(is *issue) {
+		if !hasDependency(*is, res.BeadID, "blocks") {
+			t.Fatal("the section doesn't wait for the found bead")
+		}
+	})
+}

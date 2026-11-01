@@ -34,7 +34,7 @@ class RequestShapeTest {
     @Test fun strictToolsStayWithinTheSchemaLimits() {
         for (everyBoard in listOf(false, true)) {
             val tools = toolsBody(everyBoard)
-            assertEquals(if (everyBoard) 10 else 9, tools.size, "tool count")
+            assertEquals(if (everyBoard) 13 else 12, tools.size, "tool count")
             var optional = 0
             var unions = 0
             for (t in tools) {
@@ -71,7 +71,8 @@ class RequestShapeTest {
         val every = toolsBody(everyBoard = true).associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject }
         assertEquals(single.keys + "list_boards", every.keys)
         for ((name, tool) in every) {
-            assertEquals(name != "list_boards", "board" in tool.props(), "$name takes a board")
+            // needs_you already spans every computer, so it names no board either.
+            assertEquals(name != "list_boards" && name != "needs_you", "board" in tool.props(), "$name takes a board")
         }
     }
 
