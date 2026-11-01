@@ -138,6 +138,7 @@ fun beadStateLabel(state: String): String = when (state) {
 
 /** A one-line summary of where the round's beads are. */
 fun beadSummary(r: Round): String {
+    if (r.finishEpic.isNotBlank()) return "Finishing ${r.finishEpic}: merging ${com.ryderdavid.nacre.data.model.epicBranch(r.finishEpic)} into ${r.target}"
     val merged = r.beads.count { it.state == BEAD_INTEGRATED }
     val parked = r.beads.count { it.state == BEAD_PARKED || it.state == BEAD_SKIPPED }
     return buildList {
@@ -312,7 +313,7 @@ private fun StatusCard(
             Text(
                 listOfNotNull(
                     "${usd(r.spentUsd)} of ${usd(r.budgetUsd)}",
-                    "from ${r.target} at ${r.base.take(7)}",
+                    if (r.finishEpic.isNotBlank()) "from ${com.ryderdavid.nacre.data.model.epicBranch(r.finishEpic)} at ${r.base.take(7)}" else "lands on ${r.target} · from ${r.base.take(7)}",
                     r.startedAt.takeIf { it.isNotBlank() }?.let { "started ${relativeTime(it)}" },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,

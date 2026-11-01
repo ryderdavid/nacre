@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -184,6 +185,9 @@ fun RunLaunchSheet(
     initialTarget: String,
     sending: Boolean,
     onDismiss: () -> Unit,
+    /** Where finished work lands: the bead's epic branch, or the main branch. */
+    landsOn: String = "main",
+    onWorkUntilDone: ((targetKey: String, landWhenReady: Boolean) -> Unit)? = null,
     onStart: (targetKey: String, RunRequest) -> Unit,
 ) {
     var target by rememberSaveable { mutableStateOf(initialTarget) }
@@ -193,6 +197,7 @@ fun RunLaunchSheet(
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
     var instructions by rememberSaveable { mutableStateOf("") }
     var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
+    var landWhenReady by rememberSaveable { mutableStateOf(true) }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
     val hostName = targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"
 
@@ -200,8 +205,27 @@ fun RunLaunchSheet(
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
             Text("Implement", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (onWorkUntilDone != null) {
+                Text(
+                    "Claude works on it in its own worktree on $hostName. nacred checks the result itself: a clean commit, every gate and the build in nacre.yaml, sending it back with what failed. Then it commits, lands on $landsOn, pushes and closes the bead.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { landWhenReady = !landWhenReady }, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Land when it passes", style = MaterialTheme.typography.bodyLarge)
+                        Text(if (landWhenReady) "Lands and pushes without waiting for you" else "Waits for you to tap Land", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = landWhenReady, onCheckedChange = { landWhenReady = it })
+                }
+                Button(
+                    onClick = { permission(); sentTo = "round"; onWorkUntilDone(target, landWhenReady) },
+                    enabled = !sending && targetRepo != null,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
+                ) { Text(if (sending && sentTo == "round") "Sending to $hostName…" else "Work until done") }
+                Text("Or just run it", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 24.dp))
+            }
             Text(
-                "Runs on $hostName with Claude Code on your Claude subscription, or with Codex on the ChatGPT account it is signed in to there. The agent claims the bead, does the work, verifies it and closes it when done.",
+                "Runs on $hostName with Claude Code on your Claude subscription, or with Codex on the ChatGPT account it is signed in to there. The agent claims the bead and does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or landed for you" else ", verifies it and closes it when done"}.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
             )
 
@@ -262,16 +286,19 @@ fun RunLaunchSheet(
             )
 
             val canSend = !sending && targetRepo != null
-            Button(
-                onClick = {
+            val runButton: @Composable (onClick: () -> Unit, enabled: Boolean, modifier: Modifier, content: @Composable RowScope.() -> Unit) -> Unit =
+                if (onWorkUntilDone != null) { c, e, m, t -> FilledTonalButton(onClick = c, enabled = e, modifier = m, content = t) }
+                else { c, e, m, t -> Button(onClick = c, enabled = e, modifier = m, content = t) }
+            runButton(
+                {
                     permission()
                     sentTo = "claude"
                     onStart(target, RunRequest(mode = mode, model = model.ifBlank { null }, instructions = instructions.ifBlank { null }, worktree = worktree))
                 },
-                enabled = canSend,
-                modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
+                canSend,
+                Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
             ) {
-                Text(if (sending && sentTo == "claude") "Sending to $hostName…" else "Implement via Claude")
+                Text(if (sending && sentTo == "claude") "Sending to $hostName…" else if (onWorkUntilDone != null) "Run via Claude" else "Implement via Claude")
             }
             val codexBlocker = targetRepo?.codexBlocker
             FilledTonalButton(
@@ -283,7 +310,7 @@ fun RunLaunchSheet(
                 enabled = canSend && codexBlocker == null,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp),
             ) {
-                Text(if (sending && sentTo == AGENT_CODEX) "Sending to $hostName…" else "Implement via Codex")
+                Text(if (sending && sentTo == AGENT_CODEX) "Sending to $hostName…" else if (onWorkUntilDone != null) "Run via Codex" else "Implement via Codex")
             }
             if (codexBlocker != null) Text(
                 codexBlocker,

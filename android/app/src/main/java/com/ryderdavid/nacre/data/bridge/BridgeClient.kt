@@ -1,6 +1,7 @@
 package com.ryderdavid.nacre.data.bridge
 
 import com.ryderdavid.nacre.data.model.AssistRequest
+import com.ryderdavid.nacre.data.model.EpicFinish
 import com.ryderdavid.nacre.data.model.AttentionItem
 import com.ryderdavid.nacre.data.model.AttentionList
 import com.ryderdavid.nacre.data.model.ChangeEvent
@@ -207,6 +208,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun rounds(): List<Round> = get<Rounds>("/v1/rounds").rounds
     suspend fun round(id: String): RoundDetail = get("/v1/rounds/${enc(id)}")
     suspend fun startRound(repo: String, body: StartRound): Round = send("POST", "/v1/repos/$repo/rounds", body)
+    suspend fun finishEpic(repo: String, epic: String): EpicFinish = send("POST", "/v1/repos/$repo/epics/${enc(epic)}/finish", JsonObject(emptyMap()))
     suspend fun answer(id: String, questionId: String, answer: String): Round = send("POST", "/v1/rounds/${enc(id)}/answers", Answer(questionId, answer))
     suspend fun editPlan(id: String, unlink: List<Pair<String, String>> = emptyList(), accept: List<Pair<String, String>> = emptyList()): Round =
         send("POST", "/v1/rounds/${enc(id)}/plan", PlanEdit(unlink.map { listOf(it.first, it.second) }, accept.map { listOf(it.first, it.second) }))

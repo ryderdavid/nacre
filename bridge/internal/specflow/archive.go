@@ -63,6 +63,23 @@ func (m *Manager) ArchiveInto(ctx context.Context, repo, workspace, epic string)
 	return c.ChangeName, nil
 }
 
+// ChangeOf names the change an epic belongs to while it is still to be
+// archived, or "".
+func (m *Manager) ChangeOf(repo, epic string) string {
+	repo, e := canonicalRepo(repo)
+	if e != nil {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.records {
+		if r.Repo == repo && r.Change.EpicID == epic && r.Change.Phase != "archived" {
+			return r.Change.ChangeName
+		}
+	}
+	return ""
+}
+
 // MarkArchived records that the change of a finished epic was archived and
 // merged, ending its workflow.
 func (m *Manager) MarkArchived(repo, epic string) {

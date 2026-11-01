@@ -2,12 +2,8 @@
 
 ### Requirement: A recovery ladder before every stop
 nacred SHALL try a recovery ladder whenever a round would stop (pause the round, or park a bead for a
-reason other than its own run failing). It tries, in order and each at most as often as its bound allows: a mechanical fix
-from the catalogue when one applies, a recovery turn in the round's workspace verified by the gates when
-the failure is a merge or a gate failure, and a transient retry when the failure comes from the
-environment. Only when no rung is left SHALL the round stop. Budget and time limits, and questions about
-the beads' intent, SHALL stop the round without a ladder. Each rung tried SHALL be recorded as a `recover`
-event with what was tried and the outcome.
+reason other than its own run failing), and SHALL stop the round only when no rung is left. Budget and
+time limits, and questions about the beads' intent, SHALL stop the round without a ladder.
 
 #### Scenario: Fixed without stopping
 - **WHEN** merging the target at landing conflicts only in the version lines both sides bumped
@@ -21,14 +17,13 @@ event with what was tried and the outcome.
 - **WHEN** the round's budget is used up
 - **THEN** the round stops at once with its choices, without a recovery turn
 
+#### Scenario: Rungs in order, each recorded
+- **WHEN** a round would stop
+- **THEN** nacred tries, in order and each at most as often as its bound allows, a mechanical fix from the catalogue when one applies, a recovery turn in the round's workspace verified by the gates when the failure is a merge or a gate failure, and a transient retry when the failure comes from the environment, recording each rung tried as a `recover` event with what was tried and the outcome
+
 ### Requirement: Mechanical fixes catalogue
 nacred SHALL resolve a merge mechanically only when every conflicted path is handled by a fix in the
-catalogue, and SHALL run the gates after any mechanical fix. The catalogue SHALL include: the round's
-version bump (undo it before merging the target and run `version.bump` again at the same level from the
-target's version); branches whose every commit is already in the target by content (not merged, not
-asked about); the beads logs `.beads/*.jsonl` (union of both sides' lines, duplicates dropped, order
-kept); and files declared in `nacre.yaml` under `merge.regenerate` as a path pattern with the command
-that rebuilds them (take the target's side, run the command, add the result).
+catalogue, and SHALL run the gates after any mechanical fix.
 
 #### Scenario: Beads log conflict
 - **WHEN** a bead merge conflicts only in `.beads/interactions.jsonl`
@@ -42,13 +37,14 @@ that rebuilds them (take the target's side, run the command, add the result).
 - **WHEN** a merge conflicts in `build.gradle.kts` version lines and in `Rounds.kt`
 - **THEN** no mechanical fix is applied, and the merge goes to a recovery turn
 
+#### Scenario: What the catalogue handles
+- **WHEN** a merge conflicts
+- **THEN** the catalogue's fixes are: the round's version bump (undo it before merging the target and run `version.bump` again at the same level from the target's version); branches whose every commit is already in the target by content (not merged, not asked about); the beads logs `.beads/*.jsonl` (union of both sides' lines, duplicates dropped, order kept); and files declared in `nacre.yaml` under `merge.regenerate` as a path pattern with the command that rebuilds them (take the target's side, run the command, add the result)
+
 ### Requirement: Claude resolves every merge in a round
 nacred SHALL give a recovery turn, like a bead merge's integration turn, to the merge of unmerged work
 Ryder chose to bring in before the beads start, the merge of a moved target before landing, and a
-landing whose target's changes make the gates fail. The turn is told what each side meant (the branch's commits and the pre-flight
-finding, the target's commits since the round's base, the beads and decisions), told never to revert the
-target's commits and to keep the target's version where both sides made an equivalent change, bounded
-by `limits.fix_attempts` and the round's remaining budget, and judged only by the gates.
+landing whose target's changes make the gates fail. The turn SHALL be judged only by the gates.
 
 #### Scenario: Pre-flight merge resolved
 - **WHEN** Ryder answers "Merge it into the round first" and the branch conflicts with the base in one file
@@ -57,6 +53,10 @@ by `limits.fix_attempts` and the round's remaining budget, and judged only by th
 #### Scenario: Landing merge resolved
 - **WHEN** the target gained a commit that touches the same function a bead changed, and the merge at landing conflicts there
 - **THEN** a recovery turn resolves it, the final gates and build pass, and the round lands
+
+#### Scenario: What the recovery turn is told
+- **WHEN** a recovery turn starts for one of these merges
+- **THEN** it is told what each side meant (the branch's commits and the pre-flight finding, the target's commits since the round's base, the beads and decisions), told never to revert the target's commits and to keep the target's version where both sides made an equivalent change, and it is bounded by `limits.fix_attempts` and the round's remaining budget
 
 ### Requirement: Transient failures are retried
 nacred SHALL retry a failure classified as environmental twice, after 5 seconds and after 30 seconds,
@@ -89,15 +89,9 @@ skipped, showing the plain reason, when the budget can't cover it or the call fa
 
 ### Requirement: Stops are choices that never replay a failure
 A paused round SHALL expose the choices that apply to its stop, each one carried out by nacred:
-`retry-with-budget` (another recovery turn with an amount Ryder sets), `skip-branch` (on a stop about a
-pre-flight branch), `skip-bead` (on a stop about one bead), `continue` (Ryder changed something by hand),
-`raise-limits` and `cancel`. A round SHALL NOT offer to land only part of its beads; it lands without a
-bead only when that bead was parked because it couldn't be finished. A stop for budget or time SHALL show
-what each bead has spent and an estimate of what the unfinished beads need, from the average cost of the
-finished ones. `continue` SHALL first compare the state
-that made the step fail (the commits and files involved) with now, and if nothing changed SHALL refuse
-with "Nothing has changed since this failed" and leave the round paused. The existing resume action SHALL
-behave as `continue`.
+`retry-with-budget`, `skip-branch`, `skip-bead`, `continue`, `raise-limits` and `cancel`. A round SHALL
+NOT offer to land only part of its beads; it lands without a bead only when that bead was parked because
+it couldn't be finished. The existing resume action SHALL behave as `continue`.
 
 #### Scenario: Resume without a change
 - **WHEN** the landing merge stopped on a conflict and Ryder taps Resume without changing anything
@@ -115,12 +109,22 @@ behave as `continue`.
 - **WHEN** the third bead still fails its gates after its follow-ups and recovery turn
 - **THEN** the round parks it without asking, finishes with the other two, and the Land card lists the parked bead and why
 
+#### Scenario: Which choices apply
+- **WHEN** a round pauses
+- **THEN** `retry-with-budget` offers another recovery turn with an amount Ryder sets, `skip-branch` appears on a stop about a pre-flight branch, `skip-bead` on a stop about one bead, and `continue` after Ryder changed something by hand
+
+#### Scenario: Out of budget or time
+- **WHEN** a round stops for budget or time
+- **THEN** it shows what each bead has spent and an estimate of what the unfinished beads need, from the average cost of the finished ones
+
+#### Scenario: Continue without a change
+- **WHEN** Ryder chooses `continue` and the commits and files involved in the failed step are unchanged
+- **THEN** nacred refuses with "Nothing has changed since this failed" and leaves the round paused
+
 ### Requirement: Set-aside work carries into the next round
 nacred SHALL continue a bead from its kept round branch when a new round includes a bead that an earlier
-round parked or left behind by being cancelled, and that branch has commits beyond its own base. The new
-bead branch SHALL start from the new round's integration branch with the kept branch merged in, through
-the same mechanical fixes and recovery turn as any merge; the bead's prompt SHALL say its earlier work is
-present and why it was set aside; and the kept branch SHALL be deleted once the new round lands.
+round parked or left behind by being cancelled, and that branch has commits beyond its own base. The kept
+branch SHALL be deleted once the new round lands.
 
 #### Scenario: Picking up parked work
 - **WHEN** NAC-7 was parked in round A with two commits on `nacre/r/A/NAC-7`, and round B includes NAC-7
@@ -129,6 +133,10 @@ present and why it was set aside; and the kept branch SHALL be deleted once the 
 #### Scenario: Nothing to pick up
 - **WHEN** round B includes a bead whose kept branch in round A has no commits beyond its base
 - **THEN** the bead starts fresh from B's base
+
+#### Scenario: How the earlier work comes back
+- **WHEN** a new round includes a bead with a kept branch
+- **THEN** the new bead branch starts from the new round's integration branch with the kept branch merged in, through the same mechanical fixes and recovery turn as any merge, and the bead's prompt says its earlier work is present and why it was set aside
 
 ### Requirement: The app shows stops and recoveries
 The round screen SHALL show a stop's diagnosis summary, one button per choice with its explanation, and

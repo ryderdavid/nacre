@@ -111,3 +111,44 @@ func TestBeadsFromDifferentEpicsNeedSeparateRounds(t *testing.T) {
 		t.Fatalf("a bead outside any epic lands on main: %+v %v", r.Target, err)
 	}
 }
+
+// A change's epic whose work is already on main is still finished by a round,
+// so archiving the change lands on main too.
+func TestFinishingAChangeEpicArchivesEvenWithItsWorkOnMain(t *testing.T) {
+	ctx := context.Background()
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-E", Title: "Drafts", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-G", Title: "Done", Type: "task", Parent: "T-E", Status: "closed"},
+	)
+	archivedName, marked := "drafts", ""
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{
+		changeOf: func(_, epic string) string {
+			if epic == "T-E" && marked == "" {
+				return archivedName
+			}
+			return ""
+		},
+		archive: func(ctx context.Context, _, ws, epic string) (string, error) {
+			if err := os.WriteFile(filepath.Join(ws, "ARCHIVED"), []byte(epic+"\n"), 0o644); err != nil {
+				return "", err
+			}
+			_, err := gitx.CommitAll(ctx, ws, "Archive drafts")
+			return archivedName, err
+		},
+		archived: func(_, epic string) { marked = epic },
+	})
+	fin, closed, err := h.m.FinishEpic("repo", "T-E")
+	if err != nil || closed {
+		t.Fatalf("finish: closed=%v err=%v", closed, err)
+	}
+	done := h.wait(t, fin.ID, api.RoundLanded, api.RoundPaused)
+	if done.State != api.RoundLanded {
+		t.Fatalf("finish round = %s %q", done.State, done.PauseReason)
+	}
+	if _, err := gitx.Run(ctx, h.repo, "show", "main:ARCHIVED"); err != nil {
+		t.Fatal("the archive didn't land on main")
+	}
+	if marked != "T-E" || beads.bead("T-E").Status != "closed" {
+		t.Fatalf("archived=%q epic=%s", marked, beads.bead("T-E").Status)
+	}
+}

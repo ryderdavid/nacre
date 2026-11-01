@@ -212,6 +212,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 		Requirements:   specflow.RequirementIndex,
 		ArchiveChange:  changes.ArchiveInto,
 		ChangeArchived: changes.MarkArchived,
+		ChangeOf:       changes.ChangeOf,
 		Develop: func(ctx context.Context, path, beadID, feedback string) error {
 			_, err := changes.Act(ctx, path, beadID, specflow.Action{Action: "develop", Feedback: feedback})
 			return err

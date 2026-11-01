@@ -21,6 +21,7 @@ import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.UpdateIssue
 import com.ryderdavid.nacre.data.settings.AppSettings
@@ -137,6 +138,25 @@ class BeadDetailViewModel(
     fun addComment(text: String) = act("Commenting") { comments.value = repo.comment(repoKey, beadId, text) }
     fun addBlocker(id: String) = act("Adding dependency") { repo.addDep(repoKey, beadId, id) }
     fun removeBlocker(id: String) = act("Removing dependency") { repo.removeDep(repoKey, beadId, id) }
+
+    /** A one-bead round: its own worktree, every gate and the build, commit, land, push, close. */
+    fun workUntilDone(targetKey: String, landWhenReady: Boolean, onStarted: (Round) -> Unit) = act("Starting the work") {
+        val round = repo.startRound(targetKey, listOf(beadId), landWhenReady = landWhenReady)
+        repo.groupOf(targetKey)?.let { settings.setRunHost(it.id, Keys.host(targetKey)) }
+        onStarted(round)
+    }
+
+    /** Works this epic's open beads in one round on its branch, landing when they pass. */
+    fun workEpic(onStarted: (Round) -> Unit) = act("Starting the work") {
+        onStarted(repo.startRound(repoKey, emptyList(), epic = beadId, landWhenReady = true))
+    }
+
+    /** Merges this finished epic into the main branch; [onDone] gets the round, or null when it simply closed. */
+    fun finishEpic(onDone: (Round?) -> Unit) = act("Finishing the epic") {
+        val result = repo.finishEpic(repoKey, beadId)
+        load()
+        onDone(result.round)
+    }
 
     fun startRun(targetKey: String, req: RunRequest, onStarted: (Run) -> Unit) = act("Starting run") {
         val run = repo.startRun(targetKey, beadId, req)

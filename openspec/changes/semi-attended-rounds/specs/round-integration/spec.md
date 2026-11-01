@@ -71,10 +71,8 @@ comment saying what remains to verify. Parked beads SHALL stay open with their r
 ### Requirement: Landing
 Landing SHALL fast-forward `land.target` to the round's final commit and, when `land.push` is true, push the
 target. If the target has moved since the round's base, nacred SHALL first merge the target into the
-integration branch and re-run the gates and build, landing only if they pass. The round's version bump was
-made from the base it started on, so before that merge nacred SHALL undo it, and after the merge SHALL run
-`version.bump` again at the same level from the target's version. Landing SHALL wait for Ryder's
-approval unless `land.auto` is true.
+integration branch and re-run the gates and build, landing only if they pass. Landing SHALL wait for
+Ryder's approval unless `land.auto` is true.
 
 #### Scenario: Ryder lands
 - **WHEN** Ryder approves landing a ready round whose target has not moved
@@ -87,3 +85,7 @@ approval unless `land.auto` is true.
 #### Scenario: Target shipped its own release
 - **WHEN** a round that bumped 0.5.0 to 0.6.0 lands after `main` itself went to 0.5.1
 - **THEN** the merge doesn't conflict on the version, and the round lands as 0.6.0 bumped from 0.5.1, with the build number one past `main`'s
+
+#### Scenario: The version bump on a moved target
+- **WHEN** the target moved since the round's base, so the round's version bump was made from an older version
+- **THEN** nacred undoes the bump before merging the target and, after the merge, runs `version.bump` again at the same level from the target's version

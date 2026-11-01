@@ -80,6 +80,7 @@ import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
 import com.ryderdavid.nacre.data.model.foundChange
+import com.ryderdavid.nacre.data.model.epicBranch
 import com.ryderdavid.nacre.data.model.ActiveElsewhere
 import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.data.model.Issue
@@ -289,6 +290,15 @@ fun BeadDetail(
                         developable && changeState.data?.suggestedAdoption != null -> ChangeCard(changeState, false, onOpen = { showChange = true })
                     }
                 },
+                epicCompletion = if (i.type == "epic" && !i.isClosed) {
+                    {
+                        EpicCompletionCard(
+                            i, ix, isChange = boardChanges?.changes?.any { it.epicId == i.id } == true, busy = busy,
+                            onWorkRest = { vm.workEpic { round -> onOpenRound(round.key) } },
+                            onFinish = { vm.finishEpic { round -> round?.let { onOpenRound(it.key) } } },
+                        )
+                    }
+                } else null,
                 epicHeader = boardChanges?.changes?.firstOrNull { it.epicId == i.id }?.let { c ->
                     { EpicChangeHeader(c, changeState.data?.change, ix, onOpenChange = { showChange = true }, onOpenBead = onOpenBead) }
                 },
@@ -366,7 +376,13 @@ fun BeadDetail(
             var initial by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) { initial = vm.preferredRunKey() }
             initial?.let { start ->
-                RunLaunchSheet(i, p, targets, start, sending = busy, onDismiss = { showRun = false }) { target, req ->
+                // Beads under an epic land on the epic's branch until the epic is finished.
+                val epic = i.parent.takeIf { it.isNotBlank() && ix.byId[it]?.type == "epic" }
+                RunLaunchSheet(
+                    i, p, targets, start, sending = busy, onDismiss = { showRun = false },
+                    landsOn = epic?.let(::epicBranch) ?: "the main branch",
+                    onWorkUntilDone = { target, land -> vm.workUntilDone(target, land) { round -> showRun = false; onOpenRound(round.key) } },
+                ) { target, req ->
                     vm.startRun(target, req) { run -> showRun = false; onOpenRun(run.key) }
                 }
             }
@@ -395,6 +411,7 @@ private fun DetailBody(
     onComment: (String) -> Unit,
     changeCard: @Composable () -> Unit,
     epicHeader: (@Composable () -> Unit)? = null,
+    epicCompletion: (@Composable () -> Unit)? = null,
 ) {
     val lane = ix.workflowLane(i, changes)
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp), modifier = Modifier.fillMaxSize().imePadding()) {
@@ -428,6 +445,7 @@ private fun DetailBody(
 
         // A spec epic leads with its change, above everything else about the bead.
         if (epicHeader != null) item { epicHeader() }
+        if (epicCompletion != null) item { epicCompletion() }
         val blockers = i.blockerIds
         item {
             SectionHeader("Waits on", trailing = { TextButton(onClick = onAddBlocker) { Text("Add") } })

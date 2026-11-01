@@ -1,11 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: nacre.yaml declares what done means
-A repository SHALL declare its gates in a `nacre.yaml` file at its root, with: `gates` (named commands
-that must all exit 0), `build` (named commands run at the end of a round, each optionally naming an
-`artifact` path), `env` (environment variables for those commands), `version.bump` (a command run once per
-round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits`
-(`gate_timeout_minutes`, `fix_attempts`). nacred SHALL reject a malformed file with the line and reason.
+A repository SHALL declare its gates in a `nacre.yaml` file at its root, and nacred SHALL reject a
+malformed file with the line and reason.
 
 #### Scenario: Valid file
 - **WHEN** nacred reads a `nacre.yaml` with two gates and one build step
@@ -14,6 +11,10 @@ round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclu
 #### Scenario: Malformed file
 - **WHEN** `nacre.yaml` has a gate without `run`
 - **THEN** starting a round fails with a message naming the gate and the missing field
+
+#### Scenario: What nacre.yaml holds
+- **WHEN** nacred reads `nacre.yaml`
+- **THEN** it accepts `gates` (named commands that must all exit 0), `build` (named commands run at the end of a round, each optionally naming an `artifact` path), `env` (environment variables for those commands), `version.bump` (a command run once per round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits` (`gate_timeout_minutes`, `fix_attempts`)
 
 ### Requirement: nacred runs the gates itself
 nacred SHALL run gates in the relevant worktree with the declared environment, each with the gate timeout,

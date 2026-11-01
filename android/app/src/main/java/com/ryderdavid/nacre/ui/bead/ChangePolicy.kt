@@ -18,6 +18,7 @@ fun changePhaseLabel(phase: String): String = when (phase) {
     "stale" -> "Review needs updating"
     "interrupted" -> "Work interrupted"
     "covered" -> "Already covered"
+    "archived" -> "Archived"
     else -> "Check workflow status"
 }
 

@@ -9,6 +9,7 @@ import com.ryderdavid.nacre.data.bridge.RoundMessage
 import com.ryderdavid.nacre.data.bridge.StreamMessage
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AttentionItem
+import com.ryderdavid.nacre.data.model.EpicFinish
 import com.ryderdavid.nacre.data.model.AttentionOption
 import com.ryderdavid.nacre.data.model.ChangeEvent
 import com.ryderdavid.nacre.data.model.ChangesList
@@ -596,9 +597,17 @@ class NacreRepository(
     fun round(key: String): Round? = rounds.value.firstOrNull { it.key == key }
 
     /** Starts a round of [beads] in [repoKey]'s repository on that computer. */
-    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null, specChangeId: String? = null, specRevision: String? = null): Round {
+    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null, specChangeId: String? = null, specRevision: String? = null, landWhenReady: Boolean? = null, epic: String? = null): Round {
         val p = pairedFor(repoKey)
-        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd, specChangeId = specChangeId, specRevision = specRevision)).tag(p.host).also(::upsertRound)
+        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, epic = epic, budgetUsd = budgetUsd, specChangeId = specChangeId, specRevision = specRevision, landWhenReady = landWhenReady)).tag(p.host).also(::upsertRound)
+    }
+
+    /** Merges a finished epic's branch into the main branch, or closes it when there's nothing to merge. */
+    suspend fun finishEpic(repoKey: String, epic: String): EpicFinish {
+        val p = pairedFor(repoKey)
+        val result = p.client.finishEpic(Keys.id(repoKey), epic)
+        refreshBoard(repoKey, quiet = true); refreshAttention(Keys.host(repoKey))
+        return result.copy(round = result.round?.tag(p.host)?.also(::upsertRound))
     }
 
     suspend fun roundDetail(key: String): BridgeClient.RoundDetail {

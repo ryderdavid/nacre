@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.model.ChangeSummary
+import com.ryderdavid.nacre.data.model.Issue
+import com.ryderdavid.nacre.data.model.epicBranch
 import com.ryderdavid.nacre.data.model.SpecChange
 import com.ryderdavid.nacre.ui.board.SectionStrip
 import com.ryderdavid.nacre.ui.board.evidenceLabel
@@ -66,3 +69,33 @@ fun EpicChangeHeader(summary: ChangeSummary, change: SpecChange?, ix: BoardIndex
 
 /** What broke a change's approval, in a sentence. */
 fun staleText(reason: String) = reason.ifBlank { "The project's specifications changed since this was approved." } + " A new review is needed before its sections can run."
+
+/**
+ * Where an open epic's work stands and how to bring it home: its beads land on
+ * the epic's branch; the rest can be worked until done in one round, and once
+ * every bead is closed, finishing merges the branch into the main branch.
+ */
+@Composable
+fun EpicCompletionCard(epic: Issue, ix: BoardIndex, isChange: Boolean, busy: Boolean, onWorkRest: () -> Unit, onFinish: () -> Unit) {
+    val kids = ix.childrenOf(epic.id)
+    val closed = kids.count { it.isClosed }
+    val open = kids.size - closed
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Bringing it home", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text("$closed of ${kids.size} closed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                "Work on its beads lands on ${epicBranch(epic.id)}. Finishing ${if (isChange) "archives its change and " else ""}merges the branch into the main branch with every gate and the build, pushes it and closes the epic.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when {
+                kids.isEmpty() -> Text("It has no beads yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                open == 0 -> Button(onClick = onFinish, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (isChange) "Finish: archive and merge" else "Finish epic") }
+                !isChange -> FilledTonalButton(onClick = onWorkRest, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Work the other $open until done") }
+                else -> Text("Implement its open sections from the change; finish once they're closed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}

@@ -46,6 +46,8 @@ fun attentionLabel(kind: String) = when (kind) {
     AttentionItem.ROUND_READY -> "Ready to land"
     AttentionItem.CHANGE_ARCHIVABLE -> "Ready to archive"
     AttentionItem.FOUND_WORK -> "Found work"
+    AttentionItem.EPIC_FINISHABLE -> "Epic done"
+    AttentionItem.BEAD_STUCK -> "Stuck in progress"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
@@ -53,7 +55,7 @@ fun attentionLabel(kind: String) = when (kind) {
 @Composable
 private fun labelColors(kind: String): Pair<Color, Color> = when (kind) {
     AttentionItem.PROPOSAL_READY, AttentionItem.CHANGE_ARCHIVABLE -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-    AttentionItem.ROUND_READY -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+    AttentionItem.ROUND_READY, AttentionItem.EPIC_FINISHABLE -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
     else -> Nacre.colors.needsYouContainer to Nacre.colors.needsYou
 }
 

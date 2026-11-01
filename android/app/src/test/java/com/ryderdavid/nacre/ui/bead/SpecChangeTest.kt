@@ -140,4 +140,17 @@ class SpecChangeTest {
         assertFalse(partly.allLanded)
         assertEquals("implement", changeNextAction(partly)?.action)
     }
+
+    @Test fun workUntilDoneAndEpicFinishingTravelOverTheBridge() {
+        val body = BridgeClient.json.encodeToString(StartRound.serializer(), StartRound(beads = listOf("NAC-1"), landWhenReady = true))
+        assertTrue("\"land_when_ready\":true" in body, body)
+        val epicRound = BridgeClient.json.encodeToString(StartRound.serializer(), StartRound(epic = "NAC-E", landWhenReady = true))
+        assertTrue("\"epic\":\"NAC-E\"" in epicRound, epicRound)
+        val finish = BridgeClient.json.decodeFromString<com.ryderdavid.nacre.data.model.EpicFinish>("""{"round":{"id":"r1","state":"integrating","target":"main","finish_epic":"NAC-E","beads":[]}}""")
+        assertEquals("NAC-E", finish.round?.finishEpic)
+        assertFalse(finish.closed)
+        assertTrue(BridgeClient.json.decodeFromString<com.ryderdavid.nacre.data.model.EpicFinish>("""{"closed":true}""").closed)
+        assertEquals("epic/nac-mp6", com.ryderdavid.nacre.data.model.epicBranch("NAC-mp6"))
+        assertEquals("Finishing NAC-E: merging epic/nac-e into main", com.ryderdavid.nacre.ui.rounds.beadSummary(finish.round!!))
+    }
 }

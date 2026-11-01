@@ -468,6 +468,8 @@ data class Round(
     @SerialName("landed_commit") val landedCommit: String = "",
     val pushed: Boolean = false,
     @SerialName("auto_land") val autoLand: Boolean = false,
+    /** The epic whose branch this round merges into [target]; such a round has no beads. */
+    @SerialName("finish_epic") val finishEpic: String = "",
     val error: String = "",
     /** Set by the app: which paired computer runs this round. */
     @Transient val hostId: String = "",
@@ -616,7 +618,16 @@ data class StartRound(
     @SerialName("time_limit_minutes") val timeLimitMinutes: Int? = null,
     @SerialName("spec_change_id") val specChangeId: String? = null,
     @SerialName("spec_revision") val specRevision: String? = null,
+    /** Land as soon as the round is verified, without waiting for a tap. */
+    @SerialName("land_when_ready") val landWhenReady: Boolean? = null,
 )
+
+/** What finishing an epic did: a round that merges its branch, or nothing to merge and the epic closed. */
+@Serializable
+data class EpicFinish(val round: Round? = null, val closed: Boolean = false)
+
+/** The branch an epic's work lands on until the epic is finished. */
+fun epicBranch(epic: String) = "epic/" + epic.lowercase()
 
 const val ROUND_PLANNING = "planning"
 const val ROUND_NEEDS_DECISION = "needs_decision"

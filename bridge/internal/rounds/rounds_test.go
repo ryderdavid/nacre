@@ -274,6 +274,9 @@ type harnessOpts struct {
 	// requirements and develop feed the spec-drift check.
 	requirements func(string) (*api.RequirementIndex, error)
 	develop      func(context.Context, string, string, string) error
+	archive      func(context.Context, string, string, string) (string, error)
+	archived     func(string, string)
+	changeOf     func(string, string) string
 }
 
 func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) *harness {
@@ -306,11 +309,12 @@ func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) 
 	head := &fakeHeadless{plan: plan}
 	m, err = New(Options{
 		Dir: o.roundsDir, Runs: rm, Beads: beads, Headless: head, Gates: gates.NewRunner(2),
-		Workspaces:   &workspace.Manager{Root: o.wsRoot},
-		Repo:         func(string) (string, string, error) { return "test", repo, nil },
-		Logger:       log.New(io.Discard, "", 0),
-		Requirements: o.requirements,
-		Develop:      o.develop,
+		Workspaces:    &workspace.Manager{Root: o.wsRoot},
+		Repo:          func(string) (string, string, error) { return "test", repo, nil },
+		Logger:        log.New(io.Discard, "", 0),
+		Requirements:  o.requirements,
+		Develop:       o.develop,
+		ArchiveChange: o.archive, ChangeArchived: o.archived, ChangeOf: o.changeOf,
 	})
 	if err != nil {
 		t.Fatal(err)

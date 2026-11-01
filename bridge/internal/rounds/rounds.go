@@ -109,7 +109,11 @@ type Options struct {
 	// for an epic without one. ChangeArchived is told once that has landed.
 	ArchiveChange  func(ctx context.Context, repoPath, workspace, epic string) (string, error)
 	ChangeArchived func(repoPath, epic string)
-	Logger         *log.Logger
+	// ChangeOf names the not yet archived change an epic belongs to, or "".
+	// Such an epic is finished by a round even when its work is already on
+	// the landing target, so the archive lands there too.
+	ChangeOf func(repoPath, epic string) string
+	Logger   *log.Logger
 }
 
 // Errors returned to API callers.

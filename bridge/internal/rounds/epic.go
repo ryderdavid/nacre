@@ -118,7 +118,12 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 		return api.Round{}, false, conflict("Finish " + epic + "'s open beads first: " + strings.Join(open, ", "))
 	}
 	branch, target := EpicBranch(epic), cfg.Land.Target
-	if !gitx.BranchExists(ctx, path, branch) || gitx.IsAncestor(ctx, path, "refs/heads/"+branch, "refs/heads/"+target) {
+	change := ""
+	if m.opts.ChangeOf != nil {
+		change = m.opts.ChangeOf(path, epic)
+	}
+	merged := !gitx.BranchExists(ctx, path, branch) || gitx.IsAncestor(ctx, path, "refs/heads/"+branch, "refs/heads/"+target)
+	if merged && change == "" {
 		if err := m.opts.Beads.Close(ctx, path, epic, "Every bead is done and its work is already on "+target+"."); err != nil {
 			return api.Round{}, false, err
 		}
@@ -137,7 +142,12 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	}
 	m.mu.Unlock()
 	id := newID()
-	ws, err := m.opts.Workspaces.CreateIntegration(ctx, path, repoID, id, "refs/heads/"+branch)
+	// With nothing left on the branch, the round only archives the change.
+	from := "refs/heads/" + branch
+	if merged {
+		from = "refs/heads/" + target
+	}
+	ws, err := m.opts.Workspaces.CreateIntegration(ctx, path, repoID, id, from)
 	if err != nil {
 		return api.Round{}, false, fmt.Errorf("integration workspace: %w", err)
 	}
@@ -156,7 +166,14 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	r := m.newRound(meta, dir)
 	r.cfg = cfg
 	r.mu.Lock()
-	r.event("state", "", fmt.Sprintf("Finishing epic %s: merging %s into %s with every gate and the build", epic, branch, target))
+	what := fmt.Sprintf("merging %s into %s", branch, target)
+	if merged {
+		what = "its work is already on " + target
+	}
+	if change != "" {
+		what = "archiving " + change + "; " + what
+	}
+	r.event("state", "", fmt.Sprintf("Finishing epic %s: %s, with every gate and the build", epic, what))
 	r.saveLocked()
 	out := clone(r.meta)
 	r.mu.Unlock()
@@ -194,6 +211,9 @@ func (r *round) finishedEpic(ctx context.Context, meta api.Round, head string, p
 	r.m.repoChanged(meta.RepoID)
 	if r.m.opts.ChangeArchived != nil {
 		r.m.opts.ChangeArchived(meta.RepoPath, epic)
+	}
+	if !gitx.BranchExists(ctx, meta.RepoPath, branch) {
+		return notes
 	}
 	if err := gitx.DeleteBranch(ctx, meta.RepoPath, branch); err != nil {
 		notes = append(notes, "Removing "+branch+" failed: "+firstLine(err.Error()))
