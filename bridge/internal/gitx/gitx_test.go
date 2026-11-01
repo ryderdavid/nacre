@@ -38,6 +38,35 @@ func write(t *testing.T, dir, name, body string) {
 	}
 }
 
+func TestReleaseTagIsImmutableAndPushed(t *testing.T) {
+	repo := newRepo(t)
+	first, _ := RevParse(ctx, repo, "HEAD")
+	if err := Tag(ctx, repo, "v1.2.3", first, "release"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Tag(ctx, repo, "v1.2.3", first, "retry"); err != nil {
+		t.Fatalf("idempotent tag: %v", err)
+	}
+	write(t, repo, "a.txt", "two\n")
+	second, err := CommitAll(ctx, repo, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Tag(ctx, repo, "v1.2.3", second, "conflicting release"); err == nil {
+		t.Fatal("moved an existing release tag")
+	}
+	remote := t.TempDir()
+	if _, err := Run(ctx, remote, "init", "--bare", "-q"); err != nil {
+		t.Fatal(err)
+	}
+	if err := PushTag(ctx, repo, remote, "v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := RevParse(ctx, remote, "refs/tags/v1.2.3^{commit}"); err != nil || got != first {
+		t.Fatalf("remote tag = %q, %v, want %s", got, err, first)
+	}
+}
+
 func TestWorktreeMergeAndFastForward(t *testing.T) {
 	repo := newRepo(t)
 	base, _ := RevParse(ctx, repo, "main")

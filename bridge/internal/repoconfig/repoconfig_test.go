@@ -59,6 +59,11 @@ func TestParseFull(t *testing.T) {
 	if c.BumpCommand(true) != "scripts/bump-version.sh minor" || c.BumpCommand(false) != "scripts/bump-version.sh patch" {
 		t.Errorf("bump = %q / %q", c.BumpCommand(true), c.BumpCommand(false))
 	}
+	for bumped, want := range map[string]string{"0.5.1 (11) -> 0.6.0 (12)": "v0.6.0", "0.6.0": "v0.6.0", "0.6.0 -> ": "", "oops": "", "": "", "1.2.3 -> 1.2.4~x": ""} {
+		if got := c.TagName(bumped); got != want {
+			t.Errorf("TagName(%q) = %q, want %q", bumped, got, want)
+		}
+	}
 	if len(c.Resources) != 2 || c.Resources[0].Name != "emulator" || c.Resources[1].ID != "emulator-5554" {
 		t.Errorf("resources = %+v", c.Resources)
 	}
@@ -81,8 +86,25 @@ func TestDefaults(t *testing.T) {
 	if c.Limits != (Limits{GateTimeoutMinutes: 20, FixAttempts: 2}) {
 		t.Errorf("limits = %+v", c.Limits)
 	}
-	if c.Version.Bump != "" || c.BumpCommand(true) != "" {
+	if c.Version.Bump != "" || c.BumpCommand(true) != "" || c.TagName("0.1.0 -> 0.2.0") != "" {
 		t.Errorf("bump = %q", c.Version.Bump)
+	}
+}
+
+func TestTag(t *testing.T) {
+	for y, want := range map[string]string{
+		"version:\n  bump: b\n":                       "v{version}",
+		"version:\n  bump: b\n  tag: none\n":          "",
+		"version:\n  bump: b\n  tag: rel-{version}\n": "rel-{version}",
+		"": "",
+	} {
+		c, err := Parse([]byte("gates:\n  - name: t\n    run: a\n" + y))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Version.Tag != want {
+			t.Errorf("%q: tag = %q, want %q", y, c.Version.Tag, want)
+		}
 	}
 }
 
@@ -105,6 +127,8 @@ func TestErrorsNameTheProblemAndLine(t *testing.T) {
 		"bad timeout":        {"gates:\n  - name: t\n    run: a\nlimits:\n  gate_timeout_minutes: 0\n", 0, "more than 0"},
 		"bad target":         {"gates:\n  - name: t\n    run: a\nland:\n  target: --force\n", 0, "not a valid branch"},
 		"not yaml":           {"gates: [\n", 0, ""},
+		"tag without bump":   {"gates:\n  - name: t\n    run: a\nversion:\n  tag: v{version}\n", 0, "tag needs a bump"},
+		"tag no placeholder": {"gates:\n  - name: t\n    run: a\nversion:\n  bump: b\n  tag: release\n", 0, "must contain {version}"},
 		"regenerate no run":  {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: go.sum\n", 6, "run is required"},
 		"regenerate outside": {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: ../x\n      run: make\n", 6, "inside the repository"},
 		"regenerate field":   {"gates:\n  - name: t\n    run: a\nmerge:\n  regenerate:\n    - path: go.sum\n      run: make\n      when: always\n", 8, `unknown field "when"`},

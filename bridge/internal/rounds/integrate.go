@@ -625,6 +625,10 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 	if err := r.m.guardSpec(ctx, meta, ws); err != nil {
 		return r.specStop(err)
 	}
+	tag := cfg.TagName(version)
+	if cfg.Version.Tag != "" && tag == "" {
+		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The version bump didn't print a usable release version for tagging: " + version})
+	}
 	var artifacts []string
 	if rebuilt {
 		for _, step := range cfg.Build {
@@ -639,10 +643,19 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 	if err != nil {
 		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: fmt.Sprintf("Moving %s to %s failed: %v", meta.Target, short(head), err), Attempted: tries(n)})
 	}
+	if tag != "" {
+		if err := gitx.Tag(ctx, meta.RepoPath, tag, head, fmt.Sprintf("Round %s: %s", meta.ID, version)); err != nil {
+			return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved, but tagging release " + tag + " failed: " + err.Error()})
+		}
+	}
 	pushErr := ""
 	if cfg.Land.Push {
 		if _, err := retry(ctx, func() error { return gitx.Push(ctx, meta.RepoPath, "origin", meta.Target) }); err != nil {
 			pushErr = err.Error()
+		} else if tag != "" {
+			if _, err := retry(ctx, func() error { return gitx.PushTag(ctx, meta.RepoPath, "origin", tag) }); err != nil {
+				pushErr = "tag " + tag + ": " + err.Error()
+			}
 		}
 	}
 	dropped := r.dropCarried(ctx, meta)
@@ -663,6 +676,10 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			r.meta.Artifacts = artifacts
 		}
 		text := fmt.Sprintf("Landed: %s is at %s", meta.Target, short(head))
+		if tag != "" {
+			r.meta.Tag = tag
+			text += ", tagged " + tag
+		}
 		switch {
 		case !cfg.Land.Push:
 		case pushErr == "":

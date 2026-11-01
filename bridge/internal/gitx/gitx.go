@@ -376,6 +376,25 @@ func Push(ctx context.Context, repo, remote, branch string) error {
 	return err
 }
 
+// Tag puts the annotated tag name on sha. A tag of that name already on sha
+// is fine; one on another commit is an error.
+func Tag(ctx context.Context, repo, name, sha, message string) error {
+	if have, err := RevParse(ctx, repo, "refs/tags/"+name+"^{commit}"); err == nil {
+		if have == sha {
+			return nil
+		}
+		return fmt.Errorf("tag %s is already on %s", name, have)
+	}
+	_, err := Run(ctx, repo, "tag", "-a", "-m", message, name, sha)
+	return err
+}
+
+// PushTag pushes tag name to remote.
+func PushTag(ctx context.Context, repo, remote, name string) error {
+	_, err := Run(ctx, repo, "push", remote, "refs/tags/"+name)
+	return err
+}
+
 func lastLines(s string, n int) string {
 	lines := strings.Split(s, "\n")
 	if len(lines) > n {

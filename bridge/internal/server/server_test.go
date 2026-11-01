@@ -22,6 +22,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/sessions"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
+	"github.com/ryderdavid/nacre/bridge/internal/version"
 )
 
 func TestCheckToken(t *testing.T) {
@@ -110,6 +111,19 @@ func TestAuthMiddleware(t *testing.T) {
 		resp, body = do(t, "GET", ts.URL+path, "tok")
 		if resp.StatusCode != 404 || body["error"] == nil {
 			t.Fatalf("%s: %d %v", path, resp.StatusCode, body)
+		}
+	}
+}
+
+func TestBuildProvenance(t *testing.T) {
+	oldVersion, oldCommit := version.Version, version.Commit
+	version.Version, version.Commit = "0.9.0-2-gabc1234-dirty", strings.Repeat("a", 40)
+	t.Cleanup(func() { version.Version, version.Commit = oldVersion, oldCommit })
+	ts := newTestServer(t)
+	for path, token := range map[string]string{"/v1/ping": "", "/v1/health": "tok"} {
+		resp, body := do(t, "GET", ts.URL+path, token)
+		if resp.StatusCode != 200 || body["version"] != version.Version || body["commit"] != version.Commit {
+			t.Errorf("%s: %d %v", path, resp.StatusCode, body)
 		}
 	}
 }

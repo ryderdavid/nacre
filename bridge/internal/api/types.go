@@ -469,8 +469,9 @@ type Round struct {
 	Version     string   `json:"version,omitempty"`
 	Artifacts   []string `json:"artifacts,omitempty"`
 	// LandedCommit is what the target was moved to; Pushed says whether it
-	// was pushed.
+	// was pushed. Tag is the release tag put on it (nacre.yaml version.tag).
 	LandedCommit string `json:"landed_commit,omitempty"`
+	Tag          string `json:"tag,omitempty"`
 	Pushed       bool   `json:"pushed,omitempty"`
 	AutoLand     bool   `json:"auto_land,omitempty"`
 	Error        string `json:"error,omitempty"`

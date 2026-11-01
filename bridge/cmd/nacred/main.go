@@ -73,7 +73,7 @@ func main() {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"name": version.Name, "version": version.Version, "commit": version.Commit, "update_protocol": 1})
 			return
 		}
-		fmt.Println(version.Name, version.Version)
+		fmt.Println(version.Name, version.Version, version.Commit)
 		return
 	}
 	cfg, err := config.Load(*configPath)
@@ -274,7 +274,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	if err != nil {
 		return err
 	}
-	logger.Printf("%s %s listening on http://%s (config %s, bd %s, claude %s)", version.Name, version.Version, addr, cfg.Path(), cfg.BdPath, cfg.ClaudePath)
+	logger.Printf("%s %s (%s) listening on http://%s (config %s, bd %s, claude %s)", version.Name, version.Version, version.Commit, addr, cfg.Path(), cfg.BdPath, cfg.ClaudePath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -7,7 +7,7 @@ transcript over SSE. The HTTP contract is in [`../docs/API.md`](../docs/API.md).
 ## Build, test, run
 
 ```sh
-make build            # bin/nacred
+make build            # bin/nacred, versioned from git (see below)
 make test             # go vet + go test
 ./bin/nacred serve    # or just ./bin/nacred
 ./bin/nacred pair     # QR code + URL/token for the app
@@ -27,6 +27,14 @@ and merges them, and finishes on one commit that passes the gates and builds. `n
 `gc` (remove worktrees of finished rounds) manage rounds. A Claude Code session asked to finish several
 beads should start a round rather than do them inline.
 Flags: `--config <path>` (default `~/.config/nacred/config.json`), `--listen host:port`.
+
+The version comes from git at build time, never from the source: `make build` passes
+`git describe --tags --dirty` (without the `v`) and the commit through `-ldflags -X`. A build of a
+release tag reports the tag (`0.6.0`); later commits report how far past it they are
+(`0.6.0-3-gabc1234`), and uncommitted changes add `-dirty`. A plain `go build` reports `dev`. Rounds
+tag each landed release (`v<version>` by default; `version.tag` in `nacre.yaml`), so upgrading with `make install` after a
+round lands changes the version that `nacred version`, `/v1/ping` and `/v1/health` report, along with
+the commit.
 
 `make install` (or `nacred install`) copies the binary to `~/.local/bin/nacred`, writes
 `~/Library/LaunchAgents/com.ryderdavid.nacred.plist` (RunAtLoad + KeepAlive, PATH with

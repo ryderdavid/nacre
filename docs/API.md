@@ -55,6 +55,9 @@ build:                 # run at the end of a round
 env: {JAVA_HOME: /path}  # added to every gate and build command; "~/" means home
 version:
   bump: scripts/bump-version.sh {level}   # {level} is patch or minor
+  tag: v{version}      # default when bump is set; "none" turns it off. The landed commit is
+                       # tagged (and pushed with it); {version} is the first word after the
+                       # bump output's last "->", e.g. 0.6.0
 resources: [emulator]  # or {name, id}; exclusive, one run at a time
 land: {target: main, auto: false, push: true}       # defaults shown
 limits: {gate_timeout_minutes: 20, fix_attempts: 2} # defaults shown
@@ -219,8 +222,8 @@ still a 409).
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.1.0","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `active_runs` excludes adopted runs; `features` has `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
+| GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.6.0","commit":"<sha>","host_id":"h_…","host_name":"Mac-Studio"}` |
+| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -611,7 +614,7 @@ on the computer that has the repository, without any client connected.
   "run_ids": ["r_…"],               // every run the round started
   "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
   "final_commit": "", "version": "0.3.3 -> 0.4.0", "artifacts": ["…/rounds/<id>/artifacts/app-release.apk"],
-  "landed_commit": "", "pushed": false, "auto_land": false, "error": ""
+  "landed_commit": "", "tag": "v0.4.0", "pushed": false, "auto_land": false, "error": ""
 }
 ```
 Finding kinds: `contradiction` and `ambiguity` (asked as questions), `overlap` and `ordering` (become

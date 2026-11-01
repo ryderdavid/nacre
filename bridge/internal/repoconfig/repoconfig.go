@@ -33,6 +33,13 @@ const (
 // LevelPlaceholder is replaced in Version.Bump by "patch" or "minor".
 const LevelPlaceholder = "{level}"
 
+// VersionPlaceholder is replaced in Version.Tag by the version the bump made.
+const VersionPlaceholder = "{version}"
+
+// DefaultTag is the release tag when a bump is set and version.tag isn't;
+// "none" turns tagging off.
+const DefaultTag = "v" + VersionPlaceholder
+
 // Config is a parsed and validated nacre.yaml.
 type Config struct {
 	// Gates must all exit 0 for work to count as done.
@@ -89,11 +96,16 @@ type Step struct {
 	Line int
 }
 
-// Version holds the version bump command.
+// Version holds the version bump command and the release tag.
 type Version struct {
 	// Bump is run on the integration branch once per round. LevelPlaceholder
 	// in it becomes "patch" or "minor".
 	Bump string
+	// Tag names the tag put on the landed commit, with VersionPlaceholder
+	// replaced by the version the bump made, so builds can take their version
+	// from `git describe --tags`. It is DefaultTag when there is a bump, and
+	// "" when tagging is off.
+	Tag string
 }
 
 // Resource is an exclusive resource such as an emulator.
@@ -160,6 +172,7 @@ type file struct {
 	Env     map[string]string `yaml:"env"`
 	Version struct {
 		Bump string `yaml:"bump"`
+		Tag  string `yaml:"tag"`
 	} `yaml:"version"`
 	Resources []yaml.Node `yaml:"resources"`
 	Land      struct {
@@ -177,9 +190,10 @@ type file struct {
 }
 
 var (
-	envName      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	resourceName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	yamlLine     = regexp.MustCompile(`^yaml: (?:unmarshal errors:\n\s*)?line (\d+): (.*)$`)
+	envName        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	releaseVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+-]*$`)
+	resourceName   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	yamlLine       = regexp.MustCompile(`^yaml: (?:unmarshal errors:\n\s*)?line (\d+): (.*)$`)
 )
 
 // Parse validates the contents of a nacre.yaml.
@@ -191,7 +205,21 @@ func Parse(b []byte) (*Config, error) {
 		return nil, yamlError(err)
 	}
 
-	c := &Config{Env: f.Env, Version: Version{Bump: strings.TrimSpace(f.Version.Bump)}}
+	c := &Config{Env: f.Env, Version: Version{Bump: strings.TrimSpace(f.Version.Bump), Tag: strings.TrimSpace(f.Version.Tag)}}
+	switch {
+	case c.Version.Tag == "none":
+		c.Version.Tag = ""
+	case c.Version.Tag == "" && c.Version.Bump != "":
+		c.Version.Tag = DefaultTag
+	}
+	if t := c.Version.Tag; t != "" {
+		if c.Version.Bump == "" {
+			return nil, &Error{Msg: "version: tag needs a bump: the tag is named after the version the bump makes"}
+		}
+		if !strings.Contains(t, VersionPlaceholder) || !releaseVersion.MatchString(strings.ReplaceAll(t, VersionPlaceholder, "1.0.0")) {
+			return nil, &Error{Msg: fmt.Sprintf("version: tag %q must contain %s and otherwise only letters, digits, '.', '-', '_' or '/'", t, VersionPlaceholder)}
+		}
+	}
 	seen := map[string]int{}
 	var err error
 	if c.Gates, err = steps("gate", f.Gates, false, seen); err != nil {
@@ -395,6 +423,24 @@ func (c *Config) BumpCommand(minor bool) string {
 		level = "minor"
 	}
 	return strings.ReplaceAll(c.Version.Bump, LevelPlaceholder, level)
+}
+
+// TagName is the release tag for a bump whose output ends in bumped, such as
+// "0.5.1 (11) -> 0.6.0 (12)" or just "0.6.0": the first word after the last
+// "->", or of the line. It is "" when no tag is configured or the bump didn't
+// print a usable version.
+func (c *Config) TagName(bumped string) string {
+	if c.Version.Tag == "" {
+		return ""
+	}
+	if i := strings.LastIndex(bumped, "->"); i >= 0 {
+		bumped = bumped[i+2:]
+	}
+	f := strings.Fields(bumped)
+	if len(f) == 0 || f[0][0] < '0' || f[0][0] > '9' || !releaseVersion.MatchString(f[0]) || strings.Contains(f[0], "..") {
+		return ""
+	}
+	return strings.ReplaceAll(c.Version.Tag, VersionPlaceholder, f[0])
 }
 
 // GateNames lists the gates in order.

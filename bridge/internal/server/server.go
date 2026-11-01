@@ -277,7 +277,7 @@ func (s *Server) changed(repoID string) {
 
 func (s *Server) ping(w http.ResponseWriter, r *http.Request) {
 	h := s.Config.Host()
-	writeJSON(w, http.StatusOK, map[string]string{"name": version.Name, "version": version.Version, "host_id": h.ID, "host_name": h.Name})
+	writeJSON(w, http.StatusOK, map[string]string{"name": version.Name, "version": version.Version, "commit": version.Commit, "host_id": h.ID, "host_name": h.Name})
 }
 
 func (s *Server) versions(ctx context.Context) (string, string) {

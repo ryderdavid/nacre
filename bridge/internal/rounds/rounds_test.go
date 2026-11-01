@@ -439,6 +439,9 @@ func TestRoundEndToEnd(t *testing.T) {
 	if main, _ := gitx.RevParse(ctx, h.repo, "main"); main != landed.LandedCommit {
 		t.Errorf("main %s, landed %s", main, landed.LandedCommit)
 	}
+	if tagged, _ := gitx.RevParse(ctx, h.repo, "refs/tags/v0.2.0^{commit}"); landed.Tag != "v0.2.0" || tagged != landed.LandedCommit {
+		t.Errorf("tag %q on %s, want v0.2.0 on %s", landed.Tag, tagged, landed.LandedCommit)
+	}
 	if _, err := os.Stat(filepath.Join(h.repo, "c.txt")); err != nil {
 		t.Error("main checkout lacks the round's work")
 	}
@@ -626,6 +629,43 @@ func TestLandRedoesTheBumpOnAMovedTarget(t *testing.T) {
 	}
 	if log, _ := gitx.Run(ctx, h.repo, "log", "-1", "--format=%s", "main"); !strings.Contains(log, "on top of main") {
 		t.Errorf("last commit on main = %q, want the redone bump", log)
+	}
+	// The release is tagged with the redone version, on the landed commit.
+	if landed.Tag != "v0.3.0" {
+		t.Errorf("round tag = %q, want v0.3.0", landed.Tag)
+	}
+	if d, err := gitx.Run(ctx, h.repo, "describe", "--tags", "main"); err != nil || strings.TrimSpace(d) != "v0.3.0" {
+		t.Errorf("git describe main = %q, %v; want v0.3.0", d, err)
+	}
+}
+
+func TestLandPausesOnReleaseTagCollision(t *testing.T) {
+	h := newHarness(t, newFakeBeads(&fakeBead{ID: "T-F", Title: "Add f", Type: "feature"}), `{"summary":"","beads":[],"findings":[]}`)
+	ctx := context.Background()
+	base, err := gitx.RevParse(ctx, h.repo, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.Tag(ctx, h.repo, "v0.2.0", base, "existing release"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := h.wait(t, r.ID, api.RoundReadyToLand)
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	paused := h.wait(t, r.ID, api.RoundPaused)
+	if !strings.Contains(paused.PauseReason, "tagging release v0.2.0 failed") {
+		t.Fatalf("pause reason = %q", paused.PauseReason)
+	}
+	if tagged, _ := gitx.RevParse(ctx, h.repo, "refs/tags/v0.2.0^{commit}"); tagged != base {
+		t.Fatal("existing release tag was moved")
+	}
+	if _, err := os.Stat(ready.Workspace); err != nil {
+		t.Fatalf("workspace must be preserved for recovery: %v", err)
 	}
 }
 
