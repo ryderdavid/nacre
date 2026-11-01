@@ -32,6 +32,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -105,19 +107,28 @@ fun ChatFab(
                 ) {
                     // Lazy list keys must be Bundle-saveable on Android.
                     items(slots, key = { it.context.toString() }) { slot ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalButton(onClick = { open(slot.context) }, modifier = Modifier.weight(1f)) {
-                                Icon(if (slot.isNew) Icons.Rounded.Add else AiIcon, null, Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    if (slot.isNew) "New · ${slot.label}" else slot.label,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            if (!slot.isNew) IconButton(onClick = { stack.dismiss(slot.context) }) {
-                                Icon(Icons.Rounded.Close, "Dismiss chat: ${slot.label}")
+                        val row = @Composable {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                FilledTonalButton(onClick = { open(slot.context) }, modifier = Modifier.weight(1f)) {
+                                    Icon(if (slot.isNew) Icons.Rounded.Add else AiIcon, null, Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (slot.isNew) "New · ${slot.label}" else slot.label,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                if (!slot.isNew) IconButton(onClick = { stack.dismiss(slot.context) }) {
+                                    Icon(Icons.Rounded.Close, "Dismiss chat: ${slot.label}")
+                                }
                             }
                         }
+                        // Active chats swipe away sideways, like dismissing a bubble; New stays put.
+                        if (slot.isNew) row() else SwipeToDismissBox(
+                            state = rememberSwipeToDismissBoxState(),
+                            backgroundContent = {},
+                            onDismiss = { stack.dismiss(slot.context) },
+                            modifier = Modifier.animateItem(),
+                        ) { row() }
                     }
                 }
             }
