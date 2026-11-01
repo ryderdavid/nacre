@@ -20,7 +20,18 @@ The board assistant SHALL offer a `develop_proposal` write tool for an existing 
 - **THEN** the assistant does not offer `develop_proposal`
 
 ### Requirement: Preflight reports spec drift
-Round preflight SHALL compare each ordinary round bead with an index of accepted and active requirements and SHALL report a `spec-drift` finding when a bead would change behavior a cited requirement specifies. A finding without a citation present in the index SHALL be discarded. Each finding SHALL become a question, holding the round like any preflight question, with the answers amend the spec first, proceed as an exception, or leave it out of the round. Spec section beads SHALL be exempt, and repositories without a valid OpenSpec setup SHALL skip the check.
+Round preflight SHALL compare each ordinary round bead with an index of accepted and active requirements and SHALL report a `spec-drift` finding when a bead would change behavior a cited requirement specifies. A finding without a citation present in the index SHALL be discarded. Spec section beads and found beads SHALL be exempt, and repositories without a valid OpenSpec setup SHALL skip the check.
+
+#### Scenario: No OpenSpec in the repository
+- **WHEN** a round runs in a repository without a valid OpenSpec setup
+- **THEN** preflight raises no spec-drift findings and behaves as it does today
+
+#### Scenario: Oversized index
+- **WHEN** the requirement index exceeds the preflight budget
+- **THEN** preflight truncates whole capabilities and the plan states which were not checked
+
+### Requirement: Spec drift holds the round for a decision
+Each spec-drift finding SHALL become a question that holds the round like any preflight question, with the answers amend the spec first, proceed as an exception, or leave it out of the round.
 
 #### Scenario: Bead contradicts a requirement
 - **WHEN** a round bead wants Enter to send and a requirement says Enter inserts a newline
@@ -38,17 +49,9 @@ Round preflight SHALL compare each ordinary round bead with an index of accepted
 - **WHEN** Ryder answers amend the spec first and development is refused
 - **THEN** the question reopens with the reason and the bead stays in the round
 
-#### Scenario: No OpenSpec in the repository
-- **WHEN** a round runs in a repository without a valid OpenSpec setup
-- **THEN** preflight raises no spec-drift findings and behaves as it does today
-
 #### Scenario: Proceed as an exception
 - **WHEN** Ryder answers proceed as an exception
 - **THEN** the decision is posted on the bead, the bead gains a `spec-touch:` label, and the bead is still treated as ordinary work by run and round guards
-
-#### Scenario: Oversized index
-- **WHEN** the requirement index exceeds the preflight budget
-- **THEN** preflight truncates whole capabilities and the plan states which were not checked
 
 ### Requirement: Board cards show spec state and evidence
 Bead cards SHALL show at most one spec chip, in the first label position: the change phase on seeds and epics, the section and its evidence (none, in round, verified, landed) on section beads, "closed, not verified" on spec-linked closed beads without verified evidence, and "Touches a spec" on beads with a `spec-touch:` label. Epics SHALL show a section strip. Cards without spec state SHALL be unchanged.
@@ -80,7 +83,7 @@ When a ready or awaiting-approval change no longer matches its approved context,
 - **THEN** the sheet explains the stale reason instead of failing with a conflict
 
 ### Requirement: Ready to archive is visible
-When every current section of the approved revision has landed evidence with matching provenance and no section bead is reopened or awaiting a human check, the app SHALL report the change as ready to archive and SHALL open the change's list of remaining obligations. It SHALL NOT archive or close the epic itself.
+When every current section of the approved revision has landed evidence with matching provenance, no section bead is reopened or awaiting a human check, and no found bead under the epic is open, the app SHALL report the change as ready to archive and SHALL open the change's list of remaining obligations. It SHALL NOT archive or close the epic itself.
 
 #### Scenario: All sections landed
 - **WHEN** the last section's round lands

@@ -49,3 +49,55 @@ with no baseline; caching the attention list; "was left out" wording for skipped
 
 - Phone archive is deferred out of this change (author's scoping after pass 2; Ryder may override).
 - Whether `start_round` should also always ask under auto-apply is left to Ryder; unchanged here.
+
+# Amendment review (2026-11-01, NAC-mp6.7.1)
+
+Reviewer: a fresh adversarial reviewer agent per pass, with read access to the repository, given the
+amended change, the project context, `spec-guided-beads` and the source, not the author's reasoning.
+Three passes. The amendment adds New effort intake, the Proposals lane, Found something and the frozen
+plan (design §8–§11, `effort-intake`).
+
+## Disposition
+
+Pass 1 found 1 blocking and 6 major findings; pass 2, 1 blocking and 3 major; pass 3, 1 major and minor
+items. All were resolved in the text below. Pass 3's fixes were not re-reviewed by a fourth pass.
+This reviews the design against the source; it does not verify an implementation.
+
+## Pass 1 (revise)
+
+| Finding | Resolution |
+|---|---|
+| A1 blocking: "changes what done means" revised a promoted change, silently reopening landed sections and refusing section work until re-approval | Never revises automatically; a found bead and Needs you item state how many landed sections would reopen and offer Revise now or a follow-on change |
+| A2 amendment seeds couldn't enter Proposals (the record already has an epic) | Membership by `seed_ids` (including aliases) and pre-promotion phase; the epic stays in its lane |
+| A3 an amend of a change with active work fails late, after a paid author call | `target_active` from intake; Create and develop disabled with "develop later" |
+| A4 nothing persisted suppressed answered `Found:` comments | `[nacre-found:<comment-id>]` reply comment is the persisted marker |
+| A5 deferred revise lost found-bead ids; several notes vs the feedback cap | Revise now through the found endpoint with `found_beads`, notes joined under the cap |
+| A6 `--no-inherit-labels` only on the found path | `bd.CreateParams.NoInheritLabels` on every nacred create under a spec epic |
+| A7 changing `laneOf` affected other callers | New `workflowLane`; each caller's behavior named |
+| A8–A15 minor (structured intake field, ordering before a section, `found_in` from a round, label key, docs and assistant tasks, scope wording, summary cap, mockup and tile details) | Fixed |
+
+## Pass 2 (revise)
+
+| Finding | Resolution |
+|---|---|
+| N1 blocking: found endpoint had no `comment_id` or dismiss, so markers couldn't be posted | `comment_id` on every answer; `dismiss` answer |
+| N2 found-amend beads could run; spec drift flagged found beads against their own change | Guards refuse `found-amend`; spec drift skips `found:` beads |
+| N3 alias seeds never close and return to Proposals | Closed with a comment after their revision is approved and synchronized |
+| N4 no pending state after Revise now | Items suppressed while the pending revise lists the bead; "in revision" shown |
+| N5–N9 minor (related/follow-on plumbing, conditional discovered-from, lane availability, missing scenarios, parked beads' comments) | Fixed |
+
+## Pass 3 (revise)
+
+| Finding | Resolution |
+|---|---|
+| P1 major: Needs you options couldn't open a prefilled sheet, which out-of-scope, follow-on and how/order need | Two `open` sheet targets (`found_something`, `new_effort`) with prefill |
+| P2–P8 minor (promotion's own creates excluded from the found rule, untracked hand-written changes and `target_active`, marker timing on cancel, covered card Close, code names, found_work ordering, scenario placement and app tasks) | Fixed |
+| Placement: spec-drift skip and leave-out wording belong under `round-preflight` | Moved in Modified Capabilities |
+
+## Owner decisions (2026-11-01)
+
+- Amend this change, not `spec-guided-beads` (implemented) or a new change.
+- Intake may answer "just a bead".
+- Add the Proposals lane.
+- `tasks.md` is the plan beads are made from, frozen at approval; borrow beads-plan, Turma and
+  boardthatpowder ideas rather than installing them; the archive-time `tasks.md` write goes to NAC-mp6.8.

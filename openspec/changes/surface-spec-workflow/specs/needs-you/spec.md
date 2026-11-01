@@ -1,25 +1,29 @@
 ## ADDED Requirements
 
 ### Requirement: One list of what waits on the owner
-nacred SHALL report, for every repository on its computer, each item waiting on Ryder: open beads labelled `human` or typed `decision`, proposals awaiting approval, blocking review findings, stale approvals, interrupted workflows, round questions, parked beads, rounds ready to land and changes ready to archive. Items SHALL be derived from current state, carry a stable id, and disappear when the state no longer waits on him.
+nacred SHALL report, for every repository on its computer, each item waiting on Ryder: open beads labelled `human` or typed `decision`, proposals awaiting approval, blocking review findings, stale approvals, interrupted workflows, round questions, parked beads, rounds ready to land, changes ready to archive, and discovered work awaiting triage. Items SHALL be derived from current state, carry a stable id, and disappear when the state no longer waits on him.
 
 #### Scenario: Question answered elsewhere
 - **WHEN** Ryder answers a round question from the round view
 - **THEN** that item is gone from Needs you on the next refresh
+
+#### Scenario: Discovered work
+- **WHEN** an agent in a spec round leaves a `Found:` comment and its bead finishes
+- **THEN** Needs you shows the note with the three found-work answers and Dismiss
 
 #### Scenario: Two computers
 - **WHEN** two paired computers report items
 - **THEN** the app shows each item once, with its repository and computer
 
 ### Requirement: Items explain themselves
-Every item SHALL include a title, a plain one- or two-sentence reason that stands on its own, its source reference when one exists, and its options, each either an exact API action or a navigation to the bead, change or round.
+Every item SHALL include a title, a plain one- or two-sentence reason that stands on its own, its source reference when one exists, and its options, each either an exact API action, a navigation to the bead, change or round, or a prefilled sheet for answering found work.
 
 #### Scenario: Unfamiliar question
 - **WHEN** a round asks a question about a bead Ryder hasn't looked at recently
 - **THEN** the item states the bead, what is being asked and why, and offers the answers without opening the transcript
 
 ### Requirement: Needs you on the Boards screen
-The Boards screen SHALL show Needs you above the board summary whenever there are items, ordered questions and decisions first, then approvals, then landing and archive, showing at most five before Show all. Answering inline SHALL call the item's action and refresh. The section SHALL be hidden when empty or when no computer supports it. Boards SHALL carry its own badge with the item count; the Runs badge SHALL keep its current meaning.
+The Boards screen SHALL show Needs you above the board summary whenever there are items, ordered questions, decisions and discovered work first, then approvals, then landing and archive, showing at most five before Show all. Answering inline SHALL call the item's action and refresh. The section SHALL be hidden when empty or when no computer supports it. Boards SHALL carry its own badge with the item count; the Runs badge SHALL keep its current meaning.
 
 #### Scenario: Approve from the list
 - **WHEN** Ryder taps Review and approve on a proposal item

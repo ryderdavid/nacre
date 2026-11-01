@@ -38,8 +38,39 @@
 - [ ] 5.5 Stale reason in change detail and on the card — `cd android && ./gradlew -q testDebugUnitTest`
 - [ ] 5.6 Change notifications and watching while proposals are being worked — `cd android && ./gradlew -q testDebugUnitTest`
 
-<!-- nacre-section: ssw-verify -->
-## 6. Verification
+<!-- nacre-section: ssw-intake -->
+## 6. New effort intake
 
-- [ ] 6.1 Cover and unfolded screens on the Fold: inbox, chips, epic detail — `nacred gates --build`, then a device walkthrough recorded on the bead
-- [ ] 6.2 One real cycle: the assistant proposes, Ryder approves, a round lands, and Needs you reports the change ready to archive — `nacred gates`, then `openspec validate --all --strict` on the landed target, with run and round ids recorded on the beads
+- [ ] 6.1 `POST /v1/repos/{repo}/intake`: bounded read-only Headless call over the requirement index and active changes' Why, $0.50 and 90 s caps, citation checks, fallback to new, and `target_active` from `Active()`; the endpoint documented in docs/API.md — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [ ] 6.2 Optional `intake {verdict, change_name}` on `develop`, stored on the record; history entry when the author's route differs; both documented in docs/API.md — `cd bridge && go vet ./... && go test ./internal/specflow ./internal/server`
+- [ ] 6.3 New effort mode in `NewBeadSheet`: Continue, verdict card with overrides, spending label, disabled amend while work is active with "develop later", `target_tracked` note, sending `related`, `follow_on_of` and `found_comment` when opened from found work, refusal and failure states; New bead unchanged without OpenSpec or on older bridges — `cd android && ./gradlew -q testDebugUnitTest`
+
+<!-- nacre-section: ssw-lane -->
+## 7. Proposals lane
+
+- [ ] 7.1 Changes summary orders pre-promotion changes first within its cap; `workflowLane(issue, changes)` from `seed_ids` and phase, used only by Workflow `columns` and `stats`; lane ordering; "Showing 50 of n" — `cd bridge && go test ./internal/specflow ./internal/server` and `cd android && ./gradlew -q testDebugUnitTest`
+- [ ] 7.2 `StartRoundSheet` excludes Proposals and `found-amend` beads; assistant board tools report lane key `proposed`; scroll-to-selected, the bead detail lane label and `NacreColors.lane()` handle Proposals — `cd android && ./gradlew -q testDebugUnitTest`
+- [ ] 7.3 Not a drop target (`moveActionFor` returns none for `proposed`), cards don't drag, explicit `initialPage` on Ready, Proposals tile only when non-zero, covered cards offer Close, empty-lane hint — `cd android && ./gradlew -q testDebugUnitTest assembleDebug`
+- [ ] 7.4 Close alias seeds after their revision is approved and synchronized (`Close` on specflow's Beads interface); `seed_ids` includes aliases — `cd bridge && go test -race ./internal/specflow`
+
+<!-- nacre-section: ssw-found -->
+## 8. Found something
+
+- [ ] 8.1 `bd.CreateParams.NoInheritLabels`; every create through `POST …/issues` or the found endpoint whose parent is a spec epic uses it (promotion's section creates excluded) and adds `found:<change-id>`; guard test that such a bead runs as ordinary work; guards refuse `found-amend` beads; preflight spec drift skips `found:` beads — `cd bridge && go test -race ./internal/bd ./internal/server ./internal/rounds`
+- [ ] 8.2 `POST /v1/repos/{repo}/changes/{change}/found`: how/order (with optional `blocks` before a section), amend (found bead + `found-amend` + item), out of scope (prefill only), dismiss, optional `comment_id` on every answer, `discovered-from` when found in a bead; New effort create gains `related` and `follow_on_of` — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [ ] 8.3 Revise now: joins found notes under the feedback cap, records bead ids on the revise action, suppresses their items while pending, closes them after approval and synchronization; item states reopened-section count; disabled while work is active; follow-on closes the found bead with a link — `cd bridge && go test -race ./internal/specflow`
+- [ ] 8.4 Spec round prompt's stay-in-section rule; `Found:` comments on beads in any end state without a `[nacre-found:<id>]` reply become `found_work` items; answers and Dismiss post the marker — `cd bridge && go test -race ./internal/rounds ./internal/server`
+- [ ] 8.5 Found endpoint, `found_work` kind, `found:`/`found-amend` labels, the create fields and the extra archive condition in docs/API.md — `cd bridge && go test ./internal/server`, then the doc checked against those tests
+- [ ] 8.6 Found something sheet on spec epics, section and found beads and spec rounds (round-bead picker), "Must happen before" picker; `found_something` assistant tool; `found_work` items in Needs you: Answer opens the sheet, Revise now with its disabled reason and "in revision" state, Follow-on opens New effort; the two sheet `open` targets — `cd android && ./gradlew -q testDebugUnitTest`
+
+<!-- nacre-section: ssw-plan -->
+## 9. Plan and progress
+
+- [ ] 9.1 Archive readiness waits for open `found:` beads; `tasks.md`-edited stale reason — `cd bridge && go test -race ./internal/specflow`
+- [ ] 9.2 Change detail Work section and epic header: sections in plan order with bead status and evidence, "needs a new round" after a revision, "Added during work" group, checkboxes labelled Plan — `cd android && ./gradlew -q testDebugUnitTest`
+
+<!-- nacre-section: ssw-verify -->
+## 10. Verification
+
+- [ ] 10.1 Cover and unfolded screens on the Fold: inbox, chips, epic detail, New effort, Proposals lane, Found something — `nacred gates --build`, then a device walkthrough recorded on the bead
+- [ ] 10.2 One real cycle: a New effort routed to a change (or the assistant proposes one), Ryder approves, a round lands, and Needs you reports the change ready to archive — `nacred gates`, then `openspec validate --all --strict` on the landed target, with run and round ids recorded on the beads

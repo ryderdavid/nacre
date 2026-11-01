@@ -16,3 +16,10 @@ Where a mockup and the specs disagree, the specs win.
 | [4](4-assistant-create-and-develop.png) ([html](4-assistant-create-and-develop.html)) | One approval card for `create_bead` with `then_develop`, $5 limit, asks under auto-apply | spec-surfacing: Assistant proposes developing a proposal |
 | [5](5-preflight-spec-drift.png) ([html](5-preflight-spec-drift.html)) | Spec-drift question holding the round, three fixed answers, citation | spec-surfacing: Preflight reports spec drift |
 | [6](6-needs-you-stale-and-archive.png) ([html](6-needs-you-stale-and-archive.html)) | Stale approval naming its cause; ready to archive with the remaining CLI steps | spec-surfacing: Stale approvals name their cause; Ready to archive is visible |
+| [7](7-new-effort-intake.png) ([html](7-new-effort-intake.html)) | New effort sheet after intake: verdict, rationale, citation, override, spending button | effort-intake: New effort runs intake; Intake verdicts cite their basis; Ryder confirms or overrides the verdict |
+| [8](8-proposals-lane.png) ([html](8-proposals-lane.html)) | Proposals lane on the folded board: phases, waiting-on-Ryder first, covered, New effort button | effort-intake: Proposals lane; Proposals are not moved by dragging |
+| [9](9-found-something.png) ([html](9-found-something.html)) | Found something on a section bead with the three answers | effort-intake: Found something; Discovered work that changes done waits for a decision to revise |
+| [10](10-plan-and-progress.png) ([html](10-plan-and-progress.html)) | Change detail: approved sections with progress from beads, work added along the way, the frozen plan | effort-intake: Progress is shown from beads; The plan is frozen at approval |
+
+Screens 7–10 were added by the 2026-11-01 amendment (NAC-mp6.7.1) and rendered with headless Chrome
+from their HTML.
