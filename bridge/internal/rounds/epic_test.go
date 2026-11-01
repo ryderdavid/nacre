@@ -139,6 +139,7 @@ func TestFinishingAChangeEpicArchivesEvenWithItsWorkOnMain(t *testing.T) {
 		},
 		archived: func(_, epic string) { marked = epic },
 	})
+	activeChange(t, h.repo, "drafts")
 	fin, closed, err := h.m.FinishEpic("repo", "T-E")
 	if err != nil || closed {
 		t.Fatalf("finish: closed=%v err=%v", closed, err)
@@ -198,6 +199,7 @@ func TestFinishingThatFailsBeforeLandingLeavesMainAndTheEpic(t *testing.T) {
 			return "", errors.New("openspec archive drafts failed: validation")
 		},
 	})
+	activeChange(t, h.repo, "drafts")
 	before, _ := gitx.RevParse(ctx, h.repo, "main")
 	fin, _, err := h.m.FinishEpic("repo", "T-E")
 	if err != nil {
@@ -274,5 +276,40 @@ func TestAFailedCloseIsRecordedOnTheRound(t *testing.T) {
 	}
 	if beads.bead("T-F").Status == "closed" {
 		t.Fatal("the fake closed a bead it was told to refuse")
+	}
+}
+
+// A retried Finish after the archive already landed ends the change and closes
+// the epic without another round.
+func TestRetriedFinishAfterTheArchiveLandedJustCloses(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-E", Title: "Drafts", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-G", Title: "Done", Type: "task", Parent: "T-E", Status: "closed"},
+	)
+	marked := ""
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{
+		changeOf: func(string, string) string { return "drafts" },
+		archived: func(_, epic string) { marked = epic },
+	})
+	if _, closed, err := h.m.FinishEpic("repo", "T-E"); err != nil || !closed {
+		t.Fatalf("closed=%v err=%v", closed, err)
+	}
+	if marked != "T-E" || beads.bead("T-E").Status != "closed" {
+		t.Fatalf("archived=%q epic=%s", marked, beads.bead("T-E").Status)
+	}
+}
+
+// activeChange commits an active OpenSpec change named name to main.
+func activeChange(t *testing.T, repo, name string) {
+	t.Helper()
+	dir := filepath.Join(repo, "openspec", "changes", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "proposal.md"), []byte("## Why\nDrafts.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitx.CommitAll(context.Background(), repo, "Change "+name); err != nil {
+		t.Fatal(err)
 	}
 }
