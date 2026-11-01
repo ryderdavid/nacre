@@ -17,8 +17,8 @@ class RunAgentsTest {
     @Test fun eachAgentListsItsFourFamiliesAtTheirLatestVersion() {
         assertEquals(listOf("Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"), CLAUDE_AGENT.models.map { it.label })
         assertEquals(listOf("claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"), CLAUDE_AGENT.models.map { it.id })
-        assertEquals(listOf("GPT-6 Astra", "GPT-6.1 Sol", "GPT-5.6 Terra", "GPT-6 Luna"), CODEX_AGENT.models.map { it.label })
-        assertEquals(listOf("gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"), CODEX_AGENT.models.map { it.id })
+        assertEquals(listOf("GPT-6 Astra", "GPT-6.1 Sol", "GPT-6.1 Terra", "GPT-6 Luna"), CODEX_AGENT.models.map { it.label })
+        assertEquals(listOf("gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"), CODEX_AGENT.models.map { it.id })
     }
 
     @Test fun effortLevelsAreTheAgentsOwn() {

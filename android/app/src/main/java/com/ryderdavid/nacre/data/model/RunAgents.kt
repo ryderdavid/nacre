@@ -29,7 +29,7 @@ val EFFORT_LABELS = mapOf(
 // `claude --effort`; every current Claude model takes all five.
 private val CLAUDE_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
 
-// Codex's supported_reasoning_levels (`codex debug models`, codex-cli 0.159.2): Luna stops at max.
+// Codex's supported_reasoning_levels (`codex debug models`, codex-cli 0.159.2, checked 2026-11-01): Luna stops at max.
 private val CODEX_EFFORTS = listOf("low", "medium", "high", "xhigh", "max", "ultra")
 private val CODEX_EFFORTS_NO_ULTRA = CODEX_EFFORTS - "ultra"
 
@@ -52,7 +52,7 @@ val CODEX_AGENT = RunAgent(
     models = listOf(
         AgentModel("gpt-6-astra", "GPT-6 Astra", CODEX_EFFORTS),
         AgentModel("gpt-6.1-sol", "GPT-6.1 Sol", CODEX_EFFORTS),
-        AgentModel("gpt-5.6-terra", "GPT-5.6 Terra", CODEX_EFFORTS),
+        AgentModel("gpt-6.1-terra", "GPT-6.1 Terra", CODEX_EFFORTS),
         AgentModel("gpt-6-luna", "GPT-6 Luna", CODEX_EFFORTS_NO_ULTRA),
     ),
     defaultModel = "gpt-6.1-sol",
