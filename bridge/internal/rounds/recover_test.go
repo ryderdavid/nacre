@@ -237,6 +237,87 @@ func TestLandingStopDiagnosesAndRefusesToRepeat(t *testing.T) {
 	}
 }
 
+// The fingerprint is saved before the diagnosis, which can take minutes: a
+// continue sent while Claude is still diagnosing is refused when nothing has
+// changed, rather than replaying the failure.
+func TestContinueDuringDiagnosisIsRefusedWithoutAChange(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-G", Title: "Add g", Type: "task"})
+	h := newHarness(t, beads, noFindings)
+	hold := make(chan struct{})
+	h.head.mu.Lock()
+	h.head.hold = hold
+	h.head.mu.Unlock()
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(hold)
+		}
+	}
+	t.Cleanup(release)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-G"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundReadyToLand)
+	commitOnMain(t, h.repo, map[string]string{"stubborn.txt": "main\n"}, "main changes stubborn")
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	stopped := h.waitFor(t, r.ID, "a fingerprinted stop", func(x api.Round) bool {
+		return x.State == api.RoundPaused && x.Stop != nil && x.Stop.Fingerprint != ""
+	})
+	if stopped.Stop.Diagnosis != nil {
+		t.Fatal("the diagnosis finished while it was held")
+	}
+	if _, err := h.m.Choose(r.ID, api.ChoiceContinue, 0, 0); err == nil || !strings.Contains(err.Error(), "Nothing has changed") {
+		t.Fatalf("continue during the diagnosis: err = %v", err)
+	}
+	release()
+	h.waitFor(t, r.ID, "the diagnosis", func(x api.Round) bool {
+		return x.Stop != nil && x.Stop.Diagnosis != nil
+	})
+	if _, err := h.m.Choose(r.ID, api.ChoiceContinue, 0, 0); err == nil || !strings.Contains(err.Error(), "Nothing has changed") {
+		t.Fatalf("continue after the diagnosis: err = %v", err)
+	}
+}
+
+// A continue sent before the fingerprint is recorded waits for it rather
+// than going ahead unchecked.
+func TestContinueBeforeFingerprintIsAskedToWait(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-G", Title: "Add g", Type: "task"})
+	h := newHarness(t, beads, noFindings)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-G"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundReadyToLand)
+	commitOnMain(t, h.repo, map[string]string{"stubborn.txt": "main\n"}, "main changes stubborn")
+	if _, err := h.m.Land(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor(t, r.ID, "a fingerprinted stop", func(x api.Round) bool {
+		return x.State == api.RoundPaused && x.Stop != nil && x.Stop.Fingerprint != ""
+	})
+	// Put the stop back as it is in the moment before its fingerprint lands.
+	rd := h.m.get(r.ID)
+	rd.mu.Lock()
+	rd.meta.Stop.Fingerprint = ""
+	rd.ops["fingerprint"] = true
+	rd.mu.Unlock()
+	_, err = h.m.Choose(r.ID, api.ChoiceContinue, 0, 0)
+	rd.mu.Lock()
+	delete(rd.ops, "fingerprint")
+	state := rd.meta.State
+	rd.mu.Unlock()
+	if err == nil || !strings.Contains(err.Error(), "still recording") {
+		t.Fatalf("continue before the fingerprint: err = %v", err)
+	}
+	if state != api.RoundPaused {
+		t.Errorf("state = %s, want paused", state)
+	}
+}
+
 // Running out of budget stops with the spend per bead and only the choices
 // that fit; raising the limit carries on.
 func TestLimitsStopOffersOnlyRaiseOrCancel(t *testing.T) {

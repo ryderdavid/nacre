@@ -224,37 +224,68 @@ func (r *round) stop(s api.Stop) {
 // stopFn is stop as the result of a background operation.
 func (r *round) stopFn(s api.Stop) func() { return func() { r.stop(s) } }
 
-// afterStop fingerprints the failure and diagnoses it. Caller holds r.mu.
+// afterStop records the state the step failed in, then diagnoses it. The
+// fingerprint is its own quick operation, saved before the diagnosis starts:
+// the diagnosis can take minutes, and a "continue" sent meanwhile must still
+// find the fingerprint, or it would replay the failure. Caller holds r.mu.
 func (r *round) afterStop() {
+	if r.meta.Stop == nil {
+		return
+	}
+	r.fingerprintStop()
+	r.diagnoseStop()
+}
+
+// fingerprintStop records the state the current stop happened in, if it is
+// about the repository and has none yet. Caller holds r.mu.
+func (r *round) fingerprintStop() {
+	cur := r.meta.Stop
+	if cur == nil || cur.Fingerprint != "" || !stateful(cur.Kind) || r.ops["fingerprint"] {
+		return
+	}
+	s, meta := *cur, clone(r.meta)
+	r.goOp("fingerprint", func(ctx context.Context) func() {
+		fp := r.m.fingerprint(ctx, meta, s)
+		return func() {
+			cur := r.meta.Stop
+			if cur == nil || r.meta.State != api.RoundPaused {
+				return
+			}
+			if cur.Reason != s.Reason {
+				// The round stopped again while this ran; record that stop.
+				r.fingerprintStop()
+				return
+			}
+			cur.Fingerprint = fp
+		}
+	})
+}
+
+// diagnoseStop asks Claude what is wrong with the current stop, when the
+// budget allows. Caller holds r.mu.
+func (r *round) diagnoseStop() {
 	if r.meta.Stop == nil || r.ops["diagnose"] {
 		return
 	}
 	s, meta, events := *r.meta.Stop, clone(r.meta), r.recentEvents(30)
-	diagnose := s.Kind != api.StopLimits && s.Kind != api.StopLegacy && r.remaining() >= diagnosisCapUSD
+	if s.Kind == api.StopLimits || s.Kind == api.StopLegacy || r.remaining() < diagnosisCapUSD {
+		return
+	}
 	r.goOp("diagnose", func(ctx context.Context) func() {
-		fp := ""
-		if stateful(s.Kind) {
-			fp = r.m.fingerprint(ctx, meta, s)
-		}
-		var d *diagnosis
-		if diagnose {
-			d = r.m.diagnose(ctx, meta, s, events)
-		}
+		d := r.m.diagnose(ctx, meta, s, events)
 		return func() {
-			if d != nil {
-				r.meta.OverheadUSD += d.cost
-			}
-			cur := r.meta.Stop
-			if cur == nil || r.meta.State != api.RoundPaused || cur.Reason != s.Reason {
+			if d == nil {
 				return
 			}
-			cur.Fingerprint = fp
-			if d != nil && d.Summary != "" {
-				cur.Diagnosis = &api.Diagnosis{Summary: d.Summary, Cause: d.Cause, CostUSD: d.cost}
-				for i := range cur.Choices {
-					if e := d.explain[cur.Choices[i].ID]; e != "" {
-						cur.Choices[i].Explanation = e
-					}
+			r.meta.OverheadUSD += d.cost
+			cur := r.meta.Stop
+			if cur == nil || r.meta.State != api.RoundPaused || cur.Reason != s.Reason || d.Summary == "" {
+				return
+			}
+			cur.Diagnosis = &api.Diagnosis{Summary: d.Summary, Cause: d.Cause, CostUSD: d.cost}
+			for i := range cur.Choices {
+				if e := d.explain[cur.Choices[i].ID]; e != "" {
+					cur.Choices[i].Explanation = e
 				}
 			}
 		}
@@ -560,6 +591,9 @@ func (m *Manager) Choose(id, choice string, budgetUSD float64, minutes int) (api
 		}
 		r.resumeFromStop(fmt.Sprintf("Trying again with $%.2f left", r.remaining()))
 	case api.ChoiceContinue:
+		if r.ops["fingerprint"] || r.meta.Stop.Fingerprint != s.Fingerprint {
+			return clone(r.meta), conflict("The round is still recording the state it stopped in; try again in a moment.")
+		}
 		if s.Fingerprint != "" && fp == s.Fingerprint {
 			return clone(r.meta), conflict("Nothing has changed since this failed, so it would fail the same way. Fix it first, or pick another choice.")
 		}

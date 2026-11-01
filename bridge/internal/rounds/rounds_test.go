@@ -143,9 +143,17 @@ type fakeHeadless struct {
 	plan      string
 	prompt    string
 	diagnoses []string
+	// hold, when set, keeps each diagnosis waiting until it is closed.
+	hold chan struct{}
 }
 
 func (h *fakeHeadless) Run(_ context.Context, _ string, hl claude.Headless, _ func(api.RunEvent)) (assist.Outcome, error) {
+	h.mu.Lock()
+	hold := h.hold
+	h.mu.Unlock()
+	if hold != nil && hl.System == diagnosisSystem {
+		<-hold
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if hl.System == diagnosisSystem {
