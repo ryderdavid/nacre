@@ -98,7 +98,7 @@ The workflow SHALL record reconciliation, review dispositions and promotion on t
 - **THEN** execution is refused with a recovery explanation
 
 ### Requirement: Evidence distinguishes progress from completion
-The app SHALL distinguish mapped tasks, implementation outcomes, verified runs, human checks and landing. Checked task boxes or closed beads alone SHALL NOT establish requirement completion. Missing work or unresolved checks SHALL leave the change epic incomplete; automatic archive is outside this release.
+The app SHALL distinguish mapped tasks, implementation outcomes, verified runs, human checks and landing. Checked task boxes or closed beads alone SHALL NOT establish requirement completion, except for sections recorded as finished before Nacre adopted a change written outside it, which SHALL count as landed only while every task in them stays checked and their bead stays closed, and SHALL say so. Missing work or unresolved checks SHALL leave the change epic incomplete. Archiving SHALL happen only through finishing the change's epic.
 
 #### Scenario: Checked task without evidence
 - **WHEN** tasks.md marks a section complete but no verified implementation evidence exists
@@ -111,6 +111,10 @@ The app SHALL distinguish mapped tasks, implementation outcomes, verified runs, 
 #### Scenario: Old successful run
 - **WHEN** a previous spec revision has a verified run for the same bead
 - **THEN** that result remains historical and does not verify the current revision
+
+#### Scenario: Finished before adoption
+- **WHEN** an adopted change's section had every task checked and its bead closed when it was adopted
+- **THEN** it counts as landed, with a note that it was finished before adoption and has no round evidence, until a task is unchecked or its bead reopened
 
 ### Requirement: Existing design and adaptive navigation
 The app SHALL expose the workflow within bead/epic detail using its existing Material 3 theme and components. It SHALL show a clear phase and next action, readable artifacts and findings, preserved feedback, and an explicit handoff to existing round controls. Normal beads and older bridges SHALL remain usable.
