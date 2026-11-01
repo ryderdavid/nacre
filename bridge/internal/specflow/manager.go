@@ -514,6 +514,12 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 			if r.Stage == "" {
 				r.Stage = "author"
 			}
+			if r.Change.Adoption != nil && r.Pass == 0 && r.Change.ApprovedRevision == "" && r.Stage != "author" {
+				// An adoption not yet reviewed takes the change's files again as
+				// they are now, so specifications that moved meanwhile don't block it.
+				r.Stage = "adopt"
+				r.LastCall = nil
+			}
 			r.Change.Phase = "drafting"
 		}
 		history(r, "resume", "Resuming the saved operation without discarding completed steps.")

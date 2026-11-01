@@ -204,3 +204,26 @@ func TestAdoptRefusals(t *testing.T) {
 		t.Fatalf("incomplete change: %v", e)
 	}
 }
+
+// Resuming an adoption that stopped before its review takes the files again,
+// so specifications that moved meanwhile don't block it.
+func TestResumedAdoptionRetakesTheFiles(t *testing.T) {
+	repo, _, model, m := adoptFixture(t)
+	calls := 0
+	model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
+		calls++
+		if calls == 1 {
+			return nil, 0.85, errors.New("Reached maximum budget")
+		}
+		return normalModel(ctx, h, n)
+	}
+	c := act(t, m, repo, "NAC-1", Action{Action: "adopt", ChangeName: "retain-drafts"})
+	if c.Phase != "needs_attention" {
+		t.Fatalf("phase = %s", c.Phase)
+	}
+	write(t, repo, "openspec/changes/other-work/proposal.md", "## Why\nSomething else.\n")
+	c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
+	if c.Phase != "awaiting_approval" || c.Error != "" {
+		t.Fatalf("resumed adoption: phase=%s error=%s", c.Phase, c.Error)
+	}
+}
