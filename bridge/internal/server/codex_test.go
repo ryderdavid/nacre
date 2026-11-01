@@ -109,3 +109,30 @@ func TestStartRunWithCodex(t *testing.T) {
 		t.Fatalf("claude-code run: %d %v", resp.StatusCode, body)
 	}
 }
+
+// Each agent takes only its own effort levels, and the run records the one it
+// was started with.
+func TestStartRunEffortPerAgent(t *testing.T) {
+	st, checks := codex.Status{Version: "1"}, 0
+	ts, repoID, _ := codexServer(t, &st, &checks)
+	url := ts.URL + "/v1/repos/" + repoID + "/issues/X-1/runs"
+
+	resp, body := postJSON(t, url, `{"agent":"codex","model":"gpt-6.1-sol","effort":"ultra"}`)
+	if resp.StatusCode != 201 || body["effort"] != "ultra" || body["model"] != "gpt-6.1-sol" {
+		t.Fatalf("codex ultra: %d %v", resp.StatusCode, body)
+	}
+	if resp, body := postJSON(t, url, `{"model":"claude-opus-5-5","effort":"ultra"}`); resp.StatusCode != 400 {
+		t.Fatalf("claude ultra: %d %v", resp.StatusCode, body)
+	}
+	resp, body = postJSON(t, url, `{"model":"claude-opus-5-5","effort":"medium"}`)
+	if resp.StatusCode != 201 || body["effort"] != "medium" {
+		t.Fatalf("claude medium: %d %v", resp.StatusCode, body)
+	}
+	if resp, body := postJSON(t, url, `{"agent":"codex","effort":"-x"}`); resp.StatusCode != 400 {
+		t.Fatalf("codex bad effort: %d %v", resp.StatusCode, body)
+	}
+	resp, body = postJSON(t, url, `{}`)
+	if _, has := body["effort"]; resp.StatusCode != 201 || has {
+		t.Fatalf("no effort: %d %v", resp.StatusCode, body)
+	}
+}

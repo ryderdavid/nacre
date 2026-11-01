@@ -148,8 +148,8 @@ func TestTurnArgs(t *testing.T) {
 	if !reflect.DeepEqual(first, want) {
 		t.Fatalf("first = %q", first)
 	}
-	follow := Turn{Prompt: "-continue", Mode: "auto", Resume: "sid", Worktree: true, Name: "ignored"}.Args()
-	want = []string{"-p", " -continue", "--resume", "sid", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto"}
+	follow := Turn{Prompt: "-continue", Mode: "auto", Effort: "xhigh", Resume: "sid", Worktree: true, Name: "ignored"}.Args()
+	want = []string{"-p", " -continue", "--resume", "sid", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--effort", "xhigh"}
 	if !reflect.DeepEqual(follow, want) {
 		t.Fatalf("follow = %q", follow)
 	}

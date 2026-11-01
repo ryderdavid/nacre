@@ -19,6 +19,7 @@ type Turn struct {
 	Prompt   string
 	Mode     string // --permission-mode
 	Model    string // --model ("" = CLI default)
+	Effort   string // --effort ("" = CLI default)
 	Worktree bool   // --worktree (first turn only)
 	Name     string // --name (first turn only)
 	Resume   string // --resume <session id> for follow-ups
@@ -46,6 +47,9 @@ func (t Turn) Args() []string {
 	}
 	if t.Model != "" {
 		args = append(args, "--model", t.Model)
+	}
+	if t.Effort != "" {
+		args = append(args, "--effort", t.Effort)
 	}
 	if t.MaxBudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", strconv.FormatFloat(t.MaxBudgetUSD, 'f', 2, 64))

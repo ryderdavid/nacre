@@ -169,6 +169,7 @@ data class Run(
     val status: String = "queued",
     val mode: String = "",
     val model: String = "",
+    val effort: String = "",
     val worktree: Boolean = false,
     @SerialName("session_id") val sessionId: String = "",
     /** Where Claude actually ran (differs from repo_path for worktree runs). */
@@ -415,6 +416,8 @@ data class UpdateIssue(
 data class RunRequest(
     val mode: String? = null,
     val model: String? = null,
+    /** An effort level of [agent]'s (see [RunAgent]); null leaves it to the agent's default. */
+    val effort: String? = null,
     val instructions: String? = null,
     val worktree: Boolean? = null,
     /** [AGENT_CODEX] to run the bead with Codex; null runs it with Claude Code. */

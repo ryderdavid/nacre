@@ -74,6 +74,7 @@ type StartRequest struct {
 	RepoID, RepoName, RepoPath                string
 	IssueID, IssueTitle                       string
 	Mode, Model                               string
+	Effort                                    string // "" = the agent's default
 	Worktree                                  bool
 	Prompt                                    string
 	// Agent is api.AgentCodex to run the bead with the Codex CLI; "" (or
@@ -214,7 +215,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision, SpecSectionID: req.SpecSectionID,
 		ID: id, RepoID: req.RepoID, RepoName: req.RepoName, RepoPath: req.RepoPath,
 		IssueID: req.IssueID, IssueTitle: req.IssueTitle, Status: api.StatusQueued,
-		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree,
+		Mode: req.Mode, Model: req.Model, Effort: req.Effort, Worktree: req.Worktree,
 		CreatedAt: t.UTC().Format(time.RFC3339), Turns: 1,
 		RoundID: req.RoundID, Kind: req.Kind, Branch: req.Branch, Workspace: req.Workspace, Base: req.Base,
 	}
@@ -227,7 +228,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	}
 	r.loaded = true
 	r.pending = &claude.Turn{
-		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model,
+		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model, Effort: req.Effort,
 		Worktree: req.Worktree && req.Workspace == "", Name: claude.NamePrefix + req.IssueID,
 		MaxBudgetUSD: req.MaxBudgetUSD, Env: req.Env,
 	}
@@ -289,7 +290,7 @@ func (m *Manager) FollowupWith(id string, f Followup) (api.Run, error) {
 	r.meta.Error = ""
 	r.meta.EndedAt = ""
 	r.cancelReq = false
-	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID,
+	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Effort: r.meta.Effort, Resume: r.meta.SessionID,
 		MaxBudgetUSD: f.MaxBudgetUSD, Env: f.Env}
 	r.setStatus(api.StatusQueued)
 	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: message})

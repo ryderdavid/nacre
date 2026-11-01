@@ -53,7 +53,7 @@ type agentCommand struct {
 
 func (m *Manager) command(agent string, t claude.Turn) agentCommand {
 	if agent == api.AgentCodex {
-		ct := codex.Turn{Prompt: t.Prompt, Mode: t.Mode, Model: t.Model, Worktree: t.Worktree, Resume: t.Resume}
+		ct := codex.Turn{Prompt: t.Prompt, Mode: t.Mode, Model: t.Model, Effort: t.Effort, Worktree: t.Worktree, Resume: t.Resume}
 		path := m.opts.CodexPath
 		if path == "" {
 			path = "codex"
