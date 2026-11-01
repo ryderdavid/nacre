@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.ui.bead
 
+import com.ryderdavid.nacre.data.model.GoalOptions
 import kotlinx.coroutines.flow.combine
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.Keys
@@ -140,8 +141,8 @@ class BeadDetailViewModel(
     fun removeBlocker(id: String) = act("Removing dependency") { repo.removeDep(repoKey, beadId, id) }
 
     /** A one-bead round: its own worktree, every gate and the build, commit, land, push, close. */
-    fun workUntilDone(targetKey: String, landWhenReady: Boolean, onStarted: (Round) -> Unit) = act("Starting the work") {
-        val round = repo.startRound(targetKey, listOf(beadId), landWhenReady = landWhenReady)
+    fun workUntilDone(targetKey: String, landWhenReady: Boolean, goal: GoalOptions? = null, onStarted: (Round) -> Unit) = act("Starting the work") {
+        val round = repo.startRound(targetKey, listOf(beadId), landWhenReady = landWhenReady, goal = goal)
         repo.groupOf(targetKey)?.let { settings.setRunHost(it.id, Keys.host(targetKey)) }
         onStarted(round)
     }

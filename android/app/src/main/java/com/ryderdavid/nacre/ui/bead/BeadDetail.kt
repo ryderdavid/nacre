@@ -386,7 +386,7 @@ fun BeadDetail(
                 RunLaunchSheet(
                     i, p, targets, start, sending = busy, onDismiss = { showRun = false },
                     landsOn = epic?.let(::epicBranch) ?: "the main branch",
-                    onWorkUntilDone = { target, land -> vm.workUntilDone(target, land) { round -> showRun = false; onOpenRound(round.key) } },
+                    onWorkUntilDone = { target, land, goal -> vm.workUntilDone(target, land, goal) { round -> showRun = false; onOpenRound(round.key) } },
                 ) { target, req ->
                     vm.startRun(target, req) { run -> showRun = false; onOpenRun(run.key) }
                 }
