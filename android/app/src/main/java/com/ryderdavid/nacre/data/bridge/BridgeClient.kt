@@ -1,6 +1,14 @@
 package com.ryderdavid.nacre.data.bridge
 
 import com.ryderdavid.nacre.data.model.AssistRequest
+import com.ryderdavid.nacre.data.model.AttentionItem
+import com.ryderdavid.nacre.data.model.AttentionList
+import com.ryderdavid.nacre.data.model.ChangeEvent
+import com.ryderdavid.nacre.data.model.ChangesList
+import com.ryderdavid.nacre.data.model.FoundRequest
+import com.ryderdavid.nacre.data.model.FoundResult
+import com.ryderdavid.nacre.data.model.IntakeDraft
+import com.ryderdavid.nacre.data.model.IntakeVerdict
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.DaemonUpdate
@@ -53,6 +61,7 @@ sealed interface StreamMessage {
     data class RunChanged(val run: Run) : StreamMessage
     data class RepoChanged(val repoId: String) : StreamMessage
     data class RoundChanged(val round: Round) : StreamMessage
+    data class ChangeChanged(val event: ChangeEvent) : StreamMessage
     data object Open : StreamMessage
 }
 
@@ -126,6 +135,32 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }
     suspend fun changeAction(repo: String, id: String, action: ChangeAction): ChangeEnvelope =
         send("POST", "/v1/repos/$repo/issues/${enc(id)}/change", action)
+
+    /** The repository's changes, or null on a bridge without the summary. */
+    suspend fun changes(repo: String): ChangesList? = try {
+        get("/v1/repos/$repo/changes")
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
+    /** Everything on this computer waiting on Ryder, or null on a bridge without it. */
+    suspend fun attention(): List<AttentionItem>? = try {
+        get<AttentionList>("/v1/attention").items
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
+    suspend fun intake(repo: String, draft: IntakeDraft): IntakeVerdict = send("POST", "/v1/repos/$repo/intake", draft)
+
+    suspend fun found(repo: String, change: String, req: FoundRequest): FoundResult =
+        send("POST", "/v1/repos/$repo/changes/${enc(change)}/found", req)
+
+    /** Sends a Needs you option exactly as the computer described it. */
+    suspend fun perform(method: String, path: String, body: JsonObject?) {
+        require(path.startsWith("/v1/")) { "Not a bridge route: $path" }
+        val rb = (body?.let { json.encodeToString(JsonObject.serializer(), it) } ?: "{}").toRequestBody(JSON)
+        call<JsonObject>(Request.Builder().url(url(path)).method(method.ifBlank { "POST" }, rb).build())
+    }
     suspend fun create(repo: String, body: CreateIssue): Issue = send<CreateIssue, One>("POST", "/v1/repos/$repo/issues", body).issue
     suspend fun update(repo: String, id: String, body: UpdateIssue): Issue = send<UpdateIssue, One>("PATCH", "/v1/repos/$repo/issues/${enc(id)}", body).issue
     suspend fun close(repo: String, id: String, reason: String? = null): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/close", Reason(reason)).issue
@@ -323,6 +358,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
                         "run" -> StreamMessage.RunChanged(json.decodeFromString<Run>(data))
                         "repo" -> StreamMessage.RepoChanged(json.decodeFromString<JsonObject>(data)["repo_id"]!!.jsonPrimitive.content)
                         "round" -> StreamMessage.RoundChanged(json.decodeFromString<Round>(data))
+                        "change" -> StreamMessage.ChangeChanged(json.decodeFromString<ChangeEvent>(data))
                         else -> StreamMessage.Event(json.decodeFromString<RunEvent>(data))
                     }
                 }.getOrNull() ?: return

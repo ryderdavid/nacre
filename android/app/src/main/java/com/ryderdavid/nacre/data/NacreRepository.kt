@@ -8,6 +8,14 @@ import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.bridge.RoundMessage
 import com.ryderdavid.nacre.data.bridge.StreamMessage
 import com.ryderdavid.nacre.data.model.AssistRequest
+import com.ryderdavid.nacre.data.model.AttentionItem
+import com.ryderdavid.nacre.data.model.AttentionOption
+import com.ryderdavid.nacre.data.model.ChangeEvent
+import com.ryderdavid.nacre.data.model.ChangesList
+import com.ryderdavid.nacre.data.model.FoundRequest
+import com.ryderdavid.nacre.data.model.FoundResult
+import com.ryderdavid.nacre.data.model.IntakeDraft
+import com.ryderdavid.nacre.data.model.IntakeVerdict
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.DaemonUpdate
@@ -28,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -48,7 +57,13 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class Loadable<T>(val data: T? = null, val loading: Boolean = false, val error: String? = null)
 
-data class BoardSnapshot(val repo: Repo, val index: BoardIndex)
+/**
+ * A board's beads, plus its specification changes: null when the computer
+ * doesn't report them (older nacred), which hides spec chips and the Proposals lane.
+ */
+data class BoardSnapshot(val repo: Repo, val index: BoardIndex, val changes: ChangesList? = null) {
+    val changesById get() = changes?.changes?.associateBy { it.id }.orEmpty()
+}
 
 sealed interface Connection {
     data object Unconfigured : Connection
@@ -173,6 +188,25 @@ class NacreRepository(
     private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 8)
     val notices: SharedFlow<Notice> = _notices
 
+    private val attentionLists = MutableStateFlow<Map<String, List<AttentionItem>>>(emptyMap())
+
+    /**
+     * Needs you across computers, deduped by item id, questions and decisions
+     * first, then approvals, then landing and archive, newest first within each.
+     */
+    val attention: StateFlow<List<AttentionItem>> = combine(attentionLists, paired) { m, p ->
+        p.keys.flatMap { m[it].orEmpty() }.distinctBy { it.id }
+            .sortedWith(compareBy<AttentionItem> { it.group }.thenByDescending { it.createdAt })
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Whether any paired computer reports Needs you at all. */
+    private val attentionHosts = MutableStateFlow<Set<String>>(emptySet())
+    val attentionSupported: StateFlow<Boolean> = attentionHosts.map { it.isNotEmpty() }.stateIn(scope, SharingStarted.Eagerly, false)
+
+    /** Each change phase transition, with its computer, for notifications. */
+    private val _changeEvents = MutableSharedFlow<Pair<String, ChangeEvent>>(extraBufferCapacity = 16)
+    val changeEvents: SharedFlow<Pair<String, ChangeEvent>> = _changeEvents
+
     /** Fires the run whenever a run reaches a terminal state (for notifications). */
     private val _finishedRuns = MutableSharedFlow<Run>(extraBufferCapacity = 8)
     val finishedRuns: SharedFlow<Run> = _finishedRuns
@@ -192,6 +226,7 @@ class NacreRepository(
                 refreshRepos()
                 refreshRuns()
                 refreshRounds()
+                refreshAttention()
                 if (eventsWanted) startEvents()
             }
         }
@@ -203,6 +238,8 @@ class NacreRepository(
         repoErrors.update { it - hostId }
         runLists.update { it - hostId }
         roundLists.update { it - hostId }
+        attentionLists.update { it - hostId }
+        attentionHosts.update { it - hostId }
         connections.update { it - hostId }
         boards.keys.filter { Keys.host(it) == hostId }.forEach { boards.remove(it) }
     }
@@ -252,8 +289,16 @@ class NacreRepository(
                 p.client.events().collect { msg ->
                     when (msg) {
                         is StreamMessage.RunChanged -> upsertRun(msg.run.tag(p.host))
-                        is StreamMessage.RoundChanged -> upsertRound(msg.round.tag(p.host))
-                        is StreamMessage.RepoChanged -> Keys.of(id, msg.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
+                        is StreamMessage.RoundChanged -> { upsertRound(msg.round.tag(p.host)); attentionSoon(p) }
+                        is StreamMessage.RepoChanged -> {
+                            Keys.of(id, msg.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
+                            attentionSoon(p)
+                        }
+                        is StreamMessage.ChangeChanged -> {
+                            _changeEvents.tryEmit(id to msg.event)
+                            Keys.of(id, msg.event.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
+                            attentionSoon(p)
+                        }
                         else -> Unit
                     }
                 }
@@ -320,9 +365,12 @@ class NacreRepository(
         if (!quiet) flow.update { it.copy(loading = true, error = null) }
         try {
             val p = pairedFor(key)
-            val b = p.client.board(Keys.id(key))
+            val (b, changes) = coroutineScope {
+                val changes = async { runCatching { p.client.changes(Keys.id(key)) }.getOrElse { flow.value.data?.changes } }
+                p.client.board(Keys.id(key)) to changes.await()
+            }
             val repo = b.repo.tag(p.host)
-            flow.value = Loadable(BoardSnapshot(repo, BoardIndex(b.issues)))
+            flow.value = Loadable(BoardSnapshot(repo, BoardIndex(b.issues), changes))
             repoLists.update { m -> m + (p.host.id to m[p.host.id].orEmpty().map { if (it.id == repo.id) repo else it }) }
         } catch (e: Exception) {
             flow.update { it.copy(loading = false, error = e.friendly()) }
@@ -342,7 +390,57 @@ class NacreRepository(
     suspend fun change(key: String, id: String): ChangeEnvelope = clientFor(key).change(Keys.id(key), id)
 
     suspend fun changeAction(key: String, id: String, action: ChangeAction): ChangeEnvelope =
-        clientFor(key).changeAction(Keys.id(key), id, action).also { refreshBoard(key, quiet = true) }
+        clientFor(key).changeAction(Keys.id(key), id, action).also { refreshBoard(key, quiet = true); refreshAttention(Keys.host(key)) }
+
+    /** The board's changes as last loaded; null when its computer doesn't report them. */
+    fun changes(key: String): ChangesList? = boards[key]?.value?.data?.changes
+
+    /** Intake's verdict on a New effort draft (one bounded call on [key]'s computer). */
+    suspend fun intake(key: String, draft: IntakeDraft): IntakeVerdict = clientFor(key).intake(Keys.id(key), draft)
+
+    /** Answers found work on a promoted change. */
+    suspend fun found(key: String, changeId: String, req: FoundRequest): FoundResult =
+        clientFor(key).found(Keys.id(key), changeId, req).also { refreshBoard(key, quiet = true); refreshAttention(Keys.host(key)) }
+
+    // ---------- Needs you ----------
+
+    private val attentionJobs = ConcurrentHashMap<String, Job>()
+
+    /** Reloads Needs you from every computer, or just [hostId]. */
+    fun refreshAttention(hostId: String? = null) = scope.launch {
+        paired.value.values.filter { hostId == null || it.host.id == hostId }.map { p -> async { loadAttention(p) } }.awaitAll()
+    }
+
+    private suspend fun loadAttention(p: Paired) {
+        try {
+            val items = p.client.attention()
+            if (items == null) {
+                attentionHosts.update { it - p.host.id }
+                attentionLists.update { it - p.host.id }
+            } else {
+                attentionHosts.update { it + p.host.id }
+                attentionLists.update { it + (p.host.id to items.map { i -> i.copy(hostId = p.host.id, hostName = p.host.name) }) }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // Keep the last list: an unreachable computer's items are still waiting.
+        }
+    }
+
+    /** Coalesces a burst of events into one reload, a moment later. */
+    private fun attentionSoon(p: Paired) {
+        if (attentionJobs[p.host.id]?.isActive == true) return
+        attentionJobs[p.host.id] = scope.launch { delay(1_500); loadAttention(p) }
+    }
+
+    /** Sends a Needs you action exactly as its computer described it, then reloads. */
+    suspend fun perform(item: AttentionItem, option: AttentionOption) {
+        val p = paired.value[item.hostId] ?: throw BridgeException("That computer is no longer paired")
+        p.client.perform(option.method, option.path, option.body)
+        refreshAttention(item.hostId).join()
+        if (boards.containsKey(item.repoKey)) refreshBoard(item.repoKey, quiet = true)
+        refreshRounds()
+    }
 
     /** Optimistic drag-and-drop move with undo. */
     fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {

@@ -137,6 +137,7 @@ fun BeadDetail(
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
     onOpenRound: (String) -> Unit,
+    openChange: Boolean = false,
 ) {
     val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
@@ -161,7 +162,7 @@ fun BeadDetail(
     var editing by remember { mutableStateOf<TextField?>(null) }
     var showRefine by rememberSaveable { mutableStateOf(false) }
     var showRun by rememberSaveable { mutableStateOf(false) }
-    var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(false) }
+    var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(openChange) }
     var roundChange by remember { mutableStateOf<SpecChange?>(null) }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }

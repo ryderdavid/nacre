@@ -56,7 +56,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object BoardsRoute
 @Serializable data class BoardRoute(val repoKey: String)
-@Serializable data class BeadRoute(val repoKey: String, val beadId: String)
+/** [openChange] opens the bead's change view straight away (from Needs you). */
+@Serializable data class BeadRoute(val repoKey: String, val beadId: String, val openChange: Boolean = false)
 @Serializable data class AssistantRoute(val repoKey: String)
 @Serializable data object OrchestratorRoute
 @Serializable data object RunsRoute
@@ -98,6 +99,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val rounds by container.repository.rounds.collectAsState()
     // Rounds waiting on a decision or a landing count too: they need a look.
     val activeRuns = runs.count { it.isActive && it.inRunsList } + rounds.count { it.needsYou }
+    // Boards' own badge counts Needs you; the Runs badge keeps its meaning.
+    val needsYou = container.repository.attention.collectAsState().value.size
     val snackbar = remember { SnackbarHostState() }
     var pendingPair by remember { mutableStateOf<PairRequest?>(null) }
 
@@ -134,7 +137,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
             navigationSuiteItems = {
                 item(
                     selected = tab == Tab.BOARDS, onClick = { nav.switchTab(BoardsRoute) },
-                    icon = { Icon(Icons.Rounded.ViewKanban, null) }, label = { Text("Boards") },
+                    icon = { BadgedBox(badge = { if (needsYou > 0) Badge { Text("$needsYou") } }) { Icon(Icons.Rounded.ViewKanban, null) } },
+                    label = { Text("Boards") },
                 )
                 item(
                     selected = tab == Tab.RUNS, onClick = { nav.switchTab(RunsRoute) },
@@ -157,6 +161,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                         onOpenAssistant = { nav.navigate(OrchestratorRoute) },
                         onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
+                        onOpenChange = { repo, seed -> nav.navigate(BeadRoute(repo, seed, openChange = true)) },
+                        onOpenRound = { nav.navigate(RoundRoute(it)) },
                     )
                 }
                 composable<BoardRoute> { e ->
@@ -174,7 +180,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                 composable<BeadRoute> { e ->
                     val r = e.toRoute<BeadRoute>()
                     BeadDetail(
-                        r.repoKey, r.beadId, inPane = false,
+                        r.repoKey, r.beadId, inPane = false, openChange = r.openChange,
                         onClose = { nav.popBackStack() },
                         onOpenBead = { nav.navigate(BeadRoute(r.repoKey, it)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },

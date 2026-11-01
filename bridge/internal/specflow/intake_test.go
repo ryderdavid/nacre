@@ -47,7 +47,7 @@ func TestIntakeVerdicts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v.Verdict != tc.verdict || v.ChangeName != tc.name2 || (v.Fallback != "") != tc.fallback || v.CostUSD != 0.04 {
+			if v.Verdict != tc.verdict || v.ChangeName != tc.name2 || (v.Fallback != "") != tc.fallback || v.CostUSD != 0.04 || len(v.ActiveChanges) != 1 || v.ActiveChanges[0] != "resilient-rounds" {
 				t.Fatalf("verdict=%+v", v)
 			}
 			h := model.calls[0]

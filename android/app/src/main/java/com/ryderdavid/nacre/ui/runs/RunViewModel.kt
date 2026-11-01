@@ -71,7 +71,7 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
                         StreamMessage.Open -> { live.value = true; error.value = null; backoff = 1_000L }
                         is StreamMessage.Event -> if (events.value.none { it.seq == msg.event.seq }) events.value = events.value + msg.event
                         is StreamMessage.RunChanged -> { run.value = msg.run; repo.noteRun(msg.run) }
-                        is StreamMessage.RepoChanged, is StreamMessage.RoundChanged -> Unit
+                        is StreamMessage.RepoChanged, is StreamMessage.RoundChanged, is StreamMessage.ChangeChanged -> Unit
                     }
                 }
             } catch (e: Exception) {

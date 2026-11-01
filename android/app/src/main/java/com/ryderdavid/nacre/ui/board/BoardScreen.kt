@@ -179,7 +179,7 @@ fun BoardScreen(
             if (!drag.isDragging && pane == null) ExtendedFloatingActionButton(
                 onClick = { newBead = true },
                 icon = { Icon(Icons.Rounded.Add, null) },
-                text = { Text("New bead") },
+                text = { Text(if (ui?.snapshot?.changes?.openspec == true) "New effort" else "New bead") },
             )
         },
     ) { pad ->
@@ -264,6 +264,7 @@ fun BoardScreen(
         defaultParent = filter.epic.takeIf { it.isNotEmpty() && it != com.ryderdavid.nacre.data.board.BoardFilter.NO_EPIC },
         onDismiss = { newBead = false },
         onCreated = { newBead = false; if (pane != null) pane = it.id },
+        effort = ui.snapshot.changes?.openspec == true,
     )
 }
 

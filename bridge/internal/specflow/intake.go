@@ -57,6 +57,8 @@ type IntakeVerdict struct {
 	// only then can TargetActive name work using it.
 	TargetTracked bool   `json:"target_tracked"`
 	TargetActive  string `json:"target_active,omitempty"`
+	// ActiveChanges names every active change, for overriding the verdict.
+	ActiveChanges []string `json:"active_changes"`
 }
 
 // IntakeHint is the verdict a confirmed New effort passes to develop.
@@ -174,6 +176,10 @@ func (m *Manager) Intake(ctx context.Context, repo string, d IntakeDraft) (Intak
 		v.References = []IntakeReference{}
 	}
 	m.confirmVerdict(repo, ix, changes, &v)
+	v.ActiveChanges = []string{}
+	for _, c := range changes {
+		v.ActiveChanges = append(v.ActiveChanges, c.name)
+	}
 	return v, nil
 }
 

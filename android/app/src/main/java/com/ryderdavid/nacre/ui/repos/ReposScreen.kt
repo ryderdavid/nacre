@@ -118,6 +118,19 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+import androidx.compose.runtime.produceState
+import com.ryderdavid.nacre.data.BoardSnapshot
+import com.ryderdavid.nacre.data.friendly
+import com.ryderdavid.nacre.data.model.AttentionItem
+import com.ryderdavid.nacre.data.model.AttentionOption
+import com.ryderdavid.nacre.data.model.AttentionTarget
+import com.ryderdavid.nacre.data.model.FoundComment
+import com.ryderdavid.nacre.data.model.Keys
+import com.ryderdavid.nacre.data.model.NewEffortPrefill
+import com.ryderdavid.nacre.ui.bead.FoundSomethingSheet
+import com.ryderdavid.nacre.ui.board.NewBeadSheet
 
 class ReposViewModel(private val repo: NacreRepository, private val settings: SettingsStore) : ViewModel() {
     val repos = repo.repos
@@ -145,6 +158,25 @@ class ReposViewModel(private val repo: NacreRepository, private val settings: Se
     }
 
     fun hide(id: String) = viewModelScope.launch { settings.update { s -> s.copy(hiddenRepos = s.hiddenRepos + id) } }
+
+    /** Needs you across computers; empty, and hidden, when no computer reports it. */
+    val attention = repo.attention
+
+    /** Items whose action is on its way, so their buttons don't send it twice. */
+    val busy = MutableStateFlow(emptySet<String>())
+
+    fun perform(item: AttentionItem, option: AttentionOption) = viewModelScope.launch {
+        busy.update { it + item.id }
+        try {
+            repo.perform(item, option)
+        } catch (e: Exception) {
+            repo.notify("${option.label} didn't work: ${e.friendly()}")
+        } finally {
+            busy.update { it - item.id }
+        }
+    }
+
+    suspend fun board(key: String) = repo.awaitBoard(key)
     fun unhideAll() = viewModelScope.launch { settings.update { s -> s.copy(hiddenRepos = emptySet()) } }
 }
 
@@ -169,8 +201,30 @@ fun ReposScreen(
     onOpenAssistant: () -> Unit,
     onOpenBead: (repoKey: String, beadId: String) -> Unit,
     onOpenRun: (String) -> Unit,
+    onOpenChange: (repoKey: String, seedId: String) -> Unit = onOpenBead,
+    onOpenRound: (String) -> Unit = {},
 ) {
     val vm = nacreViewModel { ReposViewModel(it.repository, it.settings) }
+    val attention by vm.attention.collectAsState()
+    val busy by vm.busy.collectAsState()
+    var foundTarget by remember { mutableStateOf<Pair<String, AttentionTarget>?>(null) }
+    var effort by remember { mutableStateOf<Pair<String, NewEffortPrefill>?>(null) }
+    val onOption: (AttentionItem, AttentionOption) -> Unit = { item, o ->
+        val t = o.target
+        val key = Keys.of(item.hostId, t?.repo?.ifBlank { null } ?: item.repo)
+        when {
+            o.type == "action" -> if (o.disabled.isBlank()) vm.perform(item, o)
+            t == null -> Unit
+            t.kind == "bead" -> onOpenBead(key, t.id)
+            t.kind == "change" -> onOpenChange(key, t.id)
+            t.kind == "round" -> onOpenRound(Keys.of(item.hostId, t.id))
+            t.kind == "found_something" -> foundTarget = key to t
+            t.kind == "new_effort" -> effort = key to NewEffortPrefill(
+                title = t.note.lineSequence().firstOrNull().orEmpty().take(80), description = t.note, related = t.related,
+                followOnOf = t.followOnOf, foundComment = if (t.commentId.isNotBlank()) FoundComment(t.foundIn, t.commentId) else null,
+            )
+        }
+    }
     val container = LocalContainer.current
     val state by vm.repos.collectAsState()
     val groups by vm.groups.collectAsState()
@@ -253,6 +307,9 @@ fun ReposScreen(
                                 if (searching) item(span = { GridItemSpan(maxLineSpan) }) {
                                     OutlinedTextField(query, { query = it }, placeholder = { Text("Filter boards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                 }
+                                if (attention.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, modifier = Modifier.padding(bottom = 4.dp))
+                                }
                                 item(span = { GridItemSpan(maxLineSpan) }) { Summary(shown) }
                                 if (hosts.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
                                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -294,6 +351,27 @@ fun ReposScreen(
             }
         }
     }
+    foundTarget?.let { (key, t) -> FoundFromNeedsYou(key, t, vm, onDismiss = { foundTarget = null }, onOutOfScope = { foundTarget = null; effort = key to it }) }
+    effort?.let { (key, prefill) -> EffortFromNeedsYou(key, prefill, vm, onDone = { effort = null }) }
+}
+
+/** Found something opened from Needs you: needs the change from the board's summary. */
+@Composable
+private fun FoundFromNeedsYou(key: String, t: AttentionTarget, vm: ReposViewModel, onDismiss: () -> Unit, onOutOfScope: (NewEffortPrefill) -> Unit) {
+    val snapshot by produceState<BoardSnapshot?>(null, key) { value = runCatching { vm.board(key) }.getOrNull() }
+    val change = snapshot?.changesById?.get(t.change) ?: return
+    FoundSomethingSheet(key, change, foundIn = t.foundIn.ifBlank { null }, onDismiss = onDismiss, onOutOfScope = onOutOfScope, commentId = t.commentId, note = t.note)
+}
+
+/** New effort opened from Needs you or an out-of-scope answer, prefilled. */
+@Composable
+private fun EffortFromNeedsYou(key: String, prefill: NewEffortPrefill, vm: ReposViewModel, onDone: () -> Unit) {
+    val snapshot by produceState<BoardSnapshot?>(null, key) { value = runCatching { vm.board(key) }.getOrNull() }
+    val s = snapshot ?: return
+    NewBeadSheet(
+        key, s.repo.name, s.index, defaultParent = null, onDismiss = onDone, onCreated = { onDone() },
+        effort = s.changes?.openspec == true, prefill = prefill,
+    )
 }
 
 /** The divider between the boards list and the assistant; drag it to re-split the width. */

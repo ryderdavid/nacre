@@ -387,7 +387,7 @@ work never becomes successful from a checkbox or status alone. Landing, human ac
 OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
 
 `IntakeVerdict` is `{verdict, change_name?, rationale, references:[{path, requirement?}], cost_usd,
-fallback?, target_tracked, target_active?}`. `verdict` is `bead` (changes no specified "done": chores,
+fallback?, target_tracked, target_active?, active_changes}` (`active_changes` names every active change, for overriding the verdict). `verdict` is `bead` (changes no specified "done": chores,
 refactors, small fixes, bugs that restore specified behavior), `new`, `amend` (`change_name` is an
 active change) or `covered`. The call sees the requirement index and each active change's name and
 `## Why` (24 KB together), has no tools, and is capped at $0.50 and 90 s. An `amend` or `covered`

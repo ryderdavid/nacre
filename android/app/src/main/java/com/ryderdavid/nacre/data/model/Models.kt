@@ -339,6 +339,12 @@ data class CreateIssue(
     @SerialName("acceptance_criteria") val acceptance: String? = null,
     val notes: String? = null,
     val assignee: String? = null,
+    /** Related dependencies from the new bead (a follow-on and the epic it came from). */
+    val related: List<String>? = null,
+    /** A found bead this effort replaces as a follow-on change; nacred closes it with a link. */
+    @SerialName("follow_on_of") val followOnOf: String? = null,
+    /** The `Found:` comment this effort answers; nacred marks it answered. */
+    @SerialName("found_comment") val foundComment: FoundComment? = null,
 )
 
 /** Partial update; only non-null fields are sent. */
