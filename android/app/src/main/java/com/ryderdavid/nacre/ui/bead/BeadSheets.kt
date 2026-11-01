@@ -61,6 +61,8 @@ import com.ryderdavid.nacre.data.model.EFFORT_LABELS
 import com.ryderdavid.nacre.data.model.RUN_AGENTS
 import com.ryderdavid.nacre.data.model.runAgent
 import com.ryderdavid.nacre.data.settings.AppSettings
+import com.ryderdavid.nacre.ui.common.GoalOptionsPicker
+import com.ryderdavid.nacre.data.model.GoalOptions
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.PriorityPill
@@ -214,6 +216,10 @@ fun RunLaunchSheet(
     val choice = AgentChoice(agent, modelId, effortLevel).withModel(modelId)
     fun choose(c: AgentChoice) { agentWire = c.agent.wire; modelId = c.model; effortLevel = c.effort }
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
+    var goalEnabled by rememberSaveable { mutableStateOf(prefs.runGoal.enabled) }
+    var goalCommitted by rememberSaveable { mutableStateOf(prefs.runGoal.committed) }
+    var goalPushed by rememberSaveable { mutableStateOf(prefs.runGoal.pushed) }
+    val goal = GoalOptions(goalEnabled, goalCommitted, goalPushed)
     var instructions by rememberSaveable { mutableStateOf("") }
     var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
     var landWhenReady by rememberSaveable { mutableStateOf(true) }
@@ -324,6 +330,8 @@ fun RunLaunchSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
 
+            GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !sending)
+
             val canSend = !sending && targetRepo != null && codexBlocker == null
             val runButton: @Composable (onClick: () -> Unit, enabled: Boolean, modifier: Modifier, content: @Composable RowScope.() -> Unit) -> Unit =
                 if (onWorkUntilDone != null) { c, e, m, t -> FilledTonalButton(onClick = c, enabled = e, modifier = m, content = t) }
@@ -332,7 +340,7 @@ fun RunLaunchSheet(
                 {
                     permission()
                     sentTo = "agent"
-                    onStart(target, choice.request(mode, instructions.ifBlank { null }, worktree))
+                    onStart(target, choice.request(mode, instructions.ifBlank { null }, worktree).copy(goal = goal))
                 },
                 canSend,
                 Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),

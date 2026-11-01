@@ -2,6 +2,7 @@ package runs
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,7 +31,58 @@ const (
 // m.wg and m.running were incremented by schedule.
 func (m *Manager) execute(r *run, agent string, t claude.Turn, cwd string) {
 	defer m.wg.Done()
-	err := m.runProcess(r, m.command(agent, t), cwd)
+
+	var err error
+	for {
+		err = m.runProcess(r, m.command(agent, t), cwd)
+		if t.Goal == "" || err != nil {
+			break
+		}
+		r.mu.Lock()
+		session, cancelled, stopped, res := r.meta.SessionID, r.cancelReq, r.shutdownReq, r.turnResult
+		r.mu.Unlock()
+		if cancelled || stopped || res == nil || res.IsError {
+			break
+		}
+		if agent != api.AgentCodex {
+			if res.TerminalReason != "" && res.TerminalReason != "completed" {
+				err = fmt.Errorf("native goal did not complete: %s", res.TerminalReason)
+			}
+			break // Claude's /goal Stop hook owns its continuation loop.
+		}
+		state, goalErr := codex.GoalState(context.Background(), m.command(agent, t).path, session, claude.ChildEnv())
+		if goalErr != nil {
+			err = fmt.Errorf("verify native goal: %w", goalErr)
+			break
+		}
+		if state == "complete" {
+			break
+		}
+		if state != "active" {
+			err = fmt.Errorf("native goal is %s; completion has not been established", state)
+			break
+		}
+		// codex exec exits at a turn boundary even with an active native goal.
+		// Keep this run and concurrency slot alive and resume the SAME thread.
+		r.mu.Lock()
+		if r.cancelReq || r.shutdownReq {
+			r.mu.Unlock()
+			break
+		}
+		t.Resume, t.Worktree = session, false
+		t.Prompt = "Continue working on the active native goal. Call get_goal, verify every acceptance criterion and selected commit/push condition, repair what remains, and call update_goal with status complete only when all conditions hold. Report a genuine blocker through the native goal if progress requires unavailable input."
+		r.meta.Turns++
+		r.turnResult, r.stderrTail = nil, nil
+		r.addEvent(api.RunEvent{Kind: api.KindUser, Text: t.Prompt})
+		_ = r.save()
+		snap := r.meta
+		if r.meta.SessionCWD != "" {
+			cwd = r.meta.SessionCWD
+		}
+		r.mu.Unlock()
+		m.notify(snap)
+	}
+
 	m.finishTurn(r, err)
 }
 
@@ -53,7 +105,7 @@ type agentCommand struct {
 
 func (m *Manager) command(agent string, t claude.Turn) agentCommand {
 	if agent == api.AgentCodex {
-		ct := codex.Turn{Prompt: t.Prompt, Mode: t.Mode, Model: t.Model, Effort: t.Effort, Worktree: t.Worktree, Resume: t.Resume}
+		ct := codex.Turn{Prompt: t.Prompt, Goal: t.Goal, Mode: t.Mode, Model: t.Model, Effort: t.Effort, Worktree: t.Worktree, Resume: t.Resume}
 		path := m.opts.CodexPath
 		if path == "" {
 			path = "codex"
@@ -249,6 +301,8 @@ func (m *Manager) finishTurn(r *run, waitErr error) {
 		status, errText = api.StatusCancelled, "cancelled"
 	case r.shutdownReq:
 		status, errText = api.StatusFailed, "bridge stopped"
+	case waitErr != nil && res != nil && !res.IsError:
+		status, errText = api.StatusFailed, waitErr.Error()
 	case res != nil && !res.IsError:
 		status = api.StatusSucceeded
 	case res != nil && res.IsError:

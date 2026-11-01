@@ -30,13 +30,14 @@ type Init struct {
 
 // Result is the end-of-turn summary from a `result` message.
 type Result struct {
-	Subtype    string
-	IsError    bool
-	Text       string
-	CostUSD    float64
-	DurationMS int64
-	NumTurns   int
-	SessionID  string
+	TerminalReason string
+	Subtype        string
+	IsError        bool
+	Text           string
+	CostUSD        float64
+	DurationMS     int64
+	NumTurns       int
+	SessionID      string
 	// Structured is the answer validated against --json-schema, when one was
 	// given (the CLI's "structured_output" field).
 	Structured json.RawMessage
@@ -61,13 +62,14 @@ type rawMessage struct {
 	// string on system notices such as permission_denied.
 	Message json.RawMessage `json:"message"`
 	// result
-	IsError      bool            `json:"is_error"`
-	Result       string          `json:"result"`
-	TotalCostUSD float64         `json:"total_cost_usd"`
-	DurationMS   int64           `json:"duration_ms"`
-	NumTurns     int             `json:"num_turns"`
-	Errors       []string        `json:"errors"`
-	Structured   json.RawMessage `json:"structured_output"`
+	IsError        bool            `json:"is_error"`
+	Result         string          `json:"result"`
+	TotalCostUSD   float64         `json:"total_cost_usd"`
+	DurationMS     int64           `json:"duration_ms"`
+	NumTurns       int             `json:"num_turns"`
+	Errors         []string        `json:"errors"`
+	Structured     json.RawMessage `json:"structured_output"`
+	TerminalReason string          `json:"terminal_reason"`
 	// system/api_retry etc.
 	Attempt int    `json:"attempt"`
 	Error   string `json:"error"`
@@ -169,7 +171,7 @@ func ParseLine(line []byte) (Parsed, error) {
 		p.Result = &Result{
 			Subtype: m.Subtype, IsError: m.IsError, Text: text, CostUSD: m.TotalCostUSD,
 			DurationMS: m.DurationMS, NumTurns: m.NumTurns, SessionID: m.SessionID,
-			Structured: m.Structured,
+			Structured: m.Structured, TerminalReason: m.TerminalReason,
 		}
 		p.Events = append(p.Events, api.RunEvent{Kind: api.KindResult, Text: text, IsError: api.Bool(m.IsError)})
 	}

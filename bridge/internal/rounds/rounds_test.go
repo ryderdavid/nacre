@@ -285,11 +285,12 @@ func newHarness(t *testing.T, beads *fakeBeads, plan string) *harness {
 }
 
 type harnessOpts struct {
-	stallAfter time.Duration
-	runsDir    string
-	roundsDir  string
-	wsRoot     string
-	repo       string
+	claudeScript string
+	stallAfter   time.Duration
+	runsDir      string
+	roundsDir    string
+	wsRoot       string
+	repo         string
 	// requirements and develop feed the spec-drift check.
 	requirements func(string) (*api.RequirementIndex, error)
 	develop      func(context.Context, string, string, string) error
@@ -311,7 +312,11 @@ func newHarnessWith(t *testing.T, beads *fakeBeads, plan string, o harnessOpts) 
 		}
 	}
 	bin := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(bin, []byte(fakeClaude), 0o755); err != nil {
+	script := o.claudeScript
+	if script == "" {
+		script = fakeClaude
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var m *Manager

@@ -26,7 +26,8 @@ type runRequest struct {
 	Prompt       string `json:"prompt"`
 	// Agent is "codex" to run the bead with the Codex CLI; "" or
 	// "claude-code" runs it with Claude Code.
-	Agent string `json:"agent"`
+	Agent string             `json:"agent"`
+	Goal  prompt.GoalOptions `json:"goal"`
 }
 
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
@@ -87,9 +88,12 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var issue struct {
-		Title string `json:"title"`
+		prompt.GoalBead
 	}
-	_ = json.Unmarshal(raw, &issue)
+	if err := json.Unmarshal(raw, &issue); err != nil {
+		s.fail(w, err)
+		return
+	}
 	repo, _ := s.Repos.Summary(repoID)
 
 	tmpl := s.Config.PromptTemplate
@@ -102,6 +106,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		RepoID: repoID, RepoName: repo.Name, RepoPath: path,
 		IssueID: id, IssueTitle: issue.Title,
 		Mode: req.Mode, Model: req.Model, Effort: req.Effort, Worktree: req.Worktree, Prompt: text, Agent: req.Agent,
+		Goal: prompt.BuildGoal([]prompt.GoalBead{issue.GoalBead}, req.Goal, false),
 	})
 	if err != nil {
 		s.fail(w, err)
@@ -160,8 +165,8 @@ func (s *Server) followupRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if previous.SpecChangeID != "" {
-		writeError(w, http.StatusConflict, "Continue this specification task from its round.", "")
+	if previous.SpecChangeID != "" || previous.Kind == "goal" {
+		writeError(w, http.StatusConflict, "Continue this task from its round.", "")
 		return
 	}
 	if previous.IssueID != "" && !previous.Adopted() {

@@ -248,6 +248,14 @@ func (r *round) stop(s api.Stop) {
 	if r.meta.State == api.RoundPaused {
 		return
 	}
+	if r.meta.GoalText != "" {
+		r.m.leases.release(r.meta.ID + "/goal")
+		if r.meta.GoalRunID != "" {
+			if run, err := r.m.opts.Runs.Run(r.meta.GoalRunID); err == nil && run.Active() {
+				_, _ = r.m.opts.Runs.Cancel(run.ID)
+			}
+		}
+	}
 	s.Choices = r.choicesFor(s)
 	if s.Kind == api.StopLimits {
 		s.Spend, s.EstimateUSD = r.spendByBead()
@@ -668,6 +676,9 @@ func hasChoice(s api.Stop, id string) bool {
 // resumeFromStop clears the stop and goes back to the step it came from.
 // Caller holds r.mu.
 func (r *round) resumeFromStop(text string) {
+	if r.meta.GoalText != "" && r.meta.PausedFrom != api.RoundReadyToLand {
+		r.meta.GoalRetry = true
+	}
 	s := r.meta.Stop
 	to := r.meta.PausedFrom
 	if to == "" || to == api.RoundPaused {

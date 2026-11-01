@@ -581,6 +581,9 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 	if gitx.IsAncestor(ctx, meta.RepoPath, target, final) {
 		return r.completeLand(ctx, meta, cfg, final, meta.Version, false)
 	}
+	if meta.GoalText != "" && cfg.Version.Bump != "" {
+		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved after this goal round's combined version commit. Reconcile its version with the target and verify it before landing; the round branch is preserved."})
+	}
 	rebump := false
 	if cfg.Version.Bump != "" && meta.Version != "" {
 		if bumped := bumpCommit(ctx, ws, meta.ID); bumped != "" {

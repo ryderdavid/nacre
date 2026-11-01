@@ -414,6 +414,7 @@ data class UpdateIssue(
 
 @Serializable
 data class RunRequest(
+    val goal: GoalOptions? = null,
     val mode: String? = null,
     val model: String? = null,
     /** An effort level of [agent]'s (see [RunAgent]); null leaves it to the agent's default. */
@@ -669,6 +670,7 @@ data class RoundEvent(
 /** POST /v1/repos/{repo}/rounds. */
 @Serializable
 data class StartRound(
+    val goal: GoalOptions? = null,
     val beads: List<String> = emptyList(),
     val epic: String? = null,
     @SerialName("budget_usd") val budgetUsd: Double? = null,

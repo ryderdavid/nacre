@@ -17,6 +17,7 @@ const NamePrefix = "Nacre · "
 // Turn describes one `claude -p` invocation.
 type Turn struct {
 	Prompt   string
+	Goal     string // native /goal condition, first turn only
 	Mode     string // --permission-mode
 	Model    string // --model ("" = CLI default)
 	Effort   string // --effort ("" = CLI default)
@@ -31,7 +32,7 @@ type Turn struct {
 
 // Args returns the argv (without the binary) for a turn.
 func (t Turn) Args() []string {
-	prompt := t.Prompt
+	prompt := t.LaunchPrompt()
 	// The prompt is a positional argument; keep a leading "-" from being
 	// parsed as a flag.
 	if strings.HasPrefix(prompt, "-") {
@@ -98,4 +99,13 @@ func Version(ctx context.Context, path string) (string, error) {
 		return f[0], nil
 	}
 	return s, nil
+}
+
+// LaunchPrompt sends a real slash command, rather than mentioning /goal in
+// ordinary prose. Everything after the command is part of its condition.
+func (t Turn) LaunchPrompt() string {
+	if t.Goal == "" || t.Resume != "" {
+		return t.Prompt
+	}
+	return "/goal " + t.Goal + "\nLaunch instructions:\n" + t.Prompt
 }

@@ -33,7 +33,7 @@ func codexServer(t *testing.T, status *codex.Status, checks *int) (ts *httptest.
 		}
 		return p
 	}
-	bdPath := write("bd", `echo '[{"id":"X-1","title":"Do the thing"}]'`+"\n")
+	bdPath := write("bd", `echo '[{"id":"X-1","title":"Do the thing","description":"Full detail","acceptance_criteria":"- exact criterion"}]'`+"\n")
 	claudePath := write("claude", `echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s"}'`+"\n")
 	codexPath := write("codex", `echo '{"type":"thread.started","thread_id":"th"}'; echo '{"type":"turn.completed"}'`+"\n")
 	mgr, err := runs.New(runs.Options{Dir: t.TempDir(), ClaudePath: claudePath, CodexPath: codexPath})

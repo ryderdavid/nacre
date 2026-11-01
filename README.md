@@ -54,6 +54,15 @@ reason an agent session never posts a run-finished notification and never keeps 
 watcher service alive: quitting a terminal you left open for an afternoon is not a run of ours
 finishing.
 
+Implement (Claude or Codex) and round start offer **Use a goal to work until
+acceptance criteria are met and:** with **committed** and **pushed** choices.
+All start unchecked; the app remembers the last successful launch's choices.
+Pushed also selects committed. A goal includes the full bead and its acceptance
+criteria and keeps the native agent session working until its conditions hold.
+Goals can still pause for blockers, permissions or spending limits. In a round,
+one goal session works every selected bead to one combined commit; an optional
+push publishes the round branch, with landing still handled separately.
+
 ## Rounds
 
 To get one bead done, open it and tap **Implement…**, then **Work until done**. That's a round of one

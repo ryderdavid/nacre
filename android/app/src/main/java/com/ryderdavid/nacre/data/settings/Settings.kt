@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.data.settings
 
+import com.ryderdavid.nacre.data.model.GoalOptions
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -47,6 +48,7 @@ data class AppSettings(
     val claudeEffort: String = "medium",
     val runMode: String = "auto",
     val runWorktree: Boolean = false,
+    val runGoal: GoalOptions = GoalOptions(),
     val dynamicColor: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val pinnedRepos: Set<String> = emptySet(),
@@ -95,6 +97,7 @@ class SettingsStore(private val context: Context) {
         val effort = stringPreferencesKey("claude_effort")
         val runMode = stringPreferencesKey("run_mode")
         val runWorktree = booleanPreferencesKey("run_worktree")
+        val runGoal = stringPreferencesKey("run_goal_json")
         val dynamic = booleanPreferencesKey("dynamic_color")
         val theme = stringPreferencesKey("theme_mode")
         val pinned = stringSetPreferencesKey("pinned_repos")
@@ -131,6 +134,7 @@ class SettingsStore(private val context: Context) {
             claudeEffort = p[K.effort] ?: "medium",
             runMode = p[K.runMode] ?: "auto",
             runWorktree = p[K.runWorktree] ?: false,
+            runGoal = p[K.runGoal]?.let { runCatching { json.decodeFromString<GoalOptions>(it).normalized() }.getOrNull() } ?: GoalOptions(),
             dynamicColor = p[K.dynamic] ?: true,
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             pinnedRepos = p[K.pinned].orEmpty(),
@@ -141,6 +145,8 @@ class SettingsStore(private val context: Context) {
     }
 
     suspend fun current(): AppSettings = settings.first()
+
+    suspend fun setRunGoal(goal: GoalOptions) = context.dataStore.edit { it[K.runGoal] = json.encodeToString(goal.normalized()) }
 
     /** Kept outside AppSettings so a draft does not restart connections or change preferences. */
     suspend fun changeFeedback(key: String): String = stringMap(context.dataStore.data.first()[K.changeFeedback])[key].orEmpty()
@@ -200,6 +206,7 @@ class SettingsStore(private val context: Context) {
             it[K.effort] = next.claudeEffort
             it[K.runMode] = next.runMode
             it[K.runWorktree] = next.runWorktree
+            it[K.runGoal] = json.encodeToString(next.runGoal.normalized())
             it[K.dynamic] = next.dynamicColor
             it[K.theme] = next.themeMode.name
             it[K.pinned] = next.pinnedRepos
