@@ -606,6 +606,11 @@ type IntegrationStep struct {
 	Attempts int    `json:"attempts"`
 	// Problem is what the current integration turn was asked to fix.
 	Problem string `json:"problem,omitempty"`
+	// Attempted lists the recovery rungs this step has run so far, e.g.
+	// "fix:version", "retry:1", "turn:land-merge×2". It is saved as each
+	// rung runs, so a reload mid-ladder doesn't repeat one, and becomes the
+	// stop's Attempted if the step gives up.
+	Attempted []string `json:"attempted,omitempty"`
 }
 
 // RoundEvent is one line of a round's log.
