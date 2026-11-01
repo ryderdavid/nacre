@@ -565,7 +565,8 @@ func (r *round) startLand() {
 
 // land brings in the target if it moved and lands. The round's version bump
 // was made from the base it started on, so before merging a moved target it
-// is undone, and after the merge it is redone from the target's version. A
+// is undone (in a goal round, by reversing the recorded bump folded into its
+// combined commit), and after the merge it is redone from the target's version. A
 // merge the catalogue can't settle, or a check that fails with the target's
 // changes, goes to a recovery turn.
 func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config) func() {
@@ -581,11 +582,17 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 	if gitx.IsAncestor(ctx, meta.RepoPath, target, final) {
 		return r.completeLand(ctx, meta, cfg, final, meta.Version, false)
 	}
-	if meta.GoalText != "" && cfg.Version.Bump != "" {
-		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved after this goal round's combined version commit. Reconcile its version with the target and verify it before landing; the round branch is preserved."})
-	}
 	rebump := false
-	if cfg.Version.Bump != "" && meta.Version != "" {
+	if meta.GoalText != "" && cfg.Version.Bump != "" && meta.Version != "" {
+		// A goal round's bump is part of its one combined commit: reverse
+		// just the recorded bump in a new commit on top, so the round branch
+		// (pushed, perhaps) is extended, never rewritten.
+		if err := r.undoGoalVersion(ctx, ws, meta); err != nil {
+			_ = gitx.ResetHard(ctx, ws, final)
+			return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved after this goal round's combined commit, and undoing the round's version bump before merging " + meta.Target + " failed: " + err.Error() + ". The round branch is preserved."})
+		}
+		rebump = true
+	} else if meta.GoalText == "" && cfg.Version.Bump != "" && meta.Version != "" {
 		if bumped := bumpCommit(ctx, ws, meta.ID); bumped != "" {
 			if _, err := gitx.Run(ctx, ws, "revert", "--no-commit", bumped); err != nil {
 				_ = gitx.ResetHard(ctx, ws, final)

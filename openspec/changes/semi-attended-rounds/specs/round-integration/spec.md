@@ -90,3 +90,8 @@ the round has no specification sections.
 #### Scenario: The version bump on a moved target
 - **WHEN** the target moved since the round's base, so the round's version bump was made from an older version
 - **THEN** nacred undoes the bump before merging the target and, after the merge, runs `version.bump` again at the same level from the target's version
+
+#### Scenario: A goal round's combined commit on a moved target
+- **WHEN** a goal round, whose version bump is folded into its one combined commit, lands after the target moved
+- **THEN** nacred reverses only the recorded bump in a new commit on top of the round's work, merges the target, bumps again from the target's version, and re-runs the gates and build before landing
+- **AND** the round branch is extended, never rewritten, so a round branch already pushed is preserved without a force push
