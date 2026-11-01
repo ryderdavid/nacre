@@ -53,6 +53,8 @@ type Server struct {
 	Attention *attention.Builder
 	Broker    *sse.Broker
 	Log       *log.Logger
+	// boardsMu guards the links in Config.AssistBoardsDir.
+	boardsMu sync.Mutex
 	// CodexCheck reports whether beads can run with Codex here; nil checks
 	// the Codex CLI at Config.CodexPath (tests replace it).
 	CodexCheck func(ctx context.Context) codex.Status
@@ -91,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/attention", s.listAttention)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
+	mux.HandleFunc("POST /v1/claude/stream", s.assistBoardsStream)
 	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
 	mux.HandleFunc("POST /v1/assist/{turn}/cancel", s.cancelAssist)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)

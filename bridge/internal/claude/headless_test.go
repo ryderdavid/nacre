@@ -110,3 +110,30 @@ func TestParseLineStructuredOutput(t *testing.T) {
 		t.Errorf("session = %q", p.Result.SessionID)
 	}
 }
+
+func TestBoardReadToolsNameEachBoardAndOnlyReads(t *testing.T) {
+	got := BoardReadTools([]string{"nacre", "home"})
+	if len(got) != 2*len(BdReadTools) {
+		t.Fatalf("got %d patterns, want %d", len(got), 2*len(BdReadTools))
+	}
+	for _, want := range []string{"Bash(bd -C nacre list:*)", "Bash(bd -C home dep tree:*)", "Bash(bd -C home show:*)"} {
+		found := false
+		for _, p := range got {
+			found = found || p == want
+		}
+		if !found {
+			t.Errorf("missing %q in %v", want, got)
+		}
+	}
+	for _, p := range got {
+		for _, w := range []string{"create", "update", "close", "delete", "comment:", "dolt"} {
+			if strings.Contains(p, " "+w) {
+				t.Errorf("write command allowed: %q", p)
+			}
+		}
+	}
+	args := strings.Join(Headless{Prompt: "x", AllowedTools: got}.Args(), " ")
+	if !strings.Contains(args, "--tools Bash ") || strings.Contains(args, "Read,") {
+		t.Errorf("args = %q", args)
+	}
+}

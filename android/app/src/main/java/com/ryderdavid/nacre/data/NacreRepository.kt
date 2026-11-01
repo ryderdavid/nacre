@@ -550,6 +550,10 @@ class NacreRepository(
     /** Runs one board-assistant turn on [key]'s computer, streamed as it goes. */
     fun claudeStream(key: String, req: AssistRequest): Flow<AssistMessage> = clientFor(key).claudeStream(Keys.id(key), req)
 
+    /** Runs one board-assistant turn across several boards on computer [hostId]. */
+    fun claudeStreamAcross(hostId: String, req: AssistRequest): Flow<AssistMessage> =
+        (paired.value[hostId] ?: throw BridgeException("That computer is no longer paired")).client.claudeStreamAcross(req)
+
     /** Reattaches to a turn on [key]'s computer after the connection dropped. */
     fun claudeResume(key: String, turn: String, after: Long): Flow<AssistMessage> = clientFor(key).claudeResume(turn, after)
 

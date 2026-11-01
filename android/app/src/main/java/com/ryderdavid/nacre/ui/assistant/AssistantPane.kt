@@ -68,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import com.ryderdavid.nacre.data.claude.BOARDS_STEP
 import com.ryderdavid.nacre.data.claude.CONNECTION_STEP
 import com.ryderdavid.nacre.data.claude.ChatItem
 import com.ryderdavid.nacre.data.claude.ChatItem.ToolCall.State as S
@@ -282,6 +283,7 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 private fun toolTitle(name: String) = when (name) {
     "bd" -> "Read the board on the Mac"
     CONNECTION_STEP -> "Connection"
+    BOARDS_STEP -> "Boards not read"
     "list_boards" -> "Looked at the boards"
     "list_beads" -> "Looked at beads"
     "get_bead" -> "Read bead"
