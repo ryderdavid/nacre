@@ -3,6 +3,8 @@ package rounds
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
@@ -11,6 +13,34 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 )
+
+// goalVersionPatch names the file in the round's directory holding the diff
+// of the controller's version bump in a goal round, which is folded into the
+// round's one combined commit and so can't be reverted as a commit of its own.
+const goalVersionPatch = "goal-version.patch"
+
+// undoGoalVersion commits the reverse of a goal round's recorded version bump
+// on top of ws's HEAD, so a moved target can be merged and the bump redone
+// from its version. The round's commits stay as they are: nothing is
+// rewritten, so a round branch already pushed never needs a force push.
+func (r *round) undoGoalVersion(ctx context.Context, ws string, meta api.Round) error {
+	patch := filepath.Join(r.dir, goalVersionPatch)
+	if _, err := os.Stat(patch); err != nil {
+		return fmt.Errorf("no record of the version change folded into its combined commit")
+	}
+	if _, err := gitx.Run(ctx, ws, "apply", "--reverse", "--index", patch); err != nil {
+		if _, err3 := gitx.Run(ctx, ws, "apply", "--reverse", "--3way", patch); err3 != nil {
+			return fmt.Errorf("its version change no longer reverses cleanly: %s", firstLine(err.Error()))
+		}
+		if files, _ := gitx.Run(ctx, ws, "diff", "--name-only", "--diff-filter=U"); files != "" {
+			return fmt.Errorf("its version change no longer reverses cleanly in: %s", strings.ReplaceAll(files, "\n", ", "))
+		}
+	}
+	if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Undo round %s's version change to redo it on top of %s", meta.ID, meta.Target)); err != nil {
+		return fmt.Errorf("committing the undone version change failed: %v", err)
+	}
+	return nil
+}
 
 // driveGoal keeps the round in one session: a goal that includes all beads
 // cannot be fulfilled by isolated workers waiting for one another. Preflight,
@@ -73,6 +103,12 @@ func (r *round) driveGoal() {
 					return r.stopFn(api.Stop{Kind: api.StopBumpFailed, Reason: failure(results)})
 				}
 				version = lastLine(results[0].Tail)
+				// The bump is folded into the combined commit, so keep its
+				// diff: landing on a target that moved reverses exactly this
+				// to redo the bump from the target's version.
+				if diff, err := gitx.Run(ctx, meta.Workspace, "--no-optional-locks", "diff", "--binary", "HEAD"); err == nil && diff != "" {
+					_ = os.WriteFile(filepath.Join(r.dir, goalVersionPatch), []byte(diff+"\n"), 0o644)
+				}
 				s.WriteString("The controller has already bumped the version in this worktree. Include those changes in the combined commit; do not bump again.\n")
 			}
 

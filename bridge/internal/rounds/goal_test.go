@@ -94,21 +94,46 @@ func TestGoalRoundWorksEveryBeadInOneSessionAndChecksPush(t *testing.T) {
 			if err != nil || loaded.meta.GoalText != done.GoalText || loaded.meta.Goal != done.Goal || loaded.meta.GoalRunID != done.GoalRunID {
 				t.Fatalf("goal state did not persist: %v", err)
 			}
-			if !push {
-				// Combined version commits must not use the old standalone
-				// version-revert path if the target moves before landing.
-				if err := os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.1.1\n"), 0600); err != nil {
-					t.Fatal(err)
+			// The target ships a release of its own before the round lands:
+			// the round's combined version change is reconciled with it, the
+			// gates and build run again, and the round branch is extended
+			// rather than rewritten, so a pushed branch never needs a force push.
+			if err := os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.2.0\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.repo, "hotfix.txt"), []byte("fix\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := gitx.CommitAll(ctx, h.repo, "hotfix 0.2.0"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.m.Land(done.ID); err != nil {
+				t.Fatal(err)
+			}
+			landed := h.wait(t, done.ID, api.RoundLanded, api.RoundPaused)
+			if landed.State != api.RoundLanded {
+				t.Fatalf("goal round did not land on a moved target: %s %q", landed.State, landed.PauseReason)
+			}
+			if b, _ := os.ReadFile(filepath.Join(h.repo, "VERSION")); strings.TrimSpace(string(b)) != "0.3.0" {
+				t.Errorf("main VERSION = %q, want 0.3.0 (a minor bump on top of main's 0.2.0)", b)
+			}
+			if !strings.Contains(landed.Version, "0.3.0") || landed.Tag != "v0.3.0" {
+				t.Errorf("round version %q, tag %q; want 0.3.0", landed.Version, landed.Tag)
+			}
+			for _, f := range []string{"hotfix.txt", "a.txt", "b.txt"} {
+				if _, err := os.Stat(filepath.Join(h.repo, f)); err != nil {
+					t.Errorf("main lacks %s", f)
 				}
-				if _, err := gitx.CommitAll(ctx, h.repo, "Target version moved"); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := h.m.Land(done.ID); err != nil {
-					t.Fatal(err)
-				}
-				paused := h.wait(t, done.ID, api.RoundPaused)
-				if !strings.Contains(paused.PauseReason, "target moved") || paused.FinalCommit != done.FinalCommit {
-					t.Fatalf("unsafe goal landing: %+v", paused)
+			}
+			if !gitx.IsAncestor(ctx, h.repo, done.FinalCommit, landed.LandedCommit) {
+				t.Errorf("landed %s doesn't contain the round's combined commit %s", landed.LandedCommit, done.FinalCommit)
+			}
+			if log, _ := gitx.Run(ctx, h.repo, "log", "-1", "--format=%s", "main"); !strings.Contains(log, "on top of main") {
+				t.Errorf("last commit on main = %q, want the redone bump", log)
+			}
+			if push {
+				if sha, err := gitx.RevParse(ctx, remote, "refs/heads/"+done.Branch); err != nil || sha != done.FinalCommit {
+					t.Errorf("pushed round branch moved to %s (%v), want it preserved at %s", sha, err, done.FinalCommit)
 				}
 			}
 		})
