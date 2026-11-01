@@ -147,6 +147,11 @@ func extract(in io.Reader, dir string) error {
 		if e != nil {
 			return fmt.Errorf("invalid release archive: %w", e)
 		}
+		// GitHub source tarballs begin with pax metadata entries; they are
+		// not archive contents and must not become the release root.
+		if h.Typeflag == tar.TypeXGlobalHeader || h.Typeflag == tar.TypeXHeader {
+			continue
+		}
 		count++
 		if count > 20000 || h.Size > 16<<20 {
 			return fmt.Errorf("release source exceeds limits")
