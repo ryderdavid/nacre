@@ -41,6 +41,7 @@ class LiveSendTest {
         assertFalse(held.failed)
         assertTrue(refused.failed); assertTrue(refused.label.startsWith("Refused"))
         assertTrue(dropped.failed); assertEquals("shutdown", dropped.reason)
+        assertEquals("Dropped by the session", dropped.label)
         assertFalse(delivered.failed); assertEquals("Delivered", delivered.label)
         assertTrue(unconfirmed.failed)
         assertFalse(unconfirmed.copy(confirmed = true).failed, "a late transcript entry settles it")

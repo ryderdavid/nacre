@@ -18,4 +18,7 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 - [x] 3.1 Send to a real interactive session on the installed Claude Code and record the version on NAC-j5z.15
   (2.1.312, 2026-11-01: `Client.Check` passed, the send arrived as a peer message and was answered,
   `peer_idle_notice` came back for our notify id, and the transcript line had `origin.kind=peer` with our `msg_id`)
-- [ ] 3.2 In the app: the action appears only on guarded runs; held, refused and dropped sends show
+- [x] 3.2 In the app: the action appears only on guarded runs; held, refused and dropped sends show —
+  covered by LiveSendTest: offeredOnlyOnALiveAdoptedRunThatPassesTheGuard (the action's gating) and
+  receiptsReadAsTheyShould (the label, reason and failed state the run detail's LiveMessages shows for
+  held, refused, dropped, delivered and unconfirmed sends); `./gradlew testDebugUnitTest`

@@ -53,6 +53,10 @@ transcript shows the message arrived. nacred SHALL NOT resend.
 - **WHEN** receipts arrive, or don't
 - **THEN** a receipt applies by `orig_msg_id` and `dropped_msg_ids` and is marked as an error for `denied`, `expired`, `refused` and `dropped`; `confirmed` needs a transcript user entry with `origin.kind` `peer` and `origin.msg_id` equal to the send's; a send with neither within two minutes becomes `unconfirmed`; a `peer_idle_notice` only sets `idle_at`
 
+#### Scenario: Accepted but not confirmed
+- **WHEN** a send gets a `delivered` or `held` receipt but never appears in the session's transcript
+- **THEN** it keeps that status, shown as accepted or held and waiting, and is never shown as confirmed
+
 ### Requirement: The app's live-send action
 The app SHALL show "Send to live session" only on a live adopted run with `can_send_live`, as an explicit
 action that first states that the message arrives as a peer message, runs under the session's own
