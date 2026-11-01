@@ -436,6 +436,10 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 			return Envelope{}, fmt.Errorf("%w: specification labels have no saved workflow; restore the workflow record", ErrConflict)
 		}
 		r = &record{Repo: repo, Seed: seed, Generated: map[string]generated{}, Planned: map[string]generated{}, Change: Change{ID: newID(), SeedID: id, References: []string{}, Artifacts: []Artifact{}, Findings: []Finding{}, Sections: []Section{}, RetiredSections: []RetiredSection{}, History: []History{}, Evidence: []Evidence{}}}
+		if a.Intake != nil && (a.Intake.Verdict == VerdictNew || a.Intake.Verdict == VerdictAmend) {
+			r.Change.Intake = &IntakeHint{Verdict: a.Intake.Verdict, ChangeName: a.Intake.ChangeName}
+			history(r, "intake", "Intake suggested "+describeIntake(*r.Change.Intake)+".")
+		}
 	} else if a.Action == "develop" {
 		if strings.TrimSpace(a.Feedback) != "" {
 			return Envelope{}, fmt.Errorf("%w: this bead already has a proposal; submit your feedback with Revise", ErrConflict)

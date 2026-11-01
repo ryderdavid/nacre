@@ -159,6 +159,9 @@ func (m *Manager) canonicalize(r *record, name string) error {
 	existing.ReviewCalls = r.ReviewCalls
 	existing.ActionCost = r.ActionCost
 	existing.Change.CostUSD += r.Change.CostUSD
+	if r.Change.Intake != nil {
+		existing.Change.Intake = r.Change.Intake
+	}
 	existing.Stage = "apply"
 	existing.Change.Phase = "drafting"
 	existing.Change.Error = ""
@@ -346,6 +349,9 @@ func (m *Manager) applyAuthor(r *record) error {
 	r.Stage = "validate"
 	r.Change.Phase = "reviewing"
 	history(r, "recommendation", a.Route+": "+a.Rationale)
+	if in := r.Change.Intake; in != nil && (in.Verdict != a.Route || (a.Route == VerdictAmend && in.ChangeName != a.ChangeName)) {
+		history(r, "intake", "Intake suggested "+describeIntake(*in)+"; reconciliation chose "+describeIntake(IntakeHint{Verdict: a.Route, ChangeName: a.ChangeName})+" because "+a.Rationale)
+	}
 	return m.checkpoint(r)
 }
 func validateReview(result reviewResult, r *record) error {

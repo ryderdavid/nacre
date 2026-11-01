@@ -332,9 +332,13 @@ gated: a client that was handed an adopted run's id can always follow it.
 | --- | --- | --- | --- |
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
 | POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
+| POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total}`: the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
 
-Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `approve` must name the exact
+Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `develop` may carry
+`intake: {verdict, change_name?}`, the New effort verdict it was confirmed with; the change keeps it
+as `intake`, and when the author's full reconciliation picks a different route its history records
+"Intake suggested …; reconciliation chose … because …". The author's route stands. `approve` must name the exact
 reviewed `revision`; it promotes/synchronizes Beads but never starts code execution. Conflicts return
 409, unavailable prerequisites 503. `GET` reports unsupported prerequisites as `available:false`
 with a reason. All routes require the ordinary bearer authentication.
@@ -373,6 +377,17 @@ is integrated into the round's final commit with passing final gates and build.
 Only a passing verification of the current approved revision counts; unknown, reopened or changed
 work never becomes successful from a checkbox or status alone. Landing, human acceptance and
 OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
+
+`IntakeVerdict` is `{verdict, change_name?, rationale, references:[{path, requirement?}], cost_usd,
+fallback?, target_tracked, target_active?}`. `verdict` is `bead` (changes no specified "done": chores,
+refactors, small fixes, bugs that restore specified behavior), `new`, `amend` (`change_name` is an
+active change) or `covered`. The call sees the requirement index and each active change's name and
+`## Why` (24 KB together), has no tools, and is capped at $0.50 and 90 s. An `amend` or `covered`
+verdict that doesn't cite a listed requirement (or, for `amend`, a file of the named active change)
+becomes `new`, with `fallback` saying why. `target_tracked` is true when Nacre has a workflow record
+for the amended change; only then can `target_active` name the round or run using it (a change
+written by hand is not tracked). A repository without valid OpenSpec answers 503; a failed, timed
+out or unreadable call answers 502 with `{error, cost_usd}`.
 
 `ChangeSummary` is `{id, change_name, phase, revision?, approved_revision?, epic_id?, seed_ids,
 sections, error?, stale_reason?, updated_at}`. `seed_ids` lists the original seed first, then any later seeds that

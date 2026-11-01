@@ -41,8 +41,8 @@
 <!-- nacre-section: ssw-intake -->
 ## 6. New effort intake
 
-- [ ] 6.1 `POST /v1/repos/{repo}/intake`: bounded read-only Headless call over the requirement index and active changes' Why, $0.50 and 90 s caps, citation checks, fallback to new, and `target_active` from `Active()`; the endpoint documented in docs/API.md — `cd bridge && go test -race ./internal/specflow ./internal/server`
-- [ ] 6.2 Optional `intake {verdict, change_name}` on `develop`, stored on the record; history entry when the author's route differs; both documented in docs/API.md — `cd bridge && go vet ./... && go test ./internal/specflow ./internal/server`
+- [x] 6.1 `POST /v1/repos/{repo}/intake`: bounded read-only Headless call over the requirement index and active changes' Why, $0.50 and 90 s caps, citation checks, fallback to new, and `target_active` from `Active()`; the endpoint documented in docs/API.md — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [x] 6.2 Optional `intake {verdict, change_name}` on `develop`, stored on the record; history entry when the author's route differs; both documented in docs/API.md — `cd bridge && go vet ./... && go test ./internal/specflow ./internal/server`
 - [ ] 6.3 New effort mode in `NewBeadSheet`: Continue, verdict card with overrides, spending label, disabled amend while work is active with "develop later", `target_tracked` note, sending `related`, `follow_on_of` and `found_comment` when opened from found work, refusal and failure states; New bead unchanged without OpenSpec or on older bridges — `cd android && ./gradlew -q testDebugUnitTest`
 
 <!-- nacre-section: ssw-lane -->

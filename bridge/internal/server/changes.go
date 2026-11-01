@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -90,4 +91,35 @@ func (s *Server) standaloneChangeGuard(ctx context.Context, path, id string, raw
 		}
 	}
 	return nil
+}
+
+// intake gives a New effort draft its verdict: just a bead, a new change, an
+// amendment, or already covered. It writes nothing.
+func (s *Server) intake(w http.ResponseWriter, r *http.Request) {
+	path, ok := s.repoPath(w, r)
+	if !ok {
+		return
+	}
+	if s.Changes == nil {
+		writeError(w, http.StatusServiceUnavailable, "Specification workflows are unavailable on this bridge.", "")
+		return
+	}
+	var draft specflow.IntakeDraft
+	if !decodeOK(w, r, &draft) {
+		return
+	}
+	if len(draft.Title)+len(draft.Description)+len(draft.Design)+len(draft.Acceptance) > 24000 {
+		writeError(w, http.StatusBadRequest, "The draft is too long for intake; shorten it.", "")
+		return
+	}
+	verdict, err := s.Changes.Intake(r.Context(), path, draft)
+	if err != nil {
+		if errors.Is(err, specflow.ErrConflict) || errors.Is(err, specflow.ErrUnavailable) {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "cost_usd": verdict.CostUSD})
+		return
+	}
+	writeJSON(w, http.StatusOK, verdict)
 }

@@ -27,6 +27,8 @@ type Action struct {
 	Action   string `json:"action"`
 	Revision string `json:"revision,omitempty"`
 	Feedback string `json:"feedback,omitempty"`
+	// Intake is the New effort verdict a develop was confirmed with.
+	Intake *IntakeHint `json:"intake,omitempty"`
 }
 type Artifact struct {
 	Path    string `json:"path"`
@@ -87,6 +89,8 @@ type Change struct {
 	History          []History        `json:"history"`
 	Evidence         []Evidence       `json:"evidence"`
 	Error            string           `json:"error,omitempty"`
+	// Intake is the New effort verdict development started from, if any.
+	Intake *IntakeHint `json:"intake,omitempty"`
 	// StaleReason names what broke the approval while the phase is stale.
 	StaleReason string  `json:"stale_reason,omitempty"`
 	CostUSD     float64 `json:"cost_usd"`
