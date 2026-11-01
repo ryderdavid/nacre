@@ -1,11 +1,11 @@
 <!-- nacre-section: ssw-attention -->
 ## 1. Needs you in nacred
 
-- [ ] 1.1 Attention item type, stable ids and option types; `bead_decision` and round kinds (`round_question`, `bead_parked`, `round_ready`) — `cd bridge && go test -race ./internal/server ./internal/rounds`
-- [ ] 1.2 Change kinds (`proposal_ready`, `review_blocked`, `approval_stale`, `workflow_interrupted`) — `cd bridge && go test -race ./internal/specflow ./internal/server`
-- [ ] 1.3 `GET /v1/attention` with per-repository caching, documented in docs/API.md — `cd bridge && go vet ./... && go test ./internal/server`
-- [ ] 1.4 `GET /v1/repos/{repo}/changes` with cached evidence and the inventory summary on change GET — `cd bridge && go test -race ./internal/specflow ./internal/server`
-- [ ] 1.5 `change` events on `/v1/events` — `cd bridge && go test -race ./internal/server ./internal/specflow`
+- [x] 1.1 Attention item type, stable ids and option types; `bead_decision` and round kinds (`round_question`, `bead_parked`, `round_ready`) — `cd bridge && go test -race ./internal/server ./internal/rounds`
+- [x] 1.2 Change kinds (`proposal_ready`, `review_blocked`, `approval_stale`, `workflow_interrupted`) — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [x] 1.3 `GET /v1/attention` with per-repository caching, documented in docs/API.md — `cd bridge && go vet ./... && go test ./internal/server`
+- [x] 1.4 `GET /v1/repos/{repo}/changes` with cached evidence and the inventory summary on change GET — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [x] 1.5 `change` events on `/v1/events` — `cd bridge && go test -race ./internal/server ./internal/specflow`
 
 <!-- nacre-section: ssw-preflight -->
 ## 2. Spec drift in preflight

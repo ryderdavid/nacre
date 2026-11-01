@@ -74,6 +74,7 @@ type Manager struct {
 	mu              sync.Mutex
 	records         map[string]*record
 	busy            map[string]bool
+	evidence        map[string]evidenceCache
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -91,7 +92,7 @@ func New(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{opts: opts, records: map[string]*record{}, busy: map[string]bool{}, ctx: ctx, cancel: cancel, defaultValidate: opts.Validate == nil}
+	m := &Manager{opts: opts, records: map[string]*record{}, busy: map[string]bool{}, evidence: map[string]evidenceCache{}, ctx: ctx, cancel: cancel, defaultValidate: opts.Validate == nil}
 	if m.opts.Validate == nil {
 		m.opts.Validate = strictValidator
 	}
@@ -235,7 +236,11 @@ func (m *Manager) saveLocked(r *record) error {
 	if e := atomicJSON(filepath.Join(m.opts.Dir, r.Change.ID+".json"), r); e != nil {
 		return fmt.Errorf("cannot persist change workflow: %w", e)
 	}
+	prev := m.records[r.Change.ID]
 	m.records[r.Change.ID] = clone(r)
+	if m.opts.Changed != nil && (prev == nil || prev.Change.Phase != r.Change.Phase) {
+		m.opts.Changed(r.Repo, clone(r.Change))
+	}
 	return nil
 }
 func (m *Manager) checkpoint(r *record) error {
@@ -344,11 +349,12 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 			return Envelope{Available: false, Reason: "This bead has specification labels but its saved workflow is missing. Restore the workflow record before starting work."}, nil
 		}
 		env := m.snapshot(nil)
-		if env.Available {
-			if _, e := collect(repo); e != nil {
-				env.Available = false
-				env.Reason = e.Error()
-			}
+		inv, e := collect(repo)
+		if e == nil {
+			env.Inventory = summarize(inv)
+		} else if env.Available {
+			env.Available = false
+			env.Reason = e.Error()
 		}
 		return env, nil
 	}
@@ -380,7 +386,11 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 			}
 		}
 	}
-	return m.snapshot(r), nil
+	env := m.snapshot(r)
+	if inv, e := collect(repo); e == nil {
+		env.Inventory = summarize(inv)
+	}
+	return env, nil
 }
 func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope, error) {
 	if a.Action == "refresh" {

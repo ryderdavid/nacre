@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/specflow"
+	"github.com/ryderdavid/nacre/bridge/internal/sse"
 )
 
 func executionContract(c specflow.Contract) *api.SpecContract {
@@ -156,4 +160,45 @@ func matchingVerification(c specflow.Change, section specflow.Section, run api.R
 		}
 	}
 	return true
+}
+
+// roundsStamp changes whenever a round in the repository at path moves, so
+// cached change evidence is recomputed only then.
+func roundsStamp(path string, rm *rounds.Manager) string {
+	if rm == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range rm.List("", false) {
+		if sameRepoPath(r.RepoPath, path) {
+			b.WriteString(r.ID + "@" + r.State + "@" + r.UpdatedAt + ";")
+		}
+	}
+	return b.String()
+}
+
+// changeEvent is the /v1/events "change" payload for a phase transition.
+func changeEvent(repoID string, c specflow.Change) map[string]string {
+	return map[string]string{"repo_id": repoID, "change_id": c.ID, "change_name": c.ChangeName,
+		"phase": c.Phase, "seed_id": c.SeedID, "epic_id": c.EpicID}
+}
+
+// invalidateAttention drops a repository's cached Needs you items whenever
+// nacred reports it changed; a dropped event only delays the refresh.
+func invalidateAttention(broker *sse.Broker, registry *repos.Registry, b *attention.Builder) {
+	ch, _ := broker.Subscribe()
+	for msg := range ch {
+		if msg.Event != "repo" && msg.Event != "change" {
+			continue
+		}
+		var ev struct {
+			RepoID string `json:"repo_id"`
+		}
+		if json.Unmarshal(msg.Data, &ev) != nil {
+			continue
+		}
+		if path, err := registry.Path(ev.RepoID); err == nil {
+			b.Invalidate(path)
+		}
+	}
 }

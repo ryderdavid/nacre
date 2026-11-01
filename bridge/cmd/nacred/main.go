@@ -27,6 +27,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
+	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
@@ -184,6 +185,16 @@ func serve(cfg *config.Config, listenFlag string) error {
 				}
 			}
 		},
+		EvidenceStamp: func(path string) string {
+			return roundsStamp(path, roundsRef.Load())
+		},
+		Changed: func(path string, c specflow.Change) {
+			for _, ref := range registry.Refs() {
+				if sameRepoPath(ref.Path, path) {
+					broker.Publish("change", changeEvent(ref.ID, c))
+				}
+			}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("load specification workflows: %w", err)
@@ -222,7 +233,16 @@ func serve(cfg *config.Config, listenFlag string) error {
 	roundsRef.Store(roundsMgr)
 	roundsMgr.Start()
 	go sweepWorktrees(workspaces, registry, roundsMgr, logger)
-	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Changes: changes, Broker: broker, Log: logger}
+	needsYou := &attention.Builder{
+		Repos: registry.Refs, Issues: client.List,
+		Rounds: func() []api.Round { return roundsMgr.List("", true) },
+		Changes: func(path string) ([]api.ChangeSummary, error) {
+			list, _, err := changes.Summaries(path)
+			return list, err
+		},
+	}
+	go invalidateAttention(broker, registry, needsYou)
+	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Changes: changes, Attention: needsYou, Broker: broker, Log: logger}
 	srv.Updates = daemonupdate.NewService(cfg, addr)
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())

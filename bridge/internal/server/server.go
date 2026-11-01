@@ -19,6 +19,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
+	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
@@ -48,8 +49,10 @@ type Server struct {
 	// Rounds is nil until nacred has started rounds.
 	Rounds  *rounds.Manager
 	Changes *specflow.Manager
-	Broker  *sse.Broker
-	Log     *log.Logger
+	// Attention builds Needs you; nil answers an empty list.
+	Attention *attention.Builder
+	Broker    *sse.Broker
+	Log       *log.Logger
 	// CodexCheck reports whether beads can run with Codex here; nil checks
 	// the Codex CLI at Config.CodexPath (tests replace it).
 	CodexCheck func(ctx context.Context) codex.Status
@@ -82,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/runs", s.startRun)
 	mux.HandleFunc("GET /v1/repos/{repo}/issues/{id}/change", s.getChange)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/change", s.actOnChange)
+	mux.HandleFunc("GET /v1/repos/{repo}/changes", s.listChanges)
+	mux.HandleFunc("GET /v1/attention", s.listAttention)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
 	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)

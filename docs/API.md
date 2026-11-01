@@ -241,7 +241,8 @@ still a 409).
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
 | POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200; **409 for an adopted run**) |
 | POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id; **409 for an adopted run**) |
-| GET | `/v1/events` | – | SSE: global `run` and `repo` notifications |
+| GET | `/v1/events` | – | SSE: global `run`, `repo` and `change` notifications |
+| GET | `/v1/attention` | – | `{"items":[AttentionItem]}`: Needs you for every repository on this computer (below) |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
 `{repo}` is a Repo `id`. `{id}` is the bead id.
@@ -331,6 +332,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | --- | --- | --- | --- |
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
 | POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
+| GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total}`: the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
 
 Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `approve` must name the exact
 reviewed `revision`; it promotes/synchronizes Beads but never starts code execution. Conflicts return
@@ -339,7 +341,9 @@ with a reason. All routes require the ordinary bearer authentication.
 
 `change` contains `id`, `seed_id`, `epic_id`, `change_name`, `phase`, `revision`, `approved_revision`,
 `summary`, `route`, `rationale`, `references`, `artifacts`, `findings`, `sections`, `retired_sections`,
-`history`, `evidence`, `cost_usd`, `updated_at` and an optional `error`. Artifacts are exact
+`history`, `evidence`, `cost_usd`, `updated_at` and an optional `error`. The envelope also carries
+`inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
+repository's OpenSpec setup can be read. Artifacts are exact
 `{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from
 `<!-- nacre-section: ID -->` markers, never heading numbers. Findings carry
 `{id,severity,summary,detail,disposition}`. History entries are `{at,kind,text}`.
@@ -365,6 +369,13 @@ is integrated into the round's final commit with passing final gates and build.
 Only a passing verification of the current approved revision counts; unknown, reopened or changed
 work never becomes successful from a checkbox or status alone. Landing, human acceptance and
 OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
+
+`ChangeSummary` is `{id, change_name, phase, revision?, approved_revision?, epic_id?, seed_ids,
+sections, error?, updated_at}`. `seed_ids` lists the original seed first, then any later seeds that
+amended the change. Each section is `{id, title, bead_id?, evidence}`, `evidence` one of `none`,
+`in_round` (a round that hasn't landed or been cancelled is working on it), `verified` (a passing run
+of the current approved revision) or `landed`, folded from the evidence entries above. Evidence is
+cached per change revision and recomputed when a round in the repository moves.
 
 Workflow journals live in the bridge data directory's `changes/` folder. Back this up with Beads
 and OpenSpec files: stable `specflow:` and `spec-section:` labels are recovery identities, not a
@@ -423,7 +434,35 @@ active, the server sends a final `event: run` and keeps the stream open (a follo
 until the client disconnects. Keep-alive comment `: ping` every 15 s. Honors `Last-Event-ID`.
 
 `/v1/events`: `event: run` + Run JSON on any run change; `event: repo` + `{"repo_id":"…"}` after
-any write through the bridge and whenever a run finishes (Claude may have edited beads).
+any write through the bridge and whenever a run finishes (Claude may have edited beads);
+`event: change` + `{"repo_id","change_id","change_name","phase","seed_id","epic_id"}` on every
+specification change phase transition.
+
+### Needs you (`/v1/attention`)
+Every item waiting on Ryder on this computer, derived from current state on each request (each
+repository's beads and changes are re-read at most every 30 s, sooner after a `repo` event). The app
+merges computers and dedupes by `id`, a digest of the kind and the underlying record and its state.
+Items are ordered questions and decisions first, then approvals, then landing and archive, newest
+first within each.
+
+`AttentionItem`: `{id, kind, repo, repo_name, bead_id?, change_id?, round_id?, title, why,
+source_ref?, options, created_at}`. `why` is one or two plain sentences that stand alone. Each option
+is `{type:"action", label, method, path, body?}`, an exact request to send as is, or
+`{type:"open", label, target:{kind, repo?, id, revision?}}`, a navigation where `kind` is `bead`,
+`change` (`id` is the seed bead; `revision` the one to review) or `round`.
+
+| Kind | Source | Options |
+|---|---|---|
+| `bead_decision` | open bead labelled `human` or typed `decision` | open bead |
+| `proposal_ready` | change `awaiting_approval` | open change at its revision; `approve` with that revision |
+| `review_blocked` | change `needs_attention` | open change |
+| `approval_stale` | change `stale` | `revise`; open change |
+| `workflow_interrupted` | change `interrupted` | `resume`; open change |
+| `round_question` | each unanswered question of a round in `needs_decision` | each answer via `POST /v1/rounds/{round}/answers`; open round |
+| `bead_parked` | parked bead of an active round | `POST /v1/rounds/{round}/beads/{id}/retry`; open round |
+| `round_ready` | round `ready_to_land` | `POST /v1/rounds/{round}/land`; open round |
+
+A repository whose beads can't be read contributes no items; its board shows the error.
 
 ## Rounds
 A round carries several beads in one repository from a pre-flight review to one commit that passes

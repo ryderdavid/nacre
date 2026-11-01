@@ -19,6 +19,9 @@ type Envelope struct {
 	Available bool    `json:"available"`
 	Reason    string  `json:"reason,omitempty"`
 	Change    *Change `json:"change"`
+	// Inventory says what a proposal is compared with; absent when the
+	// repository's OpenSpec setup can't be read.
+	Inventory *InventorySummary `json:"inventory,omitempty"`
 }
 type Action struct {
 	Action   string `json:"action"`
@@ -112,6 +115,12 @@ type Options struct {
 	// Notify may publish a changed repository; it must not block.
 	Evidence func(repoPath string, change Change) []Evidence
 	Notify   func(repoPath string)
+	// EvidenceStamp changes whenever evidence for the repository may have
+	// moved (its rounds); summaries reuse cached evidence while it holds.
+	// Nil recomputes evidence on every summary.
+	EvidenceStamp func(repoPath string) string
+	// Changed is told about every phase transition; it must not block.
+	Changed func(repoPath string, change Change)
 }
 
 const MaxActionCostUSD = 5.0
