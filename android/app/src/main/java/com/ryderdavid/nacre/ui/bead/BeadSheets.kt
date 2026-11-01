@@ -55,6 +55,8 @@ import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.AGENT_CODEX
 import com.ryderdavid.nacre.data.settings.AppSettings
+import com.ryderdavid.nacre.ui.common.GoalOptionsPicker
+import com.ryderdavid.nacre.data.model.GoalOptions
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.PriorityPill
@@ -191,6 +193,10 @@ fun RunLaunchSheet(
     var mode by rememberSaveable { mutableStateOf(prefs.runMode) }
     var model by rememberSaveable { mutableStateOf(prefs.runModel) }
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
+    var goalEnabled by rememberSaveable { mutableStateOf(prefs.runGoal.enabled) }
+    var goalCommitted by rememberSaveable { mutableStateOf(prefs.runGoal.committed) }
+    var goalPushed by rememberSaveable { mutableStateOf(prefs.runGoal.pushed) }
+    val goal = GoalOptions(goalEnabled, goalCommitted, goalPushed)
     var instructions by rememberSaveable { mutableStateOf("") }
     var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
@@ -261,12 +267,14 @@ fun RunLaunchSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
 
+            GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !sending)
+
             val canSend = !sending && targetRepo != null
             Button(
                 onClick = {
                     permission()
                     sentTo = "claude"
-                    onStart(target, RunRequest(mode = mode, model = model.ifBlank { null }, instructions = instructions.ifBlank { null }, worktree = worktree))
+                    onStart(target, RunRequest(goal = goal, mode = mode, model = model.ifBlank { null }, instructions = instructions.ifBlank { null }, worktree = worktree))
                 },
                 enabled = canSend,
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
@@ -278,7 +286,7 @@ fun RunLaunchSheet(
                 onClick = {
                     permission()
                     sentTo = AGENT_CODEX
-                    onStart(target, RunRequest(mode = mode, instructions = instructions.ifBlank { null }, worktree = worktree, agent = AGENT_CODEX))
+                    onStart(target, RunRequest(goal = goal, mode = mode, instructions = instructions.ifBlank { null }, worktree = worktree, agent = AGENT_CODEX))
                 },
                 enabled = canSend && codexBlocker == null,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp),

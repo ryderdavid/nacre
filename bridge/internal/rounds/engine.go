@@ -200,6 +200,10 @@ func (r *round) drive() {
 	if r.limitsHit() {
 		return
 	}
+	if r.meta.GoalText != "" {
+		r.driveGoal()
+		return
+	}
 	for i := range r.meta.Beads {
 		b := &r.meta.Beads[i]
 		switch b.State {
@@ -741,6 +745,7 @@ func (m *Manager) Cancel(id string) (api.Round, error) {
 // cancelLocked stops the round's runs, ends it and records why on its beads.
 // Branches stay so the work can be recovered.
 func (r *round) cancelLocked(why string) {
+	r.m.leases.release(r.meta.ID + "/goal")
 	for _, runID := range r.meta.RunIDs {
 		if run, err := r.m.opts.Runs.Run(runID); err == nil && run.Active() {
 			_, _ = r.m.opts.Runs.Cancel(runID)

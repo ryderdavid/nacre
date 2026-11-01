@@ -143,6 +143,7 @@ type Comment struct {
 
 // Run is a Claude Code run dispatched for one bead.
 type Run struct {
+	GoalText      string  `json:"goal_text,omitempty"`
 	SpecChangeID  string  `json:"spec_change_id,omitempty"`
 	SpecRevision  string  `json:"spec_revision,omitempty"`
 	SpecSectionID string  `json:"spec_section_id,omitempty"`
@@ -252,7 +253,7 @@ func (r *Run) Adopted() bool { return r.Origin == OriginAdopted }
 func (r *Run) SetCapabilities() {
 	if !r.Adopted() {
 		r.CanCancel, r.CanFollowup = nil, nil
-		if r.SpecChangeID != "" {
+		if r.SpecChangeID != "" || r.Kind == "goal" {
 			followup := false
 			r.CanFollowup = &followup
 		}
@@ -416,6 +417,11 @@ const (
 // pre-flight review to one commit that passes the repository's gates and
 // builds. See openspec/changes/semi-attended-rounds.
 type Round struct {
+	Goal       GoalOptions `json:"goal,omitempty"`
+	GoalText   string      `json:"goal_text,omitempty"`
+	GoalRunID  string      `json:"goal_run_id,omitempty"`
+	GoalRetry  bool        `json:"goal_retry,omitempty"`
+	GoalStalls int         `json:"goal_stalls,omitempty"`
 	// SpecContracts pins the reviewed artifacts and section for each linked bead.
 	SpecContracts map[string]SpecContract `json:"spec_contracts,omitempty"`
 	ID            string                  `json:"id"`
@@ -595,4 +601,18 @@ type RoundEvent struct {
 	// Commit is set on merges and the final commit.
 	Commit string       `json:"commit,omitempty"`
 	Gates  []GateResult `json:"gates,omitempty"`
+}
+
+// GoalOptions are the owner's remembered implementation completion conditions.
+type GoalOptions struct {
+	Enabled   bool `json:"enabled"`
+	Committed bool `json:"committed"`
+	Pushed    bool `json:"pushed"`
+}
+
+func (o GoalOptions) Normalize() GoalOptions {
+	if o.Pushed {
+		o.Committed = true
+	}
+	return o
 }

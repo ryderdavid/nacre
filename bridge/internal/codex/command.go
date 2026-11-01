@@ -14,6 +14,7 @@ import (
 // Turn describes one `codex exec` invocation.
 type Turn struct {
 	Prompt string
+	Goal   string // activates native goal tools in a persistent exec thread
 	// Mode is a run permission mode (api.Modes); see sandboxArgs for how each
 	// maps onto Codex's sandbox and approval settings.
 	Mode     string
@@ -25,6 +26,9 @@ type Turn struct {
 // Args returns the argv (without the binary) for a turn.
 func (t Turn) Args() []string {
 	prompt := t.Prompt
+	if t.Goal != "" && t.Resume == "" {
+		prompt = "/goal " + t.Goal + "\nFirst call create_goal with the full goal above as its objective, before implementing. Do not merely describe or plan to activate it. Keep the native goal active until every condition holds, then call update_goal with status complete.\n\nLaunch instructions:\n" + prompt
+	}
 	// The prompt is a positional argument; keep a leading "-" from being
 	// parsed as a flag (a lone "-" would mean "read stdin").
 	if strings.HasPrefix(prompt, "-") {
@@ -35,6 +39,9 @@ func (t Turn) Args() []string {
 		args = append(args, "resume")
 	}
 	args = append(args, "--json")
+	if t.Goal != "" {
+		args = append(args, "--enable", "goals")
+	}
 	args = append(args, sandboxArgs(t.Mode)...)
 	if t.Model != "" {
 		args = append(args, "--model", t.Model)

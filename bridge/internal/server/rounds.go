@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/prompt"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/sse"
 )
@@ -14,13 +15,14 @@ import (
 // roundRequest starts a round: bead ids, or an epic whose open children
 // become the set.
 type roundRequest struct {
-	SpecChangeID     string   `json:"spec_change_id"`
-	SpecRevision     string   `json:"spec_revision"`
-	Beads            []string `json:"beads"`
-	Epic             string   `json:"epic"`
-	Target           string   `json:"target"`
-	BudgetUSD        float64  `json:"budget_usd"`
-	TimeLimitMinutes int      `json:"time_limit_minutes"`
+	Goal             prompt.GoalOptions `json:"goal"`
+	SpecChangeID     string             `json:"spec_change_id"`
+	SpecRevision     string             `json:"spec_revision"`
+	Beads            []string           `json:"beads"`
+	Epic             string             `json:"epic"`
+	Target           string             `json:"target"`
+	BudgetUSD        float64            `json:"budget_usd"`
+	TimeLimitMinutes int                `json:"time_limit_minutes"`
 }
 
 func (s *Server) roundsReady(w http.ResponseWriter) bool {
@@ -50,7 +52,7 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 	}
 	round, err := s.Rounds.Create(rounds.CreateRequest{
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision,
-		RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
+		Goal: req.Goal, RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
 		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes,
 	})
 	if err != nil {

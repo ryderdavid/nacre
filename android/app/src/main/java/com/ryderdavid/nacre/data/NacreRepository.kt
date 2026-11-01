@@ -19,6 +19,7 @@ import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.Run
+import com.ryderdavid.nacre.data.model.GoalOptions
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.StartRound
 import com.ryderdavid.nacre.data.model.UpdateIssue
@@ -441,11 +442,12 @@ class NacreRepository(
     suspend fun startRun(repoKey: String, issueId: String, req: RunRequest): Run {
         val p = pairedFor(repoKey)
         val run = try {
-            p.client.startRun(Keys.id(repoKey), issueId, req)
+            p.client.startRun(Keys.id(repoKey), issueId, req.copy(goal = req.goal?.takeIf { it.enabled }))
         } catch (e: BridgeException) {
             if (e.code == 404) throw BridgeException("$issueId isn't in ${p.host.name}'s copy of these beads. Sync the beads to it first, or run it on another computer.", e.detail, 404)
             throw e
         }
+        req.goal?.let { settings.setRunGoal(it) }
         return run.tag(p.host).also(::upsertRun)
     }
 
@@ -485,9 +487,11 @@ class NacreRepository(
     fun round(key: String): Round? = rounds.value.firstOrNull { it.key == key }
 
     /** Starts a round of [beads] in [repoKey]'s repository on that computer. */
-    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null, specChangeId: String? = null, specRevision: String? = null): Round {
+    suspend fun startRound(repoKey: String, beads: List<String>, budgetUsd: Double? = null, specChangeId: String? = null, specRevision: String? = null, goal: GoalOptions? = null): Round {
         val p = pairedFor(repoKey)
-        return p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd, specChangeId = specChangeId, specRevision = specRevision)).tag(p.host).also(::upsertRound)
+        val round = p.client.startRound(Keys.id(repoKey), StartRound(beads = beads, budgetUsd = budgetUsd, specChangeId = specChangeId, specRevision = specRevision, goal = goal?.takeIf { it.enabled })).tag(p.host)
+        goal?.let { settings.setRunGoal(it) }
+        return round.also(::upsertRound)
     }
 
     suspend fun roundDetail(key: String): BridgeClient.RoundDetail {

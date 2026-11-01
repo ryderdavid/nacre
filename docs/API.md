@@ -382,6 +382,48 @@ applied, and `mode` picks Codex's sandbox, since `codex exec` asks no one for ap
 read-only; `acceptEdits` and `dontAsk` may write in the repository without network; `auto` may
 also use the network; `bypassPermissions` runs with no sandbox.
 
+### Implementation goals
+
+Both `RunRequest` and the round-start body accept an optional `goal` object:
+
+```json
+{"goal":{"enabled":true,"committed":true,"pushed":true}}
+```
+
+All values default to false. `pushed` implies `committed`. Disabled goals add no
+`/goal` and confer no commit or push authority. Android remembers all three choices
+locally after a successful launch, including child choices while disabled, and
+shares those defaults between Implement (Claude or Codex) and round start. Disabled
+goals are omitted from Android's requests for compatibility with older bridges.
+
+The shared builder includes each bead's ID, title, full description, design and
+verbatim acceptance criteria, followed by the selected completion condition.
+Claude receives a native `/goal` command. Codex enables native goal tools and is
+instructed to activate the same objective with `create_goal`; its persisted native
+goal must report `complete` through `thread/goal/get` before nacred reports success.
+Because `codex exec` exits after each turn, nacred automatically resumes the same
+thread while its native goal remains active, retaining the run and concurrency slot.
+Cancellation, permission failures, unavailable goal support and budget limits do
+not count as completion. `Run.goal_text` records the requested objective.
+
+A goal-enabled round retains preflight review, decisions, specification guards,
+resource leases and budgets, then uses **one session for all selected beads** in
+its integration worktree. A round still requires one combined commit regardless
+of the optional committed checkbox. The controller bumps the version before that
+commit and independently verifies the final gates/build, a clean worktree and one
+commit above the round's base. If pushed was selected, it also reads the live
+remote branch and requires the same final SHA. Failed checks resume the native
+`/goal` session within the round's budget. Blocked, interrupted or exhausted
+sessions pause for an explicit retry; a stalled session is resumed once.
+
+The optional push publishes `origin`'s **round branch**, without force pushing.
+Landing on the target branch remains separate and follows the repository's landing
+policy. If the target moved after a goal round's combined version commit, landing
+pauses for version reconciliation rather than silently applying another version
+bump. `Round.goal`, `goal_text` and `goal_run_id` preserve the options, objective and
+session across restarts. Resume goal sessions through the round controls, not the
+standalone follow-up endpoint.
+
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
 "session_id": "", "bd_reads": false, "read_repo": false, "keep": false}`
@@ -432,7 +474,7 @@ on the computer that has the repository, without any client connected.
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, or a bead is in another active round |
+| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes", "goal"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, or a bead is in another active round |
 | GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
 | GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |
 | GET | `/v1/rounds/{round}/stream[?after=seq]` | – | SSE: `event: event` (RoundEvent, `id: seq`) for log entries after `after`, and `event: round` (Round) whenever it changes; honours `Last-Event-ID` |

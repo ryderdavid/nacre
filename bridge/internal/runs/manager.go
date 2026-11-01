@@ -64,6 +64,7 @@ type StartRequest struct {
 	Mode, Model                               string
 	Worktree                                  bool
 	Prompt                                    string
+	Goal                                      string
 	// Agent is api.AgentCodex to run the bead with the Codex CLI; "" (or
 	// api.AgentClaudeCode) runs it with Claude Code.
 	Agent string
@@ -188,7 +189,7 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	id := newID(t)
 	meta := api.Run{
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision, SpecSectionID: req.SpecSectionID,
-		ID: id, RepoID: req.RepoID, RepoName: req.RepoName, RepoPath: req.RepoPath,
+		GoalText: req.Goal, ID: id, RepoID: req.RepoID, RepoName: req.RepoName, RepoPath: req.RepoPath,
 		IssueID: req.IssueID, IssueTitle: req.IssueTitle, Status: api.StatusQueued,
 		Mode: req.Mode, Model: req.Model, Worktree: req.Worktree,
 		CreatedAt: t.UTC().Format(time.RFC3339), Turns: 1,
@@ -203,13 +204,13 @@ func (m *Manager) Start(req StartRequest) (api.Run, error) {
 	}
 	r.loaded = true
 	r.pending = &claude.Turn{
-		Prompt: req.Prompt, Mode: req.Mode, Model: req.Model,
+		Prompt: req.Prompt, Goal: req.Goal, Mode: req.Mode, Model: req.Model,
 		Worktree: req.Worktree && req.Workspace == "", Name: claude.NamePrefix + req.IssueID,
 		MaxBudgetUSD: req.MaxBudgetUSD, Env: req.Env,
 	}
 	r.mu.Lock()
 	r.addEvent(api.RunEvent{Kind: api.KindStatus, Status: api.StatusQueued})
-	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: req.Prompt})
+	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: r.pending.LaunchPrompt()})
 	err := r.save()
 	snap := r.meta
 	r.mu.Unlock()
@@ -265,7 +266,7 @@ func (m *Manager) FollowupWith(id string, f Followup) (api.Run, error) {
 	r.meta.Error = ""
 	r.meta.EndedAt = ""
 	r.cancelReq = false
-	r.pending = &claude.Turn{Prompt: message, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID,
+	r.pending = &claude.Turn{Prompt: message, Goal: r.meta.GoalText, Mode: r.meta.Mode, Model: r.meta.Model, Resume: r.meta.SessionID,
 		MaxBudgetUSD: f.MaxBudgetUSD, Env: f.Env}
 	r.setStatus(api.StatusQueued)
 	r.addEvent(api.RunEvent{Kind: api.KindUser, Text: message})

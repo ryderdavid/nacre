@@ -33,6 +33,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
+	"github.com/ryderdavid/nacre/bridge/internal/prompt"
 	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/workspace"
@@ -256,6 +257,7 @@ func (m *Manager) newRound(meta api.Round, dir string) *round {
 
 // CreateRequest starts a round.
 type CreateRequest struct {
+	Goal   prompt.GoalOptions
 	RepoID string
 	// Beads lists bead ids; Epic, if set instead, takes the epic's open
 	// children.
@@ -300,12 +302,18 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	}
 	beads := make([]api.RoundBead, 0, len(ids))
 	contracts := map[string]api.SpecContract{}
+	var goalBeads []prompt.GoalBead
 	for _, id := range ids {
 		raw, err := m.opts.Beads.Get(ctx, path, id)
 		if err != nil {
 			return api.Round{}, conflict(fmt.Sprintf("%s: %v", id, err))
 		}
 		is := parseIssue(raw)
+		var gb prompt.GoalBead
+		if err := json.Unmarshal(raw, &gb); err != nil {
+			return api.Round{}, err
+		}
+		goalBeads = append(goalBeads, gb)
 		if is.Status == "closed" {
 			return api.Round{}, conflict(id + " is closed")
 		}
@@ -378,6 +386,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	}
 	now := stamp()
 	meta := api.Round{
+		Goal: req.Goal.Normalize(), GoalText: prompt.BuildGoal(goalBeads, req.Goal, true),
 		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: req.Epic,
 		State: api.RoundPlanning, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: beads, BudgetUSD: budget, TimeLimitMinutes: limit, Mode: m.opts.Mode, Model: m.opts.Model,

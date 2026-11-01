@@ -20,6 +20,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.friendly
+import com.ryderdavid.nacre.data.model.GoalOptions
+import com.ryderdavid.nacre.ui.common.GoalOptionsPicker
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.SpecChange
@@ -78,6 +81,12 @@ fun roundUnavailable(repo: Repo?): String? = when {
 fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit, specChange: SpecChange? = null) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
+    val prefs by container.settings.settings.collectAsState(initial = null)
+    val saved = prefs?.runGoal
+    var goalEnabled by rememberSaveable(saved) { mutableStateOf(saved?.enabled ?: false) }
+    var goalCommitted by rememberSaveable(saved) { mutableStateOf(saved?.committed ?: false) }
+    var goalPushed by rememberSaveable(saved) { mutableStateOf(saved?.pushed ?: false) }
+    val goal = GoalOptions(goalEnabled, goalCommitted, goalPushed)
     var picked by rememberSaveable(specChange?.id, specChange?.revision) { mutableStateOf(specChange?.let { specificationCandidates(index, it).map(Issue::id) }.orEmpty()) }
     var budget by rememberSaveable(specChange?.id) { mutableStateOf(if (specChange == null) "" else "5") }
     var starting by rememberSaveable { mutableStateOf(false) }
@@ -129,6 +138,8 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                     isError = !budgetValid,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !starting && prefs != null)
+                if (goal.enabled) Text("One session works every selected bead to one combined commit. If pushed is selected, it pushes the round branch; landing remains a separate decision.", style = MaterialTheme.typography.bodySmall)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(
                     onClick = {
@@ -136,7 +147,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                         error = null
                         scope.launch {
                             try {
-                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull(), specChange?.id, specChange?.revision)
+                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull(), specChange?.id, specChange?.revision, goal = goal)
                                 onStarted(round.key)
                             } catch (e: Exception) {
                                 error = e.friendly()
@@ -145,7 +156,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                             }
                         }
                     },
-                    enabled = picked.isNotEmpty() && !starting && budgetValid,
+                    enabled = picked.isNotEmpty() && !starting && budgetValid && prefs != null,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 ) {
                     Text(
