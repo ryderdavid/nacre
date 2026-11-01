@@ -683,6 +683,7 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 		}
 	}
 	var epicNotes []string
+	hadBranch := meta.FinishEpic != "" && gitx.BranchExists(ctx, meta.RepoPath, EpicBranch(meta.FinishEpic))
 	if meta.FinishEpic != "" {
 		epicNotes = r.finishedEpic(ctx, meta, head, cfg.Land.Push && pushErr == "")
 	}
@@ -719,7 +720,11 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 		}
 		r.eventWith(api.RoundEvent{Kind: "land", Text: text, Commit: head})
 		if meta.FinishEpic != "" && len(epicNotes) == 0 {
-			r.event("note", meta.FinishEpic, meta.FinishEpic+" is finished: closed, and its branch "+EpicBranch(meta.FinishEpic)+" removed")
+			done := meta.FinishEpic + " is finished and closed"
+			if hadBranch {
+				done += ", and its branch " + EpicBranch(meta.FinishEpic) + " removed"
+			}
+			r.event("note", meta.FinishEpic, done)
 		}
 		for _, n := range epicNotes {
 			r.event("note", meta.FinishEpic, n)
