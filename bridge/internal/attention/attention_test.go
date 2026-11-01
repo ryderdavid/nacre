@@ -366,3 +366,24 @@ func TestFinishedEpicsAndStuckBeads(t *testing.T) {
 		t.Fatalf("back option = %+v", back)
 	}
 }
+
+func TestStaleButAsApprovedChangeCanStillBeFinished(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t,
+		map[string]any{"id": "E", "title": "Drafts", "issue_type": "epic", "status": "open"},
+		map[string]any{"id": "S1", "title": "one", "issue_type": "task", "status": "closed", "parent": "E"},
+	)
+	c := api.ChangeSummary{ID: "c1", ChangeName: "drafts", Phase: "stale", Revision: "r", ApprovedRevision: "r", EpicID: "E", SeedIDs: []string{"E"},
+		StaleReason: "Active change other-work was added", Sections: []api.SectionSummary{{ID: "s1", BeadID: "S1", Evidence: api.EvidenceLanded}}}
+	f.change = []api.ChangeSummary{c}
+	if items := f.b.Items(context.Background()); len(items) != 1 || items[0].Kind != api.AttentionApprovalStale {
+		t.Fatalf("a stale change with edited files: %v", kinds(items))
+	}
+	c.AsApproved = true
+	f.change = []api.ChangeSummary{c}
+	f.b.Invalidate("/src/nacre")
+	items := f.b.Items(context.Background())
+	if len(items) != 1 || items[0].Kind != api.AttentionChangeArchivable || items[0].Options[0].Path != "/v1/repos/r1/epics/E/finish" {
+		t.Fatalf("a stale change still as approved: %+v", items)
+	}
+}

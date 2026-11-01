@@ -128,8 +128,16 @@ func TestSpecEvidenceCountsSectionsFinishedBeforeAdoption(t *testing.T) {
 	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
 		t.Fatal("a reopened bead still counted as finished")
 	}
-	c.ApprovedRevision = "r0"
 	states["N-1"] = beadEvidenceState{ID: "N-1", Status: "closed"}
+	c.Phase, c.AsApproved = "stale", true
+	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); !got[0].Landed {
+		t.Fatal("finished work stopped counting because other specifications moved on")
+	}
+	c.AsApproved = false
+	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
+		t.Fatal("evidence counted for a change whose own files changed")
+	}
+	c.Phase, c.ApprovedRevision = "ready", "r0"
 	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
 		t.Fatal("evidence counted without a current approval")
 	}

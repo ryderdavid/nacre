@@ -105,9 +105,12 @@ type Change struct {
 	// StaleReason names what broke the approval while the phase is stale.
 	StaleReason string `json:"stale_reason,omitempty"`
 	// Adoption is set when the change was written outside Nacre and adopted.
-	Adoption  *Adoption `json:"adoption,omitempty"`
-	CostUSD   float64   `json:"cost_usd"`
-	UpdatedAt string    `json:"updated_at"`
+	Adoption *Adoption `json:"adoption,omitempty"`
+	// AsApproved: the approved revision's own files are unchanged, whatever
+	// happened elsewhere in the specifications. Set on each read.
+	AsApproved bool    `json:"as_approved,omitempty"`
+	CostUSD    float64 `json:"cost_usd"`
+	UpdatedAt  string  `json:"updated_at"`
 }
 type Beads interface {
 	Get(context.Context, string, string) (api.Issue, error)

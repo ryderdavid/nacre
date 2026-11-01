@@ -118,7 +118,7 @@ func assessChangeEvidence(path string, c specflow.Change, history []api.Round, s
 		if readErr != nil {
 			e.Note = "Beads could not be read; implementation evidence is not confirmed."
 		}
-		if c.Phase != "ready" || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision {
+		if (c.Phase != "ready" && !(c.Phase == "stale" && c.AsApproved)) || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision {
 			e.Verified, e.BuildVerified, e.Landed = false, false, false
 			e.Note = "Review and approve the current revision before its implementation can be verified. " + e.Note
 		}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
@@ -51,5 +52,29 @@ func TestArchiveIntoCommitsTheArchiveAndEndsTheWorkflow(t *testing.T) {
 	env, err := m.Get(ctx, repo, "NAC-1")
 	if err != nil || env.Change.Phase != "archived" {
 		t.Fatalf("after archive: %+v %v", env.Change, err)
+	}
+}
+
+// Other specifications moving on stales an approval but leaves finished work
+// archivable; editing the change's own files does not.
+func TestFinishedWorkStaysArchivableWhenOnlyOtherSpecsMoved(t *testing.T) {
+	repo, _, _, m := adoptFixture(t)
+	ctx := context.Background()
+	c := approve(t, m, repo, act(t, m, repo, "NAC-1", Action{Action: "adopt", ChangeName: "retain-drafts", RecordedReview: true}))
+	write(t, repo, "openspec/changes/other-work/proposal.md", "## Why\nSomething else.\n")
+	env, err := m.Get(ctx, repo, "NAC-1")
+	if err != nil || env.Change.Phase != "stale" || !env.Change.AsApproved {
+		t.Fatalf("after another change was added: phase=%s asApproved=%v err=%v", env.Change.Phase, env.Change.AsApproved, err)
+	}
+	if list, _, _ := m.Summaries(repo); len(list) != 1 || !list[0].AsApproved {
+		t.Fatalf("summary doesn't say the change is as approved: %+v", list)
+	}
+	write(t, repo, "openspec/changes/retain-drafts/design.md", "Rewritten by hand.\n")
+	env, _ = m.Get(ctx, repo, "NAC-1")
+	if env.Change.AsApproved {
+		t.Fatal("a change whose own files were edited is still as approved")
+	}
+	if _, err := m.ArchiveInto(ctx, repo, repo, c.EpicID); err == nil || !strings.Contains(err.Error(), "changed since its approved revision") {
+		t.Fatalf("archiving an edited change: %v", err)
 	}
 }

@@ -1,6 +1,7 @@
 package specflow
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -97,9 +98,11 @@ func (m *Manager) Summaries(repo string) ([]api.ChangeSummary, int, error) {
 	out := make([]api.ChangeSummary, 0, len(recs))
 	for _, r := range recs {
 		c := r.Change
+		c.AsApproved = asApproved(c, repo)
+		r.Change.AsApproved = c.AsApproved
 		states := m.evidenceStates(r, stamp)
 		s := api.ChangeSummary{ID: c.ID, ChangeName: c.ChangeName, Phase: c.Phase, Revision: c.Revision,
-			ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases),
+			ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases), AsApproved: c.AsApproved,
 			Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt}
 		if m.opts.Active != nil && c.EpicID != "" {
 			s.Active = m.opts.Active(repo, c.ID)
@@ -121,7 +124,7 @@ func (m *Manager) evidenceStates(r *record, stamp string) map[string]string {
 	if m.opts.Evidence == nil || len(c.Sections) == 0 {
 		return nil
 	}
-	key := c.Revision + "|" + c.ApprovedRevision + "|" + c.Phase + "|" + c.UpdatedAt + "|" + stamp
+	key := c.Revision + "|" + c.ApprovedRevision + "|" + c.Phase + "|" + c.UpdatedAt + "|" + stamp + fmt.Sprint(c.AsApproved)
 	m.mu.Lock()
 	cached, ok := m.evidence[c.ID]
 	m.mu.Unlock()

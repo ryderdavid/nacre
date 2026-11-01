@@ -249,6 +249,14 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 			item.Why = or(reason, "The reviewer left blocking findings. Open the change and give feedback to start another revision.")
 			item.Options = []api.AttentionOption{openChange}
 		case "stale":
+			if c.AsApproved && archivable(c, beads) {
+				item.Kind = api.AttentionChangeArchivable
+				item.BeadID = c.EpicID
+				item.Title = name + " is ready to archive"
+				item.Why = fmt.Sprintf("All %d sections landed, and the change's own files are still the approved ones (%s). Finishing archives it, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections), strings.ToLower(or(c.StaleReason, "other specifications changed")))
+				item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Finish: archive and merge"), openChange}
+				break
+			}
 			item.Kind = api.AttentionApprovalStale
 			item.Title = name + " needs a new review"
 			item.Why = or(c.StaleReason, or(reason, "The project's specifications changed since this was reviewed."))

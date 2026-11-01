@@ -99,8 +99,12 @@ type ChangeSummary struct {
 	// PendingFound are found beads the revision under way carries.
 	PendingFound []string `json:"pending_found,omitempty"`
 	// Active names the round or run implementing the change, if any.
-	Active    string `json:"active,omitempty"`
-	UpdatedAt string `json:"updated_at"`
+	Active string `json:"active,omitempty"`
+	// AsApproved: the change's own files are still exactly the approved ones,
+	// even if other specifications moved on, so its finished work can be
+	// archived without another review.
+	AsApproved bool   `json:"as_approved,omitempty"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // SectionSummary is one task section of a change and its evidence.

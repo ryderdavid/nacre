@@ -36,11 +36,13 @@ func (m *Manager) ArchiveInto(ctx context.Context, repo, workspace, epic string)
 	if c.Phase == "archived" {
 		return c.ChangeName, nil
 	}
-	if c.Phase != "ready" || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision {
-		return "", fmt.Errorf("%s isn't approved at its current revision (it is %s), so it can't be archived; review and approve it first", c.ChangeName, c.Phase)
-	}
 	if _, err := os.Stat(filepath.Join(workspace, "openspec", "changes", c.ChangeName)); os.IsNotExist(err) {
 		return c.ChangeName, nil
+	}
+	// What's archived must be what was approved; other specifications moving
+	// on since then doesn't call for another review of finished work.
+	if !asApproved(c, workspace) {
+		return "", fmt.Errorf("%s's files changed since its approved revision, so archiving it needs another review and approval first", c.ChangeName)
 	}
 	binary, err := exec.LookPath("openspec")
 	if err != nil {
@@ -61,6 +63,44 @@ func (m *Manager) ArchiveInto(ctx context.Context, repo, workspace, epic string)
 		return "", fmt.Errorf("committing the archive of %s: %w", c.ChangeName, err)
 	}
 	return c.ChangeName, nil
+}
+
+// asApproved reports whether an approved change's own canonical files under
+// root are exactly its approved artifacts, ignoring section markers (an
+// adopted change keeps them in the workflow only).
+func asApproved(c Change, root string) bool {
+	if c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision || (c.Phase != "ready" && c.Phase != "stale") || c.ChangeName == "" {
+		return false
+	}
+	inv, err := collect(root)
+	if err != nil {
+		return false
+	}
+	files := changeFiles(inv, c.ChangeName)
+	if len(files) != len(c.Artifacts) {
+		return false
+	}
+	want := map[string]string{}
+	for _, a := range c.Artifacts {
+		want[a.Path] = withoutMarkers(a.Content)
+	}
+	for _, f := range files {
+		if w, ok := want[f.Path]; !ok || w != withoutMarkers(f.Content) {
+			return false
+		}
+	}
+	return true
+}
+
+func withoutMarkers(s string) string {
+	var out []string
+	for _, l := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		if markerPattern.MatchString(strings.TrimSpace(l)) {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 // ChangeOf names the change an epic belongs to while it is still to be

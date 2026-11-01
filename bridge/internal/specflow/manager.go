@@ -274,6 +274,7 @@ func (m *Manager) snapshot(r *record) Envelope {
 	}
 	if r != nil {
 		c := clone(r.Change)
+		c.AsApproved = asApproved(c, r.Repo)
 		if m.opts.Evidence != nil {
 			c.Evidence = m.opts.Evidence(r.Repo, c)
 		}
