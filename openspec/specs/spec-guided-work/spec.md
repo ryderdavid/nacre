@@ -1,7 +1,7 @@
 # spec-guided-work Specification
 
 ## Purpose
-TBD - created by archiving change spec-guided-beads. Update Purpose after archive.
+Reviewed OpenSpec proposals turn bead intent into specified changes, and approved changes become epics whose section beads carry an exact, revision-bound contract into implementation.
 ## Requirements
 ### Requirement: Reconcile intent with project specifications
 The bridge SHALL compare a seed bead with project goals, accepted specifications and active changes before proposing work, and SHALL record a new/amend/repair/covered recommendation with existing source references and rationale. It SHALL refuse incomplete inventory rather than claim exhaustive reconciliation.
@@ -98,7 +98,10 @@ The workflow SHALL record reconciliation, review dispositions and promotion on t
 - **THEN** execution is refused with a recovery explanation
 
 ### Requirement: Evidence distinguishes progress from completion
-The app SHALL distinguish mapped tasks, implementation outcomes, verified runs, human checks and landing. Checked task boxes or closed beads alone SHALL NOT establish requirement completion, except for sections recorded as finished before Nacre adopted a change written outside it, which SHALL count as landed only while every task in them stays checked and their bead stays closed, and SHALL say so. Missing work or unresolved checks SHALL leave the change epic incomplete. Archiving SHALL happen only through finishing the change's epic.
+The app SHALL distinguish mapped tasks, implementation outcomes, verified runs, human checks and landing.
+Checked task boxes or closed beads alone SHALL NOT establish requirement completion, except for sections
+finished before a change was adopted, as the scenario below describes. Missing work or unresolved checks
+SHALL leave the change epic incomplete, and archiving SHALL happen only by finishing the epic.
 
 #### Scenario: Checked task without evidence
 - **WHEN** tasks.md marks a section complete but no verified implementation evidence exists

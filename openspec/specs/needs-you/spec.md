@@ -1,10 +1,14 @@
 # needs-you Specification
 
 ## Purpose
-TBD - created by archiving change surface-spec-workflow. Update Purpose after archive.
+One list, on the Boards screen and for the assistant, of everything on Ryder's computers that waits on him, each item saying why and offering its answers.
 ## Requirements
 ### Requirement: One list of what waits on the owner
-nacred SHALL report, for every repository on its computer, each item waiting on Ryder: open beads labelled `human` or typed `decision`, proposals awaiting approval, blocking review findings, stale approvals, interrupted workflows, round questions, parked beads, rounds ready to land, changes ready to archive, discovered work awaiting triage, open epics whose beads are all closed, and beads in progress that nothing is working on. Items SHALL be derived from current state, carry a stable id, and disappear when the state no longer waits on him.
+nacred SHALL report, for every repository on its computer, each item waiting on Ryder: beads labelled
+`human` or typed `decision`, proposals and stale or blocked reviews, interrupted workflows, round
+questions, parked beads, rounds ready to land, changes ready to archive, found work, done epics, and beads
+stuck in progress. Items SHALL be derived from current state, carry a stable id, and disappear when the
+state no longer waits on him.
 
 #### Scenario: Question answered elsewhere
 - **WHEN** Ryder answers a round question from the round view

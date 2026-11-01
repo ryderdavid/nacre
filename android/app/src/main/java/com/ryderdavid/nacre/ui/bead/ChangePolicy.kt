@@ -43,7 +43,9 @@ fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextActio
     else if (change.implementationIds.isNotEmpty()) ChangeNextAction(
         "implement", "Implement change", "Choose the approved sections and review the round budget before starting.",
     ) else ChangeNextAction("refresh", "Check approval", "This change does not have a complete, current approval and bead mapping.")
-    "stale" -> ChangeNextAction("revise", "Review updated proposal", "The proposal or project context changed. A new independent review is required before implementation.")
+    "stale" -> if (change.adoption != null && change.approvedRevision.isBlank()) ChangeNextAction(
+        "resume", "Review the files again", "The change's files or the project's specifications changed since its review. An independent review checks the files as they are now (up to $2.50).",
+    ) else ChangeNextAction("revise", "Review updated proposal", "The proposal or project context changed. A new independent review is required before implementation.")
     "interrupted" -> ChangeNextAction("resume", "Resume workflow", "Continues the saved workflow on the computer. This may use more of your subscription.")
     "needs_attention" -> if (change.adoption != null && change.approvedRevision.isBlank() && feedback.isBlank()) ChangeNextAction(
         "resume", "Review the files again",

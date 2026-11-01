@@ -69,7 +69,8 @@ Out of scope:
   notifications.
 
 ### Modified Capabilities
-<!-- None: openspec/specs/ is empty; existing run behaviour is not yet specified. -->
+None. round-recovery and epic-completion, accepted since, refine how rounds stop and recover and where
+they land; this change's requirements defer to them where they say so.
 
 ## Impact
 

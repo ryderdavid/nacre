@@ -1,7 +1,7 @@
 # effort-intake Specification
 
 ## Purpose
-TBD - created by archiving change surface-spec-workflow. Update Purpose after archive.
+New effort checks a new piece of work against the accepted specifications and active changes before anything is created, and suggests just a bead, a new change, an amendment of a named change, or already covered.
 ## Requirements
 ### Requirement: New effort runs intake
 In a repository with a valid OpenSpec setup, the board's create action SHALL be "New effort". After the existing draft step, continuing SHALL run one read-only intake call, bounded in cost and time, that compares the draft with the requirement index and the active changes. It SHALL return a verdict of just a bead, new change, amendment to a named active change, or already covered, with a rationale. Intake SHALL NOT write files, create beads or start development.

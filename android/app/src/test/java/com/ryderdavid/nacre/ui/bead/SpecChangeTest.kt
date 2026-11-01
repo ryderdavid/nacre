@@ -159,5 +159,6 @@ class SpecChangeTest {
         assertEquals("resume", changeNextAction(stopped)?.action)
         assertEquals("revise", changeNextAction(stopped, feedback = "Add the failure path")?.action)
         assertEquals("revise", changeNextAction(stopped.copy(adoption = null))?.action)
+        assertEquals("resume", changeNextAction(stopped.copy(phase = "stale"))?.action)
     }
 }

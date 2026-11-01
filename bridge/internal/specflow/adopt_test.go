@@ -238,3 +238,18 @@ func TestResumedAdoptionRetakesTheFiles(t *testing.T) {
 		t.Fatalf("resumed adoption: phase=%s error=%s", c.Phase, c.Error)
 	}
 }
+
+// An adopted change awaiting approval whose files were edited is reviewed
+// again on Resume, without the author.
+func TestEditedAdoptionAwaitingApprovalIsReviewedAgain(t *testing.T) {
+	repo, _, model, m := adoptFixture(t)
+	c := act(t, m, repo, "NAC-1", Action{Action: "adopt", ChangeName: "retain-drafts"})
+	if c.Phase != "awaiting_approval" {
+		t.Fatalf("phase = %s", c.Phase)
+	}
+	write(t, repo, "openspec/changes/retain-drafts/design.md", "Keep the existing screen; when saving fails, say so.\n")
+	c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
+	if c.Phase != "awaiting_approval" || model.count() != 2 || model.calls[1].System != reviewerSystem {
+		t.Fatalf("phase=%s calls=%d error=%s", c.Phase, model.count(), c.Error)
+	}
+}
