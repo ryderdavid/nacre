@@ -303,6 +303,9 @@ liveness comes from its rollout file instead:
 - it ends (`"activity": "ended"`) once the rollout has gone **twice** `adopt_idle_minutes` without
   a write, or, for a `codex exec` session, as soon as its one turn completes or is aborted, because
   `codex exec` exits then. A session that writes again after ending resumes the same run;
+- its repo is the one its starting directory is in or, when that is outside every repo (the Codex
+  desktop app starts threads in the home directory), the one its commands run in: such a session is
+  adopted once a command runs in a discovered repo, with its whole rollout, and stays with that repo;
 - `session_name` is the thread title from `~/.codex/session_index.jsonl`, when Codex gave it one;
 - `cost_usd` stays 0 (Codex writes token counts, not cost), and `resume_command` is
   `cd … && codex resume <session_id>`. Helper threads Codex spawns for another thread (approval

@@ -20,10 +20,19 @@ package sessions
 //     "idle"), the way Claude Code marks a parked session, so the run manager's
 //     DeriveSessionStatus treats both agents alike.
 //
+// A session is attributed to a repo by session_meta's cwd or, failing that, by
+// the directory its commands run in: the desktop app starts most threads in
+// the home directory and runs each command in the project the user picked.
+// Such a rollout is read as it grows (codexState.probes) until a command runs
+// in a discovered repo; the session is then adopted, from the start of its
+// rollout, and stays with that repo while it lives.
+//
 // Helper threads Codex spawns for another thread (approval reviewers and other
 // subagents) are never adopted, and nor is a session nacred dispatched itself.
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,7 +74,26 @@ type codexState struct {
 	done map[string]time.Time
 	// paths are the rollouts of the sessions reported by the last poll.
 	paths map[string]string
+	// repos holds the repo of each reported session that was attributed by
+	// where its commands ran rather than by its starting cwd.
+	repos map[string]Repo
+	// probes follow live rollouts that started outside every repo, by path,
+	// for the directories their commands run in.
+	probes map[string]*codexProbe
 }
+
+// codexProbe reads a rollout that started outside every repo for the
+// directories its commands (and turns) ran in.
+type codexProbe struct {
+	tail *claude.TranscriptTail
+	// fresh are the directories first seen since the previous poll, oldest
+	// first; tried are all those seen so far, so each is resolved once.
+	fresh []string
+	tried map[string]bool
+}
+
+// maxCodexProbeDirs bounds how many distinct directories a probe resolves.
+const maxCodexProbeDirs = 256
 
 // codexTurn is where a session's turn lifecycle stands.
 type codexTurn struct {
@@ -74,7 +102,7 @@ type codexTurn struct {
 }
 
 func newCodexState() codexState {
-	return codexState{meta: map[string]codex.RolloutMeta{}, turns: map[string]*codexTurn{}, done: map[string]time.Time{}, paths: map[string]string{}}
+	return codexState{meta: map[string]codex.RolloutMeta{}, turns: map[string]*codexTurn{}, done: map[string]time.Time{}, paths: map[string]string{}, repos: map[string]Repo{}, probes: map[string]*codexProbe{}}
 }
 
 // forget drops the turn state of sessions no longer reported.
@@ -89,6 +117,11 @@ func (c *codexState) forget(seen map[string]bool) {
 			delete(c.paths, sid)
 		}
 	}
+	for sid := range c.repos {
+		if !seen[sid] {
+			delete(c.repos, sid)
+		}
+	}
 }
 
 // codexSessions returns the live Codex sessions in discovered repos, with
@@ -96,6 +129,7 @@ func (c *codexState) forget(seen map[string]bool) {
 func (w *Watcher) codexSessions(repoList []Repo, now time.Time) []Session {
 	var index map[string]string // thread names, read only if something is live
 	var out []Session
+	probed := map[string]bool{}
 	for _, path := range w.rolloutCandidates(now) {
 		fi, err := os.Stat(path)
 		if err != nil || now.Sub(fi.ModTime()) > w.opts.CodexQuietAfter {
@@ -116,7 +150,15 @@ func (w *Watcher) codexSessions(repoList []Repo, now time.Time) []Session {
 		}
 		repo, ok := resolveRepo(m.CWD, repoList, w.opts.MainCheckout)
 		if !ok {
-			continue
+			repo, ok = w.codex.repos[m.ID]
+		}
+		if !ok {
+			probed[path] = true
+			if repo, ok = w.codexWorkRepo(path, repoList); !ok {
+				continue
+			}
+			delete(w.codex.probes, path)
+			w.codex.repos[m.ID] = repo
 		}
 
 		turn := w.codex.turns[m.ID]
@@ -141,7 +183,15 @@ func (w *Watcher) codexSessions(repoList []Repo, now time.Time) []Session {
 			Observe: turn.observe,
 		})
 		if st := s.TranscriptState.CWD; st != "" {
-			s.CWD = st
+			if _, attributed := w.codex.repos[m.ID]; !attributed {
+				s.CWD = st
+			} else if r, ok := resolveRepo(st, repoList, w.opts.MainCheckout); ok && r.ID == repo.ID {
+				s.CWD = st
+			} else {
+				// A desktop thread's turns start back in the home directory;
+				// it is shown working where its commands run.
+				s.CWD = repo.Path
+			}
 		}
 		if s.Kind == "exec" && turn.started && !turn.open {
 			// codex exec has finished its one turn and exited. A session that
@@ -164,8 +214,46 @@ func (w *Watcher) codexSessions(repoList []Repo, now time.Time) []Session {
 		w.codex.paths[m.ID] = path
 		out = append(out, s)
 	}
+	for path := range w.codex.probes {
+		if !probed[path] {
+			delete(w.codex.probes, path)
+		}
+	}
 	w.pruneCodexCaches(now)
 	return out
+}
+
+// codexWorkRepo reads what a rollout gained since the previous poll and
+// returns the discovered repo of the latest directory a command (or turn) ran
+// in, if any. Each directory is resolved once, the newest first, so a command
+// run in a repo is found even if later entries moved back to the home
+// directory before this poll.
+func (w *Watcher) codexWorkRepo(path string, repoList []Repo) (Repo, bool) {
+	pr := w.codex.probes[path]
+	if pr == nil {
+		pr = &codexProbe{tried: map[string]bool{}}
+		pr.tail = claude.NewTranscriptTail(path, claude.TranscriptOptions{
+			Parse: codex.ParseRolloutEntry, MaxEvents: 1,
+			Observe: func(p claude.TranscriptParsed) {
+				if p.CWD != "" && !pr.tried[p.CWD] && len(pr.tried) < maxCodexProbeDirs {
+					pr.tried[p.CWD] = true
+					pr.fresh = append(pr.fresh, p.CWD)
+				}
+			},
+		})
+		w.codex.probes[path] = pr
+	}
+	if _, err := pr.tail.Read(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.opts.Logger.Printf("sessions: read rollout %s: %v", path, err)
+	}
+	fresh := pr.fresh
+	pr.fresh = nil
+	for i := len(fresh) - 1; i >= 0; i-- {
+		if r, ok := resolveRepo(fresh[i], repoList, w.opts.MainCheckout); ok {
+			return r, true
+		}
+	}
+	return Repo{}, false
 }
 
 // DefaultCodexHome returns Codex's state directory.
