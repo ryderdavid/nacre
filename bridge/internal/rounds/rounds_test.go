@@ -118,6 +118,14 @@ func (f *fakeBeads) Close(_ context.Context, _, id, reason string) error {
 	if msg := f.failClose[id]; msg != "" {
 		return errors.New(msg)
 	}
+	// Like bd, refuse while a bead this one waits on is open.
+	if b := f.beads[id]; b != nil {
+		for _, dep := range b.After {
+			if d := f.beads[dep]; d != nil && d.Status != "closed" {
+				return fmt.Errorf("cannot close %s: blocked by open issues [%s]", id, dep)
+			}
+		}
+	}
 	if b := f.beads[id]; b != nil {
 		b.Status, b.CloseReason = "closed", reason
 	}

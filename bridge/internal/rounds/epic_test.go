@@ -376,3 +376,26 @@ func TestALandingThatKeptLosingTheRaceCanBeTriedAgain(t *testing.T) {
 		t.Fatalf("round = %s %q", landed.State, landed.PauseReason)
 	}
 }
+
+// Beads that wait on each other in one round both close, whatever order their
+// closes run in.
+func TestDependentBeadsInOneRoundBothClose(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-B", Title: "Then b", Type: "task", After: []string{"T-A"}},
+		&fakeBead{ID: "T-A", Title: "First a", Type: "task"},
+	)
+	h := newHarness(t, beads, emptyPlan)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-B", "T-A"}, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && (beads.bead("T-A").Status != "closed" || beads.bead("T-B").Status != "closed") {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if beads.bead("T-A").Status != "closed" || beads.bead("T-B").Status != "closed" {
+		got, _, _ := h.m.Get(r.ID)
+		t.Fatalf("A=%s B=%s round beads=%+v", beads.bead("T-A").Status, beads.bead("T-B").Status, got.Beads)
+	}
+}

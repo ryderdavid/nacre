@@ -458,6 +458,7 @@ func (r *round) finishOK(ctx context.Context, head string, results []gates.Resul
 // only a person can check, which stay open with what's left.
 func (r *round) closeBeads(head string) {
 	round := r.meta.ID
+	var batch []closing
 	for i := range r.meta.Beads {
 		b := &r.meta.Beads[i]
 		if b.State != api.BeadIntegrated || b.Closed || r.ops["close:"+b.ID] {
@@ -473,35 +474,64 @@ func (r *round) closeBeads(head string) {
 			r.note(id, fmt.Sprintf("Built and verified in round %s at %s. Left for you to verify: %s", round, short(head), check))
 			continue
 		}
+		reason := fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head))
 		if b.SpecChangeID != "" {
-			change, revision := b.SpecChangeID, b.SpecRevision
-			r.closeBead(id, fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), change, revision))
-			continue
+			reason = fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), b.SpecChangeID, b.SpecRevision)
 		}
-		r.closeBead(id, fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head)))
+		batch = append(batch, closing{id, reason})
 	}
+	r.closeAll(batch)
 }
 
-// closeBead closes a finished bead, retrying transient failures. A close
-// that still fails (the bead waits on an open bead, say) is recorded on the
+type closing struct{ id, reason string }
+
+// closeAll closes finished beads one after another, retrying transient
+// failures, then tries the ones that failed once more: a bead that waits on
+// another bead of the same batch closes once that one has. A close that
+// still fails (the bead waits on a bead left open, say) is recorded on the
 // round's bead and logged, so Needs you can offer to close it, instead of the
 // bead silently staying open.
-func (r *round) closeBead(id, reason string) {
+func (r *round) closeAll(batch []closing) {
+	if len(batch) == 0 {
+		return
+	}
 	repo, repoID := r.meta.RepoPath, r.meta.RepoID
-	r.goOp("close:"+id, func(ctx context.Context) func() {
-		_, err := retry(ctx, func() error { return r.m.opts.Beads.Close(ctx, repo, id, reason) })
+	for _, c := range batch {
+		r.ops["close:"+c.id] = true
+	}
+	r.goOp("close-batch:"+batch[0].id, func(ctx context.Context) func() {
+		failed := map[string]error{}
+		for pass := 0; pass < 2; pass++ {
+			for _, c := range batch {
+				if _, done := failed[c.id]; pass == 1 && !done {
+					continue
+				}
+				_, err := retry(ctx, func() error { return r.m.opts.Beads.Close(ctx, repo, c.id, c.reason) })
+				if err != nil {
+					failed[c.id] = err
+				} else {
+					delete(failed, c.id)
+				}
+			}
+			if len(failed) == 0 {
+				break
+			}
+		}
 		r.m.repoChanged(repoID)
 		return func() {
-			current := r.bead(id)
-			if current == nil {
-				return
+			for _, c := range batch {
+				delete(r.ops, "close:"+c.id)
+				current := r.bead(c.id)
+				if current == nil {
+					continue
+				}
+				if err := failed[c.id]; err != nil {
+					current.CloseError = firstLine(err.Error())
+					r.event("note", c.id, "Its work is done, but closing "+c.id+" failed: "+current.CloseError+". Close it from Needs you.")
+					continue
+				}
+				current.Closed, current.CloseError = true, ""
 			}
-			if err != nil {
-				current.CloseError = firstLine(err.Error())
-				r.event("note", id, "Its work is done, but closing "+id+" failed: "+current.CloseError+". Close it from Needs you.")
-				return
-			}
-			current.Closed, current.CloseError = true, ""
 		}
 	})
 }
