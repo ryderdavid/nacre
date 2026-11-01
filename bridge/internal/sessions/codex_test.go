@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,5 +210,77 @@ func TestCodexIsOffWithoutCodexHome(t *testing.T) {
 	w.Poll()
 	if len(got) != 0 {
 		t.Fatalf("adopted with Codex off: %+v", got)
+	}
+}
+
+// rolloutCommandIn is a CommandExecution run in dir, which Codex records as a
+// file:// URL.
+func rolloutCommandIn(ts time.Time, id, dir, cmd string) string {
+	return rolloutEvent(ts, fmt.Sprintf(`{"type":"item_completed","item":{"type":"CommandExecution","id":%q,"command":["/bin/zsh","-lc",%q],"cwd":%q,"status":"completed","aggregated_output":"","exit_code":0}}`, id, cmd, "file://"+dir))
+}
+
+// The desktop app starts a thread in the home directory and runs its commands
+// in the project the user picked: the session is adopted once a command runs
+// in a discovered repo, from the start of its rollout.
+func TestPollAdoptsCodexSessionByCommandCwd(t *testing.T) {
+	home, day := codexHome(t)
+	repoPath := filepath.Join(t.TempDir(), "Application Support", "repo")
+	start := time.Now().Add(-5 * time.Minute)
+
+	id := "01a18033-0000-7000-8000-000000000001"
+	path := filepath.Join(day, "rollout-a-"+id+".jsonl")
+	mustWrite(t, path, rolloutMetaLine(id, home, "Codex Desktop", `"vscode"`, start)+
+		rolloutEvent(start.Add(time.Second), `{"type":"task_started","turn_id":"t1"}`)+
+		rolloutText(start.Add(2*time.Second), "Looking around.")+
+		rolloutCommandIn(start.Add(3*time.Second), "exec-1", home, "ls"))
+
+	var got []Session
+	w := codexWatcher(home, repoPath, nil, &got)
+	w.Poll()
+	if len(got) != 0 {
+		t.Fatalf("adopted %+v before any command ran in a repo", got)
+	}
+
+	appendTo(t, path, rolloutCommandIn(start.Add(4*time.Second), "exec-2", strings.ReplaceAll(repoPath, " ", "%20"), "bd update NAC-7 --claim"))
+	w.Poll()
+	if len(got) != 1 {
+		t.Fatalf("adopted %d sessions, want 1", len(got))
+	}
+	s := got[0]
+	if s.Agent != api.AgentCodex || s.Repo.ID != "r1" || s.CWD != repoPath || s.IssueID != "NAC-7" {
+		t.Fatalf("session = %+v", s)
+	}
+	if !s.FromStart || len(s.Events) != 5 || s.Events[0].Kind != api.KindText {
+		t.Fatalf("events = %+v, want the whole rollout", s.Events)
+	}
+
+	// Commands run elsewhere later do not take the session out of its repo.
+	appendTo(t, path, rolloutCommandIn(start.Add(5*time.Second), "exec-3", home, "ls"))
+	w.Poll()
+	if len(got) != 1 || got[0].Repo.ID != "r1" || got[0].CWD != repoPath || got[0].FromStart || len(got[0].Events) != 2 {
+		t.Fatalf("after leaving the repo = %+v", got)
+	}
+}
+
+// A command run in the repo is found even when the rollout has moved back to
+// the home directory (the next turn's context, a later command) by the time
+// of the poll.
+func TestPollAdoptsCodexSessionByEarlierCommandCwd(t *testing.T) {
+	home, day := codexHome(t)
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	start := time.Now().Add(-5 * time.Minute)
+
+	id := "01a18033-0000-7000-8000-000000000002"
+	path := filepath.Join(day, "rollout-b-"+id+".jsonl")
+	mustWrite(t, path, rolloutMetaLine(id, home, "Codex Desktop", `"vscode"`, start)+
+		rolloutEvent(start.Add(time.Second), `{"type":"task_started","turn_id":"t1"}`)+
+		rolloutCommandIn(start.Add(2*time.Second), "exec-1", filepath.Join(repoPath, "sub"), "bd show NAC-9")+
+		rolloutCommandIn(start.Add(3*time.Second), "exec-2", home, "ls"))
+
+	var got []Session
+	w := codexWatcher(home, repoPath, nil, &got)
+	w.Poll()
+	if len(got) != 1 || got[0].Repo.ID != "r1" || got[0].CWD != repoPath {
+		t.Fatalf("got %+v, want the session adopted in r1", got)
 	}
 }

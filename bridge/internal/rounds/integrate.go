@@ -2,12 +2,15 @@ package rounds
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
@@ -681,7 +684,11 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			}
 		}
 	}
-	n, err := retry(ctx, func() error { return gitx.FastForward(ctx, meta.RepoPath, meta.Target, head) })
+	n, err := retry(ctx, func() error { return fastForward(ctx, meta.RepoPath, meta.Target, head) })
+	if errors.Is(err, gitx.ErrNotFastForward) && landRace(meta.ID) < maxLandRaces {
+		// The target moved after it was merged in: merge it again.
+		return r.land(ctx, meta, cfg)
+	}
 	if err != nil {
 		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: fmt.Sprintf("Moving %s to %s failed: %v", meta.Target, short(head), err), Attempted: tries(n)})
 	}
@@ -754,6 +761,21 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			r.event("note", "", "Cleaning up the round's worktrees and branches left something behind: "+firstLine(cleanErr.Error()))
 		}
 	}
+}
+
+// fastForward is gitx.FastForward, replaced in tests to move the target first.
+var fastForward = gitx.FastForward
+
+// maxLandRaces bounds how often one landing merges a target that moved again
+// between its merge and the fast-forward.
+const maxLandRaces = 3
+
+var landRaces sync.Map
+
+// landRace counts one more race for the round's landing.
+func landRace(round string) int {
+	n, _ := landRaces.LoadOrStore(round, new(atomic.Int32))
+	return int(n.(*atomic.Int32).Add(1)) - 1
 }
 
 // tries lists retries for a stop's Attempted.

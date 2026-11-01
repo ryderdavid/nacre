@@ -7,6 +7,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/peer"
 )
 
 // killGrace is how long a cancelled process group gets between SIGTERM and SIGKILL.
@@ -37,6 +38,10 @@ type run struct {
 	turnResult  *claude.Result
 	stderrTail  []string
 	lastOutput  time.Time // when the running claude last printed anything
+	// peer is the adopted session's messaging socket as its record last
+	// described it, nil unless it passes the record half of the live-send
+	// guard. In memory only: the first poll after a restart fills it in.
+	peer *peer.Target
 }
 
 func newRun(meta api.Run, dir string) *run {

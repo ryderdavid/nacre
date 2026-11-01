@@ -575,6 +575,9 @@ class NacreRepository(
     suspend fun followUp(key: String, message: String, mode: String?): Run {
         val p = pairedFor(key); return p.client.followUp(Keys.id(key), message, mode).tag(p.host).also(::upsertRun)
     }
+    suspend fun sendLive(key: String, message: String): Run {
+        val p = pairedFor(key); return p.client.sendLive(Keys.id(key), message).tag(p.host).also(::upsertRun)
+    }
 
     suspend fun runDetail(key: String): BridgeClient.RunDetail {
         val p = pairedFor(key)

@@ -18,6 +18,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
+	"github.com/ryderdavid/nacre/bridge/internal/peer"
 )
 
 // Errors returned by Manager methods.
@@ -53,7 +54,18 @@ type Options struct {
 	// StallAfter is how long a running claude may print nothing before the
 	// run is flagged api.Run.Stalled. 0 turns the check off.
 	StallAfter time.Duration
-	Logger     *log.Logger
+	// Live delivers follow-ups into live adopted Claude Code sessions over
+	// their messaging socket (*peer.Client). nil leaves every adopted run
+	// read-only. Its inbound frames go to Manager.PeerFrame.
+	Live LiveSender
+	// LiveHost is the pidDomain of sessions on this computer (default
+	// peer.HostDomain()).
+	LiveHost string
+	// LiveConfirmAfter is how long a live send may go without a receipt or a
+	// transcript entry before it is reported unconfirmed (default
+	// DefaultLiveConfirmAfter).
+	LiveConfirmAfter time.Duration
+	Logger           *log.Logger
 }
 
 // StartRequest describes a new run.
@@ -121,7 +133,11 @@ type Manager struct {
 	// rescan or a bridge restart finds the existing run instead of adopting
 	// the same session a second time.
 	adopted map[string]string
-	stop    chan struct{} // closed by Shutdown; ends the stall watch
+	// peerMsgs maps the msg_id of each live send (and of its idle
+	// subscription) to the run and message it belongs to, so receipts
+	// arriving at the inbox find their run.
+	peerMsgs map[string]peerRef
+	stop     chan struct{} // closed by Shutdown; ends the stall watch
 }
 
 // New loads run history from opts.Dir. Runs that were active when the bridge
@@ -141,10 +157,16 @@ func New(opts Options) (*Manager, error) {
 	if opts.AdoptIdleAfter <= 0 {
 		opts.AdoptIdleAfter = DefaultAdoptIdleAfter
 	}
+	if opts.LiveHost == "" {
+		opts.LiveHost = peer.HostDomain()
+	}
+	if opts.LiveConfirmAfter <= 0 {
+		opts.LiveConfirmAfter = DefaultLiveConfirmAfter
+	}
 	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	m := &Manager{opts: opts, runs: map[string]*run{}, adopted: map[string]string{}, stop: make(chan struct{})}
+	m := &Manager{opts: opts, runs: map[string]*run{}, adopted: map[string]string{}, peerMsgs: map[string]peerRef{}, stop: make(chan struct{})}
 	ids, err := listRunDirs(opts.Dir)
 	if err != nil {
 		return nil, err
@@ -162,6 +184,8 @@ func New(opts Options) (*Manager, error) {
 			if meta.SessionID != "" {
 				m.adopted[meta.SessionID] = id
 			}
+			// Re-derived from the live record on the first poll.
+			r.meta.CanSendLive = false
 		case meta.Active():
 			r.mu.Lock()
 			r.ensureLoaded()

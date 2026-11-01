@@ -227,7 +227,47 @@ type Run struct {
 	// why they are pointers.
 	CanCancel   *bool `json:"can_cancel,omitempty"`
 	CanFollowup *bool `json:"can_followup,omitempty"`
+
+	// CanSendLive marks an adopted Claude Code run whose session passes the
+	// live-send guard (peerProtocol 1, interactive, on this computer, socket
+	// present): POST /v1/runs/{run}/live may hand it a peer message. Absent
+	// otherwise, and the follow-up 409 is unchanged either way.
+	CanSendLive bool `json:"can_send_live,omitempty"`
+	// LiveSendUnavailable says, on an adopted Claude Code run, why a live
+	// send is not offered. Absent when it is, and on every other run.
+	LiveSendUnavailable string `json:"live_send_unavailable,omitempty"`
+	// PeerMessages are the newest live sends to an adopted run's session,
+	// oldest first, with what is known of their fate.
+	PeerMessages []PeerMessage `json:"peer_messages,omitempty"`
 }
+
+// PeerMessage is one follow-up nacred handed a live session over Claude
+// Code's messaging socket.
+type PeerMessage struct {
+	MsgID  string `json:"msg_id"`
+	Text   string `json:"text"`
+	SentAt string `json:"sent_at"`
+	// Status is PeerSent until a receipt arrives, then the receipt's status
+	// (held, denied, expired, delivered, refused, dropped), or
+	// PeerUnconfirmed if neither a receipt nor the transcript said anything
+	// within the confirmation window.
+	Status string `json:"status"`
+	// Reason is the receipt's own explanation, when it gave one.
+	Reason string `json:"reason,omitempty"`
+	// Confirmed is set once the session's transcript shows the message as a
+	// peer-origin user entry with this msg_id: it reached the model.
+	Confirmed   bool   `json:"confirmed,omitempty"`
+	ConfirmedAt string `json:"confirmed_at,omitempty"`
+	// IdleAt is when the session reported it was idle again after the
+	// message (notify_when_idle). A hint that the turn finished, no more.
+	IdleAt string `json:"idle_at,omitempty"`
+}
+
+// PeerMessage statuses nacred sets itself; the rest are receipt statuses.
+const (
+	PeerSent        = "sent"
+	PeerUnconfirmed = "unconfirmed"
+)
 
 // Active reports whether the run is queued or running.
 func (r *Run) Active() bool { return r.Status == StatusQueued || r.Status == StatusRunning }

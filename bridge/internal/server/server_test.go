@@ -589,3 +589,27 @@ func TestListRunsLeavesStaleAdoptedSessionsOutUnlessIncluded(t *testing.T) {
 		t.Fatalf("AdoptedCount = %d, want 1: the stale session is not counted", n)
 	}
 }
+
+func TestSendLiveRefusesAnIneligibleAdoptedRun(t *testing.T) {
+	mgr, err := runs.New(runs.Options{Dir: t.TempDir(), ClaudePath: "/nonexistent/claude",
+		Logger: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := adoptedServer(t, mgr, "")
+	id := adoptSessions(t, mgr, "rid", "sess-agent")[0]
+
+	if resp, _ := postJSON(t, ts.URL+"/v1/runs/"+id+"/live", `{"message":"  "}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty message = %d, want 400", resp.StatusCode)
+	}
+	resp, body := postJSON(t, ts.URL+"/v1/runs/"+id+"/live", `{"message":"carry on"}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("POST /live = %d, want 409", resp.StatusCode)
+	}
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "live send unavailable") {
+		t.Fatalf("error = %q", msg)
+	}
+	if resp, _ := postJSON(t, ts.URL+"/v1/runs/r_nope/live", `{"message":"hi"}`); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown run = %d, want 404", resp.StatusCode)
+	}
+}

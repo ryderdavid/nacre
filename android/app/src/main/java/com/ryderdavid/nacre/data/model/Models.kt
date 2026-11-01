@@ -223,6 +223,16 @@ data class Run(
     /** Null means "allowed": the bridge only sends these to say an action is refused outright. */
     @SerialName("can_cancel") val canCancel: Boolean? = null,
     @SerialName("can_followup") val canFollowup: Boolean? = null,
+    /**
+     * An adopted Claude Code session the Mac can hand a message to as a peer message over its
+     * messaging socket ("Send to live session"). Only set when the session passes the bridge's
+     * guard; the ordinary follow-up stays refused either way.
+     */
+    @SerialName("can_send_live") val canSendLive: Boolean = false,
+    /** Why an adopted Claude Code session can't be sent a live message; "" when it can. */
+    @SerialName("live_send_unavailable") val liveSendUnavailable: String = "",
+    /** The newest live messages sent to this session, oldest first, with what became of them. */
+    @SerialName("peer_messages") val peerMessages: List<PeerMessage> = emptyList(),
     /** Set by the app: which paired computer ran this. */
     @Transient val hostId: String = "",
     @Transient val hostName: String = "",
@@ -256,8 +266,46 @@ data class Run(
     /** A follow-up needs a finished run with a session to resume, and the bridge's permission. */
     val showsFollowUp get() = !isActive && sessionId.isNotBlank() && canFollowup != false
 
+    /** "Send to live session" is offered on a live adopted run the bridge says passes its guard. */
+    val showsSendLive get() = isAdopted && isActive && canSendLive
+
     /** The `cd … && claude --resume …` line to pick this session up by hand, when there is one. */
     val takeoverCommand get() = resumeCommand.takeIf { it.isNotBlank() && sessionId.isNotBlank() }
+}
+
+/** A message the Mac handed a live adopted session over its messaging socket. */
+@Serializable
+data class PeerMessage(
+    @SerialName("msg_id") val msgId: String,
+    val text: String = "",
+    @SerialName("sent_at") val sentAt: String = "",
+    /** sent, held, denied, expired, delivered, refused, dropped, or unconfirmed. */
+    val status: String = "",
+    val reason: String = "",
+    /** The session's transcript shows the message: it reached Claude. */
+    val confirmed: Boolean = false,
+    @SerialName("confirmed_at") val confirmedAt: String = "",
+    @SerialName("idle_at") val idleAt: String = "",
+) {
+    /** Bad news the person should see: the message did not, or may not, get through. */
+    val failed get() = !confirmed && status in setOf("denied", "expired", "refused", "dropped", "unconfirmed")
+
+    /** One short phrase for where the message stands. */
+    val label: String get() = when {
+        confirmed && idleAt.isNotBlank() -> "Delivered · session idle again"
+        confirmed -> "Delivered"
+        else -> when (status) {
+            "sent" -> "Sent · waiting for the session"
+            "held" -> "Held · waiting for approval on the Mac"
+            "delivered" -> "Accepted · waiting for the transcript"
+            "denied" -> "Declined on the Mac"
+            "expired" -> "Expired before it was approved"
+            "refused" -> "Refused: the session doesn't take peer messages"
+            "dropped" -> "Dropped by the session"
+            "unconfirmed" -> "Not confirmed · check the Mac"
+            else -> status.replaceFirstChar { it.uppercase() }
+        }
+    }
 }
 
 /** `origin` of a run the Mac only watches; see "Adopted runs" in docs/API.md. */

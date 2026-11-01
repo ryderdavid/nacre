@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
@@ -81,6 +82,14 @@ type Watcher struct {
 	tails map[string]*claude.TranscriptTail
 	// codex holds what the Codex source remembers between polls.
 	codex codexState
+	// hints holds what hooks reported, by session id (see hook.go).
+	hints map[string]*hintState
+
+	// hintMu guards inbox, the hints Nudge queued for the next poll; nudge
+	// wakes Run for them. These are the only fields other goroutines touch.
+	hintMu sync.Mutex
+	inbox  []Hint
+	nudge  chan struct{}
 }
 
 // New returns a Watcher. It does not read anything until Poll or Run is called.
@@ -100,13 +109,18 @@ func New(opts Options) *Watcher {
 	if opts.CodexQuietAfter <= 0 {
 		opts.CodexQuietAfter = DefaultCodexQuietAfter
 	}
-	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}, tails: map[string]*claude.TranscriptTail{}, codex: newCodexState()}
+	return &Watcher{opts: opts, scan: newScanner(), links: map[string]linkResult{}, tails: map[string]*claude.TranscriptTail{}, codex: newCodexState(),
+		hints: map[string]*hintState{}, nudge: make(chan struct{}, 1)}
 }
 
-// Run polls immediately and then every Interval until ctx is done.
+// Run polls immediately and then every Interval until ctx is done. A Nudge
+// polls at once; when the hinted session is not in the registry yet, a few
+// quick follow-up polls look for it before the interval would.
 func (w *Watcher) Run(ctx context.Context) {
 	t := time.NewTicker(w.opts.Interval)
 	defer t.Stop()
+	var retry <-chan time.Time
+	retries := 0
 	w.Poll()
 	for {
 		select {
@@ -114,6 +128,16 @@ func (w *Watcher) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			w.Poll()
+		case <-w.nudge:
+			retries = 0
+			w.Poll()
+		case <-retry:
+			retries++
+			w.Poll()
+		}
+		retry = nil
+		if retries < hintRetries && w.waiting(time.Now()) {
+			retry = time.After(hintRetry)
 		}
 	}
 }
@@ -148,6 +172,9 @@ func (w *Watcher) sessions() []Session {
 		return bs
 	}
 
+	now := time.Now()
+	w.takeHints(now)
+
 	var out []Session
 	seen := map[string]bool{}
 	taken := map[string]bool{}
@@ -158,10 +185,17 @@ func (w *Watcher) sessions() []Session {
 		sid := s.SessionID
 		seen[sid] = true
 		l, cached := w.links[sid]
+		hs := w.hints[sid]
 		if !cached || l.issueID == "" {
 			l = w.link(s.Record, beads(s.Repo.ID), s.Transcript, taken)
-			w.links[sid] = l
 		}
+		if hs != nil {
+			hs.seen = true
+			if len(hs.pending) > 0 {
+				l = hookLink(hs, beads(s.Repo.ID), l)
+			}
+		}
+		w.links[sid] = l
 		if l.issueID != "" {
 			taken[l.issueID] = true
 			// A linked session is never re-linked, so its mentions are no
@@ -178,6 +212,12 @@ func (w *Watcher) sessions() []Session {
 		// known this poll, so they end.
 		w.opts.Logger.Printf("sessions: read %s: %v", w.opts.Dir, err)
 	}
+	for i := range recs {
+		// A record still missing its cwd can take the one the hook reported.
+		if hs := w.hints[recs[i].SessionID]; recs[i].CWD == "" && hs != nil {
+			recs[i].CWD = hs.cwd
+		}
+	}
 	recs = w.candidates(recs)
 	starts := w.opts.Procs.StartTimes(pids(recs))
 	for _, rec := range recs {
@@ -188,7 +228,7 @@ func (w *Watcher) sessions() []Session {
 		if !ok {
 			continue
 		}
-		s := Session{Record: rec, Agent: api.AgentClaudeCode, Repo: repo, Transcript: transcriptPath(w.opts.Projects, rec.SessionID)}
+		s := Session{Record: rec, Agent: api.AgentClaudeCode, Repo: repo, Transcript: w.transcript(rec.SessionID)}
 		w.tail(&s, claude.TranscriptOptions{})
 		finish(s)
 	}
@@ -200,7 +240,17 @@ func (w *Watcher) sessions() []Session {
 		}
 	}
 	w.forget(seen)
+	w.forgetHints(seen, now)
 	return out
+}
+
+// transcript locates a Claude Code session's transcript: exactly, from the
+// path a hook reported, or else by globbing Options.Projects for the id.
+func (w *Watcher) transcript(sessionID string) string {
+	if hs := w.hints[sessionID]; hs != nil && hs.transcript != "" {
+		return hs.transcript
+	}
+	return transcriptPath(w.opts.Projects, sessionID)
 }
 
 // candidates drops the records that must never be adopted: nacred's own

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -75,6 +76,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
@@ -381,7 +383,7 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
                 val tabletopMin = posture.hingeList.firstOrNull { !it.isVertical && it.isSeparating }?.let { with(density) { it.bounds.top.toDp() } }
                 Column(Modifier.then(if (posture.isTabletop && tabletopMin != null) Modifier.heightIn(min = 240.dp) else Modifier)) {
                     if (posture.isTabletop) RunHeader(r, Modifier.padding(horizontal = 16.dp))
-                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp)
+                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp, onSendLive = vm::sendLive)
                 }
             }
         },
@@ -449,9 +451,11 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
             )
             if (r.error.isNotBlank()) Text(r.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
             if (r.isAdopted) Text(
-                "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
+                if (r.showsSendLive) "An agent started this session on the Mac. Nacre is watching it, not running it: it can't be stopped from here, but you can send it a message."
+                else "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
             )
+            if (r.isAdopted) LiveMessages(r)
             r.takeoverCommand?.let { command ->
                 val label = if (r.isAdopted) "Copy “take over on Mac” command" else "Copy “resume on Mac” command"
                 FilledTonalButton(
@@ -466,7 +470,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit) {
+private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit, onSendLive: (String) -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding().imePadding().padding(12.dp)) {
             if (r.isActive) {
@@ -481,7 +485,8 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                         OutlinedButton(onClick = onCancel) { Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel") }
                     }
                 }
-                if (r.isAdopted) ReadOnlyNote()
+                if (r.showsSendLive) LiveSendControls(r, sending, onSendLive)
+                else if (r.isAdopted) ReadOnlyNote()
             } else if (r.showsFollowUp) {
                 var text by rememberSaveable(r.key) { mutableStateOf("") }
                 var mode by rememberSaveable(r.key) { mutableStateOf(r.mode.ifBlank { "auto" }) }
@@ -502,6 +507,75 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                 }
             } else if (r.isAdopted) {
                 ReadOnlyNote()
+            }
+        }
+    }
+}
+
+/**
+ * "Send to live session": an explicit, two-step action, because the message lands in someone's
+ * open terminal on the Mac. The copy says what it is (a peer message) and what it can't do.
+ */
+@Composable
+private fun ColumnScope.LiveSendControls(r: Run, sending: Boolean, onSend: (String) -> Unit) {
+    var open by rememberSaveable(r.key) { mutableStateOf(false) }
+    var text by rememberSaveable(r.key) { mutableStateOf("") }
+    if (!open) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send to live session")
+        }
+        return
+    }
+    Text(
+        LIVE_SEND_NOTE,
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    )
+    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
+        OutlinedTextField(
+            text, { text = it }, placeholder = { Text("Message the live session") }, maxLines = 5,
+            shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        FilledIconButton(
+            onClick = { onSend(text.trim()); text = ""; open = false },
+            enabled = text.isNotBlank() && !sending, modifier = Modifier.size(52.dp),
+        ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send to live session") }
+    }
+    TextButton(onClick = { open = false }, modifier = Modifier.align(Alignment.End)) { Text("Not now") }
+}
+
+/** What a live send is, shown before it is sent. */
+internal const val LIVE_SEND_NOTE =
+    "This arrives in the terminal on the Mac as a peer message from another session, not as you typing there. " +
+        "Claude runs it under that session's own permissions. It can't approve a waiting prompt or run slash commands."
+
+/** The live messages sent to this session and where each one stands. */
+@Composable
+private fun LiveMessages(r: Run) {
+    if (r.peerMessages.isEmpty()) return
+    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Sent to the live session", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        r.peerMessages.takeLast(3).forEach { pm ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    when {
+                        pm.confirmed -> Icons.Rounded.CheckCircle
+                        pm.failed -> Icons.Rounded.Error
+                        else -> Icons.AutoMirrored.Rounded.Send
+                    },
+                    null, Modifier.size(16.dp),
+                    tint = if (pm.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(pm.text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOfNotNull(pm.label, pm.reason.ifBlank { null }).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (pm.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/peer"
 )
 
 // Link signals, in increasing order of strength. Session.LinkedBy reports
@@ -64,6 +65,14 @@ type Record struct {
 	Status     string `json:"status"`     // "idle" when parked, else absent
 	UpdatedAt  int64  `json:"updatedAt"`  // epoch milliseconds
 
+	// Session-to-session messaging (see internal/peer). PIDDomain is the
+	// platform the pid belongs to ("darwin"); a remote or bridged session
+	// records something else.
+	PIDDomain           string   `json:"pidDomain"`
+	MessagingSocketPath string   `json:"messagingSocketPath"`
+	PeerProtocol        int      `json:"peerProtocol"`
+	PeerFeatures        []string `json:"peerFeatures"`
+
 	// File is where the record was read from. It is not part of the JSON.
 	File string `json:"-"`
 }
@@ -82,6 +91,15 @@ func (r Record) ProcStarted() time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// Peer returns what the record says about its messaging socket.
+func (r Record) Peer() peer.Target {
+	return peer.Target{
+		PID: r.PID, ProcStart: r.ProcStart, Kind: r.Kind, Entrypoint: r.Entrypoint,
+		PIDDomain: r.PIDDomain, SocketPath: r.MessagingSocketPath,
+		Protocol: r.PeerProtocol, Features: append([]string(nil), r.PeerFeatures...),
+	}
 }
 
 // Idle reports whether Claude Code has parked the session waiting for input.

@@ -94,6 +94,14 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
             .onFailure { repo.notify("Couldn't send: ${it.friendly()}") }
         sending.value = false
     }
+
+    fun sendLive(message: String) = viewModelScope.launch {
+        sending.value = true
+        runCatching { repo.sendLive(runKey, message) }
+            .onSuccess { run.value = it }
+            .onFailure { repo.notify("Couldn't send to the live session: ${it.friendly()}") }
+        sending.value = false
+    }
 }
 
 class RunsViewModel(private val repo: NacreRepository) : ViewModel() {

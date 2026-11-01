@@ -103,3 +103,14 @@ func live(rec Record, starts map[int]time.Time) bool {
 	}
 	return d <= procStartSkew
 }
+
+// Alive reports whether pid is alive now and is the process that started at
+// procStart, a start time as a session record writes it. It is the liveness
+// half of adoption, for checking one record again on demand.
+func Alive(procs ProcTable, pid int, procStart string) bool {
+	if procs == nil {
+		procs = SystemProcs()
+	}
+	rec := Record{PID: pid, ProcStart: procStart}
+	return live(rec, procs.StartTimes([]int{pid}))
+}

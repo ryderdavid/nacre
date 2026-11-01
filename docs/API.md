@@ -178,7 +178,16 @@ gets back byte-for-byte what it got before adopted runs existed:
   "stale": true,                   // alive but no transcript write within adopt_idle_minutes; absent otherwise
   "last_activity_at": "2026-10-23T19:53:01.123Z", // newest transcript entry read; absent until there is one
   "can_cancel": false,             // absent means allowed
-  "can_followup": false            // absent means allowed
+  "can_followup": false,           // absent means allowed
+  "can_send_live": true,           // POST /v1/runs/{run}/live is available; absent means it is not
+  "live_send_unavailable": "",     // why not, in a sentence, on an adopted Claude Code run; absent when it is
+  "peer_messages": [               // newest 20 live sends, oldest first; absent when none
+    {"msg_id": "…", "text": "also run the tests", "sent_at": "…",
+     "status": "held",             // sent | held | denied | expired | delivered | refused | dropped | unconfirmed
+     "reason": "…",                // the session's own explanation, when it gave one
+     "confirmed": true,            // the session's transcript shows it (origin.msg_id matches)
+     "confirmed_at": "…", "idle_at": "…"}
+  ]
 }
 ```
 
@@ -244,7 +253,9 @@ still a 409).
 | GET | `/v1/runs/{run}/stream[?after=seq]` | – | SSE (below) |
 | POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200; **409 for an adopted run**) |
 | POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id; **409 for an adopted run**) |
+| POST | `/v1/runs/{run}/live` | `{"message":"…"}` | `Run` with the send in `peer_messages`; **409** unless the run is a live adopted session with `can_send_live`, or if the send fails. See [Live sends](#live-sends) |
 | GET | `/v1/events` | – | SSE: global `run`, `repo` and `change` notifications |
+| POST | `/v1/sessions` | Claude Code hook payload | `{"accepted":bool,"reason"?}` (202): a hook telling nacred about a session so the adoption poll runs now. See [Session hints](#session-hints) |
 | GET | `/v1/attention` | – | `{"items":[AttentionItem]}`: Needs you for every repository on this computer (below) |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
@@ -293,6 +304,9 @@ liveness comes from its rollout file instead:
 - it ends (`"activity": "ended"`) once the rollout has gone **twice** `adopt_idle_minutes` without
   a write, or, for a `codex exec` session, as soon as its one turn completes or is aborted, because
   `codex exec` exits then. A session that writes again after ending resumes the same run;
+- its repo is the one its starting directory is in or, when that is outside every repo (the Codex
+  desktop app starts threads in the home directory), the one its commands run in: such a session is
+  adopted once a command runs in a discovered repo, with its whole rollout, and stays with that repo;
 - `session_name` is the thread title from `~/.codex/session_index.jsonl`, when Codex gave it one;
 - `cost_usd` stays 0 (Codex writes token counts, not cost), and `resume_command` is
   `cd … && codex resume <session_id>`. Helper threads Codex spawns for another thread (approval
@@ -327,6 +341,61 @@ on-disk transcript each poll and stamped with the transcript's own times; subage
 out. `cost_usd`, `duration_ms`, `tool_calls`, `num_turns` (assistant turns), `turns` (prompts),
 `model` and `last_text` come from the transcript's running totals. `result_text` stays empty: a
 transcript has no result entry. Only the newest 1000 events are kept in memory.
+
+#### Live sends
+An adopted **Claude Code** session that publishes a messaging socket can be handed a message
+without forking it: `POST /v1/runs/{run}/live` with `{"message":"…"}`. nacred sends it over the
+session's own session-to-session channel (Claude Code's `messagingSocketPath`, peerProtocol 1,
+NDJSON over a Unix socket), prefixed with `<actor> (via Nacre): `. The session queues it as a turn
+of its own, shown to whoever is at the terminal, and runs it under that session's permission mode.
+It arrives as a **peer message**, not as the user typing: it cannot answer a pending permission
+prompt and is never run as a slash command. A client must make it an explicit action and say so.
+
+It is offered only behind a version guard, re-checked on every send, and `can_send_live` is `true`
+only when the record half passes: `kind` is `interactive`, the record's `pidDomain` is this
+computer's, `messagingSocketPath` is set and the socket exists, `peerProtocol` is exactly 1, and
+`entrypoint` is not `claude-desktop` (desktop-app sessions are untested). At send time nacred also
+checks that the pid is alive with the start time the record claims and that the socket accepts a
+connection. Anything else — and any send error — is a **409** with the reason, and the run stays
+read-only. `POST .../followup` is unaffected: it stays a 409 for every adopted run.
+
+What became of a send is reported on the run, in `peer_messages` and as `system` events:
+
+- `status` starts as `sent` and then takes the session's receipt: `held` (waiting for the
+  session's user to approve it; a session in bypassPermissions holds every peer message),
+  `delivered` (queued), `denied`, `expired`, `refused` (the session does not take peer messages)
+  or `dropped`. Receipts reach nacred on its own inbox socket, so a restart of nacred loses those
+  still to come.
+- `confirmed` is set once the session's transcript shows a peer-origin user entry with the send's
+  `msg_id`: the message reached Claude. This is the delivery confirmation; a receipt alone is not.
+- `unconfirmed` means neither a receipt nor the transcript said anything within two minutes.
+  nacred never resends on its own. A later transcript entry still sets `confirmed`.
+- `idle_at` is when the session said it was idle again afterwards (`notify_when_idle`, when the
+  session offers it): a hint that the turn finished, nothing more.
+
+#### Session hints
+`POST /v1/sessions` lets a Claude Code hook (`nacred hook`, an opt-in install step; see the bridge
+README) tell nacred about a session the moment something happens in it, instead of waiting up to
+`adopt_poll_seconds` for the next poll. Same bearer auth as every other route. The body is Claude
+Code's hook payload as is; nacred reads:
+
+| field | meaning |
+|---|---|
+| `session_id` | required; the Claude Code session id (400 if missing or malformed) |
+| `transcript_path` | the session's transcript. Used instead of globbing `~/.claude/projects` when it is an absolute `.jsonl` path |
+| `cwd` | the session's working directory; used only when the registry record has none |
+| `hook_event_name` | informational (`SessionStart`, `PostToolUse`, `Stop`) |
+| `tool_name`, `tool_input.command` | for `"tool_name":"Bash"`, the command that ran. A `bd update <id> --claim` (or `--status in_progress`) links the session to that bead (the run's `system` event says `linked to <id> (hook)`), replacing an earlier link; a `bd close <id>` links a session that has no bead yet. The id must be a bead of the session's repo |
+
+Everything else in the payload, such as `tool_response`, is ignored. The answer is **202**
+`{"accepted":true}` once the hint is queued, and the watcher polls at once. A hint never adopts a
+session on its own: the session must still have a live record in `~/.claude/sessions/`, be in a
+discovered repo and not be one of nacred's own, exactly as for polling, so the hook and the poll
+for one session produce **one** adopted run. When the record has not appeared yet (SessionStart can
+run first), nacred looks again every second for a few seconds; a hint for a session that never
+shows up is dropped after 15 s. With `adopt_sessions` off the route is a no-op: 202
+`{"accepted":false,"reason":"adopt_sessions is off"}`; a hint for a session nacred launched itself
+is likewise not accepted.
 
 **Listing is opt-in.** `GET /v1/runs` omits adopted runs unless `include=adopted` is passed, because
 a client that does not know about them would offer controls that cannot work. `include` takes a
