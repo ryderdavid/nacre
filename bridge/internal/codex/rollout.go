@@ -34,6 +34,10 @@ package codex
 //     as are token_count / token_usage_record (token counts and rate limits;
 //     no cost is ever written), world_state, compacted and thread settings.
 //   - turn_context precedes each turn with its cwd and model.
+//   - A CommandExecution carries the directory it ran in as a file:// URL
+//     (cwd). The desktop app starts most threads in the home directory and
+//     runs each command in the project the user picked, so that, not
+//     session_meta's cwd, is where such a session actually works.
 //
 // ~/.codex/session_index.jsonl is a separate append-only list of
 // {id, thread_name, updated_at}: the title Codex gave a thread. It only covers
@@ -45,6 +49,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -207,6 +212,7 @@ type rolloutItem struct {
 	Status  string          `json:"status"`
 	// CommandExecution
 	Command          json.RawMessage `json:"command"`
+	CWD              string          `json:"cwd"` // a file:// URL
 	AggregatedOutput string          `json:"aggregated_output"`
 	ExitCode         *int            `json:"exit_code"`
 	// FileChange
@@ -296,6 +302,9 @@ func ParseRolloutEntry(line []byte) (claude.TranscriptParsed, error) {
 			return p, nil
 		}
 		p.Events, p.Assistant = rolloutItemEvents(it)
+		if it.Type == "CommandExecution" {
+			p.CWD = fileURLPath(it.CWD)
+		}
 		if len(p.Events) == 0 && !p.Assistant {
 			p.Ignored = true
 		}
@@ -359,7 +368,7 @@ func rolloutToolUse(it rolloutItem) (tool string, input any, ok bool) {
 			return "WebSearch", map[string]string{"query": searchQuery(it)}, true
 		}
 	case "ImageView":
-		return "ViewImage", map[string]string{"file_path": strings.TrimPrefix(it.Path, "file://")}, true
+		return "ViewImage", map[string]string{"file_path": fileURLPath(it.Path)}, true
 	}
 	return "", nil, false
 }
@@ -420,6 +429,19 @@ func commandLine(raw json.RawMessage) string {
 		return argv[2]
 	}
 	return strings.Join(argv, " ")
+}
+
+// fileURLPath returns the path of a file:// URL such as a CommandExecution's
+// cwd, or s itself when it is already a plain path.
+func fileURLPath(s string) string {
+	if !strings.HasPrefix(s, "file://") {
+		return s
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return strings.TrimPrefix(s, "file://")
+	}
+	return u.Path
 }
 
 func changedPaths(it rolloutItem) []string {
