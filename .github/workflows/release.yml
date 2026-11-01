@@ -1,0 +1,72 @@
+# Every version tag a Nacre round lands and pushes becomes a GitHub release:
+# the nacred source Settings › Update connected computers builds from, a
+# macOS daemon binary, and, when the sideload key is available, the APK.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: Test nacred
+        working-directory: bridge
+        run: go vet ./... && go test ./...
+
+      - name: Build nacred for Apple Silicon
+        working-directory: bridge
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          GOOS=darwin GOARCH=arm64 go build -trimpath \
+            -ldflags "-s -w -X github.com/ryderdavid/nacre/bridge/internal/version.Version=$v -X github.com/ryderdavid/nacre/bridge/internal/version.Commit=$GITHUB_SHA" \
+            -o "../dist/nacred-$v-darwin-arm64" ./cmd/nacred
+
+      # The phone only takes updates signed with Ryder's sideload key (the
+      # Android debug certificate). Without it as the SIDELOAD_KEYSTORE_B64
+      # secret the release has no APK rather than one the phone would refuse.
+      - name: Install the sideload key
+        id: key
+        env:
+          KEYSTORE: ${{ secrets.SIDELOAD_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            mkdir -p ~/.android && echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build the APK
+        if: steps.key.outputs.present == 'true'
+        working-directory: android
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" >/dev/null
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew -q testDebugUnitTest assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "../dist/Nacre-${GITHUB_REF_NAME#v}.apk"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist && sha256sum * > SHA256SUMS && cd ..
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" dist/* --title "Nacre ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
