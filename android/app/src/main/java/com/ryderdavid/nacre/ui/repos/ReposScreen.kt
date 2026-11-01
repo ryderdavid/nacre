@@ -162,6 +162,9 @@ class ReposViewModel(private val repo: NacreRepository, private val settings: Se
     /** Needs you across computers; empty, and hidden, when no computer reports it. */
     val attention = repo.attention
 
+    /** Computers whose nacred is too old for Needs you, proposals and finishing work. */
+    val outdated = repo.outdatedComputers
+
     /** Items whose action is on its way, so their buttons don't send it twice. */
     val busy = MutableStateFlow(emptySet<String>())
 
@@ -206,6 +209,7 @@ fun ReposScreen(
 ) {
     val vm = nacreViewModel { ReposViewModel(it.repository, it.settings) }
     val attention by vm.attention.collectAsState()
+    val outdated by vm.outdated.collectAsState()
     val busy by vm.busy.collectAsState()
     var foundTarget by remember { mutableStateOf<Pair<String, AttentionTarget>?>(null) }
     var effort by remember { mutableStateOf<Pair<String, NewEffortPrefill>?>(null) }
@@ -306,6 +310,9 @@ fun ReposScreen(
                             ) {
                                 if (searching) item(span = { GridItemSpan(maxLineSpan) }) {
                                     OutlinedTextField(query, { query = it }, placeholder = { Text("Filter boards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                }
+                                if (outdated.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    OutdatedNacredNote(outdated)
                                 }
                                 if (attention.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                                     NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, modifier = Modifier.padding(bottom = 4.dp))
