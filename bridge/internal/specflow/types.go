@@ -22,6 +22,9 @@ type Envelope struct {
 	// Inventory says what a proposal is compared with; absent when the
 	// repository's OpenSpec setup can't be read.
 	Inventory *InventorySummary `json:"inventory,omitempty"`
+	// Adoptable are active changes no workflow tracks yet, offered on a bead
+	// without one so a change written outside Nacre can be taken over.
+	Adoptable []Adoptable `json:"adoptable,omitempty"`
 }
 type Action struct {
 	Action   string `json:"action"`
@@ -29,6 +32,11 @@ type Action struct {
 	Feedback string `json:"feedback,omitempty"`
 	// Intake is the New effort verdict a develop was confirmed with.
 	Intake *IntakeHint `json:"intake,omitempty"`
+	// ChangeName is the active change an adopt takes over.
+	ChangeName string `json:"change_name,omitempty"`
+	// RecordedReview lets an adopted change's review.md stand in for a new
+	// independent review.
+	RecordedReview bool `json:"recorded_review,omitempty"`
 	// FoundBeads are the found beads a revise carries the notes of; set only
 	// by Found, never by the HTTP change action.
 	FoundBeads []string `json:"-"`
@@ -95,9 +103,11 @@ type Change struct {
 	// Intake is the New effort verdict development started from, if any.
 	Intake *IntakeHint `json:"intake,omitempty"`
 	// StaleReason names what broke the approval while the phase is stale.
-	StaleReason string  `json:"stale_reason,omitempty"`
-	CostUSD     float64 `json:"cost_usd"`
-	UpdatedAt   string  `json:"updated_at"`
+	StaleReason string `json:"stale_reason,omitempty"`
+	// Adoption is set when the change was written outside Nacre and adopted.
+	Adoption  *Adoption `json:"adoption,omitempty"`
+	CostUSD   float64   `json:"cost_usd"`
+	UpdatedAt string    `json:"updated_at"`
 }
 type Beads interface {
 	Get(context.Context, string, string) (api.Issue, error)

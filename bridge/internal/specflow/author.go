@@ -447,6 +447,10 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 			if e := m.applyAuthor(r); e != nil {
 				return e
 			}
+		case "adopt":
+			if e := m.applyAdoption(ctx, r); e != nil {
+				return e
+			}
 		case "validate":
 			if r.Change.Route != "covered" {
 				if e := m.opts.Validate(ctx, r.Repo, r.Change.ChangeName); e != nil {
@@ -454,6 +458,10 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 				}
 			}
 			r.Stage = "review"
+			if a := r.Change.Adoption; a != nil && a.RecordedReview {
+				r.Stage = "decision"
+				history(r, "review", "The owner chose to let openspec/changes/"+r.Change.ChangeName+"/review.md stand in for a new independent review. Approval is still theirs to give.")
+			}
 			if e := m.checkpoint(r); e != nil {
 				return e
 			}
@@ -478,7 +486,16 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 			for _, a := range result.Assessments {
 				history(r, "assessment", a.Criterion+": "+a.Assessment+" ["+strings.Join(a.References, ", ")+"]")
 			}
-			if blockers(result.Findings) {
+			if blockers(result.Findings) && r.Change.Adoption != nil && r.Pass == 0 {
+				// An adopted change is never redrafted without being asked.
+				history(r, "review", "Independent review identified blocking findings in the adopted change as written.")
+				r.Stage = "author"
+				r.PendingAuthor = nil
+				if e = m.checkpoint(r); e != nil {
+					return e
+				}
+				return fmt.Errorf("The independent review found blocking problems in %s as written. Revise to have Nacre address them (up to $5), with your guidance if you like.", r.Change.ChangeName)
+			} else if blockers(result.Findings) {
 				history(r, "review", "Independent review identified blocking findings.")
 				r.Stage = "author"
 				r.PendingAuthor = nil

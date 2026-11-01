@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -60,6 +61,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import com.ryderdavid.nacre.data.Loadable
+import com.ryderdavid.nacre.data.model.AdoptableChange
 import com.ryderdavid.nacre.data.model.ChangeEnvelope
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.SpecChange
@@ -74,17 +76,19 @@ import kotlinx.coroutines.launch
 fun ChangeCard(state: Loadable<ChangeEnvelope>, linked: Boolean, onOpen: () -> Unit) {
     val envelope = state.data
     val change = envelope?.change
+    val written = if (change == null && !linked) envelope?.suggestedAdoption else null
     SectionHeader("Change")
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.AutoMirrored.Rounded.Rule, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Text(change?.let(::changeStatusTitle) ?: "From intent to reviewed work", style = MaterialTheme.typography.titleSmall)
+                Text(change?.let(::changeStatusTitle) ?: if (written != null) "A written change to adopt" else "From intent to reviewed work", style = MaterialTheme.typography.titleSmall)
             }
             Text(
                 when {
                     change != null && change.phase == "stale" -> staleText(change.staleReason)
                     change != null -> change.summary.ifBlank { "Review the proposal, decisions and linked implementation work." }
+                    written != null -> "${changeTitle(written.changeName)} was written outside Nacre and looks like this bead's change. Adopt it as written to track its sections here."
                     linked -> envelope?.reason?.ifBlank { null } ?: "This bead belongs to a specification workflow. Its record must be available before implementation."
                     envelope != null && !envelope.available -> envelope.reason
                     state.error != null -> "The change status couldn't be loaded. Your bead remains available."
@@ -99,7 +103,7 @@ fun ChangeCard(state: Loadable<ChangeEnvelope>, linked: Boolean, onOpen: () -> U
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (change != null || envelope?.available == true || state.error != null || linked) FilledTonalButton(onClick = onOpen) {
-                Text(if (change != null || linked) "View change" else if (state.error != null) "Check connection" else "Develop a proposal")
+                Text(if (change != null || linked) "View change" else if (state.error != null) "Check connection" else if (written != null) "Adopt or develop" else "Develop a proposal")
             }
         }
     }
@@ -199,11 +203,23 @@ fun ChangeDetail(
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                         }
+                        if (!linked && envelope != null && envelope.adoptable.isNotEmpty()) {
+                            item {
+                                SectionHeader("Or adopt a change already written")
+                                Text(
+                                    "Written by hand or in a CLI session. Nacre takes the files as they are, adds section markers to tasks.md, links sections to beads already under this one, and keeps finished sections closed.",
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            items(envelope.adoptable, key = { "adoptable:${it.changeName}" }) { written ->
+                                AdoptableCard(written, enabled = canAct && draftReady) { recorded -> vm.adopt(written.changeName, recorded) }
+                            }
+                        }
                     } else {
                         item {
                             Text(changeStatusTitle(change), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(8.dp))
-                            Text(change.changeName.ifBlank { "Developing your change" }.replace('-', ' ').replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineSmall)
+                            Text(change.changeName.ifBlank { "Developing your change" }.let(::changeTitle), style = MaterialTheme.typography.headlineSmall)
                             if (change.summary.isNotBlank()) Text(change.summary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
                             if (working) Text("Work continues on the computer when you leave this view.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
                             if (change.epicId.isNotBlank()) TextButton(onClick = { onOpenBead(change.epicId) }) { Text("Open epic ${change.epicId}") }
@@ -286,6 +302,36 @@ fun ChangeDetail(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun changeTitle(name: String) = name.replace('-', ' ').replaceFirstChar { it.uppercase() }
+
+/** One change written outside Nacre, with how adopting it will be reviewed. */
+@Composable
+private fun AdoptableCard(written: AdoptableChange, enabled: Boolean, onAdopt: (recordedReview: Boolean) -> Unit) {
+    var recorded by rememberSaveable(written.changeName) { mutableStateOf(false) }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(changeTitle(written.changeName), style = MaterialTheme.typography.titleSmall)
+            if (written.suggested) Text("Looks like this bead's change", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            if (written.why.isNotBlank()) Text(written.why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            Text("${written.tasksDone} of ${written.tasksTotal} tasks checked", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (written.problem.isNotBlank()) {
+                Text("Can't be adopted as it stands: ${written.problem}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            } else {
+                if (written.hasReview) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Use its recorded review.md instead of a new review", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 12.dp))
+                    Switch(checked = recorded, onCheckedChange = { recorded = it }, enabled = enabled)
+                }
+                Text(
+                    if (recorded) "No AI cost. You still approve before anything changes in Beads."
+                    else "One independent review of the files as written, up to $5. You approve before anything changes in Beads.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FilledTonalButton(onClick = { onAdopt(recorded) }, enabled = enabled) { Text("Adopt as written") }
             }
         }
     }

@@ -38,7 +38,8 @@ fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextActio
     )
     "ready" -> if (change.implementationReadyForReview) ChangeNextAction(
         "review", "Review implementation", "Inspect the verified round, resolve human checks, and review landing. Acceptance and archival remain separate steps.",
-    ) else if (change.implementationIds.isNotEmpty()) ChangeNextAction(
+    ) else if (change.allLanded) null
+    else if (change.implementationIds.isNotEmpty()) ChangeNextAction(
         "implement", "Implement change", "Choose the approved sections and review the round budget before starting.",
     ) else ChangeNextAction("refresh", "Check approval", "This change does not have a complete, current approval and bead mapping.")
     "stale" -> ChangeNextAction("revise", "Review updated proposal", "The proposal or project context changed. A new independent review is required before implementation.")
@@ -53,5 +54,6 @@ fun changeRouteLabel(route: String) = when (route) {
     "amend" -> "Amend an existing change"
     "repair" -> "Repair against existing requirements"
     "covered" -> "Covered by existing work"
+    "adopted" -> "Adopted as written"
     else -> "Checking existing specifications"
 }

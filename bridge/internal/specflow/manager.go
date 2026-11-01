@@ -355,6 +355,7 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 		inv, e := collect(repo)
 		if e == nil {
 			env.Inventory = summarize(inv)
+			env.Adoptable = m.adoptable(ctx, repo, inv, is)
 		} else if env.Available {
 			env.Available = false
 			env.Reason = e.Error()
@@ -412,7 +413,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 	defer m.mu.Unlock()
 	r := clone(m.findLocked(repo, id))
 	if m.busy[repo] {
-		if a.Action == "revise" || a.Action == "approve" || (a.Action == "develop" && strings.TrimSpace(a.Feedback) != "") {
+		if a.Action == "revise" || a.Action == "approve" || a.Action == "adopt" || (a.Action == "develop" && strings.TrimSpace(a.Feedback) != "") {
 			return Envelope{}, fmt.Errorf("%w: this repository already has a proposal operation in progress; wait for it to finish before submitting this action", ErrConflict)
 		}
 		if r != nil {
@@ -420,10 +421,16 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		}
 		return Envelope{}, fmt.Errorf("%w: another proposal is being developed in this repository", ErrConflict)
 	}
-	if a.Action != "develop" && a.Action != "revise" && a.Action != "approve" && a.Action != "resume" {
+	if a.Action != "develop" && a.Action != "revise" && a.Action != "approve" && a.Action != "resume" && a.Action != "adopt" {
 		return Envelope{}, fmt.Errorf("unknown change action %q", a.Action)
 	}
-	if r == nil {
+	if r == nil && a.Action == "adopt" {
+		if r, e = m.startAdoption(ctx, repo, id, a); e != nil {
+			return Envelope{}, e
+		}
+	} else if a.Action == "adopt" {
+		return Envelope{}, fmt.Errorf("%w: this bead already has a change; open it instead of adopting another", ErrConflict)
+	} else if r == nil {
 		if a.Action != "develop" {
 			return Envelope{}, fmt.Errorf("%w: develop a proposal first", ErrConflict)
 		}
@@ -509,6 +516,8 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 			r.Change.Phase = "drafting"
 		}
 		history(r, "resume", "Resuming the saved operation without discarding completed steps.")
+	} else if a.Action == "adopt" {
+		// startAdoption prepared the record; the work below takes the files over.
 	} else {
 		if reason := m.available(); reason != "" {
 			return Envelope{}, fmt.Errorf("%w: %s", ErrUnavailable, reason)
@@ -532,6 +541,10 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.LastCall = nil
 		r.Feedback = a.Feedback
 		r.PendingFound = append([]string(nil), a.FoundBeads...)
+		if r.Change.Adoption != nil {
+			// From here on, Nacre's own reviewer judges each revision.
+			r.Change.Adoption.RecordedReview = false
+		}
 		r.Change.Error = ""
 		r.Change.StaleReason = ""
 		r.Change.Phase = "drafting"

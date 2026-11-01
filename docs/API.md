@@ -338,18 +338,38 @@ gated: a client that was handed an adopted run's id can always follow it.
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
-| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?}` | The same envelope; long operations run independently of the HTTP connection. |
+| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?, change_name?, recorded_review?}` | The same envelope; long operations run independently of the HTTP connection. |
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total, openspec}`: `openspec` says the repository's OpenSpec setup is valid (New effort, intake and the Proposals lane apply); the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
 
-Actions are `develop`, `revise`, `approve`, `refresh`, and `resume`. `develop` may carry
+Actions are `develop`, `revise`, `approve`, `refresh`, `resume` and `adopt`. `develop` may carry
 `intake: {verdict, change_name?}`, the New effort verdict it was confirmed with; the change keeps it
 as `intake`, and when the author's full reconciliation picks a different route its history records
 "Intake suggested …; reconciliation chose … because …". The author's route stands. `approve` must name the exact
 reviewed `revision`; it promotes/synchronizes Beads but never starts code execution. Conflicts return
 409, unavailable prerequisites 503. `GET` reports unsupported prerequisites as `available:false`
 with a reason. All routes require the ordinary bearer authentication.
+
+`adopt` takes over an active change written outside Nacre (by hand or in a CLI session) through a
+bead without a workflow, which becomes its seed and, on approval, its epic. It names the change in
+`change_name`. The change's files are kept as written. tasks.md only gets `nacre-section` markers for
+headings that lack one; existing markers are kept. Sections are linked to beads that already exist
+under the seed whose title is the section heading, alone or after the change name ("my-change 1.
+Save drafts"). The change is validated strictly, then gets one independent review. With
+`recorded_review: true`, its `review.md` stands in for that review: no AI call is made, and approval
+is still the owner's. When the review finds blocking problems, the change stops at
+`needs_attention` and is not redrafted. `revise` (or `resume`) lets the author address the findings.
+The first approval of an adopted change keeps sections that were already finished closed (every task
+in them checked), and records a linked bead's own text in a comment before its fields become the
+section contract. Those sections count as landed evidence while their tasks stay checked and their
+beads stay closed. 409 when the change is already tracked, the bead already has a change, the change
+lacks a canonical artifact, or `recorded_review` is set without a `review.md`. For a bead without a
+workflow, `GET` also carries `adoptable`: the repository's untracked active changes as
+`{change_name, why, tasks_done, tasks_total, has_review, suggested, problem?}`. `suggested` means the
+bead names the change, or parents beads named after it. `problem` says why the change can't be
+adopted as it stands. An adopted change carries
+`adoption: {at, recorded_review, completed, linked}` and the route `adopted`.
 
 `change` contains `id`, `seed_id`, `epic_id`, `change_name`, `phase`, `revision`, `approved_revision`,
 `summary`, `route`, `rationale`, `references`, `artifacts`, `findings`, `sections`, `retired_sections`,
@@ -365,7 +385,7 @@ repository's OpenSpec setup can be read. Artifacts are exact
 `{id,severity,summary,detail,disposition}`. History entries are `{at,kind,text}`.
 
 Phases: `drafting`, `reviewing`, `needs_attention`, `awaiting_approval`, `promoting`, `ready`,
-`stale`, `interrupted`, `covered`. Routes: `new`, `amend`, `repair`, `covered`. Coverage is a reviewed
+`stale`, `interrupted`, `covered`. Routes: `new`, `amend`, `repair`, `covered`, `adopted`. Coverage is a reviewed
 read-only recommendation and does not create an epic or close the seed. A proposal action permits
 at most three author/reviewer passes, $5 total and 30 minutes. The bridge persists checkpoints and
 does not silently resume a paid call after restart.

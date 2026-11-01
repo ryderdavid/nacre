@@ -65,7 +65,13 @@ class ChangeViewModel(
         viewModelScope.launch { draftWrites.withLock { settings.setChangeFeedback(draftKey, value) } }
     }
 
-    fun act(action: String) {
+    /** Takes over a change written outside Nacre, reviewed as it stands. */
+    fun adopt(changeName: String, recordedReview: Boolean) =
+        send("adopt", ChangeAction("adopt", changeName = changeName, recordedReview = recordedReview))
+
+    fun act(action: String) = send(action, null)
+
+    private fun send(action: String, request: ChangeAction?) {
         if (sending.value) return
         sending.value = true
         val revision = state.value.data?.change?.revision.orEmpty()
@@ -73,7 +79,7 @@ class ChangeViewModel(
         viewModelScope.launch {
             requests.withLock {
                 try {
-                    val envelope = repository.changeAction(repoKey, beadId, ChangeAction(action, revision, submitted.trim()))
+                    val envelope = repository.changeAction(repoKey, beadId, request ?: ChangeAction(action, revision, submitted.trim()))
                     loadDraft(envelope)
                     actionFailure = null
                     state.value = Loadable(envelope)

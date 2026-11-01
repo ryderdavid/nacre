@@ -110,7 +110,11 @@ func proposalWhy(dir fs.FS) string {
 	if err != nil {
 		return ""
 	}
-	text := string(b)
+	return whyText(string(b))
+}
+
+// whyText is a proposal's "## Why" section.
+func whyText(text string) string {
 	i := strings.Index(text, "## Why")
 	if i < 0 {
 		return ""

@@ -109,3 +109,28 @@ func TestSpecEvidenceDistinguishesActiveStaleAndBuilt(t *testing.T) {
 		t.Fatalf("stale active work must remain reachable without approval: %#v", e)
 	}
 }
+
+func TestSpecEvidenceCountsSectionsFinishedBeforeAdoption(t *testing.T) {
+	done := specflow.Section{ID: "done", BeadID: "N-1", Body: "- [x] Save on Back\n- [x] Save on rotation"}
+	open := specflow.Section{ID: "open", BeadID: "N-2", Body: "- [x] Restore\n- [ ] Restore after restart"}
+	c := specflow.Change{ID: "change", Phase: "ready", Revision: "r1", ApprovedRevision: "r1", Sections: []specflow.Section{done, open},
+		Adoption: &specflow.Adoption{Completed: []string{"done", "open"}}}
+	states := map[string]beadEvidenceState{"N-1": {ID: "N-1", Status: "closed"}, "N-2": {ID: "N-2", Status: "closed"}}
+	read := func(string) (api.Run, error) { return api.Run{}, os.ErrNotExist }
+	got := assessChangeEvidence("/repo", c, nil, states, nil, read)
+	if !got[0].Landed || specflow.EvidenceState(got[0]) != api.EvidenceLanded {
+		t.Fatalf("finished section before adoption: %+v", got[0])
+	}
+	if got[1].Landed {
+		t.Fatal("a section with an unchecked task counted as finished")
+	}
+	states["N-1"] = beadEvidenceState{ID: "N-1", Status: "open"}
+	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
+		t.Fatal("a reopened bead still counted as finished")
+	}
+	c.ApprovedRevision = "r0"
+	states["N-1"] = beadEvidenceState{ID: "N-1", Status: "closed"}
+	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
+		t.Fatal("evidence counted without a current approval")
+	}
+}

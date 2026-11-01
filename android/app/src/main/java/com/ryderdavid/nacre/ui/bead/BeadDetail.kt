@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Rule
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -214,6 +215,10 @@ fun BeadDetail(
                                 text = { Text("Develop a proposal") }, leadingIcon = { Icon(AiIcon, null) },
                                 onClick = { menu = false; showChange = true },
                             )
+                            if (developable && changeState.data?.adoptable?.isNotEmpty() == true) DropdownMenuItem(
+                                text = { Text("Adopt a written change") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Rule, null) },
+                                onClick = { menu = false; showChange = true },
+                            )
                             if (foundChange != null) DropdownMenuItem(
                                 text = { Text("Found something") }, leadingIcon = { Icon(Icons.Rounded.Flag, null) },
                                 onClick = { menu = false; showFound = true },
@@ -280,6 +285,8 @@ fun BeadDetail(
                     when {
                         epicOf != null -> Unit
                         i.hasSpecWorkflow || changeState.data?.change != null -> ChangeCard(changeState, i.hasSpecWorkflow, onOpen = { showChange = true })
+                        // A change written outside Nacre that looks like this bead's own.
+                        developable && changeState.data?.suggestedAdoption != null -> ChangeCard(changeState, false, onOpen = { showChange = true })
                     }
                 },
                 epicHeader = boardChanges?.changes?.firstOrNull { it.epicId == i.id }?.let { c ->

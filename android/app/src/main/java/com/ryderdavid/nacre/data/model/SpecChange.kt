@@ -9,13 +9,44 @@ data class ChangeEnvelope(
     val available: Boolean = false, val reason: String = "", val change: SpecChange? = null,
     /** What a proposal is compared with; null on older bridges or without readable OpenSpec. */
     val inventory: InventorySummary? = null,
+    /** Active changes written outside Nacre that no workflow tracks yet; offered on a bead without one. */
+    val adoptable: List<AdoptableChange> = emptyList(),
+) {
+    /** The written change this bead looks like the owner of, if any. */
+    val suggestedAdoption get() = adoptable.firstOrNull { it.suggested && it.problem.isBlank() }
+}
+
+/** An active change on disk with no workflow: [problem] says why it can't be adopted as it stands. */
+@Serializable
+data class AdoptableChange(
+    @SerialName("change_name") val changeName: String,
+    val why: String = "",
+    @SerialName("tasks_done") val tasksDone: Int = 0,
+    @SerialName("tasks_total") val tasksTotal: Int = 0,
+    @SerialName("has_review") val hasReview: Boolean = false,
+    val suggested: Boolean = false,
+    val problem: String = "",
+)
+
+/** Set when a change was written outside Nacre and adopted as it stood. */
+@Serializable
+data class ChangeAdoption(
+    val at: String = "",
+    @SerialName("recorded_review") val recordedReview: Boolean = false,
+    val completed: List<String> = emptyList(),
+    val linked: List<String> = emptyList(),
 )
 
 @Serializable
 data class InventorySummary(@SerialName("accepted_specs") val acceptedSpecs: Int = 0, @SerialName("active_changes") val activeChanges: Int = 0)
 
 @Serializable
-data class ChangeAction(val action: String, val revision: String = "", val feedback: String = "", val intake: IntakeHint? = null)
+data class ChangeAction(
+    val action: String, val revision: String = "", val feedback: String = "", val intake: IntakeHint? = null,
+    /** The active change an `adopt` takes over, and whether its review.md stands in for a new review. */
+    @SerialName("change_name") val changeName: String = "",
+    @SerialName("recorded_review") val recordedReview: Boolean = false,
+)
 
 /** The New effort verdict a develop was confirmed with. */
 @Serializable
@@ -79,6 +110,7 @@ data class SpecChange(
     val error: String = "",
     @SerialName("stale_reason") val staleReason: String = "",
     val intake: IntakeHint? = null,
+    val adoption: ChangeAdoption? = null,
     @SerialName("cost_usd") val costUsd: Double = 0.0,
     @SerialName("updated_at") val updatedAt: String = "",
 ) {
@@ -96,6 +128,8 @@ data class SpecChange(
         evidence.any { it.sectionId == section.id && it.beadId == section.beadId && it.verified && it.buildVerified && it.runId.isNotBlank() && it.roundId.isNotBlank() }
     }
     val implementationReadyForReview get() = sections.isNotEmpty() && implementationIds.isNotEmpty() && buildVerifiedSections == sections.size
+    /** Every current section landed, including sections finished before the change was adopted. */
+    val allLanded get() = hasCurrentApproval && sections.isNotEmpty() && sections.all { s -> evidence.any { it.sectionId == s.id && it.beadId == s.beadId && it.landed } }
     /** Active work stays reachable even if a CLI edit invalidates its original approval. */
     val activeRoundId get() = evidence.lastOrNull { e ->
         e.roundId.isNotBlank() && e.roundState.isNotBlank() && e.roundState !in setOf("landed", "cancelled") &&

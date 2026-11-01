@@ -121,4 +121,23 @@ class SpecChangeTest {
         assertNull(changeNextAction(approved.copy(phase = "covered")))
         assertNull(changeNextAction(approved.copy(phase = "reviewing")))
     }
+
+    @Test fun adoptableChangesDecodeAndAdoptedFinishedWorkOffersNoImplementation() {
+        val raw = """{"available":true,"change":null,"adoptable":[{"change_name":"other-work","tasks_done":0,"tasks_total":3},{"change_name":"retain-drafts","why":"Drafts vanish","tasks_done":3,"tasks_total":4,"has_review":true,"suggested":true},{"change_name":"half-done","suggested":true,"problem":"proposal is missing tasks.md"}]}"""
+        val envelope = BridgeClient.json.decodeFromString<ChangeEnvelope>(raw)
+        assertEquals(3, envelope.adoptable.size)
+        assertEquals("retain-drafts", envelope.suggestedAdoption?.changeName)
+        assertTrue(envelope.suggestedAdoption!!.hasReview)
+
+        val request = BridgeClient.json.encodeToString(ChangeAction.serializer(), ChangeAction("adopt", changeName = "retain-drafts", recordedReview = true))
+        assertTrue("\"change_name\":\"retain-drafts\"" in request && "\"recorded_review\":true" in request, request)
+
+        val landed = approved.copy(route = "adopted", evidence = approved.sections.map { ChangeEvidence(it.id, it.beadId, landed = true, verified = true, buildVerified = true) })
+        assertTrue(landed.allLanded)
+        assertNull(changeNextAction(landed))
+        assertEquals("Adopted as written", changeRouteLabel(landed.route))
+        val partly = landed.copy(evidence = landed.evidence.take(1))
+        assertFalse(partly.allLanded)
+        assertEquals("implement", changeNextAction(partly)?.action)
+    }
 }

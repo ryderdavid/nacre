@@ -110,6 +110,11 @@ func assessChangeEvidence(path string, c specflow.Change, history []api.Round, s
 				break
 			}
 		}
+		if !found && readErr == nil && c.CompletedBeforeAdoption(s) && states[s.BeadID].Status == "closed" {
+			// Finished before Nacre took the change over: there is no round to point to.
+			e.Verified, e.BuildVerified, e.Landed = true, true, true
+			e.Note = "Finished before Nacre adopted this change: every task was checked and its bead is closed. There is no round evidence for it."
+		}
 		if readErr != nil {
 			e.Note = "Beads could not be read; implementation evidence is not confirmed."
 		}

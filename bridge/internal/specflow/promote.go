@@ -100,6 +100,9 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 	for _, s := range r.Change.Sections {
 		r.Planned[s.ID] = generatedFields(r, s)
 	}
+	// The first approval of an adopted change keeps finished sections closed
+	// and preserves the text of beads it linked.
+	adopting := r.Change.Adoption != nil && r.Change.ApprovedRevision == ""
 	if e := m.checkpoint(r); e != nil {
 		return e
 	}
@@ -155,13 +158,23 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 			if !known || !fieldsEqual(is, previous) {
 				return fmt.Errorf("%s has manually edited generated fields. Your edits have been preserved; reconcile those fields with the last generated section before resuming.", is.ID)
 			}
+			if adopting && contains(r.Change.Adoption.Linked, s.ID) {
+				if e = m.preserveLinked(ctx, r, is, *s); e != nil {
+					return e
+				}
+			}
 			if e = m.opts.Beads.Update(ctx, r.Repo, is.ID, bd.UpdateParams{Title: ptr(desired.Title), Description: ptr(desired.Description), Design: ptr(desired.Design), AcceptanceCriteria: ptr(desired.Acceptance), AddLabels: []string{workflowLabel(r), sectionLabel(*s)}}); e != nil {
 				return e
 			}
 		} else if !contains(is.Labels, workflowLabel(r)) || !contains(is.Labels, sectionLabel(*s)) {
-			return fmt.Errorf("%s lost its stable specification labels; restore them before synchronizing", is.ID)
+			if !adopting || !contains(r.Change.Adoption.Linked, s.ID) {
+				return fmt.Errorf("%s lost its stable specification labels; restore them before synchronizing", is.ID)
+			}
+			if e = m.opts.Beads.Update(ctx, r.Repo, is.ID, bd.UpdateParams{AddLabels: []string{workflowLabel(r), sectionLabel(*s)}}); e != nil {
+				return e
+			}
 		}
-		if is.Status == "closed" && r.Change.ApprovedRevision != r.PromotionRevision {
+		if is.Status == "closed" && r.Change.ApprovedRevision != r.PromotionRevision && !(adopting && r.Change.CompletedBeforeAdoption(*s)) {
 			if e = m.opts.Beads.Reopen(ctx, r.Repo, is.ID); e != nil {
 				return e
 			}
@@ -205,6 +218,11 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 			return e
 		}
 	}
+	if adopting {
+		if e = m.closeCompletedAdopted(ctx, r); e != nil {
+			return e
+		}
+	}
 	if e = m.current(r); e != nil {
 		return e
 	}
@@ -238,7 +256,11 @@ func (m *Manager) decisionComments(ctx context.Context, r *record, phase string)
 	if len(r.Change.References) > 0 {
 		body.WriteString("\n\nReferences\n- " + strings.Join(r.Change.References, "\n- "))
 	}
-	body.WriteString("\n\nIndependent review\n")
+	if a := r.Change.Adoption; a != nil && a.RecordedReview {
+		body.WriteString("\n\nRecorded review\nThe owner let openspec/changes/" + r.Change.ChangeName + "/review.md stand in for a new independent review.\n")
+	} else {
+		body.WriteString("\n\nIndependent review\n")
+	}
 	if len(r.Change.Findings) == 0 {
 		body.WriteString("No unresolved findings.")
 	}

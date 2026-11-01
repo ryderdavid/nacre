@@ -53,9 +53,9 @@ func (s *Server) actOnChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action.Action {
-	case "develop", "revise", "approve", "refresh", "resume":
+	case "develop", "revise", "approve", "refresh", "resume", "adopt":
 	default:
-		writeError(w, http.StatusBadRequest, "Choose a supported specification action.", "develop, revise, approve, refresh, resume")
+		writeError(w, http.StatusBadRequest, "Choose a supported specification action.", "develop, revise, approve, refresh, resume, adopt")
 		return
 	}
 	if len(action.Feedback) > 12000 {
