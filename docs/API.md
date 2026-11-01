@@ -255,6 +255,7 @@ still a 409).
 | POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id; **409 for an adopted run**) |
 | POST | `/v1/runs/{run}/live` | `{"message":"…"}` | `Run` with the send in `peer_messages`; **409** unless the run is a live adopted session with `can_send_live`, or if the send fails. See [Live sends](#live-sends) |
 | GET | `/v1/events` | – | SSE: global `run`, `repo` and `change` notifications |
+| POST | `/v1/sessions` | Claude Code hook payload | `{"accepted":bool,"reason"?}` (202): a hook telling nacred about a session so the adoption poll runs now. See [Session hints](#session-hints) |
 | GET | `/v1/attention` | – | `{"items":[AttentionItem]}`: Needs you for every repository on this computer (below) |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
@@ -371,6 +372,30 @@ What became of a send is reported on the run, in `peer_messages` and as `system`
   nacred never resends on its own. A later transcript entry still sets `confirmed`.
 - `idle_at` is when the session said it was idle again afterwards (`notify_when_idle`, when the
   session offers it): a hint that the turn finished, nothing more.
+
+#### Session hints
+`POST /v1/sessions` lets a Claude Code hook (`nacred hook`, an opt-in install step; see the bridge
+README) tell nacred about a session the moment something happens in it, instead of waiting up to
+`adopt_poll_seconds` for the next poll. Same bearer auth as every other route. The body is Claude
+Code's hook payload as is; nacred reads:
+
+| field | meaning |
+|---|---|
+| `session_id` | required; the Claude Code session id (400 if missing or malformed) |
+| `transcript_path` | the session's transcript. Used instead of globbing `~/.claude/projects` when it is an absolute `.jsonl` path |
+| `cwd` | the session's working directory; used only when the registry record has none |
+| `hook_event_name` | informational (`SessionStart`, `PostToolUse`, `Stop`) |
+| `tool_name`, `tool_input.command` | for `"tool_name":"Bash"`, the command that ran. A `bd update <id> --claim` (or `--status in_progress`) links the session to that bead (the run's `system` event says `linked to <id> (hook)`), replacing an earlier link; a `bd close <id>` links a session that has no bead yet. The id must be a bead of the session's repo |
+
+Everything else in the payload, such as `tool_response`, is ignored. The answer is **202**
+`{"accepted":true}` once the hint is queued, and the watcher polls at once. A hint never adopts a
+session on its own: the session must still have a live record in `~/.claude/sessions/`, be in a
+discovered repo and not be one of nacred's own, exactly as for polling, so the hook and the poll
+for one session produce **one** adopted run. When the record has not appeared yet (SessionStart can
+run first), nacred looks again every second for a few seconds; a hint for a session that never
+shows up is dropped after 15 s. With `adopt_sessions` off the route is a no-op: 202
+`{"accepted":false,"reason":"adopt_sessions is off"}`; a hint for a session nacred launched itself
+is likewise not accepted.
 
 **Listing is opt-in.** `GET /v1/runs` omits adopted runs unless `include=adopted` is passed, because
 a client that does not know about them would offer controls that cannot work. `include` takes a

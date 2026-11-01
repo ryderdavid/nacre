@@ -108,6 +108,40 @@ for longer than `adopt_idle_minutes` is idle and *stale*. They are counted by `R
 (stale ones excepted), never by `active_runs`, and `GET /v1/runs` omits them unless asked
 (`?include=adopted`, plus `stale` for the quiet ones). See docs/API.md, "Adopted runs".
 
+### Instant adoption with the Claude Code hook (optional)
+
+Polling alone adopts a session within `adopt_poll_seconds`. A Claude Code hook can make that
+immediate, give nacred the session's exact transcript path, and link the session to a bead the
+moment the agent runs `bd update <id> --claim` (or `bd close <id>`). It only **augments** polling:
+a computer without the hook, or with nacred stopped, behaves exactly as without it.
+
+nacred never edits your Claude Code settings. To install the hook on a computer, print the snippet
+for this nacred binary and merge its `"hooks"` entries into `~/.claude/settings.json` yourself
+(or a project's `.claude/settings.json` to limit it to that project):
+
+```sh
+nacred hook --settings     # add --config <path> if nacred uses a non-default config
+```
+
+It registers `nacred hook` on `SessionStart`, `PostToolUse` (matcher `Bash`) and `Stop`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "/path/to/nacred hook", "timeout": 5}]}],
+    "PostToolUse":  [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/path/to/nacred hook", "timeout": 5}]}],
+    "Stop":         [{"hooks": [{"type": "command", "command": "/path/to/nacred hook", "timeout": 5}]}]
+  }
+}
+```
+
+`nacred hook` reads the hook payload on stdin and posts its `session_id`, `transcript_path`, `cwd`
+and, for a Bash call, the command to `POST /v1/sessions` with this computer's token. It is fire and
+forget: it gives up after 1.5 s, always exits 0, prints nothing (a SessionStart hook's output would
+reach the agent), reads the config without creating one, sends nothing while `adopt_sessions` is
+off, and stays silent for every tool call other than a bd claim or close, whose output never
+leaves the hook. To remove it, delete those entries again.
+
 ## Notes
 
 - When run under launchd, the first scan of `~/Documents` may trigger a macOS privacy prompt
