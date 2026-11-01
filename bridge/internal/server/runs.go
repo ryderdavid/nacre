@@ -189,6 +189,31 @@ func (s *Server) followupRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, run)
 }
 
+// sendLive hands a message to an adopted run's live Claude Code session as a
+// peer message (NAC-j5z.15). It is separate from followupRun on purpose: it
+// is an explicit action on someone else's session, and a follow-up to an
+// adopted run stays a 409.
+func (s *Server) sendLive(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := decode(r, &req, false); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+		return
+	}
+	msg := strings.TrimSpace(req.Message)
+	if msg == "" {
+		writeError(w, http.StatusBadRequest, "message is required", "")
+		return
+	}
+	run, err := s.Runs.SendLive(r.PathValue("run"), msg, s.Config.Actor)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
 // streamRun replays stored events after the client's position, then streams
 // live events and run metadata changes until the client disconnects.
 func (s *Server) streamRun(w http.ResponseWriter, r *http.Request) {

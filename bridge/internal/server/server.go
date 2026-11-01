@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)
 	mux.HandleFunc("POST /v1/runs/{run}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/{run}/followup", s.followupRun)
+	mux.HandleFunc("POST /v1/runs/{run}/live", s.sendLive)
 	mux.HandleFunc("GET /v1/events", s.events)
 	mux.HandleFunc("POST /v1/repos/{repo}/rounds", s.createRound)
 	mux.HandleFunc("GET /v1/rounds", s.listRounds)

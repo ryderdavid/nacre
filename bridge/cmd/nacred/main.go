@@ -35,6 +35,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
+	"github.com/ryderdavid/nacre/bridge/internal/peer"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
@@ -143,10 +144,25 @@ func serve(cfg *config.Config, listenFlag string) error {
 	// Rounds hear about their runs through the run notifications. They are
 	// created after the run manager, so the hook is bound late.
 	var roundsRef atomic.Pointer[rounds.Manager]
+	// Live sends into adopted sessions (NAC-j5z.15). Receipts reach the run
+	// manager, which is created next, so the handler is bound late.
+	var managerRef atomic.Pointer[runs.Manager]
+	live := &peer.Client{
+		KeyDir: sessions.DefaultDir(config.Home()),
+		Alive:  func(pid int, procStart string) bool { return sessions.Alive(nil, pid, procStart) },
+		Handle: func(f peer.Frame) {
+			if m := managerRef.Load(); m != nil {
+				m.PeerFrame(f)
+			}
+		},
+		Logger: logger,
+	}
+	defer live.Close()
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
 		StallAfter:     cfg.StallAfter(),
+		Live:           live,
 		Notify: func(event string, data any) {
 			broker.Publish(event, data)
 			if run, ok := data.(api.Run); ok {
@@ -164,6 +180,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	if err != nil {
 		return fmt.Errorf("load runs: %w", err)
 	}
+	managerRef.Store(manager)
 	registry.ActiveRuns = manager.ActiveCount
 	registry.AdoptedRuns = manager.AdoptedCount
 	go registry.Rescan() // warm the repo list
