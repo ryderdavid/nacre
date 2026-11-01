@@ -329,7 +329,8 @@ fun CompactBoard(
     // Keyed on the totals too: the filtered columns arrive a moment after the query changes.
     LaunchedEffect(query, ui.columns.map { it.total }) {
         if (query.isBlank()) return@LaunchedEffect
-        laneWithMatches(ui.columns, pager.currentPage)?.let { pager.animateScrollToPage(it) }
+        // Launched outside the effect: a restart as the totals settle must not stop the pager between lanes.
+        laneWithMatches(ui.columns, pager.targetPage)?.let { scope.launch { pager.animateScrollToPage(it) } }
     }
 
     LaunchedEffect(scrollToLane) {
