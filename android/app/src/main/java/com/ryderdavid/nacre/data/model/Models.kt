@@ -525,6 +525,8 @@ data class Round(
     val artifacts: List<String> = emptyList(),
     @SerialName("landed_commit") val landedCommit: String = "",
     val pushed: Boolean = false,
+    /** Whether landing pushes [target], resolved from the round's nacre.yaml; null when nacred didn't say. */
+    @SerialName("land_push") val landPush: Boolean? = null,
     @SerialName("auto_land") val autoLand: Boolean = false,
     /** The epic whose branch this round merges into [target]; such a round has no beads. */
     @SerialName("finish_epic") val finishEpic: String = "",
@@ -708,3 +710,22 @@ const val BEAD_SKIPPED = "skipped"
 const val FINDING_OVERLAP = "overlap"
 const val FINDING_ORDERING = "ordering"
 const val FINDING_UNMERGED = "unmerged-work"
+
+/** What a round's result adds to the commit it started from, for review before landing. */
+@Serializable
+data class RoundChanges(
+    val base: String = "",
+    val head: String = "",
+    val commits: List<RoundCommit> = emptyList(),
+    val files: List<RoundFile> = emptyList(),
+    @SerialName("more_commits") val moreCommits: Int = 0,
+) {
+    val added get() = files.sumOf { it.added }
+    val deleted get() = files.sumOf { it.deleted }
+}
+
+@Serializable
+data class RoundCommit(val sha: String = "", val subject: String = "")
+
+@Serializable
+data class RoundFile(val path: String = "", val added: Int = 0, val deleted: Int = 0, val binary: Boolean = false)
