@@ -26,7 +26,7 @@ func TestArgs(t *testing.T) {
 			[]string{"exec", "--json", "-c", `sandbox_mode="workspace-write"`, "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="high"`, "x"}},
 		{"resume keeps effort", Turn{Prompt: "more", Mode: "plan", Effort: "max", Resume: "th-1"},
 			[]string{"exec", "resume", "--json", "-c", `sandbox_mode="read-only"`, "-c", `model_reasoning_effort="max"`, "th-1", "more"}},
-		{"auto gets network",Turn{Prompt: "x", Mode: "auto"},
+		{"auto gets network", Turn{Prompt: "x", Mode: "auto"},
 			[]string{"exec", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", "sandbox_workspace_write.network_access=true", "x"}},
 		{"bypass", Turn{Prompt: "x", Mode: "bypassPermissions"},
 			[]string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "x"}},
