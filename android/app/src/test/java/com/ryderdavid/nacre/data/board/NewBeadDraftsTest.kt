@@ -1,6 +1,8 @@
 package com.ryderdavid.nacre.data.board
 
 import com.ryderdavid.nacre.data.claude.DraftTurn
+import com.ryderdavid.nacre.data.model.FoundComment
+import com.ryderdavid.nacre.data.model.NewEffortPrefill
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -40,5 +42,28 @@ class NewBeadDraftsTest {
         drafts.put("mac~r1", NewBeadForm(title = "one"))
         drafts.clear("mac~r1")
         assertNull(drafts.get("mac~r1"))
+    }
+
+    @Test fun anUntouchedPrefillIsNotKeptButAnEditedOneIs() {
+        val drafts = NewBeadDrafts()
+        val start = NewBeadForm(title = "Found: flaky test", description = "seen in NAC-9")
+        drafts.put("k", start, start)
+        assertNull(drafts.get("k"), "nothing was typed yet")
+        val edited = start.copy(description = "seen in NAC-9; only on CI")
+        drafts.put("k", edited, start)
+        assertEquals(edited, drafts.get("k"))
+    }
+
+    @Test fun eachKindOfFormKeepsItsOwnDraft() {
+        val keys = listOf(
+            newBeadDraftKey("mac~r1", effort = false, prefill = null),
+            newBeadDraftKey("mac~r1", effort = true, prefill = null),
+            newBeadDraftKey("mac~r1", effort = true, prefill = NewEffortPrefill(title = "x", followOnOf = "change-a")),
+            newBeadDraftKey("mac~r1", effort = true, prefill = NewEffortPrefill(title = "x", foundComment = FoundComment("NAC-1", "c1"))),
+            newBeadDraftKey("mac~r1", effort = true, prefill = NewEffortPrefill(title = "x", foundComment = FoundComment("NAC-1", "c2"))),
+            newBeadDraftKey("mac~r2", effort = false, prefill = null),
+        )
+        assertEquals(keys.size, keys.toSet().size)
+        assertEquals("mac~r1", keys[0], "a plain new bead keeps the key it had before")
     }
 }

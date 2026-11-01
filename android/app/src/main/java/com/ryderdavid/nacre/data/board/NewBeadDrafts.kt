@@ -1,6 +1,7 @@
 package com.ryderdavid.nacre.data.board
 
 import com.ryderdavid.nacre.data.claude.DraftTurn
+import com.ryderdavid.nacre.data.model.NewEffortPrefill
 
 /** Everything typed or drafted into the new-bead form, so a dismissed form can come back as it was. */
 data class NewBeadForm(
@@ -33,10 +34,25 @@ class NewBeadDrafts {
 
     fun get(repoKey: String): NewBeadForm? = synchronized(drafts) { drafts[repoKey] }
 
-    /** Keep [form] for [repoKey]; an empty form clears it instead. */
-    fun put(repoKey: String, form: NewBeadForm) = synchronized(drafts) {
-        if (form.hasContent) drafts[repoKey] = form else drafts.remove(repoKey)
+    /**
+     * Keep [form] under [key]. A form with nothing typed in, or one still exactly as it was
+     * opened ([start], such as an untouched prefill), clears it instead.
+     */
+    fun put(key: String, form: NewBeadForm, start: NewBeadForm = NewBeadForm()) = synchronized(drafts) {
+        if (form.hasContent && form != start) drafts[key] = form else drafts.remove(key)
     }
 
     fun clear(repoKey: String) = synchronized(drafts) { drafts.remove(repoKey) }
+}
+
+/**
+ * Where a new-bead form's draft is kept: a plain new bead and a new effort each have one per
+ * board, and a prefilled form (found work, a follow-on change) has one per thing it came from,
+ * so edits to one prefill never turn up in another.
+ */
+fun newBeadDraftKey(repoKey: String, effort: Boolean, prefill: NewEffortPrefill?): String = when {
+    prefill == null -> if (effort) "$repoKey#effort" else repoKey
+    prefill.followOnOf.isNotBlank() -> "$repoKey#follow-on#${prefill.followOnOf}"
+    prefill.foundComment != null -> "$repoKey#found#${prefill.foundComment.bead}#${prefill.foundComment.commentId}"
+    else -> "$repoKey#prefill#${prefill.title}"
 }

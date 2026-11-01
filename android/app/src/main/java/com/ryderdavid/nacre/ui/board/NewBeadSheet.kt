@@ -34,7 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.NewBeadForm
+import com.ryderdavid.nacre.data.board.newBeadDraftKey
 import com.ryderdavid.nacre.data.claude.BeadDraft
 import com.ryderdavid.nacre.data.claude.DraftTurn
 import com.ryderdavid.nacre.data.friendly
@@ -76,13 +77,12 @@ fun NewBeadSheet(
 ) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
-    // A prefilled sheet (found work, a follow-on) starts from its prefill and isn't kept as the
-    // board's draft; a new effort keeps its own draft apart from a plain new bead (NAC-cjm).
-    val draftKey = if (prefill != null) null else if (effort) "$repoKey#effort" else repoKey
-    val saved = remember {
-        draftKey?.let { container.newBeadDrafts.get(it) }
-            ?: NewBeadForm(title = prefill?.title.orEmpty(), description = prefill?.description.orEmpty(), parent = defaultParent)
-    }
+    // A new effort keeps its own draft apart from a plain new bead, and a prefilled sheet (found
+    // work, a follow-on) keeps one per thing it came from (NAC-cjm).
+    val draftKey = newBeadDraftKey(repoKey, effort, prefill)
+    /** The form as it opens with nothing kept: blank, or the prefill. */
+    val start = remember { NewBeadForm(title = prefill?.title.orEmpty(), description = prefill?.description.orEmpty(), parent = defaultParent) }
+    val saved = remember { container.newBeadDrafts.get(draftKey) ?: start }
     var title by rememberSaveable { mutableStateOf(saved.title) }
     var description by rememberSaveable { mutableStateOf(saved.description) }
     var verdict by remember { mutableStateOf<IntakeVerdict?>(null) }
@@ -109,21 +109,25 @@ fun NewBeadSheet(
 
     fun form() = NewBeadForm(title, description, acceptance, design, type, priority, labels, parent, questions, chat, message, drafted)
 
-    // Keep the form as it stands, so any way of dismissing it (tap outside, back, the handle)
-    // leaves the input to come back on the next open (NAC-cjm).
-    SideEffect { if (!written && draftKey != null) container.newBeadDrafts.put(draftKey, form()) }
+    // Keep the form as it stands when the sheet goes away, so any way of dismissing it (tap
+    // outside, back, the handle) leaves the input to come back on the next open (NAC-cjm). This
+    // runs on leaving composition rather than as a SideEffect: the fields are read only inside the
+    // sheet's content, so typing never recomposes this scope and a SideEffect would miss the edits.
+    DisposableEffect(draftKey) {
+        onDispose { if (!written) container.newBeadDrafts.put(draftKey, form(), start) }
+    }
 
     /** Any edit to the draft makes intake's verdict out of date. */
     fun edited() { verdict = null; route = null; intakeError = null }
 
     fun discard() {
-        val blank = NewBeadForm(parent = defaultParent)
+        val blank = start
         title = blank.title; description = blank.description; acceptance = blank.acceptance; design = blank.design
         type = blank.type; priority = blank.priority; labels = blank.labels; parent = blank.parent
         questions = blank.questions; chat = blank.chat; message = blank.message; drafted = blank.drafted
         error = null; offerApiKey = false
         edited()
-        draftKey?.let { container.newBeadDrafts.clear(it) }
+        container.newBeadDrafts.clear(draftKey)
     }
 
     fun parentTitle() = parent?.let { p -> index?.byId?.get(p)?.title }
@@ -200,7 +204,7 @@ fun NewBeadSheet(
                 ),
             )
             written = true
-            draftKey?.let { container.newBeadDrafts.clear(it) }
+            container.newBeadDrafts.clear(draftKey)
             if (develop == null) {
                 container.repository.notify("Created ${issue.id}")
                 onCreated(issue)
@@ -231,7 +235,7 @@ fun NewBeadSheet(
                     Text(if (effort) "New effort" else "New bead", style = MaterialTheme.typography.titleLarge)
                     Text("in $repoName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (draftKey != null && created == null && form().hasContent) {
+                if (created == null && form().hasContent && form() != start) {
                     TextButton(onClick = { discard() }, enabled = !drafting && !saving && !checking) { Text("Discard draft") }
                 }
             }
