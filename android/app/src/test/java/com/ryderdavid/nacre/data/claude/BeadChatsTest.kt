@@ -61,6 +61,37 @@ class BeadChatsTest {
         assertEquals(emptyList(), chats().current(key))
     }
 
+    @Test fun onlyAcceptedMessagesStartChatsAndRepliesRefreshActivity() = runBlocking {
+        var starts = 0
+        var activity = 0
+        val c = BeadChats(file, CoroutineScope(Dispatchers.Unconfined), Dispatchers.Unconfined,
+            onStarted = { starts++ }, onActivity = { activity++ })
+        val gate = CompletableDeferred<Unit>()
+        assertEquals(0, starts)
+        c.send(key, BeadChatItem.Mine("one", ChatMode.ASK), false) { gate.await(); BeadChatItem.Answer("1") }
+        c.send(key, BeadChatItem.Mine("two", ChatMode.ASK), false) { BeadChatItem.Answer("2") }
+        assertEquals(1, starts)
+        assertEquals(0, activity)
+        gate.complete(Unit)
+        assertTrue(activity > 0)
+    }
+
+    @Test fun dismissingDuringAReplyCannotRepopulateOrAffectANewChat() = runBlocking {
+        val c = chats()
+        val oldReply = CompletableDeferred<Unit>()
+        c.send(key, BeadChatItem.Mine("old", ChatMode.ASK), false) {
+            // Even a backend that ignores cancellation must not resurrect a dismissed thread.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { oldReply.await() }
+            BeadChatItem.Answer("old answer")
+        }
+        c.clear(key)
+        c.send(key, BeadChatItem.Mine("new", ChatMode.ASK), false) { BeadChatItem.Answer("new answer") }
+        oldReply.complete(Unit)
+        assertEquals(listOf(BeadChatItem.Mine("new", ChatMode.ASK), BeadChatItem.Answer("new answer")), c.current(key))
+        assertNull(c.failure(key).first())
+        assertEquals(false, c.thinking(key).first())
+    }
+
     @Test fun turnsSayWhatBecameOfEachProposal() {
         val turns = listOf(
             BeadChatItem.Mine("Why?", ChatMode.ASK),

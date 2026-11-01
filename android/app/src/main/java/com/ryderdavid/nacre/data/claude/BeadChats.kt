@@ -1,5 +1,8 @@
 package com.ryderdavid.nacre.data.claude
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,11 +57,15 @@ class BeadChats(
     private val file: File,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val onStarted: (String) -> Unit = {},
+    private val onActivity: (String) -> Unit = {},
 ) {
     private val state = MutableStateFlow(read())
     private val busy = MutableStateFlow<Set<String>>(emptySet())
     private val failures = MutableStateFlow<Map<String, ChatFailure>>(emptyMap())
     private val writing = Mutex()
+    private val requests = mutableMapOf<String, Any>()
+    private val jobs = mutableMapOf<String, Job>()
 
     val mode: Flow<ChatMode> = state.map { it.mode }.distinctUntilChanged()
 
@@ -73,7 +80,10 @@ class BeadChats(
     fun setMode(mode: ChatMode) = change { it.copy(mode = mode) }
 
     /** Start the bead's conversation over. */
-    fun clear(key: String) {
+    @Synchronized fun clear(key: String) {
+        requests.remove(key)
+        jobs.remove(key)?.cancel()
+        busy.update { it - key }
         failures.update { it - key }
         change { s -> s.copy(threads = s.threads.filter { it.key != key }) }
     }
@@ -82,29 +92,54 @@ class BeadChats(
      * Add Ryder's [message] and the reply [answer] produces once it arrives. A
      * failure leaves the message in the thread and offers to send it again.
      */
-    fun send(key: String, message: BeadChatItem.Mine, retrying: Boolean, answer: suspend (history: List<BeadChatItem>) -> BeadChatItem) {
+    @Synchronized fun send(key: String, message: BeadChatItem.Mine, retrying: Boolean, answer: suspend (history: List<BeadChatItem>) -> BeadChatItem) {
         if (key in busy.value) return
+        val request = Any()
+        requests[key] = request
         val history = current(key)
+        onStarted(key)
         failures.update { it - key }
         if (!retrying) edit(key) { it + message }
         busy.update { it + key }
-        scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 val reply = answer(history)
-                edit(key) { it + reply }
+                synchronized(this@BeadChats) {
+                    if (requests[key] === request) {
+                        edit(key) { it + reply }
+                        onActivity(key)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: ClaudeUnavailableException) {
-                failures.update { it + (key to ChatFailure(e.message ?: "Claude isn't available right now", e.offerApiKey, message)) }
+                synchronized(this@BeadChats) {
+                    if (requests[key] === request) failures.update { it + (key to ChatFailure(e.message ?: "Claude isn't available right now", e.offerApiKey, message)) }
+                }
             } catch (e: Exception) {
-                failures.update { it + (key to ChatFailure(e.message ?: "Claude couldn't answer", false, message)) }
+                synchronized(this@BeadChats) {
+                    if (requests[key] === request) failures.update { it + (key to ChatFailure(e.message ?: "Claude couldn't answer", false, message)) }
+                }
             } finally {
-                busy.update { it - key }
+                synchronized(this@BeadChats) {
+                    if (requests[key] === request) {
+                        busy.update { it - key }
+                        jobs.remove(key)
+                        onActivity(key)
+                    }
+                }
             }
         }
+        jobs[key] = job
+        job.start()
     }
 
     /** Replace the item at [index], e.g. to record what became of a proposal. */
-    fun set(key: String, index: Int, item: BeadChatItem) = edit(key) { list ->
-        if (index in list.indices) list.toMutableList().also { it[index] = item } else list
+    fun set(key: String, index: Int, item: BeadChatItem) {
+        onActivity(key)
+        edit(key) { list ->
+            if (index in list.indices) list.toMutableList().also { it[index] = item } else list
+        }
     }
 
     private fun edit(key: String, change: (List<BeadChatItem>) -> List<BeadChatItem>) = change { s ->

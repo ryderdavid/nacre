@@ -147,7 +147,6 @@ class BeadDetailViewModel(
     // ---- Claude: ask and refine, in one thread per bead ----
 
     fun setChatMode(mode: ChatMode) = chats.setMode(mode)
-    fun newConversation() = chats.clear(chatKey)
 
     /**
      * Send [text] in [mode]. Ask gets an answer and can change nothing; Refine

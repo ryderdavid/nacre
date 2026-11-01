@@ -112,6 +112,7 @@ fun AssistantPane(
     onClose: () -> Unit,
     onOpenBead: (repoKey: String, beadId: String) -> Unit,
     onOpenRun: (String) -> Unit,
+    onDismissChat: () -> Unit,
 ) {
     val container = LocalContainer.current
     val everyBoard = target is AssistantTarget.AllBoards
@@ -155,7 +156,7 @@ fun AssistantPane(
                     IconToggleButton(checked = auto, onCheckedChange = { assistant.autoApprove.value = it }) {
                         Icon(Icons.Rounded.VerifiedUser, if (auto) "Changes apply without asking" else "Ask before changing beads", tint = if (auto) Nacre.colors.needsYou else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = assistant::clear, enabled = items.isNotEmpty()) { Icon(Icons.Rounded.DeleteSweep, "New conversation") }
+                    IconButton(onClick = onDismissChat) { Icon(Icons.Rounded.DeleteSweep, "Dismiss chat") }
                 },
             )
         },

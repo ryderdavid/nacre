@@ -1,5 +1,7 @@
 package com.ryderdavid.nacre
 
+import com.ryderdavid.nacre.data.claude.ChatContext
+import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.data.claude.BeadChats
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -41,19 +43,53 @@ class AppContainer(app: Application) {
     )
     val notifier = RunNotifier(app, repository, settings, scope)
 
-    /** Each bead's chat with Claude, kept until Ryder starts a new conversation. */
-    val beadChats = BeadChats(java.io.File(app.filesDir, "bead-chats.json"), scope)
+    val chatStack = ChatStack(onRemoved = ::resetChat)
+
+    /** Each bead's chat with Claude; accepted messages and replies update the shared stack. */
+    val beadChats = BeadChats(
+        java.io.File(app.filesDir, "bead-chats.json"), scope,
+        onStarted = { key ->
+            beadContext(key)?.let { chatStack.started(it, chatLabel(it)) }
+        },
+        onActivity = { key -> beadContext(key)?.let(chatStack::touch) },
+    )
+
+    private fun beadContext(key: String): ChatContext.Bead? {
+        val split = key.lastIndexOf('/')
+        return if (split < 0) null else ChatContext.Bead(key.substring(0, split), key.substring(split + 1))
+    }
+
+    fun chatLabel(context: ChatContext): String = when (context) {
+        ChatContext.Multi -> "multi"
+        is ChatContext.Board -> repository.repo(context.repoKey)?.name ?: context.repoKey
+        is ChatContext.Bead -> repository.board(context.repoKey).value.data?.index?.byId?.get(context.beadId)?.title
+            ?.ifBlank { null } ?: context.beadId
+    }
+
+    /** Dismissal/expiry starts fresh next time and cancels any work belonging to the old chat. */
+    fun resetChat(context: ChatContext) {
+        when (context) {
+            is ChatContext.Bead -> beadChats.clear(BeadChats.key(context.repoKey, context.beadId))
+            else -> synchronized(assistants) {
+                assistants.remove(if (context is ChatContext.Board) context.repoKey else ALL_BOARDS)?.clear()
+            }
+        }
+    }
 
     /**
      * One assistant conversation per board plus the cross-board one, kept for the life
-     * of the process (the cross-board one starts fresh after a few idle hours). Repo keys
+     * of the active chat. Repo keys
      * are "<host>~<repo id>", so [ALL_BOARDS] can't collide.
      */
     private val assistants = mutableMapOf<String, BoardAssistant>()
 
     fun assistant(repoKey: String, repoName: String): BoardAssistant = synchronized(assistants) {
         assistants.getOrPut(repoKey) {
-            BoardAssistant(backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope)
+            BoardAssistant(
+                backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope,
+                onStarted = { chatStack.started(ChatContext.Board(repoKey), chatLabel(ChatContext.Board(repoKey))) },
+                onActivity = { chatStack.touch(ChatContext.Board(repoKey)) },
+            )
         }
     }
 
@@ -62,7 +98,8 @@ class AppContainer(app: Application) {
         assistants.getOrPut(ALL_BOARDS) {
             BoardAssistant(
                 backends, { settings.current() }, AllBoardsRouter(repository, settings), scope,
-                idleResetMs = BoardAssistant.ORCHESTRATOR_IDLE_RESET_MS,
+                onStarted = { chatStack.started(ChatContext.Multi, "multi") },
+                onActivity = { chatStack.touch(ChatContext.Multi) },
             )
         }
     }

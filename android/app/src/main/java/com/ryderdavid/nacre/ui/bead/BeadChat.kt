@@ -22,9 +22,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Lock
@@ -110,7 +110,7 @@ private fun look(mode: ChatMode, id: String) = when (mode) {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit) {
+fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit, onDismissChat: () -> Unit) {
     val items by vm.chat.collectAsState()
     val thinking by vm.chatThinking.collectAsState()
     val failure by vm.chatFailure.collectAsState()
@@ -145,8 +145,8 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = vm::newConversation, enabled = items.isNotEmpty() && !thinking) {
-                    Icon(Icons.Rounded.AddComment, "New conversation")
+                IconButton(onClick = onDismissChat) {
+                    Icon(Icons.Rounded.Close, "Dismiss chat")
                 }
             }
 
