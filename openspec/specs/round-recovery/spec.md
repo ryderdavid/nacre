@@ -1,7 +1,7 @@
 # round-recovery Specification
 
 ## Purpose
-TBD - created by archiving change resilient-rounds. Update Purpose after archive.
+Rounds fix what they can before they stop, and when they do stop they say why in plain words and offer choices that never simply replay a failure.
 ## Requirements
 ### Requirement: A recovery ladder before every stop
 nacred SHALL try a recovery ladder whenever a round would stop (pause the round, or park a bead for a

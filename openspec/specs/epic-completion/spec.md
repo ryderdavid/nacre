@@ -1,7 +1,7 @@
 # epic-completion Specification
 
 ## Purpose
-TBD - created by archiving change finish-to-main. Update Purpose after archive.
+Work set in the app ends finished: a bead's round lands it, an epic's work collects on the epic's branch, and finishing the epic merges it into the main branch, archives its change and closes it. Pushing the main branch is the hand-off to the repository's CI.
 ## Requirements
 ### Requirement: Work until done
 The app SHALL offer Work until done first when a bead is implemented: a round of that bead which lands

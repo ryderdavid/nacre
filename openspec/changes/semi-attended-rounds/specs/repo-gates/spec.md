@@ -14,7 +14,7 @@ malformed file with the line and reason.
 
 #### Scenario: What nacre.yaml holds
 - **WHEN** nacred reads `nacre.yaml`
-- **THEN** it accepts `gates` (named commands that must all exit 0), `build` (named commands run at the end of a round, each optionally naming an `artifact` path), `env` (environment variables for those commands), `version.bump` (a command run once per round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits` (`gate_timeout_minutes`, `fix_attempts`)
+- **THEN** it accepts `gates` (named commands that must all exit 0, each optionally `final_only` to run only on the round's final commit), `build` (named commands run at the end of a round, each optionally naming an `artifact` path), `env` (environment variables for those commands), `version.bump` (a command run once per round, in which `{level}` is replaced by `patch` or `minor`), `resources` (exclusive resources), `land` (`target`, `auto`, `push`) and `limits` (`gate_timeout_minutes`, `fix_attempts`)
 
 ### Requirement: nacred runs the gates itself
 nacred SHALL run gates in the relevant worktree with the declared environment, each with the gate timeout,

@@ -24,7 +24,8 @@ another active round, and the refusal SHALL say which.
 
 ### Requirement: Round lifecycle
 A round SHALL move through the states `planning`, `needs_decision`, `implementing`, `integrating`,
-`ready_to_land`, `landed`, and the terminal states `cancelled` and `paused`, and SHALL record every
+`ready_to_land` and `paused` (which can be resumed through the choices round-recovery specifies), and
+the terminal states `landed` and `cancelled`, and SHALL record every
 transition as a round event with a timestamp. Each bead in a round SHALL have its own state:
 `waiting`, `running`, `verifying`, `integrating`, `integrated`, `parked` or `skipped`.
 

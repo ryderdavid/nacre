@@ -35,7 +35,7 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 
 ## 5. Pre-flight
 
-- [x] 5.1 Pre-flight prompt and JSON schema (per-bead areas, implied dependencies, findings with the five kinds) run read-only in plan mode — G-bridge (schema and prompt tests, fake claude returning a canned plan)
+- [x] 5.1 Pre-flight prompt and JSON schema (per-bead areas, implied dependencies, findings with the five kinds, six once 5.5 added unmerged work) run read-only in plan mode — G-bridge (schema and prompt tests, fake claude returning a canned plan)
 - [x] 5.2 Turn contradictions and ambiguities into questions; `needs_decision` until all answered; record answers on beads and in later prompts — G-bridge
 - [x] 5.3 Turn overlaps and orderings into sequencing; propose bd dependencies; accept reordering and unlinking before implementation — G-bridge
 - [x] 5.4 Mark shared artifacts (version etc.) as round-owned and tell runs not to touch them — G-bridge
@@ -70,4 +70,4 @@ Gates used below: **G-bridge** = `cd bridge && go vet ./... && go test -race ./.
 ## 10. Proving it
 
 - [x] 10.1 End-to-end test in Go: a temp repo with `nacre.yaml`, three beads (two overlapping, one depending on another), a scripted fake claude; the round ends `ready_to_land` with all three integrated and the gates green — G-bridge
-- [x] 10.2 Dogfood on Nacre: a real round of three small beads, landed from the phone; record what needed Ryder and why — G-bridge, G-app, G-build — 2026-11-01: round rdtnubbmywq (NAC-j5z.11, .15 and .10, $4.64) carried two beads' set-aside work from a cancelled round, passed every gate and the build, and landed as v0.17.0. Landed through the API from the Mac at Ryder's instruction, not from the phone. What needed Ryder: one pre-flight question about an unmerged stale worktree branch (answered Ignore it), and the Land itself, which first paused because main moved between its merge and fast-forward (fixed since: landing merges again)
+- [x] 10.2 Dogfood on Nacre: a real round of three small beads, landed with the Land action; record what needed Ryder and why — G-bridge, G-app, G-build — 2026-11-01: round rdtnubbmywq (NAC-j5z.11, .15 and .10, $4.64) carried two beads' set-aside work from a cancelled round, passed every gate and the build, and landed as v0.17.0. It was landed through POST /v1/rounds/{id}/land from the Mac at Ryder's instruction, the call the app's Land button makes; the button on the phone itself was not exercised (tracked as a human check, NAC-vx2). What needed Ryder: one pre-flight question about an unmerged stale worktree branch (answered Ignore it), and the Land, which first paused because main moved between its merge and fast-forward (fixed since: landing merges again)

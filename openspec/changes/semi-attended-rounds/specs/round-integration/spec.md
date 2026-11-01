@@ -15,10 +15,10 @@ each merge it SHALL run the gates on the integration worktree.
 
 ### Requirement: Conflicts and post-merge failures go to an integration turn
 When a merge conflicts, or the gates fail after a merge, nacred SHALL start a Claude turn in the
-integration worktree, given the beads involved, the round's decisions, and the conflicted hunks or the gate
-output. The turn SHALL resolve the problem and commit; nacred SHALL then re-run the gates. After
-`fix_attempts` failed turns, nacred SHALL reset the integration branch to its pre-merge commit and park the
-bead with the reason.
+integration worktree with the beads involved, the round's decisions, and the conflicted hunks or gate
+output; nacred SHALL re-run the gates after it commits. When `fix_attempts` turns and the
+round-recovery ladder are spent, nacred SHALL reset the integration branch to its pre-merge commit and
+park the bead with the reason.
 
 #### Scenario: Conflict resolved
 - **WHEN** merging NAC-3 conflicts in `ReposScreen.kt`
@@ -37,10 +37,10 @@ SHALL only edit and commit inside the worktree they were given.
 - **THEN** it commits in the integration worktree, and nacred, not the agent, records the result and moves on
 
 ### Requirement: Finish the round on one verified commit
-When every bead is integrated, parked or skipped, nacred SHALL run `version.bump` once on the integration
-branch with the level `minor` if any integrated bead is a feature or an epic and `patch` otherwise, and
-commit it, then run all gates and every `build` step there. If they pass, the round SHALL be
-`ready_to_land` with its final commit SHA and artifact paths recorded; if they fail, nacred SHALL run an
+When every bead is integrated, parked or skipped, nacred SHALL bump the version once (`minor` if any
+integrated bead is a feature or epic, else `patch`; epic-branch rounds don't bump), commit it, and run
+all gates and every `build` step on the integration branch. If they pass, the round SHALL be
+`ready_to_land` with its final commit and artifacts recorded; if they fail, nacred SHALL run an
 integration turn under the same attempt limit.
 
 #### Scenario: Ready to land
@@ -69,10 +69,11 @@ comment saying what remains to verify. Parked beads SHALL stay open with their r
 - **THEN** NAC-1tm stays open with a comment listing the checks left for Ryder, and the other beads are closed
 
 ### Requirement: Landing
-Landing SHALL fast-forward `land.target` to the round's final commit and, when `land.push` is true, push the
-target. If the target has moved since the round's base, nacred SHALL first merge the target into the
-integration branch and re-run the gates and build, landing only if they pass. Landing SHALL wait for
-Ryder's approval unless `land.auto` is true.
+Landing SHALL fast-forward the round's target (`land.target`, or an epic's branch) to its final commit
+and, when `land.push` is true, push it. If the target moved since the round's base, nacred SHALL first
+merge it into the integration branch and re-run the gates and build, landing only if they pass. Landing
+SHALL wait for Ryder's approval unless the round was asked to land when ready, or `land.auto` is on and
+the round has no specification sections.
 
 #### Scenario: Ryder lands
 - **WHEN** Ryder approves landing a ready round whose target has not moved

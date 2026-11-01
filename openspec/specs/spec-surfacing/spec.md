@@ -1,7 +1,7 @@
 # spec-surfacing Specification
 
 ## Purpose
-TBD - created by archiving change surface-spec-workflow. Update Purpose after archive.
+The specification workflow shows up where Ryder decides: in the assistant, in round pre-flight, in Needs you, and on board cards and epics.
 ## Requirements
 ### Requirement: Assistant proposes developing a proposal
 The board assistant SHALL offer a `develop_proposal` write tool for an existing bead and a `then_develop` option on `create_bead`, both within specflow's per-action cost limit shown on the approval card. These spending tools SHALL always require Ryder's approval, including in auto-apply mode. The assistant SHALL NOT offer them for chores, small fixes or beads already linked to a change.

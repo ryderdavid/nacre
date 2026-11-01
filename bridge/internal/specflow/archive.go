@@ -59,10 +59,49 @@ func (m *Manager) ArchiveInto(ctx context.Context, repo, workspace, epic string)
 		}
 		return "", fmt.Errorf("openspec archive %s failed: %s", c.ChangeName, s)
 	}
+	if err := fillPurposes(workspace, c); err != nil {
+		return "", err
+	}
 	if _, err := gitx.CommitAll(ctx, workspace, "Archive OpenSpec change "+c.ChangeName+" (epic "+epic+")"); err != nil {
 		return "", fmt.Errorf("committing the archive of %s: %w", c.ChangeName, err)
 	}
 	return c.ChangeName, nil
+}
+
+// fillPurposes replaces the placeholder Purpose openspec archive writes into
+// each spec it creates with the change's own "Why", since strict validation,
+// one of the gates, rejects the placeholder.
+func fillPurposes(workspace string, c Change) error {
+	why := ""
+	for _, a := range c.Artifacts {
+		if strings.HasSuffix(a.Path, "/proposal.md") {
+			why = oneParagraph(whyText(a.Content), 400)
+		}
+	}
+	if why == "" {
+		why = "Specified by the change " + c.ChangeName + "."
+	}
+	placeholder := "TBD - created by archiving change " + c.ChangeName + "."
+	specs, _ := filepath.Glob(filepath.Join(workspace, "openspec", "specs", "*", "spec.md"))
+	for _, p := range specs {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		lines := strings.Split(string(b), "\n")
+		changed := false
+		for i, l := range lines {
+			if strings.HasPrefix(strings.TrimSpace(l), placeholder) {
+				lines[i], changed = why, true
+			}
+		}
+		if changed {
+			if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // asApproved reports whether an approved change's own canonical files under

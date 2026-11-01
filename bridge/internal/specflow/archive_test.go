@@ -38,8 +38,12 @@ func TestArchiveIntoCommitsTheArchiveAndEndsTheWorkflow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "openspec/changes/retain-drafts")); !os.IsNotExist(err) {
 		t.Fatal("the change is still active")
 	}
-	if _, err := os.Stat(filepath.Join(repo, "openspec/specs/drafts/spec.md")); err != nil {
+	spec, err := os.ReadFile(filepath.Join(repo, "openspec/specs/drafts/spec.md"))
+	if err != nil {
 		t.Fatal("the change's requirements weren't merged into the accepted specs")
+	}
+	if strings.Contains(string(spec), "TBD") || !strings.Contains(string(spec), "Drafts vanish when people navigate away") {
+		t.Fatalf("the new spec's Purpose wasn't filled in from the change's Why:\n%s", spec)
 	}
 	if dirty, _ := gitx.Dirty(ctx, repo, ".beads/"); len(dirty) != 0 {
 		t.Fatalf("the archive wasn't committed: %v", dirty)
