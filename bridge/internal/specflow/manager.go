@@ -524,6 +524,8 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 				// the files himself following blocking findings.
 				r.Stage = "adopt"
 				r.LastCall = nil
+				// Reviewing edited files again is a new action with its own budget.
+				r.ReviewCalls, r.ActionCost, r.ReservedCost = 0, 0, 0
 			}
 			r.Change.Phase = "drafting"
 		}
