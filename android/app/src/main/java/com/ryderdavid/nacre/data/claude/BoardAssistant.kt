@@ -120,6 +120,8 @@ class BoardAssistant(
     /** Needs you across computers, for the needs_you tool. */
     private val attention: () -> List<com.ryderdavid.nacre.data.model.AttentionItem> = { emptyList() },
     private val now: () -> Long = System::currentTimeMillis,
+    private val onStarted: () -> Unit = {},
+    private val onActivity: () -> Unit = {},
 ) {
     private val everyBoard = router.only == null
     private val toolSpecs = assistantTools(everyBoard)
@@ -155,18 +157,22 @@ class BoardAssistant(
         }
 
         override fun text(delta: String) {
+            onActivity()
             textKey = appendText(textKey, delta)
         }
 
         override fun thinking(delta: String) {
+            onActivity()
             thinkKey = appendThinking(thinkKey, delta)
         }
 
         override fun aside(id: String, name: String, summary: String) {
+            onActivity()
             _items.update { it + ChatItem.ToolCall(id, name, summary, JsonObject(emptyMap()), ChatItem.ToolCall.State.RUNNING) }
         }
 
         override fun asideDone(id: String, result: String, isError: Boolean) {
+            onActivity()
             setState(id, if (isError) ChatItem.ToolCall.State.FAILED else ChatItem.ToolCall.State.DONE, result)
         }
     }
@@ -180,6 +186,8 @@ class BoardAssistant(
             error("Started a new chat: the last one had been idle for over ${idle / HOUR_MS} hours.")
         }
         lastActive = now()
+        onStarted()
+        _busy.value = true
         _items.update { it + ChatItem.User(said) }
         job = scope.launch { converse(TurnInput.Say(said)) }
     }
@@ -188,6 +196,8 @@ class BoardAssistant(
     fun retry() {
         val input = retryInput ?: return
         if (_busy.value) return
+        onActivity()
+        _busy.value = true
         _items.update { list -> list.filterNot { it is ChatItem.Error && it.canRetry } }
         job = scope.launch { converse(input) }
     }
@@ -200,6 +210,7 @@ class BoardAssistant(
     }
 
     fun decide(toolId: String, approve: Boolean) {
+        onActivity()
         approvals.remove(toolId)?.complete(approve)
     }
 
@@ -272,6 +283,7 @@ class BoardAssistant(
             error(e.message ?: "Something went wrong")
         } finally {
             lastActive = now()
+            onActivity()
             _busy.value = false
         }
     }
@@ -367,6 +379,7 @@ class BoardAssistant(
     }
 
     private fun setState(id: String, state: ChatItem.ToolCall.State, result: String? = null) {
+        onActivity()
         _items.update { list -> list.map { if (it is ChatItem.ToolCall && it.id == id) it.copy(state = state, result = result ?: it.result) else it } }
     }
 

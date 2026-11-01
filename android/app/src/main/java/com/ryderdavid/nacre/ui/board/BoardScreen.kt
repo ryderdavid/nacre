@@ -63,10 +63,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
-import com.ryderdavid.nacre.ui.assistant.AssistantPane
-import com.ryderdavid.nacre.ui.assistant.AssistantTarget
+import com.ryderdavid.nacre.data.claude.ChatContext
+import com.ryderdavid.nacre.ui.assistant.ChatFab
 import com.ryderdavid.nacre.ui.bead.BeadDetail
-import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
 import com.ryderdavid.nacre.ui.common.LocalContainer
@@ -74,15 +73,13 @@ import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.rounds.StartRoundSheet
 import kotlinx.coroutines.launch
 
-private const val PANE_ASSISTANT = "@assistant"
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BoardScreen(
     repoKey: String,
     onBack: () -> Unit,
     onOpenBead: (String) -> Unit,
-    onOpenAssistant: () -> Unit,
+    onOpenChatBead: (String, String) -> Unit,
     onOpenRun: (String) -> Unit,
     onSwitchBoard: (String) -> Unit,
     onOpenRound: (String) -> Unit,
@@ -105,7 +102,6 @@ fun BoardScreen(
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
     var rootBounds by remember { mutableStateOf(Rect.Zero) }
 
-    val density = LocalDensity.current.density
     val drag = rememberDragController { issue, key -> vm.move(issue, key) }
     val ui = state.data
     val repo = ui?.snapshot?.repo
@@ -129,9 +125,6 @@ fun BoardScreen(
                 actions = {
                     IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
                         Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search beads")
-                    }
-                    IconButton(onClick = { if (rootBounds.width / density >= 760f) pane = PANE_ASSISTANT else onOpenAssistant() }) {
-                        Icon(AiIcon, "Ask Claude about this board")
                     }
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Board options") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -176,11 +169,19 @@ fun BoardScreen(
             )
         },
         floatingActionButton = {
-            if (!drag.isDragging && pane == null) ExtendedFloatingActionButton(
-                onClick = { newBead = true },
-                icon = { Icon(Icons.Rounded.Add, null) },
-                text = { Text(if (ui?.snapshot?.changes?.openspec == true) "New effort" else "New bead") },
-            )
+            if (!drag.isDragging && pane == null) Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+            ) {
+                ChatFab(ChatContext.Board(repoKey), repo?.name ?: repoKey,
+                    onOpenBead = { board, bead -> if (board == repoKey) onOpenBead(bead) else onOpenChatBead(board, bead) },
+                    onOpenRun = onOpenRun)
+                ExtendedFloatingActionButton(
+                    onClick = { newBead = true },
+                    icon = { Icon(Icons.Rounded.Add, null) },
+                    text = { Text(if (ui?.snapshot?.changes?.openspec == true) "New effort" else "New bead") },
+                )
+            }
         },
     ) { pad ->
         Box(
@@ -237,13 +238,7 @@ fun BoardScreen(
                                 })
                                 Box(Modifier.width(paneWidth.width).fillMaxHeight()) {
                                     val current = pane
-                                    when {
-                                        current == PANE_ASSISTANT -> AssistantPane(
-                                            AssistantTarget.Board(repoKey, repo?.name ?: ""), inPane = true,
-                                            onClose = { pane = null }, onOpenBead = { _, id -> pane = id }, onOpenRun = onOpenRun,
-                                        )
-                                        current != null -> BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound)
-                                    }
+                                    if (current != null) BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound, onOpenChatBead = onOpenChatBead)
                                 }
                             }
                         }

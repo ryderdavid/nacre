@@ -95,6 +95,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.ryderdavid.nacre.ui.common.LocalContainer
+import com.ryderdavid.nacre.data.claude.ChatContext
+import com.ryderdavid.nacre.ui.assistant.ChatFab
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.Dot
@@ -142,6 +144,7 @@ fun BeadDetail(
     onOpenRun: (String) -> Unit,
     onOpenRound: (String) -> Unit,
     openChange: Boolean = false,
+    onOpenChatBead: (String, String) -> Unit,
 ) {
     val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
@@ -164,7 +167,6 @@ fun BeadDetail(
     }
 
     var editing by remember { mutableStateOf<TextField?>(null) }
-    var showRefine by rememberSaveable { mutableStateOf(false) }
     var showRun by rememberSaveable { mutableStateOf(false) }
     var showChange by rememberSaveable(repoKey, beadId) { mutableStateOf(openChange) }
     val boardChanges = LocalContainer.current.repository.board(repoKey).collectAsState().value.data?.changes
@@ -199,7 +201,6 @@ fun BeadDetail(
                 },
                 title = { BeadId(beadId, color = MaterialTheme.colorScheme.onSurface) },
                 actions = {
-                    IconButton(onClick = { showRefine = true }, enabled = issue != null) { Icon(AiIcon, "Refine with Claude") }
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Copy id") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
@@ -234,30 +235,37 @@ fun BeadDetail(
             )
         },
         floatingActionButton = {
-            val i = issue
-            if (i != null && !i.isClosed) {
-                // Prefer our own run: an agent's session can't be steered from here, so it must not
-                // take the place of the button that starts one.
-                val active = runs.firstOrNull { it.isNacreWork } ?: runs.firstOrNull { it.isActive }
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        if (active != null) onOpenRun(active.key)
-                        else if (i.hasSpecWorkflow || changeState.data?.change != null) showChange = true
-                        else showRun = true
-                    },
-                    icon = { Icon(if (active != null) Icons.Rounded.Terminal else Icons.Rounded.PlayArrow, null) },
-                    text = {
-                        Text(
-                            when {
-                                active == null && (i.hasSpecWorkflow || changeState.data?.change != null) -> "View change"
-                                active == null -> "Implement…"
-                                active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
-                                active.isAdopted -> "An agent is working…"
-                                else -> "${active.agentName} is working…"
-                            }
-                        )
-                    },
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ChatFab(
+                    ChatContext.Bead(repoKey, beadId), issue?.title?.ifBlank { null } ?: beadId, onOpenChatBead, onOpenRun,
+                    // Refining the bead itself is the usual move; a reviewed proposal is the quiet alternative.
+                    onDevelop = if (developable) ({ showChange = true }) else null,
                 )
+                val i = issue
+                if (i != null && !i.isClosed) {
+                    // Prefer our own run: an agent's session can't be steered from here, so it must not
+                    // take the place of the button that starts one.
+                    val active = runs.firstOrNull { it.isNacreWork } ?: runs.firstOrNull { it.isActive }
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            if (active != null) onOpenRun(active.key)
+                            else if (i.hasSpecWorkflow || changeState.data?.change != null) showChange = true
+                            else showRun = true
+                        },
+                        icon = { Icon(if (active != null) Icons.Rounded.Terminal else Icons.Rounded.PlayArrow, null) },
+                        text = {
+                            Text(
+                                when {
+                                    active == null && (i.hasSpecWorkflow || changeState.data?.change != null) -> "View change"
+                                    active == null -> "Implement…"
+                                    active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
+                                    active.isAdopted -> "An agent is working…"
+                                    else -> "${active.agentName} is working…"
+                                }
+                            )
+                        },
+                    )
+                }
             }
         },
     ) { pad ->
@@ -341,10 +349,6 @@ fun BeadDetail(
             onDismiss = { showDepPicker = false },
         ) { showDepPicker = false; vm.addBlocker(it.id) }
         if (showClose) CloseDialog(i.id, onDismiss = { showClose = false }) { showClose = false; vm.close(it) }
-        if (showRefine) BeadChatSheet(
-            vm, i, claudeReady = prefs?.claudeConfigured == true, onDismiss = { showRefine = false },
-            onDevelop = if (developable) ({ showRefine = false; showChange = true }) else null,
-        )
         if (showFound && foundChange != null) FoundSomethingSheet(
             repoKey, foundChange, foundIn = i.id, onDismiss = { showFound = false },
             onOutOfScope = { showFound = false; foundPrefill = it },
