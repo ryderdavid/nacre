@@ -360,10 +360,11 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 	}
 	if !busy && r.Change.Revision != "" && (r.Change.Phase == "ready" || r.Change.Phase == "awaiting_approval" || r.Change.Phase == "covered") {
 		currentErr := m.current(r)
+		edited := ""
 		if currentErr == nil && r.Change.Phase == "ready" {
 			for _, section := range r.Change.Sections {
 				if e := m.sectionCurrent(ctx, r, section); e != nil {
-					currentErr = e
+					currentErr, edited = e, section.BeadID
 					break
 				}
 			}
@@ -371,6 +372,7 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 		if err := currentErr; err != nil {
 			r.Change.Phase = "stale"
 			r.Change.Error = err.Error()
+			r.Change.StaleReason = m.staleReason(ctx, r, edited)
 			history(r, "stale", err.Error())
 			m.mu.Lock()
 			live := m.records[r.Change.ID]
@@ -459,10 +461,11 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 			return Envelope{}, fmt.Errorf("%w: this proposal has not completed independent review", ErrConflict)
 		}
 		currentErr := m.current(r)
+		edited := ""
 		if currentErr == nil && r.Change.Phase == "ready" {
 			for _, section := range r.Change.Sections {
 				if e := m.sectionCurrent(ctx, r, section); e != nil {
-					currentErr = e
+					currentErr, edited = e, section.BeadID
 					break
 				}
 			}
@@ -470,6 +473,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		if err := currentErr; err != nil {
 			r.Change.Phase = "stale"
 			r.Change.Error = err.Error()
+			r.Change.StaleReason = m.staleReason(ctx, r, edited)
 			if e = m.saveLocked(r); e != nil {
 				return Envelope{}, e
 			}
@@ -521,6 +525,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.LastCall = nil
 		r.Feedback = a.Feedback
 		r.Change.Error = ""
+		r.Change.StaleReason = ""
 		r.Change.Phase = "drafting"
 		history(r, "intent", "Developing the bead against the complete project specification inventory.")
 	}
@@ -594,7 +599,7 @@ func (m *Manager) Contract(ctx context.Context, repo, id string) (*Contract, err
 		return nil, fmt.Errorf("%w: the linked proposal must be reviewed, approved, and synchronized before implementation", ErrConflict)
 	}
 	if e = m.current(r); e != nil {
-		return nil, fmt.Errorf("%w: %v", ErrConflict, e)
+		return nil, fmt.Errorf("%w: this change needs a new review before its sections can run. %s", ErrConflict, m.staleReason(ctx, r, ""))
 	}
 	for _, s := range r.Change.Sections {
 		if s.BeadID == id {

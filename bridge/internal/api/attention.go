@@ -70,9 +70,11 @@ type ChangeSummary struct {
 	EpicID           string           `json:"epic_id,omitempty"`
 	SeedIDs          []string         `json:"seed_ids"`
 	Sections         []SectionSummary `json:"sections"`
-	// Error is the plain reason a change needs attention, stopped or went stale.
-	Error     string `json:"error,omitempty"`
-	UpdatedAt string `json:"updated_at"`
+	// Error is the plain reason a change needs attention or stopped.
+	Error string `json:"error,omitempty"`
+	// StaleReason names what broke the approval of a stale change.
+	StaleReason string `json:"stale_reason,omitempty"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // SectionSummary is one task section of a change and its evidence.

@@ -239,13 +239,22 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 		case "stale":
 			item.Kind = api.AttentionApprovalStale
 			item.Title = name + " needs a new review"
-			item.Why = or(reason, "The project's specifications changed since this was reviewed.")
+			item.Why = or(c.StaleReason, or(reason, "The project's specifications changed since this was reviewed."))
 			item.Options = []api.AttentionOption{action("Review again", "POST", changePath, map[string]any{"action": "revise"}), openChange}
 		case "interrupted":
 			item.Kind = api.AttentionWorkflowInterrupted
 			item.Title = name + " was interrupted"
 			item.Why = or(reason, "The computer stopped during this operation. Resume to continue from the saved checkpoint.")
 			item.Options = []api.AttentionOption{action("Resume", "POST", changePath, map[string]any{"action": "resume"}), openChange}
+		case "ready":
+			if !archivable(c, beads) {
+				continue
+			}
+			item.Kind = api.AttentionChangeArchivable
+			item.BeadID = c.EpicID
+			item.Title = name + " is ready to archive"
+			item.Why = fmt.Sprintf("All %d sections landed with evidence for the approved revision. Archiving the change and closing its epic are still steps for the computer: open the change for them.", len(c.Sections))
+			item.Options = []api.AttentionOption{openChange}
 		default:
 			continue
 		}
@@ -337,4 +346,26 @@ func or(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// archivable reports whether every current section of the approved revision
+// landed with matching evidence, no section bead was reopened or waits on a
+// person, and no work found along the way is still open under the epic.
+func archivable(c api.ChangeSummary, beads map[string]bead) bool {
+	if c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision || len(c.Sections) == 0 {
+		return false
+	}
+	for _, s := range c.Sections {
+		b, ok := beads[s.BeadID]
+		if s.Evidence != api.EvidenceLanded || !ok || b.Status != "closed" {
+			return false
+		}
+	}
+	found := "found:" + c.ID
+	for _, b := range beads {
+		if b.Status != "closed" && has(b.Labels, found) {
+			return false
+		}
+	}
+	return true
 }

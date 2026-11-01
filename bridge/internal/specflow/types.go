@@ -87,8 +87,10 @@ type Change struct {
 	History          []History        `json:"history"`
 	Evidence         []Evidence       `json:"evidence"`
 	Error            string           `json:"error,omitempty"`
-	CostUSD          float64          `json:"cost_usd"`
-	UpdatedAt        string           `json:"updated_at"`
+	// StaleReason names what broke the approval while the phase is stale.
+	StaleReason string  `json:"stale_reason,omitempty"`
+	CostUSD     float64 `json:"cost_usd"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 type Beads interface {
 	Get(context.Context, string, string) (api.Issue, error)

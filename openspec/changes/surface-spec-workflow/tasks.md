@@ -18,8 +18,8 @@
 <!-- nacre-section: ssw-archive -->
 ## 3. Stale reasons and readiness to archive
 
-- [ ] 3.1 `stale_reason` for file, seed-intent, section-edit and no-baseline causes, and `approval_stale` items for any cause — `cd bridge && go test -race ./internal/specflow ./internal/server`
-- [ ] 3.2 Provenance-based archive readiness and the `change_archivable` item — `cd bridge && go test -race ./internal/specflow`
+- [x] 3.1 `stale_reason` for file, seed-intent, section-edit and no-baseline causes, and `approval_stale` items for any cause — `cd bridge && go test -race ./internal/specflow ./internal/server`
+- [x] 3.2 Provenance-based archive readiness and the `change_archivable` item — `cd bridge && go test -race ./internal/specflow`
 
 <!-- nacre-section: ssw-assistant -->
 ## 4. Assistant

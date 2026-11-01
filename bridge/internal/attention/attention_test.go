@@ -173,3 +173,57 @@ func TestUnreadableRepositoryContributesNothing(t *testing.T) {
 		t.Fatalf("kinds=%v", got)
 	}
 }
+
+func TestChangeArchivableOnlyWhenEverySectionLanded(t *testing.T) {
+	landed := func(ev ...string) api.ChangeSummary {
+		c := api.ChangeSummary{ID: "sf1", ChangeName: "retain-drafts", Phase: "ready", Revision: "rev", ApprovedRevision: "rev", EpicID: "E", SeedIDs: []string{"E"}}
+		for i, e := range ev {
+			c.Sections = append(c.Sections, api.SectionSummary{ID: "s" + string(rune('1'+i)), BeadID: "S-" + string(rune('1'+i)), Evidence: e})
+		}
+		return c
+	}
+	closed := func(ids ...string) []map[string]any {
+		out := []map[string]any{}
+		for _, id := range ids {
+			out = append(out, map[string]any{"id": id, "title": id, "status": "closed", "issue_type": "task"})
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name   string
+		change api.ChangeSummary
+		beads  []map[string]any
+		want   bool
+	}{
+		{"all landed", landed(api.EvidenceLanded, api.EvidenceLanded), closed("S-1", "S-2"), true},
+		{"one verified only", landed(api.EvidenceLanded, api.EvidenceVerified), closed("S-1", "S-2"), false},
+		{"reopened", landed(api.EvidenceLanded, api.EvidenceLanded), append(closed("S-1"), map[string]any{"id": "S-2", "status": "open"}), false},
+		{"open found work", landed(api.EvidenceLanded), append(closed("S-1"), map[string]any{"id": "F-1", "status": "open", "labels": []string{"found:sf1"}}), false},
+		{"closed found work", landed(api.EvidenceLanded), append(closed("S-1"), map[string]any{"id": "F-1", "status": "closed", "labels": []string{"found:sf1"}}), true},
+		{"unapproved revision", func() api.ChangeSummary { c := landed(api.EvidenceLanded); c.Revision = "newer"; return c }(), closed("S-1"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.beads = issues(t, tc.beads...)
+			f.change = []api.ChangeSummary{tc.change}
+			items := f.b.Items(context.Background())
+			got := len(items) == 1 && items[0].Kind == api.AttentionChangeArchivable
+			if got != tc.want {
+				t.Fatalf("archivable=%v want %v: %+v", got, tc.want, items)
+			}
+			if got && (items[0].Options[0].Target.Kind != "change" || items[0].BeadID != "E") {
+				t.Fatalf("item=%+v", items[0])
+			}
+		})
+	}
+}
+
+func TestStaleItemUsesTheNamedReason(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t)
+	f.change = []api.ChangeSummary{{ID: "sf1", ChangeName: "x", Phase: "stale", Error: "The proposal or project context changed after review.", StaleReason: "Active change resilient-rounds changed.", SeedIDs: []string{"N-1"}}}
+	items := f.b.Items(context.Background())
+	if len(items) != 1 || items[0].Why != "Active change resilient-rounds changed." {
+		t.Fatalf("items=%+v", items)
+	}
+}

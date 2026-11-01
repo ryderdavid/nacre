@@ -242,6 +242,8 @@ func serve(cfg *config.Config, listenFlag string) error {
 		Repos: registry.Refs, Issues: client.List,
 		Rounds: func() []api.Round { return roundsMgr.List("", true) },
 		Changes: func(path string) ([]api.ChangeSummary, error) {
+			// Approvals that went stale for any reason are named before listing.
+			changes.Refresh(context.Background(), path)
 			list, _, err := changes.Summaries(path)
 			return list, err
 		},

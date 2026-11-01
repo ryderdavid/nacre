@@ -341,7 +341,11 @@ with a reason. All routes require the ordinary bearer authentication.
 
 `change` contains `id`, `seed_id`, `epic_id`, `change_name`, `phase`, `revision`, `approved_revision`,
 `summary`, `route`, `rationale`, `references`, `artifacts`, `findings`, `sections`, `retired_sections`,
-`history`, `evidence`, `cost_usd`, `updated_at` and an optional `error`. The envelope also carries
+`history`, `evidence`, `cost_usd`, `updated_at`, an optional `error`, and while the phase is `stale`
+a `stale_reason` naming what broke the approval: the files that changed since review ("AGENTS.md
+changed", "Active change X changed", "Accepted spec Y changed", "tasks.md was edited after approval…"),
+"Seed bead N changed", "Section bead N was edited…", or a generic reason when the record has no
+baseline. Approval is never restored without a new review (`revise`). The envelope also carries
 `inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
 repository's OpenSpec setup can be read. Artifacts are exact
 `{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from
@@ -371,7 +375,7 @@ work never becomes successful from a checkbox or status alone. Landing, human ac
 OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
 
 `ChangeSummary` is `{id, change_name, phase, revision?, approved_revision?, epic_id?, seed_ids,
-sections, error?, updated_at}`. `seed_ids` lists the original seed first, then any later seeds that
+sections, error?, stale_reason?, updated_at}`. `seed_ids` lists the original seed first, then any later seeds that
 amended the change. Each section is `{id, title, bead_id?, evidence}`, `evidence` one of `none`,
 `in_round` (a round that hasn't landed or been cancelled is working on it), `verified` (a passing run
 of the current approved revision) or `landed`, folded from the evidence entries above. Evidence is
@@ -456,11 +460,12 @@ is `{type:"action", label, method, path, body?}`, an exact request to send as is
 | `bead_decision` | open bead labelled `human` or typed `decision` | open bead |
 | `proposal_ready` | change `awaiting_approval` | open change at its revision; `approve` with that revision |
 | `review_blocked` | change `needs_attention` | open change |
-| `approval_stale` | change `stale` | `revise`; open change |
+| `approval_stale` | change `stale`, including a ready or awaiting change whose live check fails when the list is built; `why` is its `stale_reason` | `revise`; open change |
 | `workflow_interrupted` | change `interrupted` | `resume`; open change |
 | `round_question` | each unanswered question of a round in `needs_decision` | each answer via `POST /v1/rounds/{round}/answers`; open round |
 | `bead_parked` | parked bead of an active round | `POST /v1/rounds/{round}/beads/{id}/retry`; open round |
 | `round_ready` | round `ready_to_land` | `POST /v1/rounds/{round}/land`; open round |
+| `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | open change (its obligations list the CLI archive and epic-close steps) |
 
 A repository whose beads can't be read contributes no items; its board shows the error.
 
