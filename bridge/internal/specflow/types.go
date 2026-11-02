@@ -115,8 +115,8 @@ type Change struct {
 	CostUSD    float64 `json:"cost_usd"`
 	// Guide is the plain summary and recommended next step while the change
 	// waits on the owner; absent until written for its current state.
-	Guide *Guide `json:"guide,omitempty"`
-	UpdatedAt  string  `json:"updated_at"`
+	Guide     *Guide `json:"guide,omitempty"`
+	UpdatedAt string `json:"updated_at"`
 }
 type Beads interface {
 	Get(context.Context, string, string) (api.Issue, error)

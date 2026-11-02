@@ -74,12 +74,12 @@ type record struct {
 	PendingFound []string `json:"pending_found,omitempty"`
 }
 type Manager struct {
-	opts            Options
-	mu              sync.Mutex
-	records         map[string]*record
-	busy            map[string]bool
+	opts    Options
+	mu      sync.Mutex
+	records map[string]*record
+	busy    map[string]bool
 	// guiding is the guide key being written, or last tried, per change.
-	guiding map[string]string
+	guiding         map[string]string
 	evidence        map[string]evidenceCache
 	ctx             context.Context
 	cancel          context.CancelFunc
