@@ -460,7 +460,28 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 		case "validate":
 			if r.Change.Route != "covered" {
 				if e := m.opts.Validate(ctx, r.Repo, r.Change.ChangeName); e != nil {
-					return e
+					if r.Change.Adoption != nil || r.Pass >= MaxPasses {
+						return e
+					}
+					// Strict validation problems are the author's to fix: send
+					// them back as a finding on the next pass instead of
+					// stopping for the owner.
+					kept := r.Change.Findings[:0]
+					for _, f := range r.Change.Findings {
+						if !strings.HasPrefix(f.ID, "validation-") {
+							kept = append(kept, f)
+						}
+					}
+					r.Change.Findings = append(kept, Finding{
+						ID: fmt.Sprintf("validation-%d", r.Pass), Severity: "high", Disposition: "unresolved",
+						Summary: "Strict OpenSpec validation failed", Detail: e.Error(),
+					})
+					history(r, "validation", "Strict validation failed; sending the problems back to the author.")
+					r.Stage, r.PendingAuthor = "author", nil
+					if e := m.checkpoint(r); e != nil {
+						return e
+					}
+					continue
 				}
 			}
 			r.Stage = "review"

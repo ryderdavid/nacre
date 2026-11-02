@@ -515,13 +515,38 @@ func TestIndependentReviewRepairsThenRecordsDispositions(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+// Strict validation problems go back to the author on the next pass; only
+// after the last pass do they stop for the owner, and never reach review.
 func TestValidationFailureNeverReachesReviewer(t *testing.T) {
 	repo, _, model, opts := fixture(t)
 	opts.Validate = func(context.Context, string, string) error { return errors.New("strict validation failed") }
 	m := newManager(t, opts)
 	c := act(t, m, repo, "NAC-1", Action{Action: "develop"})
-	if c.Phase != "needs_attention" || model.count() != 1 || !strings.Contains(c.Error, "validation") {
+	if c.Phase != "needs_attention" || model.count() != MaxPasses || !strings.Contains(c.Error, "validation") {
 		t.Fatalf("%+v", c)
+	}
+	if len(c.Findings) != 1 || c.Findings[0].ID != fmt.Sprintf("validation-%d", MaxPasses-1) {
+		t.Fatalf("validation findings pile up: %+v", c.Findings)
+	}
+}
+
+// A draft that fails strict validation once is fixed by the author's next
+// pass and goes on to review without the owner.
+func TestValidationFailureIsFixedByTheNextPass(t *testing.T) {
+	repo, _, model, opts := fixture(t)
+	fails := 1
+	opts.Validate = func(context.Context, string, string) error {
+		if fails > 0 {
+			fails--
+			return errors.New("requirement text is very long")
+		}
+		return nil
+	}
+	m := newManager(t, opts)
+	c := act(t, m, repo, "NAC-1", Action{Action: "develop"})
+	if c.Phase != "awaiting_approval" || model.count() != 3 {
+		t.Fatalf("phase=%s calls=%d error=%s", c.Phase, model.count(), c.Error)
 	}
 }
 func TestRestartInterruptDoesNotRepeatBillableCall(t *testing.T) {
