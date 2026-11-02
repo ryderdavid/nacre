@@ -11,31 +11,26 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
 )
 
+// fakeGoalClaude commits the round's work once and stops; it never pushes.
 const fakeGoalClaude = `#!/bin/sh
 set -e
 prompt="$2"
-resume=no
-for a in "$@"; do [ "$a" = "--resume" ] && resume=yes; done
-if [ "$resume" = yes ]; then
- branch=$(git symbolic-ref --short HEAD)
- git push -q origin "HEAD:refs/heads/$branch"
-else
 echo '{"type":"system","subtype":"init","session_id":"goal-session","cwd":"'"$PWD"'"}'
 case "$prompt" in
  /goal*)
    printf '%s' "$prompt" > goal-launch.txt
    echo a > a.txt; echo b > b.txt
-   git add a.txt b.txt goal-launch.txt VERSION
+   git add a.txt b.txt goal-launch.txt
    git commit -q -m 'Implement every round bead';;
- *"goal is still incomplete"*)
-   branch=$(git symbolic-ref --short HEAD)
-   git push -q origin "HEAD:refs/heads/$branch";;
 esac
-fi
 echo '{"type":"result","subtype":"success","is_error":false,"result":"verified every criterion","session_id":"goal-session","total_cost_usd":0.1}'
 `
 
-func TestGoalRoundWorksEveryBeadInOneSessionAndChecksPush(t *testing.T) {
+// A goal round follows round-integration like every round (NAC-ow0): the
+// agent only commits, nacred makes its own version bump commit after the
+// session, and pushing happens only when nacred lands the round, if pushed
+// was checked.
+func TestGoalRoundAgentCommitsAndNacredBumpsAndPushes(t *testing.T) {
 	for _, push := range []bool{false, true} {
 		t.Run(map[bool]string{false: "local", true: "push"}[push], func(t *testing.T) {
 			beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "First", Type: "feature"}, &fakeBead{ID: "T-B", Title: "Second", After: []string{"T-A"}})
@@ -61,31 +56,43 @@ func TestGoalRoundWorksEveryBeadInOneSessionAndChecksPush(t *testing.T) {
 				t.Fatalf("expected one session: %+v", done)
 			}
 			run, _ := h.runs.Run(done.GoalRunID)
-			if push && run.Turns != 2 {
-				t.Fatalf("missing push was not independently retried: %+v", run)
+			if run.Turns != 1 {
+				t.Fatalf("the session was resumed although its committed work passed: %+v", run)
 			}
-			if run.Verification == nil || !run.Verification.OK || run.Verification.Commits != 1 {
-				t.Fatalf("verification: %+v", run)
+			if run.Verification == nil || !run.Verification.OK || run.Verification.Commits != 2 {
+				t.Fatalf("verification: %+v", run.Verification)
 			}
 			launch, err := os.ReadFile(filepath.Join(done.Workspace, "goal-launch.txt"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, part := range []string{"/goal ", "T-A: First", "T-B: Second", "Do First.", "Do Second.", "one combined implementation commit"} {
+			for _, part := range []string{"/goal ", "T-A: First", "T-B: Second", "Do First.", "Do Second.", "Commit your work on this round branch", "Do not bump or edit the version, push"} {
 				if !strings.Contains(string(launch), part) {
 					t.Fatalf("launch missing %q", part)
 				}
+			}
+			for _, part := range []string{"git push", "already bumped", "authorizes pushing"} {
+				if strings.Contains(string(launch), part) {
+					t.Fatalf("launch still hands the agent %q:\n%s", part, launch)
+				}
+			}
+			// The round ends on nacred's own bump commit, above the agent's.
+			if subj, _ := gitx.Run(ctx, done.Workspace, "log", "-1", "--format=%s", done.FinalCommit); !strings.HasPrefix(subj, "Bump version (minor) for round "+done.ID) {
+				t.Fatalf("final commit %q is not nacred's version bump", subj)
+			}
+			if files, _ := gitx.Run(ctx, done.Workspace, "diff", "--name-only", done.Base, done.FinalCommit+"^"); strings.Contains(files, "VERSION") {
+				t.Fatalf("the agent's commit changed the version: %s", files)
+			}
+			if !strings.Contains(done.Version, "0.2.0") {
+				t.Fatalf("version %q, want a minor bump to 0.2.0", done.Version)
 			}
 			for _, b := range done.Beads {
 				if b.State != api.BeadIntegrated || b.RunID != done.GoalRunID {
 					t.Fatalf("bead %+v", b)
 				}
 			}
-			if push {
-				sha, err := gitx.RevParse(ctx, remote, "refs/heads/"+done.Branch)
-				if err != nil || sha != done.FinalCommit {
-					t.Fatalf("remote %s: %v", sha, err)
-				}
+			if refs, _ := gitx.Run(ctx, remote, "for-each-ref"); refs != "" {
+				t.Fatalf("something was pushed before landing: %s", refs)
 			}
 			if len(h.m.leases.holders()) != 0 {
 				t.Fatal("resource lease leaked")
@@ -95,9 +102,8 @@ func TestGoalRoundWorksEveryBeadInOneSessionAndChecksPush(t *testing.T) {
 				t.Fatalf("goal state did not persist: %v", err)
 			}
 			// The target ships a release of its own before the round lands:
-			// the round's combined version change is reconciled with it, the
-			// gates and build run again, and the round branch is extended
-			// rather than rewritten, so a pushed branch never needs a force push.
+			// nacred's bump commit is undone, the target merged, the bump
+			// redone on top of it, and the gates and build run again.
 			if err := os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.2.0\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -126,15 +132,26 @@ func TestGoalRoundWorksEveryBeadInOneSessionAndChecksPush(t *testing.T) {
 				}
 			}
 			if !gitx.IsAncestor(ctx, h.repo, done.FinalCommit, landed.LandedCommit) {
-				t.Errorf("landed %s doesn't contain the round's combined commit %s", landed.LandedCommit, done.FinalCommit)
+				t.Errorf("landed %s doesn't contain the round's final commit %s", landed.LandedCommit, done.FinalCommit)
 			}
 			if log, _ := gitx.Run(ctx, h.repo, "log", "-1", "--format=%s", "main"); !strings.Contains(log, "on top of main") {
 				t.Errorf("last commit on main = %q, want the redone bump", log)
 			}
+			// nacred, not the agent, pushes on landing when pushed was checked
+			// (the repository's own landing policy here doesn't push).
+			sha, err := gitx.RevParse(ctx, remote, "refs/heads/main")
 			if push {
-				if sha, err := gitx.RevParse(ctx, remote, "refs/heads/"+done.Branch); err != nil || sha != done.FinalCommit {
-					t.Errorf("pushed round branch moved to %s (%v), want it preserved at %s", sha, err, done.FinalCommit)
+				if err != nil || sha != landed.LandedCommit || !landed.Pushed {
+					t.Errorf("remote main %s (%v), pushed %v; want nacred to push %s on landing", sha, err, landed.Pushed, landed.LandedCommit)
 				}
+				if _, err := gitx.RevParse(ctx, remote, "refs/tags/v0.3.0"); err != nil {
+					t.Errorf("tag not pushed: %v", err)
+				}
+			} else if err == nil || landed.Pushed {
+				t.Errorf("landing pushed main to %s although pushed wasn't checked", sha)
+			}
+			if _, err := gitx.RevParse(ctx, remote, "refs/heads/"+done.Branch); err == nil {
+				t.Errorf("the round branch %s was pushed", done.Branch)
 			}
 		})
 	}
@@ -150,7 +167,7 @@ if [ "$resume" = no ]; then
  echo '{"type":"result","is_error":true,"result":"temporary blocker","session_id":"goal-session"}'
 else
  echo a > a.txt
- git add a.txt VERSION
+ git add a.txt
  git commit -q -m 'Finish round goal'
  echo '{"type":"result","is_error":false,"result":"verified","session_id":"goal-session"}'
 fi
@@ -169,7 +186,13 @@ fi
 	}
 	done := h.wait(t, r.ID, api.RoundReadyToLand)
 	run, _ := h.runs.Run(done.GoalRunID)
-	if done.GoalRunID != paused.GoalRunID || run.Turns != 2 || done.Version != paused.Version {
-		t.Fatalf("retry lost its session or bumped again: %+v", done)
+	if done.GoalRunID != paused.GoalRunID || run.Turns != 2 {
+		t.Fatalf("retry lost its session: %+v", done)
+	}
+	if paused.Version != "" || done.Version == "" {
+		t.Fatalf("version %q before the session finished, %q after; want nacred to bump once it did", paused.Version, done.Version)
+	}
+	if n, _ := gitx.Run(context.Background(), done.Workspace, "log", "--oneline", "--fixed-strings", "--grep", "for round "+done.ID+": ", done.Base+"..HEAD"); strings.Count(n, "\n") != 0 || n == "" {
+		t.Fatalf("want exactly one bump commit, got:\n%s", n)
 	}
 }

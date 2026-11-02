@@ -37,8 +37,17 @@ func TestGoalCompletionConditionsAndVerbatimBeads(t *testing.T) {
 			}
 		})
 	}
-	got := BuildGoal(beads, GoalOptions{Enabled: true, Pushed: true}, true)
-	if !strings.Contains(got, "a single commit containing all of the round's work") {
-		t.Fatal(got)
+	// In a round the agent only commits; nacred bumps and pushes on landing.
+	for _, pushed := range []bool{false, true} {
+		got := BuildGoal(beads, GoalOptions{Enabled: true, Pushed: pushed}, true)
+		if !strings.Contains(got, "the round's work has been committed on the round branch") || !strings.Contains(got, "Do not push or bump the version") {
+			t.Fatal(got)
+		}
+		if strings.Contains(got, "authorizes pushing") || strings.Contains(got, "pushed to the remote") {
+			t.Fatalf("a round goal gave the agent push authority: %s", got)
+		}
+		if strings.Contains(got, "pushes the work when it lands the round") != pushed {
+			t.Fatalf("pushed=%v: %s", pushed, got)
+		}
 	}
 }
