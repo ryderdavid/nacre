@@ -464,8 +464,11 @@ func roundItems(ref repos.Ref, r api.Round) []api.AttentionItem {
 				title = fmt.Sprintf("%d questions before work starts on %s", len(qs), beadList(beads, titles))
 			}
 			why := "Claude recommends an answer to each; accept them, pick another, or ask Claude about it."
+			if len(qs) == 1 {
+				why = "Claude recommends an answer; accept it, pick another, or ask Claude about it."
+			}
 			if !all {
-				why = "Claude is working out a recommended answer for each."
+				why = "Claude is working out a recommended answer."
 			}
 			beadID := ""
 			if len(beads) > 0 {

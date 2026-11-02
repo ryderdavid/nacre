@@ -26,7 +26,10 @@ enum class ChatMode { ASK, REFINE }
 @Serializable
 sealed class BeadChatItem {
     @Serializable @SerialName("mine")
-    data class Mine(val text: String, val mode: ChatMode) : BeadChatItem()
+    data class Mine(val text: String, val mode: ChatMode, val about: String = "") : BeadChatItem() {
+        /** What Claude is sent: the question being discussed, then the message. */
+        val prompt get() = if (about.isBlank()) text else "$about\n\n$text"
+    }
 
     @Serializable @SerialName("answer")
     data class Answer(val text: String) : BeadChatItem()
@@ -175,7 +178,7 @@ class BeadChats(
 /** The thread as the turns a prompt carries: Ryder's messages, Claude's answers, and what became of each proposal. */
 fun List<BeadChatItem>.turns(): List<DraftTurn> = mapNotNull { item ->
     when (item) {
-        is BeadChatItem.Mine -> DraftTurn(true, if (item.mode == ChatMode.ASK) "(asking) ${item.text}" else "(asking for changes) ${item.text}")
+        is BeadChatItem.Mine -> DraftTurn(true, if (item.mode == ChatMode.ASK) "(asking) ${item.prompt}" else "(asking for changes) ${item.prompt}")
         is BeadChatItem.Answer -> DraftTurn(false, item.text)
         is BeadChatItem.Proposal -> DraftTurn(
             false,

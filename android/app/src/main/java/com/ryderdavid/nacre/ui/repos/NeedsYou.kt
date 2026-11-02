@@ -74,12 +74,15 @@ fun NeedsYouSection(
     onOption: (AttentionItem, AttentionOption) -> Unit,
     modifier: Modifier = Modifier,
     initiallyAll: Boolean = false,
+    claudeReady: Boolean = false,
 ) {
     if (items.isEmpty()) return
     var all by rememberSaveable { mutableStateOf(initiallyAll) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         (if (all) items else items.take(NEEDS_YOU_SHOWN)).forEach { item ->
-            NeedsYouCard(item, busy = item.id in busy, showComputer = showComputers, onOption = { onOption(item, it) })
+            if (item.kind == AttentionItem.ROUND_QUESTION && item.questions.isNotEmpty()) {
+                RoundQuestionsCard(item, busy = item.id in busy, showComputer = showComputers, claudeReady = claudeReady, onOption = { onOption(item, it) })
+            } else NeedsYouCard(item, busy = item.id in busy, showComputer = showComputers, onOption = { onOption(item, it) })
         }
         if (items.size > NEEDS_YOU_SHOWN) {
             TextButton(onClick = { all = !all }) { Text(if (all) "Show fewer" else "Show all ${items.size}") }
@@ -118,9 +121,11 @@ private fun NeedsYouCard(item: AttentionItem, busy: Boolean, showComputer: Boole
             val disabled = item.options.filter { it.disabled.isNotBlank() }.map { "${it.label}: ${it.disabled}" }
             disabled.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (item.options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                // Fill the recommended answer; with none recommended, the first action.
+                val primary = item.options.indexOfFirst { it.recommended }.let { if (it < 0) 0 else it }
                 item.options.forEachIndexed { i, o ->
                     val enabled = !busy && o.disabled.isBlank()
-                    if (i == 0) Button(onClick = { onOption(o) }, enabled = enabled) { Text(o.label) }
+                    if (i == primary) Button(onClick = { onOption(o) }, enabled = enabled) { Text(o.label) }
                     else OutlinedButton(onClick = { onOption(o) }, enabled = enabled) { Text(o.label) }
                 }
             }

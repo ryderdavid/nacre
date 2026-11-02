@@ -22,6 +22,8 @@ data class AttentionItem(
     val why: String = "",
     @SerialName("source_ref") val sourceRef: String = "",
     val options: List<AttentionOption> = emptyList(),
+    /** Every open question of a round, asked together in one item. */
+    val questions: List<AttentionQuestion> = emptyList(),
     @SerialName("created_at") val createdAt: String = "",
     val hostId: String = "",
     val hostName: String = "",
@@ -63,6 +65,17 @@ data class AttentionOption(
     val target: AttentionTarget? = null,
     /** Why the action can't be used yet; shown instead of sending it. */
     val disabled: String = "",
+    /** The answer Claude recommends. */
+    val recommended: Boolean = false,
+)
+
+/** One round question: its answers, the recommended one first, and why. */
+@Serializable
+data class AttentionQuestion(
+    val id: String,
+    val text: String = "",
+    val reason: String = "",
+    val options: List<AttentionOption> = emptyList(),
 )
 
 /**

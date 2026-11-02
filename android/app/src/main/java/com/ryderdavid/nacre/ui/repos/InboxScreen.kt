@@ -28,6 +28,7 @@ fun InboxScreen(
     val attention by vm.attention.collectAsState()
     val outdated by vm.outdated.collectAsState()
     val busy by vm.busy.collectAsState()
+    val prefs by com.ryderdavid.nacre.ui.common.LocalContainer.current.settings.settings.collectAsState(initial = null)
     var foundTarget by remember { mutableStateOf<Pair<String, AttentionTarget>?>(null) }
     var effort by remember { mutableStateOf<Pair<String, NewEffortPrefill>?>(null) }
     val onOption: (AttentionItem, AttentionOption) -> Unit = { item, o ->
@@ -53,7 +54,7 @@ fun InboxScreen(
         ) else Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (outdated.isNotEmpty()) OutdatedNacredNote(outdated)
-            NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, initiallyAll = true)
+            NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, initiallyAll = true, claudeReady = prefs?.claudeConfigured == true)
         }
     }
     foundTarget?.let { (key, t) -> FoundFromNeedsYou(key, t, vm, onDismiss = { foundTarget = null }, onOutOfScope = { foundTarget = null; effort = key to it }) }

@@ -184,6 +184,13 @@ class BeadDetailViewModel(
         send(BeadChatItem.Mine(message, mode), retrying = false)
     }
 
+    /** Asks about [about] (a round question and its answers) in the bead's thread. */
+    fun askAbout(about: String, text: String) {
+        val message = text.trim()
+        if (message.isEmpty()) return
+        send(BeadChatItem.Mine(message, ChatMode.ASK, about), retrying = false)
+    }
+
     fun retryChat() {
         chatFailure.value?.let { send(it.retry, retrying = true) }
     }
@@ -206,8 +213,8 @@ class BeadDetailViewModel(
             val backend = backends.of(settings.current())
             val turns = history.turns()
             when (message.mode) {
-                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.text))
-                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.text, turns))
+                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.prompt))
+                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.prompt, turns))
             }
         }
     }
