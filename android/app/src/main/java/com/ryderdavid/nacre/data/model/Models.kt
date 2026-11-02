@@ -414,7 +414,7 @@ data class UpdateIssue(
 
 @Serializable
 data class RunRequest(
-    val goal: GoalOptions? = null,
+    @Transient val goal: GoalOptions? = null,
     val mode: String? = null,
     val model: String? = null,
     /** An effort level of [agent]'s (see [RunAgent]); null leaves it to the agent's default. */
@@ -528,6 +528,9 @@ data class Round(
     /** Whether landing pushes [target], resolved from the round's nacre.yaml; null when nacred didn't say. */
     @SerialName("land_push") val landPush: Boolean? = null,
     @SerialName("auto_land") val autoLand: Boolean = false,
+    @SerialName("land_when_ready") val landWhenReady: Boolean = false,
+    /** Finish the epic into main after its children land. */
+    val finish: Boolean = false,
     /** The epic whose branch this round merges into [target]; such a round has no beads. */
     @SerialName("finish_epic") val finishEpic: String = "",
     val error: String = "",
@@ -539,7 +542,8 @@ data class Round(
     val repoKey get() = Keys.of(hostId, repoId)
     val isActive get() = state != ROUND_LANDED && state != ROUND_CANCELLED
     val openQuestions get() = questions.filter { it.answer.isBlank() }
-    val needsYou get() = state == ROUND_NEEDS_DECISION || state == ROUND_READY || state == ROUND_PAUSED
+    val mergesAutomatically get() = autoLand || landWhenReady
+    val needsYou get() = state == ROUND_NEEDS_DECISION || (state == ROUND_READY && !mergesAutomatically) || state == ROUND_PAUSED
     fun runKey(runId: String) = Keys.of(hostId, runId)
 }
 
@@ -672,7 +676,7 @@ data class RoundEvent(
 /** POST /v1/repos/{repo}/rounds. */
 @Serializable
 data class StartRound(
-    val goal: GoalOptions? = null,
+    @Transient val goal: GoalOptions? = null,
     val beads: List<String> = emptyList(),
     val epic: String? = null,
     @SerialName("budget_usd") val budgetUsd: Double? = null,
@@ -681,6 +685,7 @@ data class StartRound(
     @SerialName("spec_revision") val specRevision: String? = null,
     /** Land as soon as the round is verified, without waiting for a tap. */
     @SerialName("land_when_ready") val landWhenReady: Boolean? = null,
+    val finish: Boolean = false,
 )
 
 /** What finishing an epic did: a round that merges its branch, or nothing to merge and the epic closed. */

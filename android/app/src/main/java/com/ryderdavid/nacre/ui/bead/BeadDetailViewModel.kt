@@ -1,6 +1,5 @@
 package com.ryderdavid.nacre.ui.bead
 
-import com.ryderdavid.nacre.data.model.GoalOptions
 import kotlinx.coroutines.flow.combine
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.Keys
@@ -64,6 +63,11 @@ class BeadDetailViewModel(
     val runs: StateFlow<List<Run>> = combine(repo.runs, repo.groups) { list, _ ->
         val keys = repo.siblingKeys(repoKey)
         list.filter { it.repoKey in keys && it.issueId == beadId }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val rounds: StateFlow<List<Round>> = combine(repo.rounds, repo.groups) { list, _ ->
+        val keys = repo.siblingKeys(repoKey)
+        list.filter { it.repoKey in keys }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Where this bead can run: this repository on each computer, with that computer's status. */
@@ -141,15 +145,15 @@ class BeadDetailViewModel(
     fun removeBlocker(id: String) = act("Removing dependency") { repo.removeDep(repoKey, beadId, id) }
 
     /** A one-bead round: its own worktree, every gate and the build, commit, land, push, close. */
-    fun workUntilDone(targetKey: String, landWhenReady: Boolean, goal: GoalOptions? = null, onStarted: (Round) -> Unit) = act("Starting the work") {
-        val round = repo.startRound(targetKey, listOf(beadId), landWhenReady = landWhenReady, goal = goal)
+    fun startWork(targetKey: String, onStarted: (Round) -> Unit) = act("Starting the work") {
+        val round = repo.startRound(targetKey, listOf(beadId), landWhenReady = true)
         repo.groupOf(targetKey)?.let { settings.setRunHost(it.id, Keys.host(targetKey)) }
         onStarted(round)
     }
 
     /** Works this epic's open beads in one round on its branch, landing when they pass. */
     fun workEpic(onStarted: (Round) -> Unit) = act("Starting the work") {
-        onStarted(repo.startRound(repoKey, emptyList(), epic = beadId, landWhenReady = true))
+        onStarted(repo.startRound(repoKey, emptyList(), epic = beadId, landWhenReady = true, finish = true))
     }
 
     /** Merges this finished epic into the main branch; [onDone] gets the round, or null when it simply closed. */

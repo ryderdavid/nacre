@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Rule
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -78,17 +77,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
-import com.ryderdavid.nacre.data.model.ACTIVITY_IDLE
 import com.ryderdavid.nacre.data.model.foundChange
-import com.ryderdavid.nacre.data.model.epicBranch
 import com.ryderdavid.nacre.data.model.ActiveElsewhere
 import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.UpdateIssue
-import com.ryderdavid.nacre.data.model.SpecChange
 import com.ryderdavid.nacre.data.model.hasSpecWorkflow
-import com.ryderdavid.nacre.ui.rounds.StartRoundSheet
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -116,7 +111,7 @@ import com.ryderdavid.nacre.ui.runs.RunStatusIcon
 import com.ryderdavid.nacre.ui.theme.Nacre
 import kotlinx.coroutines.launch
 
-val STATUSES = listOf("open", "in_progress", "blocked", "deferred", "pinned", "closed")
+val STATUSES = listOf("open", "in_progress", "blocked", "deferred", "pinned")
 val TYPES = listOf("task", "bug", "feature", "chore", "epic", "decision", "spike", "story")
 
 fun statusLabel(s: String) = when (s) {
@@ -153,6 +148,8 @@ fun BeadDetail(
     val index by vm.index.collectAsState()
     val comments by vm.comments.collectAsState()
     val runs by vm.runs.collectAsState()
+    val rounds by vm.rounds.collectAsState()
+    val targets by vm.runTargets.collectAsState()
     val busy by vm.busy.collectAsState()
     val prefs by vm.prefs.collectAsState(initial = null)
     val changeVm = nacreViewModel(key = "change:$repoKey:$beadId") { ChangeViewModel(it.repository, it.settings, repoKey, beadId) }
@@ -180,7 +177,7 @@ fun BeadDetail(
     val foundChange = boardChange?.takeIf { it.epicId.isNotBlank() }
     // Unlinked beads develop a proposal from the overflow menu and Refine, not a card.
     val developable = issue != null && !issue!!.hasSpecWorkflow && boardChange == null && changeState.data?.change == null && changeState.data?.available == true
-    var roundChange by remember { mutableStateOf<SpecChange?>(null) }
+    var chooseComputer by rememberSaveable { mutableStateOf(false) }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }
     var showDepPicker by remember { mutableStateOf(false) }
@@ -214,27 +211,21 @@ fun BeadDetail(
                         })
                         val i = issue
                         if (i != null) {
-                            DropdownMenuItem(
-                                text = { Text(if ("human" in i.labels) "Clear “needs you”" else "Mark as needing you") },
-                                leadingIcon = { Icon(Icons.Rounded.Flag, null) },
-                                onClick = { menu = false; vm.toggleNeedsYou() },
-                            )
                             if (developable) DropdownMenuItem(
                                 text = { Text("Develop a proposal") }, leadingIcon = { Icon(AiIcon, null) },
-                                onClick = { menu = false; showChange = true },
-                            )
-                            if (developable && changeState.data?.adoptable?.isNotEmpty() == true) DropdownMenuItem(
-                                text = { Text("Adopt a written change") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Rule, null) },
                                 onClick = { menu = false; showChange = true },
                             )
                             if (foundChange != null) DropdownMenuItem(
                                 text = { Text("Found something") }, leadingIcon = { Icon(Icons.Rounded.Flag, null) },
                                 onClick = { menu = false; showFound = true },
                             )
+                            DropdownMenuItem(
+                                text = { Text("Run an agent manually…") }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
+                                onClick = { menu = false; showRun = true },
+                            )
                             if (i.isClosed) DropdownMenuItem(text = { Text("Reopen") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.setStatus("open") })
                             else DropdownMenuItem(text = { Text("Close…") }, leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) }, onClick = { menu = false; showClose = true })
                         }
-                        DropdownMenuItem(text = { Text("Reload") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.load() })
                     }
                 },
             )
@@ -242,28 +233,18 @@ fun BeadDetail(
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val i = issue
-                if (i != null && !i.isClosed) {
-                    // Prefer our own run: an agent's session can't be steered from here, so it must not
-                    // take the place of the button that starts one.
-                    val active = runs.firstOrNull { it.isNacreWork } ?: runs.firstOrNull { it.isActive }
+                if (i != null && !i.isClosed && i.type != "epic") {
+                    val activeRound = rounds.firstOrNull { it.isActive && it.beads.any { b -> b.id == beadId } }
                     ExtendedFloatingActionButton(
                         onClick = {
-                            if (active != null) onOpenRun(active.key)
-                            else if (i.hasSpecWorkflow || changeState.data?.change != null) showChange = true
-                            else showRun = true
+                            if (activeRound != null) onOpenRound(activeRound.key)
+                            else if (!busy) {
+                                if (targets.size > 1) chooseComputer = true
+                                else vm.startWork(targets.singleOrNull()?.repo?.key ?: repoKey) { onOpenRound(it.key) }
+                            }
                         },
-                        icon = { Icon(if (active != null) Icons.Rounded.Terminal else Icons.Rounded.PlayArrow, null) },
-                        text = {
-                            Text(
-                                when {
-                                    active == null && (i.hasSpecWorkflow || changeState.data?.change != null) -> "View change"
-                                    active == null -> "Implement…"
-                                    active.isAdopted && active.activity == ACTIVITY_IDLE -> "An agent's session is idle"
-                                    active.isAdopted -> "An agent is working…"
-                                    else -> "${active.agentName} is working…"
-                                }
-                            )
-                        },
+                        icon = { Icon(Icons.Rounded.PlayArrow, null) },
+                        text = { Text(if (activeRound != null) "Running" else if (busy) "Starting…" else "Start work") },
                     )
                 }
             }
@@ -278,7 +259,7 @@ fun BeadDetail(
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             DetailBody(
-                i, ix, boardChanges, comments, runs,
+                i, ix, boardChanges, comments.filterNot { it.text.startsWith("[nacre-") }, runs,
                 onEdit = { editing = it },
                 onStatus = vm::setStatus,
                 onPriority = { vm.save(UpdateIssue(priority = it)) },
@@ -303,7 +284,9 @@ fun BeadDetail(
                     {
                         EpicCompletionCard(
                             i, ix, isChange = boardChanges?.changes?.any { it.epicId == i.id } == true, busy = busy,
-                            onWorkRest = { vm.workEpic { round -> onOpenRound(round.key) } },
+                            activeRound = rounds.firstOrNull { r -> r.isActive && (r.epic == i.id || r.finishEpic == i.id || r.beads.any { b -> ix.byId[b.id]?.parent == i.id }) },
+                            onOpenRound = onOpenRound,
+                            onRunEpic = { vm.workEpic { round -> onOpenRound(round.key) } },
                             onFinish = { vm.finishEpic { round -> round?.let { onOpenRound(it.key) } } },
                         )
                     }
@@ -364,29 +347,19 @@ fun BeadDetail(
             changeVm, linked = i.hasSpecWorkflow, onDismiss = { showChange = false },
             summary = boardChange ?: boardChanges?.changes?.firstOrNull { i.id in it.seedIds },
             foundWork = (boardChange ?: boardChanges?.changes?.firstOrNull { i.id in it.seedIds })?.let { c -> ix.issues.filter { it.foundChange == c.id } }.orEmpty(),
-            onImplement = { approved -> roundChange = approved },
             onOpenBead = { showChange = false; onOpenBead(it) },
             onOpenRun = { showChange = false; onOpenRun(it) },
             onOpenRound = { showChange = false; onOpenRound(it) },
         )
-        roundChange?.let { approved ->
-            StartRoundSheet(
-                container.repository.repo(repoKey), ix, specChange = approved,
-                onDismiss = { roundChange = null },
-                onStarted = { roundChange = null; showChange = false; onOpenRound(it) },
-            )
+        if (chooseComputer) StartWorkDialog(targets, busy, onDismiss = { chooseComputer = false }) { target ->
+            vm.startWork(target) { round -> chooseComputer = false; onOpenRound(round.key) }
         }
         if (showRun) prefs?.let { p ->
-            val targets by vm.runTargets.collectAsState()
             var initial by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) { initial = vm.preferredRunKey() }
             initial?.let { start ->
-                // Beads under an epic land on the epic's branch until the epic is finished.
-                val epic = i.parent.takeIf { it.isNotBlank() && ix.byId[it]?.type == "epic" }
                 RunLaunchSheet(
                     i, p, targets, start, sending = busy, onDismiss = { showRun = false },
-                    landsOn = epic?.let(::epicBranch) ?: "the main branch",
-                    onWorkUntilDone = { target, land, goal -> vm.workUntilDone(target, land, goal) { round -> showRun = false; onOpenRound(round.key) } },
                 ) { target, req ->
                     vm.startRun(target, req) { run -> showRun = false; onOpenRun(run.key) }
                 }
@@ -444,8 +417,8 @@ private fun DetailBody(
             }
             i.elsewhere(liveRun = runs.any { it.isActive && it.inRunsList })?.let { ElsewhereNote(it) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                i.labels.forEach { l -> InputChip(selected = false, onClick = onLabels, label = { Text(l) }) }
-                AssistChip(onClick = onLabels, label = { Text(if (i.labels.isEmpty()) "Add labels" else "Edit") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) })
+                i.labels.filterNot(::isMachineLabel).forEach { l -> InputChip(selected = false, onClick = onLabels, label = { Text(l) }) }
+                AssistChip(onClick = onLabels, label = { Text(if (i.labels.none { !isMachineLabel(it) }) "Add labels" else "Edit") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) })
             }
         }
 

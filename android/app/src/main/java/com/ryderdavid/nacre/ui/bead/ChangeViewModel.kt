@@ -71,6 +71,29 @@ class ChangeViewModel(
 
     fun act(action: String) = send(action, null)
 
+    fun runEpic(onStarted: (com.ryderdavid.nacre.data.model.Round) -> Unit) {
+        if (sending.value) return
+        val change = state.value.data?.change ?: return
+        if (!change.hasCurrentApproval || change.epicId.isBlank()) return
+        sending.value = true
+        viewModelScope.launch {
+            requests.withLock {
+                try {
+                    val round = repository.startRound(repoKey, emptyList(), epic = change.epicId, landWhenReady = true, finish = true)
+                    actionFailure = null
+                    onStarted(round)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    actionFailure = e.friendly()
+                    state.value = state.value.copy(error = actionFailure)
+                } finally {
+                    sending.value = false
+                }
+            }
+        }
+    }
+
     private fun send(action: String, request: ChangeAction?) {
         if (sending.value) return
         sending.value = true
@@ -79,7 +102,7 @@ class ChangeViewModel(
         viewModelScope.launch {
             requests.withLock {
                 try {
-                    val envelope = repository.changeAction(repoKey, beadId, request ?: ChangeAction(action, revision, submitted.trim()))
+                    val envelope = repository.changeAction(repoKey, beadId, request ?: ChangeAction(action, revision, submitted.trim(), run = action == "approve"))
                     loadDraft(envelope)
                     actionFailure = null
                     state.value = Loadable(envelope)

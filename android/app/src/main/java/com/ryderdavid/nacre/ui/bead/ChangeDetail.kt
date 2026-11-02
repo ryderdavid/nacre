@@ -116,7 +116,6 @@ fun ChangeDetail(
     vm: ChangeViewModel,
     linked: Boolean,
     onDismiss: () -> Unit,
-    onImplement: (SpecChange) -> Unit,
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
     onOpenRound: (String) -> Unit,
@@ -169,15 +168,23 @@ fun ChangeDetail(
                                 Button(
                                     onClick = {
                                         when (action?.action) {
-                                            "implement" -> onImplement(change)
-                                            "review" -> change.activeRoundId.ifBlank { change.evidence.lastOrNull { it.roundId.isNotBlank() }?.roundId.orEmpty() }
-                                                .takeIf(String::isNotBlank)?.let { onOpenRound(Keys.of(Keys.host(vm.repoKey), it)) }
+                                            "run" -> vm.runEpic { onOpenRound(it.key) }
+                                            "epic" -> onOpenBead(change.epicId)
+                                            "review" -> {
+                                                val round = change.activeRoundId.ifBlank { change.evidence.lastOrNull { it.roundId.isNotBlank() }?.roundId.orEmpty() }
+                                                if (round.isNotBlank()) onOpenRound(Keys.of(Keys.host(vm.repoKey), round))
+                                                else change.evidence.lastOrNull { it.runId.isNotBlank() }?.let { onOpenRun(Keys.of(Keys.host(vm.repoKey), it.runId)) }
+                                            }
+                                            "refresh" -> scope.launch { vm.refresh(clearActionError = true) }
                                             else -> vm.act(action?.action ?: "develop")
                                         }
                                     },
-                                    enabled = if (action?.action == "review") !sending else canAct && draftReady,
+                                    enabled = if (action?.action in setOf("review", "epic")) !sending else canAct && draftReady,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(if (sending) "Sending…" else action?.label ?: "Develop a proposal") }
+                                if (change?.phase == "awaiting_approval" && action?.action == "approve") TextButton(
+                                    onClick = { vm.act("revise") }, enabled = canAct && draftReady, modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Revise") }
                             }
                         }
                     }
@@ -224,8 +231,12 @@ fun ChangeDetail(
                             if (working) Text("Work continues on the computer when you leave this view.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
                             if (change.epicId.isNotBlank()) TextButton(onClick = { onOpenBead(change.epicId) }) { Text("Open epic ${change.epicId}") }
                         }
-                        if (change.phase == "stale") item { MessageCard("Why the review needs updating", staleText(change.staleReason)) }
-                        else if (change.error.isNotBlank()) item { MessageCard("Needs attention", change.error, error = true) }
+                        if (change.phase in setOf("needs_attention", "stale", "interrupted") || change.error.isNotBlank()) item {
+                            MessageCard("Needs attention", change.error.ifBlank {
+                                if (change.phase == "stale") staleText(change.staleReason)
+                                else action?.detail ?: "Review the saved workflow to continue."
+                            }, error = true)
+                        }
                         item {
                             ExpandableChangeSection(changeRouteLabel(change.route), "Why this approach", key = "route:${change.id}") {
                                 MarkdownText(change.rationale.ifBlank { "The recommendation is being developed." })
@@ -351,7 +362,7 @@ private fun EvidenceSummary(change: SpecChange) {
                 append("\n${relevant.filter { it.humanCheck }.map { it.sectionId }.distinct().size} human checks outstanding")
                 append(" · ${relevant.filter { it.landed && it.roundId.isNotBlank() }.map { it.roundId }.distinct().size} merged rounds")
             }
-            append("\nReview the implementation, resolve human checks, merge the work and archive the change when accepted. The epic stays open until those steps are complete.")
+            append("\nThe round checks and merges the work, then finishes the epic into main and archives the spec automatically.")
         },
     )
 }

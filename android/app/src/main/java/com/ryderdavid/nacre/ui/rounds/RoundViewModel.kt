@@ -65,11 +65,8 @@ class RoundViewModel(private val repo: NacreRepository, val roundKey: String) : 
     }
 
     fun answer(questionId: String, answer: String) = act { repo.answer(roundKey, questionId, answer) }
-    fun unlink(bead: String, from: String) = act("$bead no longer waits for $from") { repo.unlink(roundKey, bead, from) }
-    fun acceptDependency(bead: String, on: String) = act("$bead now depends on $on in bd") { repo.acceptDependency(roundKey, bead, on) }
     fun land() = act("Merging…") { repo.land(roundKey) }
     fun cancel() = act("Round cancelled; its branches are kept") { repo.cancelRound(roundKey) }
-    fun resume() = act { repo.resumeRound(roundKey) }
     fun retry(bead: String) = act("$bead is back in the round") { repo.retryBead(roundKey, bead) }
     fun setBudget(usd: Double) = act { repo.setRoundLimits(roundKey, usd) }
 
