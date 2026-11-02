@@ -50,8 +50,8 @@ class BoardModelTest {
     @Test fun moveActions() {
         assertEquals(MoveAction.Close, moveActionFor("done"))
         assertEquals(MoveAction.SetStatus("in_progress"), moveActionFor("doing"))
-        assertEquals(MoveAction.SetPriority(0), moveActionFor("p0"))
-        assertEquals(MoveAction.SetType("bug"), moveActionFor("t:bug"))
+        assertEquals(null, moveActionFor("p0"))
+        assertEquals(null, moveActionFor("t:bug"))
         assertTrue(moveActionFor("nonsense") == null)
     }
 }

@@ -72,9 +72,10 @@ fun NeedsYouSection(
     showComputers: Boolean,
     onOption: (AttentionItem, AttentionOption) -> Unit,
     modifier: Modifier = Modifier,
+    initiallyAll: Boolean = false,
 ) {
     if (items.isEmpty()) return
-    var all by rememberSaveable { mutableStateOf(false) }
+    var all by rememberSaveable { mutableStateOf(initiallyAll) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Needs you", style = MaterialTheme.typography.titleLarge)

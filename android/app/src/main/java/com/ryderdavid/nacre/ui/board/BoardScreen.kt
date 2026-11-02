@@ -65,7 +65,10 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.ui.assistant.ChatFab
+import com.ryderdavid.nacre.ui.assistant.boardBeadAfterTap
+import com.ryderdavid.nacre.ui.assistant.ChatHost
+import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
+import com.ryderdavid.nacre.ui.common.isPaneWide
 import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
@@ -92,12 +95,13 @@ fun BoardScreen(
     val filter by vm.filter.collectAsState()
     val groupBy by vm.groupBy.collectAsState()
     val container = LocalContainer.current
-    val prefs by container.settings.settings.collectAsState(initial = null)
+    val chatContext = ChatContext.Board(repoKey)
+    val presentations by container.chatStack.presentations.collectAsState()
+    val chat = presentations[chatContext]
 
     var searching by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var newBead by rememberSaveable { mutableStateOf(false) }
-    var startRound by rememberSaveable { mutableStateOf(false) }
     var pane by rememberSaveable { mutableStateOf<String?>(null) }
     var scrollTo by remember { mutableStateOf<Lane?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
@@ -124,6 +128,7 @@ fun BoardScreen(
                     }
                 },
                 actions = {
+                    ChatHeaderAction(chatContext, repo?.name ?: repoKey)
                     IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
                         Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search beads")
                     }
@@ -143,15 +148,6 @@ fun BoardScreen(
                             }
                             HorizontalDivider()
                         }
-                        Text("Group by", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                        GroupBy.entries.forEach { g ->
-                            DropdownMenuItem(
-                                text = { Text(g.title) },
-                                leadingIcon = { if (g == groupBy) Icon(Icons.Rounded.Check, null) else Spacer(Modifier.size(24.dp)) },
-                                onClick = { menu = false; vm.groupBy.value = g },
-                            )
-                        }
-                        HorizontalDivider()
                         val showAll by vm.showAllDone.collectAsState()
                         DropdownMenuItem(
                             text = { Text("Show all done beads") },
@@ -159,28 +155,20 @@ fun BoardScreen(
                             onClick = { menu = false; vm.showAllDone.value = !showAll },
                         )
                         HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Work several beads until done") },
-                            leadingIcon = { Icon(Icons.Rounded.RocketLaunch, null) },
-                            onClick = { menu = false; startRound = true },
-                        )
                         DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.refresh() })
                     }
                 },
             )
         },
         floatingActionButton = {
-            if (!drag.isDragging && pane == null) Column(
+            if (!drag.isDragging && pane == null && (chat?.selected == null || chat.collapsed)) Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
             ) {
-                ChatFab(ChatContext.Board(repoKey), repo?.name ?: repoKey,
-                    onOpenBead = { board, bead -> if (board == repoKey) onOpenBead(bead) else onOpenChatBead(board, bead) },
-                    onOpenRun = onOpenRun)
                 ExtendedFloatingActionButton(
                     onClick = { newBead = true },
                     icon = { Icon(Icons.Rounded.Add, null) },
-                    text = { Text(if (ui?.snapshot?.changes?.openspec == true) "New effort" else "New bead") },
+                    text = { Text(if (ui?.snapshot?.changes?.openspec == true) "New effort" else "New") },
                 )
             }
         },
@@ -195,14 +183,21 @@ fun BoardScreen(
                 ui == null && state.error != null -> ErrorState(state.error!!, vm::refresh)
                 ui == null -> LoadingState("Loading beads…")
                 else -> BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val canPane = maxWidth >= 760.dp
+                    val canPane = isPaneWide(maxWidth)
                     LaunchedEffect(canPane) { if (!canPane) pane = null }
-                    // Back closes the open side pane before it leaves the board (NAC-3mc).
-                    BackHandler(enabled = canPane && pane != null) { pane = null }
-
-                    val paneWidth = rememberPaneWidth(rootBounds, maxWidth, prefs?.detailPaneDp ?: 440)
-                    Row(Modifier.fillMaxSize()) {
-                        BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                    ChatHost(
+                        screenContext = chatContext, onOpenBead = onOpenChatBead, onOpenRun = onOpenRun,
+                        beadPaneOpen = canPane && pane != null, onCloseBead = { pane = null },
+                        beadPane = {
+                            pane?.let { current ->
+                                BeadDetail(repoKey, current, inPane = true, onClose = { pane = null },
+                                    onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound,
+                                    onOpenChatBead = onOpenChatBead,
+                                    onSelectChat = { container.chatStack.select(chatContext, it) })
+                            }
+                        },
+                    ) {
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
                         val boardWide = maxWidth >= 600.dp
                         // When the board narrows to one lane at a time, show the open bead's lane.
                         LaunchedEffect(boardWide, pane) {
@@ -216,12 +211,14 @@ fun BoardScreen(
                                 shape = RoundedCornerShape(28.dp),
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                             )
-                            if (boardWide) StatStrip(ui, filter, onLane = { scrollTo = it }, onNeedsYou = vm::toggleNeedsYou, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                            EpicChips(ui, filter, onEpic = vm::setEpic, onNeedsYou = if (boardWide) null else vm::toggleNeedsYou, modifier = Modifier.padding(vertical = 4.dp))
+                            EpicChips(ui, filter, onEpic = vm::setEpic, modifier = Modifier.padding(vertical = 4.dp))
                             FilterSummary(filter, vm::clearFilters)
                             Box(Modifier.fillMaxSize()) {
                                 val open: (com.ryderdavid.nacre.data.model.Issue) -> Unit = { i ->
-                                    if (canPane) pane = if (pane == i.id) null else i.id else onOpenBead(i.id)
+                                    if (canPane) {
+                                        pane = boardBeadAfterTap(pane, i.id, container.chatStack.presentation(chatContext))
+                                        container.chatStack.collapse(chatContext)
+                                    } else onOpenBead(i.id)
                                 }
                                 if (boardWide) WideBoard(
                                     ui, groupBy, selectedId = pane, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
@@ -233,18 +230,7 @@ fun BoardScreen(
                             }
                         }
                         }
-                        AnimatedVisibility(visible = canPane && pane != null, enter = expandHorizontally(expandFrom = Alignment.Start), exit = shrinkHorizontally(shrinkTowards = Alignment.Start)) {
-                            Row(Modifier.fillMaxHeight()) {
-                                PaneDivider(onDrag = { dx -> paneWidth.resize(-dx) }, onDragEnd = {
-                                    val dp = paneWidth.width.value.toInt()
-                                    container.scope.launch { container.settings.update { it.copy(detailPaneDp = dp) } }
-                                })
-                                Box(Modifier.width(paneWidth.width).fillMaxHeight()) {
-                                    val current = pane
-                                    if (current != null) BeadDetail(repoKey, current, inPane = true, onClose = { pane = null }, onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound, onOpenChatBead = onOpenChatBead)
-                                }
-                            }
-                        }
+
                     }
                 }
             }
@@ -252,11 +238,6 @@ fun BoardScreen(
         }
     }
 
-    if (startRound && ui != null) StartRoundSheet(
-        repo = repo, index = ui.snapshot.index, boardFilter = filter,
-        onDismiss = { startRound = false },
-        onStarted = { key -> startRound = false; onOpenRound(key) },
-    )
     if (newBead && ui != null) NewBeadSheet(
         repoKey, repo?.name.orEmpty(), ui.snapshot.index,
         defaultParent = filter.epic.takeIf { it.isNotEmpty() && it != com.ryderdavid.nacre.data.board.BoardFilter.NO_EPIC },
@@ -264,40 +245,4 @@ fun BoardScreen(
         onCreated = { newBead = false; if (pane != null) pane = it.id },
         effort = ui.snapshot.changes?.openspec == true,
     )
-}
-
-/** Width of the side pane: hinge-aligned when the fold separates the screen, else user-sized. */
-private class PaneWidth(initial: Dp, private val min: Dp, private val max: Dp, val hingeLocked: Boolean) {
-    private var w by mutableFloatStateOf(initial.value)
-    val width: Dp get() = w.dp.coerceIn(min, max)
-    var density = 1f
-    fun resize(dxPx: Float) {
-        if (hingeLocked) return
-        w = (w + dxPx / density).coerceIn(min.value, max.value)
-    }
-}
-
-@Composable
-private fun rememberPaneWidth(root: Rect, available: Dp, preferredDp: Int): PaneWidth {
-    val density = LocalDensity.current
-    val hinge = currentWindowAdaptiveInfo().windowPosture.hingeList.firstOrNull { it.isVertical && (it.isSeparating || it.isOccluding) }
-    val hingeWidth = hinge?.let { with(density) { (root.right - it.bounds.right).toDp() } }?.takeIf { it > 280.dp && it < available - 300.dp }
-    val max = (available - 320.dp).coerceAtLeast(320.dp)
-    return remember(hingeWidth, available, preferredDp) {
-        PaneWidth(hingeWidth ?: preferredDp.dp, min = 320.dp, max = max, hingeLocked = hingeWidth != null)
-    }.also { it.density = density.density }
-}
-
-@Composable
-private fun PaneDivider(onDrag: (Float) -> Unit, onDragEnd: () -> Unit) {
-    Box(
-        Modifier.width(16.dp).fillMaxHeight().draggable(
-            orientation = Orientation.Horizontal,
-            state = rememberDraggableState { onDrag(it) },
-            onDragStopped = { onDragEnd() },
-        ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.width(4.dp).height(48.dp).background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
-    }
 }

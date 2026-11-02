@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -162,7 +163,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
+fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit, onBack: () -> Unit) {
     val vm = nacreViewModel { SettingsViewModel(it) }
     val s by vm.settings.collectAsState(initial = null)
     val hosts by vm.hosts.collectAsState()
@@ -200,7 +201,8 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
 
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = { LargeTopAppBar(title = { Text("Settings") }, scrollBehavior = scroll) },
+        topBar = { LargeTopAppBar(title = { Text("Settings") }, scrollBehavior = scroll,
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) },
     ) { pad ->
         val p = s ?: return@Scaffold
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp), modifier = Modifier.padding(pad).fillMaxSize()) {
@@ -286,20 +288,9 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
                 }
             }
 
-            // Model and effort are picked per agent on the implement screen, starting from each agent's defaults.
-            item { Header("Implement runs") }
-            item {
-                Labeled("Default permissions", RUN_MODES.first { it.first == p.runMode }.third) {
-                    Segmented(RUN_MODES.map { it.first to it.second }, p.runMode) { v -> vm.update { it.copy(runMode = v) } }
-                }
-            }
-            item { SwitchRow(Icons.Rounded.AccountTree, "Use a git worktree by default", "Keeps runs off your working checkout", p.runWorktree) { v -> vm.update { it.copy(runWorktree = v) } } }
             item { SwitchRow(Icons.Rounded.Notifications, "Notify when runs finish", "While Nacre is in the background", p.notifyRuns) { v -> vm.update { it.copy(notifyRuns = v) } } }
 
             item { Header("Appearance") }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) item {
-                SwitchRow(Icons.Rounded.Palette, "Material You colors", "Match your wallpaper", p.dynamicColor) { v -> vm.update { it.copy(dynamicColor = v) } }
-            }
             item {
                 Labeled("Theme") {
                     Segmented(ThemeMode.entries.map { it.name to it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, p.themeMode.name) { v ->
@@ -307,13 +298,7 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit) {
                     }
                 }
             }
-            item {
-                Text(
-                    "Nacre ${BuildConfig.VERSION_NAME} · the Mac side is nacred in ~/Code/Nacre/bridge",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
+
         }
 
         if (manual) ManualPairDialog(onDismiss = { manual = false }) { req -> manual = false; confirm = req }

@@ -96,7 +96,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.ui.assistant.ChatFab
+import com.ryderdavid.nacre.ui.assistant.ChatHost
+import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.Dot
@@ -145,6 +146,7 @@ fun BeadDetail(
     onOpenRound: (String) -> Unit,
     openChange: Boolean = false,
     onOpenChatBead: (String, String) -> Unit,
+    onSelectChat: ((ChatContext) -> Unit)? = null,
 ) {
     val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
@@ -187,6 +189,8 @@ fun BeadDetail(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
 
+    ChatHost(ChatContext.Bead(repoKey, beadId), onOpenChatBead, onOpenRun,
+        enabled = !inPane, onDevelop = if (developable) ({ showChange = true }) else null) {
     Scaffold(
         containerColor = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
         contentWindowInsets = if (inPane) WindowInsets(0) else ScaffoldDefaults.contentWindowInsets,
@@ -201,6 +205,7 @@ fun BeadDetail(
                 },
                 title = { BeadId(beadId, color = MaterialTheme.colorScheme.onSurface) },
                 actions = {
+                    ChatHeaderAction(ChatContext.Bead(repoKey, beadId), issue?.title?.ifBlank { null } ?: beadId, onSelectChat)
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Copy id") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
@@ -236,11 +241,6 @@ fun BeadDetail(
         },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ChatFab(
-                    ChatContext.Bead(repoKey, beadId), issue?.title?.ifBlank { null } ?: beadId, onOpenChatBead, onOpenRun,
-                    // Refining the bead itself is the usual move; a reviewed proposal is the quiet alternative.
-                    onDevelop = if (developable) ({ showChange = true }) else null,
-                )
                 val i = issue
                 if (i != null && !i.isClosed) {
                     // Prefer our own run: an agent's session can't be steered from here, so it must not
@@ -392,6 +392,7 @@ fun BeadDetail(
                 }
             }
         }
+    }
     }
 }
 

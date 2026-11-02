@@ -132,7 +132,7 @@ val MonoFamily = FontFamily.Monospace
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, dynamicColor: Boolean = true, content: @Composable () -> Unit) {
+fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
     val dark = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -140,7 +140,7 @@ fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, dynamicColor: Boolean = 
     }
     val context = LocalContext.current
     val scheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         dark -> DarkScheme
         else -> LightScheme
     }

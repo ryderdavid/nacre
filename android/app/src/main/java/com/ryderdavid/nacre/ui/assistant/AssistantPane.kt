@@ -133,11 +133,18 @@ fun AssistantPane(
     val auto by assistant.autoApprove.collectAsState()
     val prefs by container.settings.settings.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
-    var input by rememberSaveable { mutableStateOf("") }
-    val list = rememberLazyListState()
+    val chatContext = when (target) {
+        is AssistantTarget.Board -> com.ryderdavid.nacre.data.claude.ChatContext.Board(target.repoKey)
+        AssistantTarget.AllBoards -> com.ryderdavid.nacre.data.claude.ChatContext.Multi
+    }
+    val input = chatDraft(chatContext)
+    fun setInput(text: String) = container.chatStack.updateView(chatContext) { it.copy(draft = text) }
+    val list = rememberChatList(chatContext)
+    var firstComposition by remember { mutableStateOf(true) }
 
     LaunchedEffect(items.size, items.lastOrNull()) {
-        if (items.isNotEmpty()) list.animateScrollToItem(items.lastIndex)
+        if (!firstComposition && items.isNotEmpty()) list.animateScrollToItem(items.lastIndex)
+        firstComposition = false
     }
 
     Scaffold(
@@ -166,10 +173,10 @@ fun AssistantPane(
             Surface(color = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface) {
                 Row(Modifier.fillMaxWidth().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom) {
                     val canSend = !busy && input.isNotBlank() && prefs?.claudeConfigured == true
-                    val send = { assistant.send(input); input = "" }
+                    val send = { assistant.send(input); setInput("") }
                     OutlinedTextField(
                         value = input,
-                        onValueChange = { input = it },
+                        onValueChange = ::setInput,
                         placeholder = { Text(if (everyBoard) "Ask about any board" else "Ask about this board") },
                         maxLines = 5,
                         shape = RoundedCornerShape(24.dp),

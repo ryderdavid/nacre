@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.ViewKanban
 import androidx.compose.material3.Badge
@@ -43,6 +43,7 @@ import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.board.BoardScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.repos.ReposScreen
+import com.ryderdavid.nacre.ui.repos.InboxScreen
 import com.ryderdavid.nacre.ui.rounds.RoundDetail
 import com.ryderdavid.nacre.ui.runs.RunDetail
 import com.ryderdavid.nacre.ui.runs.RunsScreen
@@ -56,6 +57,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class BoardRoute(val repoKey: String)
 /** [openChange] opens the bead's change view straight away (from Needs you). */
 @Serializable data class BeadRoute(val repoKey: String, val beadId: String, val openChange: Boolean = false)
+@Serializable data object InboxRoute
 @Serializable data object RunsRoute
 @Serializable data class RunRoute(val runKey: String)
 @Serializable data class RoundRoute(val roundKey: String)
@@ -70,12 +72,12 @@ sealed interface DeepLink {
     data class OpenChange(val repoKey: String, val beadId: String) : DeepLink
 }
 
-private enum class Tab { BOARDS, RUNS, SETTINGS }
+private enum class Tab { BOARDS, INBOX, ACTIVITY }
 
 @Composable
 fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
     val prefs by container.settings.settings.collectAsState(initial = null)
-    NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM, dynamicColor = prefs?.dynamicColor ?: true) {
+    NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM) {
         androidx.compose.runtime.CompositionLocalProvider(LocalContainer provides container) {
             AppShell(container, deepLink, onDeepLinkHandled)
         }
@@ -94,8 +96,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val entry by nav.currentBackStackEntryAsState()
     val dest = entry?.destination
     val tab = when {
-        dest?.hasRoute(RunsRoute::class) == true || dest?.hasRoute(RunRoute::class) == true || dest?.hasRoute(RoundRoute::class) == true -> Tab.RUNS
-        dest?.hasRoute(SettingsRoute::class) == true -> Tab.SETTINGS
+        dest?.hasRoute(RunsRoute::class) == true || dest?.hasRoute(RunRoute::class) == true || dest?.hasRoute(RoundRoute::class) == true -> Tab.ACTIVITY
+        dest?.hasRoute(InboxRoute::class) == true -> Tab.INBOX
         else -> Tab.BOARDS
     }
     val runs by container.repository.runs.collectAsState()
@@ -103,7 +105,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val rounds by container.repository.rounds.collectAsState()
     // Rounds waiting on a decision or a landing count too: they need a look.
     val activeRuns = runs.count { it.isActive && it.inRunsList } + rounds.count { it.needsYou }
-    // Boards' own badge counts Needs you; the Runs badge keeps its meaning.
+    // Inbox owns the attention badge; Activity retains the running-session badge.
     val needsYou = container.repository.attention.collectAsState().value.size
     val snackbar = remember { SnackbarHostState() }
     var pendingPair by remember { mutableStateOf<PairRequest?>(null) }
@@ -142,20 +144,22 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
             navigationSuiteItems = {
                 item(
                     selected = tab == Tab.BOARDS, onClick = { nav.switchTab(BoardsRoute) },
-                    icon = { BadgedBox(badge = { if (needsYou > 0) Badge { Text("$needsYou") } }) { Icon(Icons.Rounded.ViewKanban, null) } },
+                    icon = { Icon(Icons.Rounded.ViewKanban, null) },
                     label = { Text("Boards") },
                 )
                 item(
-                    selected = tab == Tab.RUNS, onClick = { nav.switchTab(RunsRoute) },
+                    selected = tab == Tab.INBOX, onClick = { nav.switchTab(InboxRoute) },
+                    icon = { BadgedBox(badge = { if (needsYou > 0) Badge { Text("$needsYou") } }) { Icon(Icons.Rounded.Inbox, null) } },
+                    label = { Text("Inbox") },
+                )
+                item(
+                    selected = tab == Tab.ACTIVITY, onClick = { nav.switchTab(RunsRoute) },
                     icon = {
                         BadgedBox(badge = { if (activeRuns > 0) Badge { Text("$activeRuns") } }) { Icon(Icons.Rounded.Terminal, null) }
                     },
-                    label = { Text("Runs") },
+                    label = { Text("Activity") },
                 )
-                item(
-                    selected = tab == Tab.SETTINGS, onClick = { nav.switchTab(SettingsRoute) },
-                    icon = { Icon(Icons.Rounded.Settings, null) }, label = { Text("Settings") },
-                )
+
             },
         ) {
             NavHost(nav, startDestination = BoardsRoute) {
@@ -165,6 +169,11 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                         onPair = { nav.switchTab(SettingsRoute) },
                         onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
+                    )
+                }
+                composable<InboxRoute> {
+                    InboxScreen(
+                        onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                         onOpenChange = { repo, seed -> nav.navigate(BeadRoute(repo, seed, openChange = true)) },
                         onOpenRound = { nav.navigate(RoundRoute(it)) },
                     )
@@ -212,7 +221,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                     )
                 }
                 composable<SettingsRoute> {
-                    SettingsScreen(pending = pendingPair, onPendingHandled = { pendingPair = null })
+                    SettingsScreen(pending = pendingPair, onPendingHandled = { pendingPair = null }, onBack = { nav.popBackStack() })
                 }
             }
         }

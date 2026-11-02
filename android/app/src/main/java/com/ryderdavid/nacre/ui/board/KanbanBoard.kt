@@ -78,54 +78,13 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-fun columnColor(key: String) = when {
-    key.startsWith("p") && key.length == 2 -> Nacre.colors.priority[key[1].digitToInt()]
-    key.startsWith("t:") -> Nacre.colors.type(key.removePrefix("t:"))
-    else -> Lane.entries.firstOrNull { it.key == key }?.let { Nacre.colors.lane(it) } ?: MaterialTheme.colorScheme.outline
-}
-
-/** Summary tiles (wide layout): lane counts plus a "Needs you" toggle. */
-@Composable
-fun StatStrip(ui: BoardUi, filter: BoardFilter, onLane: (Lane) -> Unit, onNeedsYou: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Proposals get a tile only when there are some, so other boards look as before.
-        val proposals = ui.stats[Lane.PROPOSED] ?: 0
-        listOfNotNull(Lane.PROPOSED.takeIf { proposals > 0 }, Lane.READY, Lane.DOING, Lane.BLOCKED).forEach { lane ->
-            StatTile(lane.title, ui.stats[lane] ?: 0, Nacre.colors.lane(lane), selected = false, onClick = { onLane(lane) }, modifier = Modifier.weight(1f))
-        }
-        StatTile("Needs you", ui.needsYou, Nacre.colors.needsYou, selected = filter.needsYou, onClick = onNeedsYou, modifier = Modifier.weight(1f))
-        StatTile(Lane.DONE.title, ui.stats[Lane.DONE] ?: 0, Nacre.colors.done, selected = false, onClick = { onLane(Lane.DONE) }, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun StatTile(label: String, n: Int, color: androidx.compose.ui.graphics.Color, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        color = if (selected) Nacre.colors.needsYouContainer else MaterialTheme.colorScheme.surfaceContainer,
-        border = if (selected) BorderStroke(1.dp, color) else null,
-        modifier = modifier,
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text("$n", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = color)
-            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
-    }
-}
+fun columnColor(key: String) =
+    Lane.entries.firstOrNull { it.key == key }?.let { Nacre.colors.lane(it) } ?: MaterialTheme.colorScheme.outline
 
 /** "All work", one chip per open epic with its progress, and "Not in an epic". */
 @Composable
-fun EpicChips(ui: BoardUi, filter: BoardFilter, onEpic: (String) -> Unit, onNeedsYou: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun EpicChips(ui: BoardUi, filter: BoardFilter, onEpic: (String) -> Unit, modifier: Modifier = Modifier) {
     LazyRow(modifier, contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (onNeedsYou != null && ui.needsYou > 0) item {
-            FilterChip(
-                selected = filter.needsYou, onClick = onNeedsYou,
-                label = { Text("Needs you · ${ui.needsYou}") },
-                leadingIcon = { Dot(Nacre.colors.needsYou) },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Nacre.colors.needsYouContainer),
-            )
-        }
         item {
             val total = ui.snapshot.index.issues.size
             val done = ui.snapshot.index.issues.count { it.isClosed }
@@ -394,7 +353,7 @@ private fun LaneDock(columns: List<Column>, drag: DragController, groupBy: Group
     ) {
         Column(Modifier.navigationBarsPadding().padding(12.dp)) {
             Text(
-                if (groupBy == GroupBy.WORKFLOW) "Drop to move" else "Drop to change ${groupBy.title.lowercase()}",
+                "Drop to move",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
             )

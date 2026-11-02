@@ -46,16 +46,16 @@ data class AppSettings(
     val claudeRunner: String = RUNNER_MAC,
     val claudeModel: String = DEFAULT_MODEL,
     val claudeEffort: String = "medium",
-    val runMode: String = "auto",
-    val runWorktree: Boolean = false,
     val runGoal: GoalOptions = GoalOptions(),
-    val dynamicColor: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val pinnedRepos: Set<String> = emptySet(),
     val hiddenRepos: Set<String> = emptySet(),
     val detailPaneDp: Int = 440,
     val notifyRuns: Boolean = true,
 ) {
+    /** Launch policy, never read from legacy preferences. */
+    val runWorktree get() = true
+    val runMode get() = "auto"
     val bridgeConfigured get() = hosts.isNotEmpty()
     fun host(id: String) = hosts.firstOrNull { it.id == id }
 
@@ -95,10 +95,7 @@ class SettingsStore(private val context: Context) {
         val runner = stringPreferencesKey("claude_runner")
         val model = stringPreferencesKey("claude_model")
         val effort = stringPreferencesKey("claude_effort")
-        val runMode = stringPreferencesKey("run_mode")
-        val runWorktree = booleanPreferencesKey("run_worktree")
         val runGoal = stringPreferencesKey("run_goal_json")
-        val dynamic = booleanPreferencesKey("dynamic_color")
         val theme = stringPreferencesKey("theme_mode")
         val pinned = stringSetPreferencesKey("pinned_repos")
         val hidden = stringSetPreferencesKey("hidden_repos")
@@ -132,10 +129,7 @@ class SettingsStore(private val context: Context) {
             claudeRunner = p[K.runner] ?: AppSettings.RUNNER_MAC,
             claudeModel = p[K.model] ?: AppSettings.DEFAULT_MODEL,
             claudeEffort = p[K.effort] ?: "medium",
-            runMode = p[K.runMode] ?: "auto",
-            runWorktree = p[K.runWorktree] ?: false,
             runGoal = p[K.runGoal]?.let { runCatching { json.decodeFromString<GoalOptions>(it).normalized() }.getOrNull() } ?: GoalOptions(),
-            dynamicColor = p[K.dynamic] ?: true,
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             pinnedRepos = p[K.pinned].orEmpty(),
             hiddenRepos = p[K.hidden].orEmpty(),
@@ -204,10 +198,7 @@ class SettingsStore(private val context: Context) {
             it[K.runner] = next.claudeRunner
             it[K.model] = next.claudeModel
             it[K.effort] = next.claudeEffort
-            it[K.runMode] = next.runMode
-            it[K.runWorktree] = next.runWorktree
             it[K.runGoal] = json.encodeToString(next.runGoal.normalized())
-            it[K.dynamic] = next.dynamicColor
             it[K.theme] = next.themeMode.name
             it[K.pinned] = next.pinnedRepos
             it[K.hidden] = next.hiddenRepos

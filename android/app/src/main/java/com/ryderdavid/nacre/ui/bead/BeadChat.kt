@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -111,30 +112,48 @@ private fun look(mode: ChatMode, id: String) = when (mode) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit, onDismissChat: () -> Unit, onDevelop: (() -> Unit)? = null) {
+    HandleDismissSheet(onDismiss) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().heightIn(max = 720.dp)) {
+            BeadChatContent(vm, issue, claudeReady, onDismiss, onDismissChat, onDevelop)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun BeadChatContent(
+    vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean,
+    onClose: () -> Unit, onDismissChat: () -> Unit, onDevelop: (() -> Unit)? = null,
+    inPane: Boolean = false,
+    context: com.ryderdavid.nacre.data.claude.ChatContext = com.ryderdavid.nacre.data.claude.ChatContext.Bead(vm.repoKey, issue.id),
+) {
     val items by vm.chat.collectAsState()
     val thinking by vm.chatThinking.collectAsState()
     val failure by vm.chatFailure.collectAsState()
     val mode by vm.chatMode.collectAsState()
-    var text by rememberSaveable { mutableStateOf("") }
+    val stack = com.ryderdavid.nacre.ui.common.LocalContainer.current.chatStack
+    val text = com.ryderdavid.nacre.ui.assistant.chatDraft(context)
+    fun setText(value: String) = stack.updateView(context) { it.copy(draft = value) }
     val look = look(mode, issue.id)
-    val list = rememberLazyListState()
+    val list = com.ryderdavid.nacre.ui.assistant.rememberChatList(context)
+    var firstComposition by remember { mutableStateOf(true) }
     val messages = items.count { it is BeadChatItem.Mine }
 
     // Follow the newest entry, including a proposal that folds down once it's applied or discarded.
     LaunchedEffect(items, thinking, failure) {
         val last = list.layoutInfo.totalItemsCount - 1
-        if (last >= 0) list.animateScrollToItem(last)
+        if (!firstComposition && last >= 0) list.animateScrollToItem(last)
+        firstComposition = false
     }
 
     fun send(message: String) {
         if (!claudeReady || thinking) return
         if (message.isBlank() && mode == ChatMode.ASK) return
         vm.sendChat(message, mode)
-        text = ""
+        setText("")
     }
 
-    HandleDismissSheet(onDismiss) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding()) {
             Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(look.icon, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(10.dp))
@@ -145,6 +164,7 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close chat") }
                 IconButton(onClick = onDismissChat) {
                     Icon(Icons.Rounded.Close, "Dismiss chat")
                 }
@@ -156,7 +176,7 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
 
             if (items.isNotEmpty() || thinking || failure != null) LazyColumn(
                 state = list,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -219,11 +239,10 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
             }
 
             Composer(
-                text = text, onText = { text = it }, mode = mode, look = look, busy = thinking,
+                text = text, onText = ::setText, mode = mode, look = look, busy = thinking,
                 onMode = vm::setChatMode, onSend = { send(text) },
             )
         }
-    }
 }
 
 @Composable
