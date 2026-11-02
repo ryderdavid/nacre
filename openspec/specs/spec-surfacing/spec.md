@@ -90,7 +90,7 @@ When every current section of the approved revision has landed evidence with mat
 
 #### Scenario: All sections landed
 - **WHEN** the last section's round lands
-- **THEN** Needs you shows the change as ready to archive, with Finish: archive and merge and Open change
+- **THEN** Needs you shows the change as ready to archive, with Archive spec and merge into main and Open change
 
 #### Scenario: A section was reopened
 - **WHEN** a landed section bead is reopened

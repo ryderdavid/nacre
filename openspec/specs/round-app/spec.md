@@ -50,12 +50,12 @@ the round's commits and changed files, and a Land button. Landing SHALL ask for 
 target branch and whether it will be pushed, which nacred resolves from the round's `nacre.yaml`.
 
 #### Scenario: Land a round
-- **WHEN** Ryder taps Land and confirms "Fast-forward main and push"
+- **WHEN** Ryder taps Merge into main and confirms "Merge and push"
 - **THEN** the app asks nacred to land and shows the result
 
 #### Scenario: A round that doesn't push
-- **WHEN** the repository's `nacre.yaml` sets `land.push: false` and Ryder taps Land
-- **THEN** the confirmation says it moves main on the computer only and doesn't push, and its button reads "Fast-forward main, don't push"
+- **WHEN** the repository's `nacre.yaml` sets `land.push: false` and Ryder taps Merge into main
+- **THEN** the confirmation says it moves main on the computer only and doesn't push, and its button reads "Merge, don't push"
 
 #### Scenario: Push not reported
 - **WHEN** nacred's round doesn't say whether landing pushes (an older nacred)

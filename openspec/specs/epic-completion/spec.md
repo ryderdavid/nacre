@@ -49,7 +49,7 @@ change to archive SHALL simply be closed.
 
 #### Scenario: Closing after landing fails
 - **WHEN** closing the epic or removing its branch fails after the target was pushed
-- **THEN** the landing stands, the round's log says what failed, and Finish epic later closes the epic as having nothing left to merge
+- **THEN** the landing stands, the round's log says what failed, and Merge epic into main later closes the epic as having nothing left to merge
 
 ### Requirement: Finishing a change's epic archives the change
 Finishing the epic of an approved specification change SHALL archive the change in the finishing

@@ -24,7 +24,7 @@ state no longer waits on him.
 
 #### Scenario: An epic is done
 - **WHEN** every bead under an open epic that belongs to no change is closed
-- **THEN** Needs you shows the epic as done, with Finish epic and Open epic
+- **THEN** Needs you shows the epic as done, with Merge epic into main and Open epic
 
 ### Requirement: Items explain themselves
 Every item SHALL include a title, a plain one- or two-sentence reason that stands on its own, its source reference when one exists, and its options, each either an exact API action, a navigation to the bead, change or round, or a prefilled sheet for answering found work.
