@@ -10,6 +10,9 @@ sealed interface ChatContext {
     data class Bead(val repoKey: String, val beadId: String) : ChatContext
 }
 
+data class ChatPresentation(val selected: ChatContext? = null, val collapsed: Boolean = false)
+data class ChatViewState(val draft: String = "", val firstVisibleIndex: Int = 0, val firstVisibleOffset: Int = 0)
+
 data class ActiveChat(val context: ChatContext, val label: String, val lastActivity: Long)
 data class ChatSlot(val context: ChatContext, val label: String, val isNew: Boolean)
 
@@ -20,6 +23,33 @@ class ChatStack(
 ) {
     private val state = MutableStateFlow<List<ActiveChat>>(emptyList())
     val active = state.asStateFlow()
+
+    private val presentationState = MutableStateFlow<Map<ChatContext, ChatPresentation>>(emptyMap())
+    val presentations = presentationState.asStateFlow()
+    private val viewState = MutableStateFlow<Map<ChatContext, ChatViewState>>(emptyMap())
+    val views = viewState.asStateFlow()
+
+    fun presentation(screen: ChatContext) = presentationState.value[screen] ?: ChatPresentation()
+    fun view(context: ChatContext) = viewState.value[context] ?: ChatViewState()
+    @Synchronized fun select(screen: ChatContext, selected: ChatContext) {
+        presentationState.value = presentationState.value + (screen to ChatPresentation(selected))
+    }
+    @Synchronized fun collapse(screen: ChatContext) {
+        presentationState.value = presentationState.value + (screen to presentation(screen).copy(collapsed = true))
+    }
+    @Synchronized fun expand(screen: ChatContext) {
+        presentationState.value = presentationState.value + (screen to presentation(screen).copy(collapsed = false))
+    }
+    @Synchronized fun close(screen: ChatContext) {
+        presentationState.value = presentationState.value - screen
+    }
+    @Synchronized fun updateView(context: ChatContext, change: (ChatViewState) -> ChatViewState) {
+        viewState.value = viewState.value + (context to change(view(context)))
+    }
+    private fun clearView(context: ChatContext) {
+        viewState.value = viewState.value - context
+        presentationState.value = presentationState.value.filterValues { it.selected != context }
+    }
 
     /** Called only after the backend accepts the first user message. */
     @Synchronized fun started(context: ChatContext, label: String) {
@@ -34,7 +64,10 @@ class ChatStack(
     }
 
     fun dismiss(context: ChatContext) {
-        synchronized(this) { state.value = state.value.filterNot { it.context == context } }
+        synchronized(this) {
+            state.value = state.value.filterNot { it.context == context }
+            clearView(context)
+        }
         onRemoved(context)
     }
 
@@ -42,6 +75,7 @@ class ChatStack(
         val expired = synchronized(this) {
             state.value.filter { now() - it.lastActivity >= IDLE_MS }.also {
                 state.value = state.value - it.toSet()
+                it.forEach { chat -> clearView(chat.context) }
             }
         }
         expired.forEach { onRemoved(it.context) }

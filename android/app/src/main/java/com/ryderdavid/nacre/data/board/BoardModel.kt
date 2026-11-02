@@ -29,7 +29,7 @@ enum class Lane(val key: String, val title: String) {
         }
 }
 
-enum class GroupBy(val title: String) { WORKFLOW("Workflow"), PRIORITY("Priority"), TYPE("Type") }
+enum class GroupBy(val title: String) { WORKFLOW("Workflow") }
 
 /** [note] qualifies the column, e.g. when only some of its changes are listed. */
 data class Column(val key: String, val title: String, val issues: List<Issue>, val total: Int, val note: String = "")
@@ -163,21 +163,7 @@ class BoardIndex(val issues: List<Issue>) {
                     Column(lane.key, lane.title, shown, all.size, note)
                 }
             }
-            GroupBy.PRIORITY -> {
-                val open = visible.filterNot { it.isClosed }
-                (0..4).map { p ->
-                    val all = sortLane(Lane.READY, open.filter { it.priority == p })
-                    Column("p$p", PRIORITY_NAMES[p], all, all.size)
-                }
-            }
-            GroupBy.TYPE -> {
-                val open = visible.filterNot { it.isClosed }
-                val types = (DEFAULT_TYPES + open.map { it.type }).distinct()
-                types.map { t ->
-                    val all = sortLane(Lane.READY, open.filter { it.type == t })
-                    Column("t:$t", t.replaceFirstChar { it.uppercase() }, all, all.size)
-                }.filter { it.total > 0 || it.key.removePrefix("t:") in CORE_TYPES }
-            }
+
         }
     }
 
@@ -234,8 +220,6 @@ sealed interface MoveAction {
 }
 
 fun moveActionFor(columnKey: String): MoveAction? = when {
-    columnKey.startsWith("p") && columnKey.length == 2 -> MoveAction.SetPriority(columnKey[1].digitToInt())
-    columnKey.startsWith("t:") -> MoveAction.SetType(columnKey.removePrefix("t:"))
     // Proposals move by approval, not by dragging.
     columnKey == Lane.PROPOSED.key -> null
     else -> Lane.entries.firstOrNull { it.key == columnKey }?.let { lane ->

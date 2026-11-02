@@ -84,7 +84,9 @@ import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.ui.assistant.ChatFab
+import com.ryderdavid.nacre.ui.assistant.ChatHost
+import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
+import androidx.compose.material.icons.rounded.Settings
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
 import com.ryderdavid.nacre.ui.common.MessageState
@@ -168,7 +170,7 @@ class ReposViewModel(private val repo: NacreRepository, private val settings: Se
     fun unhideAll() = viewModelScope.launch { settings.update { s -> s.copy(hiddenRepos = emptySet()) } }
 }
 
-/** Every project's board, with the multi-project chat in the floating stack. */
+/** Every project's board and its header chat action. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReposScreen(
@@ -176,31 +178,8 @@ fun ReposScreen(
     onPair: () -> Unit,
     onOpenBead: (repoKey: String, beadId: String) -> Unit,
     onOpenRun: (String) -> Unit,
-    onOpenChange: (repoKey: String, seedId: String) -> Unit = onOpenBead,
-    onOpenRound: (String) -> Unit = {},
 ) {
     val vm = nacreViewModel { ReposViewModel(it.repository, it.settings) }
-    val attention by vm.attention.collectAsState()
-    val outdated by vm.outdated.collectAsState()
-    val busy by vm.busy.collectAsState()
-    var foundTarget by remember { mutableStateOf<Pair<String, AttentionTarget>?>(null) }
-    var effort by remember { mutableStateOf<Pair<String, NewEffortPrefill>?>(null) }
-    val onOption: (AttentionItem, AttentionOption) -> Unit = { item, o ->
-        val t = o.target
-        val key = Keys.of(item.hostId, t?.repo?.ifBlank { null } ?: item.repo)
-        when {
-            o.type == "action" -> if (o.disabled.isBlank()) vm.perform(item, o)
-            t == null -> Unit
-            t.kind == "bead" -> onOpenBead(key, t.id)
-            t.kind == "change" -> onOpenChange(key, t.id)
-            t.kind == "round" -> onOpenRound(Keys.of(item.hostId, t.id))
-            t.kind == "found_something" -> foundTarget = key to t
-            t.kind == "new_effort" -> effort = key to NewEffortPrefill(
-                title = t.note.lineSequence().firstOrNull().orEmpty().take(80), description = t.note, related = t.related,
-                followOnOf = t.followOnOf, foundComment = if (t.commentId.isNotBlank()) FoundComment(t.foundIn, t.commentId) else null,
-            )
-        }
-    }
     val state by vm.repos.collectAsState()
     val groups by vm.groups.collectAsState()
     val barRuns by vm.barRuns.collectAsState()
@@ -210,11 +189,9 @@ fun ReposScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    ChatHost(ChatContext.Multi, onOpenBead, onOpenRun) {
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        floatingActionButton = {
-            ChatFab(ChatContext.Multi, "multi", onOpenBead, onOpenRun)
-        },
         topBar = {
             LargeTopAppBar(
                 title = {
@@ -224,6 +201,8 @@ fun ReposScreen(
                     }
                 },
                 actions = {
+                    ChatHeaderAction(ChatContext.Multi, "Every board")
+                    IconButton(onClick = onPair) { Icon(Icons.Rounded.Settings, "Settings") }
                     IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
                         Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search boards")
                     }
@@ -263,13 +242,6 @@ fun ReposScreen(
                         if (searching) item(span = { GridItemSpan(maxLineSpan) }) {
                             OutlinedTextField(query, { query = it }, placeholder = { Text("Filter boards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         }
-                        if (outdated.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                            OutdatedNacredNote(outdated)
-                        }
-                        if (attention.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                            NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, modifier = Modifier.padding(bottom = 4.dp))
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }) { Summary(shown) }
                         if (hosts.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(selected = hostFilter == null, onClick = { hostFilter = null }, label = { Text("All computers") })
@@ -297,27 +269,7 @@ fun ReposScreen(
             }
         }
     }
-    foundTarget?.let { (key, t) -> FoundFromNeedsYou(key, t, vm, onDismiss = { foundTarget = null }, onOutOfScope = { foundTarget = null; effort = key to it }) }
-    effort?.let { (key, prefill) -> EffortFromNeedsYou(key, prefill, vm, onDone = { effort = null }) }
-}
-
-/** Found something opened from Needs you: needs the change from the board's summary. */
-@Composable
-private fun FoundFromNeedsYou(key: String, t: AttentionTarget, vm: ReposViewModel, onDismiss: () -> Unit, onOutOfScope: (NewEffortPrefill) -> Unit) {
-    val snapshot by produceState<BoardSnapshot?>(null, key) { value = runCatching { vm.board(key) }.getOrNull() }
-    val change = snapshot?.changesById?.get(t.change) ?: return
-    FoundSomethingSheet(key, change, foundIn = t.foundIn.ifBlank { null }, onDismiss = onDismiss, onOutOfScope = onOutOfScope, commentId = t.commentId, note = t.note)
-}
-
-/** New effort opened from Needs you or an out-of-scope answer, prefilled. */
-@Composable
-private fun EffortFromNeedsYou(key: String, prefill: NewEffortPrefill, vm: ReposViewModel, onDone: () -> Unit) {
-    val snapshot by produceState<BoardSnapshot?>(null, key) { value = runCatching { vm.board(key) }.getOrNull() }
-    val s = snapshot ?: return
-    NewBeadSheet(
-        key, s.repo.name, s.index, defaultParent = null, onDismiss = onDone, onCreated = { onDone() },
-        effort = s.changes?.openspec == true, prefill = prefill,
-    )
+    }
 }
 
 @Composable
@@ -336,35 +288,6 @@ private fun ConnectionLine(hosts: List<HostState>) {
         else -> "$online of ${hosts.size} computers connected · " + hosts.filterNot { it.online }.joinToString { it.host.name } + " offline" to Nacre.colors.blocked
     }
     Text(text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
-}
-
-@Composable
-private fun Summary(groups: List<RepoGroup>) {
-    val repos = groups.map { it.home }
-    val open = repos.sumOf { it.counts.open }
-    val doing = repos.sumOf { it.counts.inProgress }
-    val blocked = repos.sumOf { it.counts.blocked }
-    val runs = groups.sumOf { g -> g.members.sumOf { it.activeRuns } }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-        SummaryTile("Open", open, Modifier.weight(1f))
-        SummaryTile("In progress", doing, Modifier.weight(1f))
-        SummaryTile("Blocked", blocked, Modifier.weight(1f))
-        SummaryTile("Running", runs, Modifier.weight(1f), highlight = runs > 0)
-    }
-}
-
-@Composable
-private fun SummaryTile(label: String, n: Int, modifier: Modifier, highlight: Boolean = false) {
-    Surface(
-        color = if (highlight) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier,
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text("$n", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

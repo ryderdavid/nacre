@@ -173,7 +173,7 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpe
     var listPaneDp by rememberSaveable { mutableStateOf(DEFAULT_LIST_PANE_DP) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 760.dp
+        val wide = com.ryderdavid.nacre.ui.common.isPaneWide(maxWidth)
         val density = LocalDensity.current.density
         val totalDp = maxWidth.value
         val listPane = clampListPaneWidth(listPaneDp, totalDp)
@@ -183,7 +183,7 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpe
                 modifier = Modifier.then(if (wide) Modifier.width(listPane.dp) else Modifier.weight(1f)).nestedScroll(scroll.nestedScrollConnection),
                 topBar = {
                     LargeTopAppBar(
-                        title = { Text("Runs") },
+                        title = { Text("Activity") },
                         actions = {
                             IconButton(onClick = vm::refresh, enabled = !refreshing) {
                                 Icon(Icons.Rounded.Refresh, "Refresh the list of runs")

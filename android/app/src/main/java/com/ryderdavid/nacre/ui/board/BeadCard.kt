@@ -137,7 +137,7 @@ fun BeadCard(
                         }
                     }
                 }
-                val labels = issue.labels.filter { it != "human" && (chip == null || !isSpecLabel(it)) }
+                val labels = issue.labels.filter { it != "human" && !isInternalCardLabel(it) && (chip == null || !isSpecLabel(it)) }
                 val hasFooter = chip != null || labels.isNotEmpty() || issue.commentCount > 0 || issue.assignee.isNotBlank()
                 if (hasFooter) {
                     Spacer(Modifier.height(8.dp))
@@ -198,8 +198,12 @@ private fun RunningBadge() {
     val a by t.animateFloat(0.45f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse")
     Surface(color = Nacre.colors.running.copy(alpha = 0.16f), contentColor = Nacre.colors.running, shape = RoundedCornerShape(8.dp)) {
         Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Terminal, "Claude Code is running this bead", Modifier.size(12.dp).alpha(a))
-            Text(" Claude", style = MaterialTheme.typography.labelSmall)
+            Icon(Icons.Rounded.Terminal, "Running this bead", Modifier.size(12.dp).alpha(a))
+            Text(" Running", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
+
+/** Internal orchestration labels never belong on a board card. */
+fun isInternalCardLabel(label: String): Boolean =
+    listOf("specflow:", "round:", "spec-section:", "nacre-").any(label::startsWith)
