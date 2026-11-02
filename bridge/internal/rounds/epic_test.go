@@ -399,3 +399,163 @@ func TestDependentBeadsInOneRoundBothClose(t *testing.T) {
 		t.Fatalf("A=%s B=%s round beads=%+v", beads.bead("T-A").Status, beads.bead("T-B").Status, got.Beads)
 	}
 }
+
+func TestRunEpicAutomaticallyFinishesAfterLanding(t *testing.T) {
+	for _, spec := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "specification"}[spec], func(t *testing.T) {
+			beads := newFakeBeads(&fakeBead{ID: "T-E", Title: "Epic", Type: "epic", Status: "open"}, &fakeBead{ID: "T-F", Title: "Implement", Type: "feature", Parent: "T-E"})
+			o := harnessOpts{}
+			var archived atomic.Bool
+			if spec {
+				_, c := specFixture()
+				c.BeadID = "T-F"
+				o.specContract = func(context.Context, string, string) (*api.SpecContract, error) { return &c, nil }
+				o.changeOf = func(string, string) string { return c.ChangeName }
+				o.archive = func(ctx context.Context, _, ws, epic string) (string, error) {
+					if err := os.WriteFile(filepath.Join(ws, "ARCHIVED"), []byte(epic), 0600); err != nil {
+						return "", err
+					}
+					_, err := gitx.CommitAll(ctx, ws, "Archive approved change")
+					return c.ChangeName, err
+				}
+				o.archived = func(string, string) { archived.Store(true) }
+			}
+			h := newHarnessWith(t, beads, emptyPlan, o)
+			r, err := h.m.Create(CreateRequest{RepoID: "repo", Epic: "T-E", Finish: true, LandWhenReady: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !r.Finish || r.Target != EpicBranch("T-E") {
+				t.Fatalf("round: %+v", r)
+			}
+			if spec && (r.Beads[0].SpecChangeID == "" || r.Beads[0].SpecRevision == "") {
+				t.Fatalf("epic didn't resolve approval: %+v", r)
+			}
+			h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				r, _, _ = h.m.Get(r.ID)
+				if r.FinishChecked {
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if r.FinishRoundID == "" {
+				t.Fatalf("finish not chained: %+v", r)
+			}
+			done := h.wait(t, r.FinishRoundID, api.RoundLanded, api.RoundPaused)
+			if done.State != api.RoundLanded || !done.AutoLand || done.FinishEpic != "T-E" {
+				t.Fatalf("finish: %+v", done)
+			}
+			if beads.bead("T-E").Status != "closed" || beads.bead("T-F").Status != "closed" {
+				t.Fatal("epic or child not closed")
+			}
+			if _, err := os.Stat(filepath.Join(h.repo, "f.txt")); err != nil {
+				t.Fatal(err)
+			}
+			if spec && !archived.Load() {
+				t.Fatal("spec not archived")
+			}
+			if gitx.BranchExists(context.Background(), h.repo, EpicBranch("T-E")) {
+				t.Fatal("epic branch remains")
+			}
+			if v := readVersion(t, h.repo, "main"); v != "0.2.0" {
+				t.Fatalf("version: %s", v)
+			}
+		})
+	}
+}
+
+func TestRunEpicDoesNotFinishWithOpenChildren(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-P", Title: "Epic", Type: "epic", Status: "open"}, &fakeBead{ID: "T-F", Title: "Implement", Type: "feature", Parent: "T-P"}, &fakeBead{ID: "T-E", Title: "Blocked", Type: "task", Parent: "T-P"})
+	h := newHarness(t, beads, emptyPlan)
+	before, _ := gitx.RevParse(context.Background(), h.repo, "main")
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Epic: "T-P", Finish: true, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		r, _, _ = h.m.Get(r.ID)
+		if r.FinishChecked {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !r.FinishChecked || r.FinishRoundID != "" || beads.bead("T-P").Status != "open" || beads.bead("T-E").Status == "closed" {
+		t.Fatalf("finished incomplete epic: %+v", r)
+	}
+	if now, _ := gitx.RevParse(context.Background(), h.repo, "main"); now != before {
+		t.Fatal("main moved")
+	}
+}
+
+func TestFinishRequiresExplicitEpic(t *testing.T) {
+	h := newHarness(t, newFakeBeads(&fakeBead{ID: "T-F", Type: "feature"}), emptyPlan)
+	if _, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-F"}, Finish: true}); err == nil || !strings.Contains(err.Error(), "requires an epic") {
+		t.Fatalf("finish accepted without epic: %v", err)
+	}
+	if _, err := h.m.Create(CreateRequest{RepoID: "repo", Epic: "T-E", Target: "main", Finish: true}); err == nil || !strings.Contains(err.Error(), "epic branch") {
+		t.Fatalf("finish accepted a different target: %v", err)
+	}
+}
+
+func TestRestartFinishesLandedEpicAfterResumingChildCloses(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-E", Type: "epic", Status: "open"}, &fakeBead{ID: "T-F", Type: "feature", Parent: "T-E"})
+	h := newHarness(t, beads, emptyPlan)
+	ctx := context.Background()
+	branch, err := ensureEpicBranch(ctx, h.repo, "T-E", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "landed-before-restart"
+	ws, err := h.m.opts.Workspaces.CreateIntegration(ctx, h.repo, "repo", id, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Path, "f.txt"), []byte("done"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	head, err := gitx.CommitAll(ctx, ws.Path, "Implement child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.FastForward(ctx, h.repo, branch, head); err != nil {
+		t.Fatal(err)
+	}
+	meta := api.Round{ID: id, RepoID: "repo", RepoPath: h.repo, Epic: "T-E", Target: branch, State: api.RoundLanded, Finish: true, LandedCommit: head, FinalCommit: head, Beads: []api.RoundBead{{ID: "T-F", Type: "feature", State: api.BeadIntegrated}}}
+	dir := filepath.Join(h.m.opts.Dir, id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := h.m.newRound(meta, dir)
+	r.mu.Lock()
+	r.saveLocked()
+	r.mu.Unlock()
+	// Loading terminal rounds doesn't load nacre.yaml; automatic finishing
+	// must still recover its closing batch and use FinishEpic's config.
+	loaded, err := h.m.load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.m.mu.Lock()
+	h.m.rounds[id] = loaded
+	h.m.mu.Unlock()
+	h.m.Start()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		meta, _, _ = h.m.Get(id)
+		if meta.FinishChecked {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if meta.FinishRoundID == "" {
+		t.Fatalf("restart did not chain finish: %+v", meta)
+	}
+	done := h.wait(t, meta.FinishRoundID, api.RoundLanded, api.RoundPaused)
+	if done.State != api.RoundLanded || beads.bead("T-F").Status != "closed" || beads.bead("T-E").Status != "closed" {
+		t.Fatalf("finish: %+v", done)
+	}
+}

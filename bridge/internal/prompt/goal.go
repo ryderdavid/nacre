@@ -2,12 +2,13 @@ package prompt
 
 import (
 	"fmt"
-	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"strings"
+
+	"github.com/ryderdavid/nacre/bridge/internal/api"
 )
 
-// GoalOptions is shared by every implementation launch. Saved child choices
-// remain meaningful when Enabled is false, but confer no git authority then.
+// GoalOptions controls standalone runs. Round workers always use a goal and
+// commit; nacre.yaml alone controls pushing.
 type GoalOptions = api.GoalOptions
 
 type GoalBead struct {
@@ -21,10 +22,10 @@ type GoalBead struct {
 // BuildGoal preserves the bead's criteria verbatim, including whitespace and
 // Markdown. The caller supplies the scope; agent-specific activation belongs
 // to the runner, never to a second goal builder. In a round the agent only
-// commits: nacred bumps the version and, if pushed was checked, pushes when it
+// commits: nacred bumps the version and follows nacre.yaml land.push when it
 // lands the round. A plain run's committed and pushed are the agent's to do.
 func BuildGoal(beads []GoalBead, options GoalOptions, round bool) string {
-	if !options.Enabled {
+	if !round && !options.Enabled {
 		return ""
 	}
 	o := options.Normalize()
@@ -42,11 +43,7 @@ func BuildGoal(beads []GoalBead, options GoalOptions, round bool) string {
 		// the version and pushes, on landing, whatever was checked.
 		s.WriteString(" and the round's work has been committed on the round branch.\n")
 		s.WriteString("The owner authorizes committing in this worktree only. Do not push or bump the version: nacred makes the version bump commit and runs the final checks")
-		if o.Pushed {
-			s.WriteString(", and pushes the work when it lands the round")
-		} else {
-			s.WriteString(", and lands the round")
-		}
+		s.WriteString(", and lands the round according to nacre.yaml")
 		s.WriteString(".\n")
 	} else {
 		if o.Committed {

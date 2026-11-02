@@ -23,6 +23,7 @@ type roundRequest struct {
 	Target           string             `json:"target"`
 	BudgetUSD        float64            `json:"budget_usd"`
 	TimeLimitMinutes int                `json:"time_limit_minutes"`
+	Finish           bool               `json:"finish"`
 	LandWhenReady    bool               `json:"land_when_ready"`
 }
 
@@ -54,7 +55,7 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 	round, err := s.Rounds.Create(rounds.CreateRequest{
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision,
 		Goal: req.Goal, RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
-		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes, LandWhenReady: req.LandWhenReady,
+		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes, LandWhenReady: req.LandWhenReady, Finish: req.Finish,
 	})
 	if err != nil {
 		s.fail(w, err)

@@ -127,6 +127,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 			}
 		}
 	}
+	synced := map[string]bool{}
 	for i := range r.Change.Sections {
 		s := &r.Change.Sections[i]
 		desired := r.Planned[s.ID]
@@ -136,6 +137,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 				return e
 			}
 			if id == "" {
+				synced[s.ID] = true
 				id, e = m.opts.Beads.Create(ctx, r.Repo, bd.CreateParams{Title: desired.Title, Description: desired.Description, Design: desired.Design, AcceptanceCriteria: desired.Acceptance, IssueType: "task", Parent: r.Change.EpicID, Labels: []string{workflowLabel(r), sectionLabel(*s)}})
 				if e != nil {
 					return fmt.Errorf("create section %s: %w; Resume will recover its stable label if creation succeeded", s.ID, e)
@@ -153,7 +155,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 		if issueParent(is) != r.Change.EpicID {
 			return fmt.Errorf("%s changed parent outside this workflow; reconcile it before synchronization", is.ID)
 		}
-		if !fieldsEqual(is, desired) {
+		if !synced[s.ID] && !fieldsEqual(is, desired) {
 			previous, known := r.Generated[s.ID]
 			if !known || !fieldsEqual(is, previous) {
 				return fmt.Errorf("%s has manually edited generated fields. Your edits have been preserved; reconcile those fields with the last generated section before resuming.", is.ID)
@@ -163,6 +165,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 					return e
 				}
 			}
+			synced[s.ID] = true
 			if e = m.opts.Beads.Update(ctx, r.Repo, is.ID, bd.UpdateParams{Title: ptr(desired.Title), Description: ptr(desired.Description), Design: ptr(desired.Design), AcceptanceCriteria: ptr(desired.Acceptance), AddLabels: []string{workflowLabel(r), sectionLabel(*s)}}); e != nil {
 				return e
 			}
@@ -170,6 +173,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 			if !adopting || !contains(r.Change.Adoption.Linked, s.ID) {
 				return fmt.Errorf("%s lost its stable specification labels; restore them before synchronizing", is.ID)
 			}
+			synced[s.ID] = true
 			if e = m.opts.Beads.Update(ctx, r.Repo, is.ID, bd.UpdateParams{AddLabels: []string{workflowLabel(r), sectionLabel(*s)}}); e != nil {
 				return e
 			}
@@ -213,6 +217,13 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 				}
 			}
 		}
+		// Beads can normalize text on write. Save what our sync actually
+		// wrote, rather than comparing later reads with the pre-write input.
+		// Existing sections we did not write retain their baseline, so an
+		// external content edit still fails closed.
+		if synced[s.ID] {
+			desired.Title, desired.Description, desired.Design, desired.Acceptance = is.Title, is.Description, is.Design, is.Acceptance
+		}
 		r.Generated[s.ID] = desired
 		if e = m.checkpoint(r); e != nil {
 			return e
@@ -246,7 +257,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 	r.Stage = "ready"
 	r.PromotionRevision = ""
 	r.Planned = map[string]generated{}
-	history(r, "promotion", fmt.Sprintf("Prepared epic %s with %d current section beads. Start a specification round to implement; acceptance, merging and archive remain explicit.", r.Change.EpicID, len(r.Change.Sections)))
+	history(r, "promotion", fmt.Sprintf("Prepared epic %s with %d current section beads. Ready for a specification round.", r.Change.EpicID, len(r.Change.Sections)))
 	return m.checkpoint(r)
 }
 func (m *Manager) decisionComments(ctx context.Context, r *record, phase string) error {
@@ -276,7 +287,7 @@ func (m *Manager) decisionComments(ctx context.Context, r *record, phase string)
 	for _, s := range r.Change.RetiredSections {
 		fmt.Fprintf(&body, "\nRetired %s (%s): %s. Existing bead was retained without automatic closure.", s.ID, s.BeadID, s.Reason)
 	}
-	body.WriteString("\n\nImplementation requires current revision evidence, human review and merging. This workflow does not automatically close the epic or archive the change.")
+	body.WriteString("\n\nImplementation requires current revision evidence and passing gates. An epic round with finish enabled archives the change and merges into the landing target once every child is closed; human checks keep their beads open.")
 	ids := []string{r.Change.SeedID}
 	if r.Change.EpicID != "" {
 		ids = append(ids, r.Change.EpicID)
@@ -342,4 +353,33 @@ func short(s string) string {
 		return s[:12]
 	}
 	return s
+}
+
+// runApprovedEpic preserves approval even when implementation cannot start.
+func (m *Manager) runApprovedEpic(ctx context.Context, r *record) {
+	id := ""
+	var err error
+	if m.opts.RunEpic == nil {
+		err = fmt.Errorf("rounds are unavailable on this computer")
+	} else {
+		id, err = m.opts.RunEpic(ctx, r.Repo, r.Change.EpicID)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Keep the ready checkpoint and append the implementation result.
+	live := clone(m.records[r.Change.ID])
+	live.RunAfterApproval = false
+	if err != nil {
+		live.Change.Error = "Approved, but starting the epic round failed: " + err.Error()
+		history(live, "run_error", live.Change.Error)
+	} else {
+		live.Change.History = append(live.Change.History, History{At: stamp(), Kind: "round", Text: "Approved epic started in round " + id, RoundID: id})
+	}
+	if e := m.saveLocked(live); e != nil {
+		live.Change.Error = "Recording the epic round failed: " + e.Error()
+		m.records[live.Change.ID] = clone(live)
+	}
+	if m.opts.Notify != nil {
+		m.opts.Notify(live.Repo)
+	}
 }

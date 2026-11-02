@@ -46,8 +46,18 @@ func TestGoalCompletionConditionsAndVerbatimBeads(t *testing.T) {
 		if strings.Contains(got, "authorizes pushing") || strings.Contains(got, "pushed to the remote") {
 			t.Fatalf("a round goal gave the agent push authority: %s", got)
 		}
-		if strings.Contains(got, "pushes the work when it lands the round") != pushed {
+		if !strings.Contains(got, "according to nacre.yaml") {
 			t.Fatalf("pushed=%v: %s", pushed, got)
+		}
+	}
+}
+
+func TestRoundGoalAlwaysRequiresCommitRegardlessOfOptions(t *testing.T) {
+	beads := []GoalBead{{ID: "X-1", AcceptanceCriteria: "Keep this exact criterion"}}
+	want := BuildGoal(beads, GoalOptions{}, true)
+	for _, opts := range []GoalOptions{{Enabled: true}, {Enabled: true, Pushed: true}, {Committed: true}} {
+		if got := BuildGoal(beads, opts, true); got != want {
+			t.Fatalf("round options changed goal: %s", got)
 		}
 	}
 }

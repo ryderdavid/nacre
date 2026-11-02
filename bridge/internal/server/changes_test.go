@@ -61,6 +61,7 @@ func TestSpecRoutesAuthenticateAndKeepOrphanLabelsClosed(t *testing.T) {
 		{"GET", base + "/change", "", "fixture", http.StatusOK, "saved workflow is missing"},
 		{"POST", base + "/change", `{"action":"delete"}`, "fixture", http.StatusBadRequest, "supported specification action"},
 		{"POST", base + "/change", `{"action":"develop"}`, "fixture", http.StatusConflict, "restore the workflow record"},
+		{"POST", base + "/change", `{"action":"approve","revision":"reviewed","run":true}`, "fixture", http.StatusConflict, "develop a proposal first"},
 		{"POST", base + "/runs", `{}`, "fixture", http.StatusConflict, "saved workflow is missing"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))

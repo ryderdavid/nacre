@@ -76,3 +76,63 @@ func TestStaleReasonWithoutBaselineIsGeneric(t *testing.T) {
 		t.Fatalf("reason=%q", got)
 	}
 }
+
+// Model Beads normalizing the text nacred writes (for example trimming a
+// trailing newline). The approval baseline must describe that stored text.
+type normalizingBeads struct{ *fakeBeads }
+
+func (b normalizingBeads) normalize(id string) {
+	b.edit(id, func(is *issue) {
+		is.Description = strings.TrimSpace(is.Description) + "\n"
+		is.Design = strings.TrimSpace(is.Design) + "\n"
+	})
+}
+func (b normalizingBeads) Create(ctx context.Context, repo string, p bd.CreateParams) (string, error) {
+	id, err := b.fakeBeads.Create(ctx, repo, p)
+	if err == nil {
+		b.normalize(id)
+	}
+	return id, err
+}
+func (b normalizingBeads) Update(ctx context.Context, repo, id string, p bd.UpdateParams) error {
+	err := b.fakeBeads.Update(ctx, repo, id, p)
+	if err == nil && (p.Description != nil || p.Design != nil) {
+		b.normalize(id)
+	}
+	return err
+}
+
+func TestOwnSectionSyncDoesNotStaleApproval(t *testing.T) {
+	repo, b, _, opts := fixture(t)
+	opts.Beads = normalizingBeads{b}
+	m := newManager(t, opts)
+	c := approve(t, m, repo, develop(t, m, repo))
+	for pass := 0; pass < 2; pass++ {
+		if pass == 1 {
+			c = approve(t, m, repo, act(t, m, repo, c.SeedID, Action{Action: "revise", Feedback: "Clarify the implementation"}))
+		}
+		// Normal execution adds labels, notes, and comments after promotion.
+		for _, s := range c.Sections {
+			if err := b.Update(context.Background(), repo, s.BeadID, bd.UpdateParams{AddLabels: []string{"round:r1"}}); err != nil {
+				t.Fatal(err)
+			}
+			b.edit(s.BeadID, func(is *issue) { is.Notes = "Verified a gate" })
+		}
+		m.Refresh(context.Background(), repo)
+		env, err := m.Get(context.Background(), repo, c.SeedID)
+		if err != nil || env.Change.Phase != "ready" {
+			t.Fatalf("own sync staled approval: %+v %v", env, err)
+		}
+		// Persisted read-back baselines survive reload too.
+		reloaded := newManager(t, opts)
+		if _, err := reloaded.Contract(context.Background(), repo, c.Sections[0].BeadID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.edit(c.Sections[0].BeadID, func(is *issue) { is.Description += "External scope change" })
+	m.Refresh(context.Background(), repo)
+	env, err := m.Get(context.Background(), repo, c.SeedID)
+	if err != nil || env.Change.Phase != "stale" || !strings.Contains(env.Change.StaleReason, "Section bead") {
+		t.Fatalf("external edit was accepted: %+v %v", env, err)
+	}
+}

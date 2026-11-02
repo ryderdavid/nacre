@@ -195,6 +195,19 @@ func serve(cfg *config.Config, listenFlag string) error {
 	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
 	changes, err := specflow.New(specflow.Options{
 		Dir: cfg.ChangesDir(), Beads: client, Headless: assistant,
+		RunEpic: func(ctx context.Context, path, epic string) (string, error) {
+			mgr := roundsRef.Load()
+			if mgr == nil {
+				return "", fmt.Errorf("rounds are unavailable on this computer")
+			}
+			for _, ref := range registry.Refs() {
+				if sameRepoPath(ref.Path, path) {
+					r, err := mgr.Create(rounds.CreateRequest{RepoID: ref.ID, Epic: epic, Finish: true, LandWhenReady: true})
+					return r.ID, err
+				}
+			}
+			return "", fmt.Errorf("the repository is no longer available on this computer")
+		},
 		Active: func(path, changeID string) string {
 			return activeChange(path, changeID, roundsRef.Load(), manager)
 		},

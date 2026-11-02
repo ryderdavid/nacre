@@ -210,7 +210,7 @@ func (m *Manager) Start() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.rounds {
-		if r.meta.Active() {
+		if r.meta.Active() || (r.meta.State == api.RoundLanded && r.meta.Finish && !r.meta.FinishChecked) {
 			m.spawn(r)
 		}
 	}
@@ -287,12 +287,20 @@ type CreateRequest struct {
 	// LandWhenReady lands the round as soon as it is verified, without
 	// waiting for Ryder, even for approved specification sections.
 	LandWhenReady bool
+	// Finish finishes the epic into the landing target after its children land.
+	Finish bool
 }
 
 // Create validates the request, makes the integration workspace and starts
 // the round in the planning state.
 func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	ctx := m.ctx
+	if req.Finish && req.Epic == "" {
+		return api.Round{}, conflict("finish requires an epic")
+	}
+	if req.Finish && req.Target != "" && req.Target != EpicBranch(req.Epic) {
+		return api.Round{}, conflict("a round with finish must land on its epic branch")
+	}
 	name, path, err := m.opts.Repo(req.RepoID)
 	if err != nil {
 		return api.Round{}, err
@@ -321,18 +329,12 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	beads := make([]api.RoundBead, 0, len(ids))
 	issues := make([]issue, 0, len(ids))
 	contracts := map[string]api.SpecContract{}
-	var goalBeads []prompt.GoalBead
 	for _, id := range ids {
 		raw, err := m.opts.Beads.Get(ctx, path, id)
 		if err != nil {
 			return api.Round{}, conflict(fmt.Sprintf("%s: %v", id, err))
 		}
 		is := parseIssue(raw)
-		var gb prompt.GoalBead
-		if err := json.Unmarshal(raw, &gb); err != nil {
-			return api.Round{}, err
-		}
-		goalBeads = append(goalBeads, gb)
 		if is.Status == "closed" {
 			return api.Round{}, conflict(id + " is closed")
 		}
@@ -362,6 +364,20 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 			return api.Round{}, conflict("Specification workflow state is unavailable; restore it before starting this bead")
 		}
 		beads = append(beads, b)
+	}
+	// An epic launch already identifies the change. Resolve its approved
+	// revision from the same contracts that guard every worker; explicit
+	// client pins still have to match, and mixed selections remain refused.
+	if req.Epic != "" {
+		for _, c := range contracts {
+			if req.SpecChangeID == "" {
+				req.SpecChangeID = c.ChangeID
+			}
+			if req.SpecRevision == "" {
+				req.SpecRevision = c.Revision
+			}
+			break
+		}
 	}
 	if err := validateSpecRequest(beads, contracts, req.SpecChangeID, req.SpecRevision); err != nil {
 		return api.Round{}, conflict(err.Error())
@@ -421,7 +437,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	}
 	now := stamp()
 	meta := api.Round{
-		Goal: req.Goal.Normalize(), GoalText: prompt.BuildGoal(goalBeads, req.Goal, true),
+		Goal: req.Goal.Normalize(), Finish: req.Finish,
 		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: epic,
 		State: api.RoundPlanning, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: beads, BudgetUSD: budget, TimeLimitMinutes: limit, Mode: m.opts.Mode, Model: m.opts.Model,
@@ -460,7 +476,7 @@ func (m *Manager) epicChildren(ctx context.Context, repo, epic string) ([]string
 	var ids []string
 	for _, raw := range all {
 		is := parseIssue(raw)
-		if is.Parent == epic && is.Status != "closed" && is.Type != "epic" {
+		if is.parent() == epic && is.Status != "closed" && is.Type != "epic" {
 			ids = append(ids, is.ID)
 		}
 	}

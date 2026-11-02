@@ -6,152 +6,94 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
+	"github.com/ryderdavid/nacre/bridge/internal/prompt"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
+	"github.com/ryderdavid/nacre/bridge/internal/runs"
 )
 
-// fakeGoalClaude commits the round's work once and stops; it never pushes.
-const fakeGoalClaude = `#!/bin/sh
-set -e
-prompt="$2"
-echo '{"type":"system","subtype":"init","session_id":"goal-session","cwd":"'"$PWD"'"}'
-case "$prompt" in
- /goal*)
-   printf '%s' "$prompt" > goal-launch.txt
-   echo a > a.txt; echo b > b.txt
-   git add a.txt b.txt goal-launch.txt
-   git commit -q -m 'Implement every round bead';;
-esac
-echo '{"type":"result","subtype":"success","is_error":false,"result":"verified every criterion","session_id":"goal-session","total_cost_usd":0.1}'
-`
-
-// A goal round follows round-integration like every round (NAC-ow0): the
-// agent only commits, nacred makes its own version bump commit after the
-// session, and pushing happens only when nacred lands the round, if pushed
-// was checked.
-func TestGoalRoundAgentCommitsAndNacredBumpsAndPushes(t *testing.T) {
+// Every worker has a native goal scoped to its own bead and commits in its
+// own workspace. Repository policy alone controls the later push.
+func TestGoalRoundFansOutAndFollowsRepositoryPushPolicy(t *testing.T) {
 	for _, push := range []bool{false, true} {
 		t.Run(map[bool]string{false: "local", true: "push"}[push], func(t *testing.T) {
-			beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "First", Type: "feature"}, &fakeBead{ID: "T-B", Title: "Second", After: []string{"T-A"}})
-			plan := `{"summary":"work both","beads":[{"id":"T-A","needs":["emulator"]},{"id":"T-B"}],"findings":[]}`
-			h := newHarnessWith(t, beads, plan, harnessOpts{claudeScript: fakeGoalClaude})
+			beads := newFakeBeads(&fakeBead{ID: "T-A", Title: "First", Type: "feature"}, &fakeBead{ID: "T-B", Title: "Second"})
+			repo := testRepo(t)
+			yaml, _ := os.ReadFile(filepath.Join(repo, "nacre.yaml"))
+			if push {
+				if err := os.WriteFile(filepath.Join(repo, "nacre.yaml"), []byte(strings.Replace(string(yaml), "push: false", "push: true", 1)), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := gitx.CommitAll(context.Background(), repo, "Configure landing"); err != nil && push {
+				t.Fatal(err)
+			}
+			script := `#!/bin/sh
+set -e
+prompt="$2"
+bead=$(printf '%s\n' "$prompt" | sed -n 's/^You are working on bead \([^ ]*\) .*/\1/p')
+echo '{"type":"system","subtype":"init","session_id":"'"$bead"'","cwd":"'"$PWD"'"}'
+printf '%s' "$prompt" > "$bead-launch.txt"
+echo done > "$bead.txt"
+git add -A
+git commit -q -m "Implement $bead"
+echo '{"type":"result","subtype":"success","is_error":false,"session_id":"'"$bead"'","total_cost_usd":0.1}'
+`
+			h := newHarnessWith(t, beads, emptyPlan, harnessOpts{repo: repo, claudeScript: script})
 			ctx := context.Background()
 			remote := t.TempDir()
 			if _, err := gitx.Run(ctx, remote, "init", "--bare", "-q"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := gitx.Run(ctx, h.repo, "remote", "add", "origin", remote); err != nil {
+			if _, err := gitx.Run(ctx, repo, "remote", "add", "origin", remote); err != nil {
 				t.Fatal(err)
 			}
-			r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A", "T-B"}, Goal: api.GoalOptions{Enabled: true, Committed: true, Pushed: push}})
+			// Deliberately request the opposite push policy. Goal options
+			// are accepted for compatibility but never grant git authority.
+			r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A", "T-B"}, Goal: api.GoalOptions{Enabled: push, Pushed: !push}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			done := h.wait(t, r.ID, api.RoundReadyToLand, api.RoundPaused)
-			if done.State != api.RoundReadyToLand {
-				t.Fatalf("goal round paused: %+v", done)
+			if done.State != api.RoundReadyToLand || len(done.RunIDs) != 2 || done.GoalRunID != "" {
+				t.Fatalf("round: %+v", done)
 			}
-			if len(done.RunIDs) != 1 || done.GoalRunID == "" {
-				t.Fatalf("expected one session: %+v", done)
-			}
-			run, _ := h.runs.Run(done.GoalRunID)
-			if run.Turns != 1 {
-				t.Fatalf("the session was resumed although its committed work passed: %+v", run)
-			}
-			if run.Verification == nil || !run.Verification.OK || run.Verification.Commits != 2 {
-				t.Fatalf("verification: %+v", run.Verification)
-			}
-			launch, err := os.ReadFile(filepath.Join(done.Workspace, "goal-launch.txt"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, part := range []string{"/goal ", "T-A: First", "T-B: Second", "Do First.", "Do Second.", "Commit your work on this round branch", "Do not bump or edit the version, push"} {
-				if !strings.Contains(string(launch), part) {
-					t.Fatalf("launch missing %q", part)
+			for i, b := range done.Beads {
+				run, err := h.runs.Run(b.RunID)
+				if err != nil || run.GoalText == "" || run.Kind != "bead" || run.Verification == nil || !run.Verification.OK {
+					t.Fatalf("worker: %+v %v", run, err)
 				}
-			}
-			for _, part := range []string{"git push", "already bumped", "authorizes pushing"} {
-				if strings.Contains(string(launch), part) {
-					t.Fatalf("launch still hands the agent %q:\n%s", part, launch)
+				if b.Workspace == done.Workspace || b.Workspace == done.Beads[1-i].Workspace || b.Branch == done.Beads[1-i].Branch {
+					t.Fatalf("shared workspace: %+v", done.Beads)
 				}
-			}
-			// The round ends on nacred's own bump commit, above the agent's.
-			if subj, _ := gitx.Run(ctx, done.Workspace, "log", "-1", "--format=%s", done.FinalCommit); !strings.HasPrefix(subj, "Bump version (minor) for round "+done.ID) {
-				t.Fatalf("final commit %q is not nacred's version bump", subj)
-			}
-			if files, _ := gitx.Run(ctx, done.Workspace, "diff", "--name-only", done.Base, done.FinalCommit+"^"); strings.Contains(files, "VERSION") {
-				t.Fatalf("the agent's commit changed the version: %s", files)
-			}
-			if !strings.Contains(done.Version, "0.2.0") {
-				t.Fatalf("version %q, want a minor bump to 0.2.0", done.Version)
-			}
-			for _, b := range done.Beads {
-				if b.State != api.BeadIntegrated || b.RunID != done.GoalRunID {
-					t.Fatalf("bead %+v", b)
+				other := done.Beads[1-i].ID
+				if strings.Contains(run.GoalText, other+":") || !strings.Contains(run.GoalText, "Do "+b.Title+".") {
+					t.Fatalf("wrong goal scope: %s", run.GoalText)
 				}
-			}
-			if refs, _ := gitx.Run(ctx, remote, "for-each-ref"); refs != "" {
-				t.Fatalf("something was pushed before landing: %s", refs)
+				launch, err := os.ReadFile(filepath.Join(done.Workspace, b.ID+"-launch.txt"))
+				if err != nil || !strings.HasPrefix(string(launch), "/goal ") || !strings.Contains(string(launch), "committed on the round branch") {
+					t.Fatalf("launch: %s %v", launch, err)
+				}
 			}
 			if len(h.m.leases.holders()) != 0 {
 				t.Fatal("resource lease leaked")
 			}
-			loaded, err := h.m.load(h.m.get(r.ID).dir)
-			if err != nil || loaded.meta.GoalText != done.GoalText || loaded.meta.Goal != done.Goal || loaded.meta.GoalRunID != done.GoalRunID {
-				t.Fatalf("goal state did not persist: %v", err)
-			}
-			// The target ships a release of its own before the round lands:
-			// nacred's bump commit is undone, the target merged, the bump
-			// redone on top of it, and the gates and build run again.
-			if err := os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.2.0\n"), 0o600); err != nil {
+			if _, err := h.m.Land(r.ID); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(h.repo, "hotfix.txt"), []byte("fix\n"), 0o600); err != nil {
-				t.Fatal(err)
+			landed := h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+			if landed.State != api.RoundLanded || landed.Pushed != push {
+				t.Fatalf("land: %+v", landed)
 			}
-			if _, err := gitx.CommitAll(ctx, h.repo, "hotfix 0.2.0"); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := h.m.Land(done.ID); err != nil {
-				t.Fatal(err)
-			}
-			landed := h.wait(t, done.ID, api.RoundLanded, api.RoundPaused)
-			if landed.State != api.RoundLanded {
-				t.Fatalf("goal round did not land on a moved target: %s %q", landed.State, landed.PauseReason)
-			}
-			if b, _ := os.ReadFile(filepath.Join(h.repo, "VERSION")); strings.TrimSpace(string(b)) != "0.3.0" {
-				t.Errorf("main VERSION = %q, want 0.3.0 (a minor bump on top of main's 0.2.0)", b)
-			}
-			if !strings.Contains(landed.Version, "0.3.0") || landed.Tag != "v0.3.0" {
-				t.Errorf("round version %q, tag %q; want 0.3.0", landed.Version, landed.Tag)
-			}
-			for _, f := range []string{"hotfix.txt", "a.txt", "b.txt"} {
-				if _, err := os.Stat(filepath.Join(h.repo, f)); err != nil {
-					t.Errorf("main lacks %s", f)
-				}
-			}
-			if !gitx.IsAncestor(ctx, h.repo, done.FinalCommit, landed.LandedCommit) {
-				t.Errorf("landed %s doesn't contain the round's final commit %s", landed.LandedCommit, done.FinalCommit)
-			}
-			if log, _ := gitx.Run(ctx, h.repo, "log", "-1", "--format=%s", "main"); !strings.Contains(log, "on top of main") {
-				t.Errorf("last commit on main = %q, want the redone bump", log)
-			}
-			// nacred, not the agent, pushes on landing when pushed was checked
-			// (the repository's own landing policy here doesn't push).
 			sha, err := gitx.RevParse(ctx, remote, "refs/heads/main")
-			if push {
-				if err != nil || sha != landed.LandedCommit || !landed.Pushed {
-					t.Errorf("remote main %s (%v), pushed %v; want nacred to push %s on landing", sha, err, landed.Pushed, landed.LandedCommit)
-				}
-				if _, err := gitx.RevParse(ctx, remote, "refs/tags/v0.3.0"); err != nil {
-					t.Errorf("tag not pushed: %v", err)
-				}
-			} else if err == nil || landed.Pushed {
-				t.Errorf("landing pushed main to %s although pushed wasn't checked", sha)
+			if push && (err != nil || sha != landed.LandedCommit) {
+				t.Fatalf("remote: %s %v", sha, err)
 			}
-			if _, err := gitx.RevParse(ctx, remote, "refs/heads/"+done.Branch); err == nil {
-				t.Errorf("the round branch %s was pushed", done.Branch)
+			if !push && err == nil {
+				t.Fatal("pushed against repository policy")
 			}
 		})
 	}
@@ -173,7 +115,7 @@ else
 fi
 `
 	h := newHarnessWith(t, newFakeBeads(&fakeBead{ID: "T-A", Title: "First", Type: "feature"}), `{"beads":[{"id":"T-A"}],"findings":[]}`, harnessOpts{claudeScript: script})
-	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A"}, Goal: api.GoalOptions{Enabled: true}})
+	r, err := startLegacyGoal(t, h, "T-A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,4 +137,53 @@ fi
 	if n, _ := gitx.Run(context.Background(), done.Workspace, "log", "--oneline", "--fixed-strings", "--grep", "for round "+done.ID+": ", done.Base+"..HEAD"); strings.Count(n, "\n") != 0 || n == "" {
 		t.Fatalf("want exactly one bump commit, got:\n%s", n)
 	}
+	// A persisted legacy session must also land after main moved, undoing
+	// and redoing nacred's bump as before.
+	if err := os.WriteFile(filepath.Join(h.repo, "VERSION"), []byte("0.2.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitx.CommitAll(context.Background(), h.repo, "Release on main"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.m.Land(done.ID); err != nil {
+		t.Fatal(err)
+	}
+	landed := h.wait(t, done.ID, api.RoundLanded, api.RoundPaused)
+	if landed.State != api.RoundLanded || readVersion(t, h.repo, "main") != "0.3.0" {
+		t.Fatalf("legacy landing: %+v", landed)
+	}
+}
+
+// Recreate a persisted shared goal session from before fan-out was introduced.
+func startLegacyGoal(t *testing.T, h *harness, bead string) (api.Round, error) {
+	t.Helper()
+	id := "legacy-goal"
+	ws, err := h.m.opts.Workspaces.CreateIntegration(context.Background(), h.repo, "repo", id, "main")
+	if err != nil {
+		return api.Round{}, err
+	}
+	goal := prompt.BuildGoal([]prompt.GoalBead{{ID: bead, Title: "First", AcceptanceCriteria: "Do First."}}, api.GoalOptions{Enabled: true}, true)
+	run, err := h.runs.Start(runs.StartRequest{RepoID: "repo", RepoPath: h.repo, RoundID: id, Kind: "goal", Workspace: ws.Path, Branch: ws.Branch, Base: ws.Base, Goal: goal, Prompt: goalCommitRule})
+	if err != nil {
+		return api.Round{}, err
+	}
+	meta := api.Round{ID: id, RepoID: "repo", RepoPath: h.repo, State: api.RoundImplementing, Target: "main", Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path, GoalText: goal, GoalRunID: run.ID, RunIDs: []string{run.ID}, Beads: []api.RoundBead{{ID: bead, Title: "First", Type: "feature", State: api.BeadRunning, RunID: run.ID}}, BudgetUSD: 25, TimeLimitMinutes: 240, StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	dir := filepath.Join(h.m.opts.Dir, id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return api.Round{}, err
+	}
+	cfg, err := repoconfig.Load(h.repo)
+	if err != nil {
+		return api.Round{}, err
+	}
+	r := h.m.newRound(meta, dir)
+	r.setCfg(cfg)
+	r.mu.Lock()
+	r.saveLocked()
+	r.mu.Unlock()
+	h.m.mu.Lock()
+	h.m.rounds[id] = r
+	h.m.spawn(r)
+	h.m.mu.Unlock()
+	return meta, nil
 }

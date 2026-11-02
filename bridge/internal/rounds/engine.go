@@ -2,6 +2,7 @@ package rounds
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/gitx"
+	"github.com/ryderdavid/nacre/bridge/internal/prompt"
 	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
 	"github.com/ryderdavid/nacre/bridge/internal/workspace"
@@ -127,7 +129,7 @@ func (r *round) advance() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.meta.Active() {
-		return false
+		return r.maybeFinishEpic()
 	}
 	before := r.ver
 	r.refreshSpend()
@@ -229,7 +231,9 @@ func (r *round) drive() {
 	if r.limitsHit() {
 		return
 	}
-	if r.meta.GoalText != "" {
+	// Only legacy rounds have a shared session. GoalRetry also preserves
+	// a legacy retry whose failed launch never obtained a session ID.
+	if r.meta.GoalRunID != "" || (r.meta.GoalRetry && r.meta.GoalText != "") {
 		r.driveGoal()
 		return
 	}
@@ -370,16 +374,21 @@ func (r *round) startBead(b *api.RoundBead, env []string) {
 		if err := r.m.guardSpec(ctx, meta, ws.Path); err != nil {
 			return r.specStop(err)
 		}
-		prompt := beadPrompt(beadPromptVars{
+		instructions := beadPrompt(beadPromptVars{
 			Round: meta, Issue: parseIssue(raw), Comments: comments, Branch: ws.Branch, Base: ws.Base,
 			Decisions: decisions, Shared: shared, Integrated: integrated, Cfg: cfg, Env: env, Earlier: earlier,
 		})
 		b := r.beadCopy(id)
+		var goalBead prompt.GoalBead
+		if err := json.Unmarshal(raw, &goalBead); err != nil {
+			return func() { r.park(r.bead(id), "Its goal couldn't be read: "+err.Error()) }
+		}
+		goal := prompt.BuildGoal([]prompt.GoalBead{goalBead}, prompt.GoalOptions{Enabled: true}, true)
 		var run api.Run
 		n, err = retry(ctx, func() (e error) {
 			run, e = r.m.opts.Runs.Start(runs.StartRequest{
 				RepoID: meta.RepoID, RepoName: meta.RepoName, RepoPath: meta.RepoPath,
-				IssueID: id, IssueTitle: b.Title, Mode: meta.Mode, Model: meta.Model, Prompt: prompt,
+				IssueID: id, IssueTitle: b.Title, Mode: meta.Mode, Model: meta.Model, Prompt: instructions, Goal: goal,
 				RoundID: meta.ID, Kind: "bead", Branch: ws.Branch, Workspace: ws.Path, Base: ws.Base,
 				MaxBudgetUSD: budget, Env: env,
 				SpecChangeID: b.SpecChangeID, SpecRevision: b.SpecRevision, SpecSectionID: b.SpecSectionID,

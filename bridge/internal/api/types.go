@@ -483,8 +483,13 @@ type Round struct {
 	RepoName      string                  `json:"repo_name"`
 	RepoPath      string                  `json:"repo_path"`
 	// Epic is set when the round was started from an epic.
-	Epic  string `json:"epic,omitempty"`
-	State string `json:"state"`
+	// Finish requests automatic FinishEpic after landing and closing all children.
+	Finish bool `json:"finish"`
+	// FinishChecked records the automatic finish attempt, including open children.
+	FinishChecked bool   `json:"finish_checked,omitempty"`
+	FinishRoundID string `json:"finish_round_id,omitempty"`
+	Epic          string `json:"epic,omitempty"`
+	State         string `json:"state"`
 	// PausedFrom is the state a paused round resumes to; PauseReason says why
 	// (the same text as Stop.Reason, kept for older clients).
 	PausedFrom  string `json:"paused_from,omitempty"`

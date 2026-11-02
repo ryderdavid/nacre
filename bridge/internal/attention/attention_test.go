@@ -3,6 +3,8 @@ package attention
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +329,11 @@ func TestFoundCommentsOutliveTheirRound(t *testing.T) {
 
 func TestFinishedEpicsAndStuckBeads(t *testing.T) {
 	f := newFixture(t)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "nacre.yaml"), []byte("gates: []"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.b.Repos = func() []repos.Ref { return []repos.Ref{{ID: "r1", Name: "nacre", Path: repo}} }
 	old := f.now.Add(-48 * time.Hour).UTC().Format(time.RFC3339)
 	recent := f.now.Add(-time.Hour).UTC().Format(time.RFC3339)
 	working := map[string]bool{"N-busy": true}
@@ -409,5 +416,23 @@ func TestDoneButUnclosedBeadsOfferCloseAnyway(t *testing.T) {
 	}
 	if o := got[0].Options[0]; o.Path != "/v1/repos/r1/issues/N-1/close" || o.Body["force"] != true {
 		t.Fatalf("close option = %+v", o)
+	}
+}
+
+func TestStuckBeadsSuppressedWithoutRoundConfiguration(t *testing.T) {
+	f := newFixture(t)
+	f.b.Working = func(string, string) bool { return false }
+	f.beads = issues(t, map[string]any{"id": "N-1", "issue_type": "task", "status": "in_progress", "updated_at": f.now.Add(-48 * time.Hour).UTC().Format(time.RFC3339)})
+	repo := t.TempDir()
+	f.b.Repos = func() []repos.Ref { return []repos.Ref{{ID: "r1", Path: repo}} }
+	if got := f.b.Items(context.Background()); len(got) != 0 {
+		t.Fatalf("missing nacre.yaml: %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "nacre.yaml"), []byte("gates: []"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.b.Invalidate(repo)
+	if got := f.b.Items(context.Background()); len(got) != 1 || got[0].Kind != api.AttentionBeadStuck {
+		t.Fatalf("configured repo: %+v", got)
 	}
 }
