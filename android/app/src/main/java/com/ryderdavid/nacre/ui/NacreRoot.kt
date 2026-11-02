@@ -39,6 +39,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ryderdavid.nacre.AppContainer
+import com.ryderdavid.nacre.data.model.activityBadgeCount
 import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.board.BoardScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
@@ -103,8 +104,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val runs by container.repository.runs.collectAsState()
     // Counts agent-owned sessions too: the badge stands for what the Runs tab is showing.
     val rounds by container.repository.rounds.collectAsState()
-    // Rounds waiting on a decision or a landing count too: they need a look.
-    val activeRuns = runs.count { it.isActive && it.inRunsList } + rounds.count { it.needsYou }
+    // Only work that is going on: a round waiting on the user is Inbox's to count.
+    val activeRuns = activityBadgeCount(runs, rounds)
     // Inbox owns the attention badge; Activity retains the running-session badge.
     val needsYou = container.repository.attention.collectAsState().value.size
     val snackbar = remember { SnackbarHostState() }
