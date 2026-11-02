@@ -67,7 +67,8 @@ Nacre has one way to finish work: open it and tap its one primary button.
   child is left open, nacred finishes the epic by itself: it merges the branch into `main` with every
   gate, the build and one version bump, archives the epic's OpenSpec change when it has one, pushes,
   closes the epic and deletes its branch. **Finish epic** appears instead when every child is already
-  closed.
+  closed. When such an epic has no branch and no OpenSpec change, there is nothing to merge, so Finish
+  epic simply closes it, in any repository, even one without `nacre.yaml`.
 - **Run an agent manually…**, in a bead's overflow, starts a plain Claude Code or Codex run with your
   choice of agent, computer, permissions, model and worktree. It leaves checking, committing and
   closing to you.
