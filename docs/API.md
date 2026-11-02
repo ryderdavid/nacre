@@ -457,7 +457,17 @@ changed", "Active change X changed", "Accepted spec Y changed", "tasks.md was ed
 "Seed bead N changed", "Section bead N was edited…", or a generic reason when the record has no
 baseline. nacred records the stored fields after its own section sync, so its
 normalized writes, ordinary execution labels, notes and status updates do not stale
-approval; later external edits to section content still do. Approval is never restored without a new review (`revise`). The envelope also carries
+approval; later external edits to section content still do. Approval is never restored without a new review (`revise`).
+
+While a change waits on the owner (`awaiting_approval`, `needs_attention`, `stale`, `covered`) it
+carries a `guide` once nacred has written one: `{for, summary, status, blocking:[…], recommended,
+options:[…]}`, each step `{action, label, feedback?, why}` with `action` one of `approve`, `revise`
+(send `feedback` as the revise feedback), `resume` or `close` (shelve: close the seed bead). nacred
+writes it with one headless call (up to $0.30, added to `cost_usd`) the first time a read or a
+finished operation finds the change waiting without a guide for its current state, and drops it
+from the envelope once the state moves on; a failed call is not retried for that state, and the app
+falls back to its own next action. Writing a guide never moves `updated_at`. Drafting calls are
+capped at $1.60 and review calls at $0.85, within the $5 per action. The envelope also carries
 `inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
 repository's OpenSpec setup can be read. Artifacts are exact
 `{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from

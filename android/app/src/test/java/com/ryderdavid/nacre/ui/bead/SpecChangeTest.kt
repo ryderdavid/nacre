@@ -165,6 +165,38 @@ class SpecChangeTest {
         assertEquals("revise", changeNextAction(stopped.copy(adoption = null))?.action)
         assertEquals("resume", changeNextAction(stopped.copy(phase = "stale"))?.action)
     }
+    @Test fun reviseSaysWhatItCostsAndWhatStillBlocks() {
+        val blocked = approved.copy(phase = "needs_attention", approvedRevision = "", findings = listOf(
+            com.ryderdavid.nacre.data.model.ChangeFinding("a", "medium", "Wording"),
+            com.ryderdavid.nacre.data.model.ChangeFinding("b", "high", "Placeholder ordering", disposition = "resolved"),
+            com.ryderdavid.nacre.data.model.ChangeFinding("c", "high", "In-place replacement vs updatedAt", disposition = "unresolved"),
+        ))
+        val retry = changeNextAction(blocked)!!
+        assertEquals("Try again (up to \$5)", retry.label)
+        assertTrue("In-place replacement vs updatedAt" in retry.detail, retry.detail)
+        assertEquals("Revise with your feedback (up to \$5)", changeNextAction(blocked, "Replace in place")?.label)
+        assertTrue("from scratch" in changeNextAction(blocked.copy(findings = emptyList()))!!.detail)
+    }
+    @Test fun aChangeWaitingOnRyderLeadsWithOneStepAndItsAlternatives() {
+        val blocked = approved.copy(phase = "needs_attention", approvedRevision = "", error = "drafting ran out",
+            findings = listOf(com.ryderdavid.nacre.data.model.ChangeFinding("c", "high", "Card jumps on creation", disposition = "unresolved")))
+        assertTrue(isGuided(blocked))
+        assertFalse(isGuided(approved))
+        val (rec, others) = guideChoices(blocked)
+        assertEquals("revise", rec.action)
+        assertEquals(listOf("close"), others.map { it.action })
+        assertEquals("Shelve NAC-1", guideButton(others.single(), "NAC-1"))
+        assertEquals(listOf("Card jumps on creation"), guideSummary(blocked).third)
+        val pick = com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise with these decisions", feedback = "Sort by start")
+        val written = blocked.copy(guide = com.ryderdavid.nacre.data.model.ChangeGuide("Keeps a slot", "Stopped early", listOf("Jumps"), pick,
+            listOf(pick, com.ryderdavid.nacre.data.model.GuideOption("revise", "Try again", why = "Same objections"))))
+        assertEquals(pick, guideChoices(written).first)
+        assertEquals(listOf("Try again"), guideChoices(written).second.map { it.label })
+        assertEquals("Keeps a slot", guideSummary(written).first)
+        assertEquals("Approve and run", guideButton(com.ryderdavid.nacre.data.model.GuideOption("approve", "Approve"), "NAC-1"))
+        assertEquals("approve", guideChoices(approved.copy(phase = "awaiting_approval", approvedRevision = "")).first.action)
+        assertTrue("Card jumps" in changeContext(blocked))
+    }
     @Test fun phasesUseTheSingleWorkflowVocabulary() {
         listOf("drafting", "reviewing", "promoting").forEach { assertEquals("Planning", changePhaseLabel(it)) }
         assertEquals("Ready for your approval", changePhaseLabel("awaiting_approval"))

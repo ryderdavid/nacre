@@ -114,6 +114,8 @@ data class SpecChange(
     val adoption: ChangeAdoption? = null,
     @SerialName("cost_usd") val costUsd: Double = 0.0,
     @SerialName("updated_at") val updatedAt: String = "",
+    /** Plain summary and recommended next step while the change waits on Ryder; null until written. */
+    val guide: ChangeGuide? = null,
 ) {
     val isWorking get() = phase in setOf("drafting", "reviewing", "promoting")
     val hasCurrentApproval get() = phase == "ready" && revision.isNotBlank() && revision == approvedRevision
@@ -245,3 +247,17 @@ data class NewEffortPrefill(
 
 @Serializable
 data class FoundResult(@SerialName("bead_id") val beadId: String = "", val prefill: NewEffortPrefill? = null, val change: SpecChange? = null)
+
+/** Where a change waiting on Ryder stands, in plain words, and what to do next. */
+@Serializable
+data class ChangeGuide(
+    val summary: String = "",
+    val status: String = "",
+    val blocking: List<String> = emptyList(),
+    val recommended: GuideOption? = null,
+    val options: List<GuideOption> = emptyList(),
+)
+
+/** One next step: approve, revise (with [feedback] as Ryder's guidance), resume, or close (shelve the bead). */
+@Serializable
+data class GuideOption(val action: String, val label: String, val feedback: String = "", val why: String = "")

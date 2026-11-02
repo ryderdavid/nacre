@@ -20,7 +20,28 @@ fun changePhaseLabel(phase: String): String = when (phase) {
 }
 
 /** Existing work stays reachable; approval always starts the reviewed revision. */
-fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextAction? {
+fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextAction? =
+    baseNextAction(change, feedback)?.let { if (it.action == "revise") reviseAction(change, feedback) else it }
+
+/** The first finding the reviewer still blocks on, as the computer judges it. */
+fun blockingFinding(change: SpecChange) = change.findings.firstOrNull {
+    (it.severity == "blocker" || it.severity == "high") && it.disposition != "resolved" && it.disposition != "rejected"
+}
+
+/** Revise drafts and reviews the whole change again, so it says what it costs and what it goes on. */
+fun reviseAction(change: SpecChange, feedback: String): ChangeNextAction {
+    val blocked = blockingFinding(change)?.summary
+    return if (feedback.isBlank()) ChangeNextAction(
+        "revise", "Try again (up to \$5)",
+        if (blocked != null) "Still blocked on: $blocked. Without your feedback Claude will likely argue the same point; say how to decide it above."
+        else "Drafts and reviews the change again from scratch. Add feedback above to steer it.",
+    ) else ChangeNextAction(
+        "revise", "Revise with your feedback (up to \$5)",
+        "Drafts the change again following your feedback, then a fresh reviewer checks it.",
+    )
+}
+
+private fun baseNextAction(change: SpecChange, feedback: String): ChangeNextAction? {
     if (change.phase == "archived") return null
     if (change.activeRoundId.isNotBlank()) return ChangeNextAction(
         "review", "View progress", "Open the running round to see progress or resolve what needs attention.",
@@ -56,4 +77,46 @@ fun changeRouteLabel(route: String) = when (route) {
     "covered" -> "Covered by existing work"
     "adopted" -> "Adopted as written"
     else -> "Checking existing specifications"
+}
+
+/** Phases that wait on Ryder: the screen leads with a summary and one recommended step. */
+private val guidedPhases = setOf("awaiting_approval", "needs_attention", "stale", "covered")
+
+fun isGuided(change: SpecChange) = change.phase in guidedPhases && change.activeRoundId.isBlank()
+
+/** The recommended step and the alternatives: the computer's guide, or the screen's own next action until it is written. */
+fun guideChoices(change: SpecChange): Pair<com.ryderdavid.nacre.data.model.GuideOption, List<com.ryderdavid.nacre.data.model.GuideOption>> {
+    val g = change.guide
+    if (g?.recommended != null) return g.recommended to g.options.filter { it != g.recommended }
+    val shelve = com.ryderdavid.nacre.data.model.GuideOption("close", "Shelve it", why = "Closes ${change.seedId}; nothing has been built.")
+    val next = changeNextAction(change)
+    val recommended = when {
+        change.phase == "covered" -> com.ryderdavid.nacre.data.model.GuideOption("close", "Close it as covered", why = "Existing work already does this.")
+        next == null || next.action !in setOf("approve", "revise", "resume") -> com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise", why = "Draft and review the change again.")
+        else -> com.ryderdavid.nacre.data.model.GuideOption(next.action, next.label.substringBefore(" (up to"), why = next.detail)
+    }
+    val others = buildList {
+        if (recommended.action != "revise") add(com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise with your feedback", why = "Drafts and reviews it again, up to \$5."))
+        if (recommended.action != "close") add(shelve)
+    }
+    return recommended to others
+}
+
+/** What the main button says for a step. */
+fun guideButton(option: com.ryderdavid.nacre.data.model.GuideOption, seedId: String) = when (option.action) {
+    "approve" -> "Approve and run"
+    "revise" -> "Revise · up to \$5"
+    "resume" -> "Continue"
+    "close" -> "Shelve $seedId"
+    else -> option.label
+}
+
+/** The plain summary lines: the guide's, or what the record says until it is written. */
+fun guideSummary(change: SpecChange): Triple<String, String, List<String>> {
+    val g = change.guide
+    if (g != null && g.summary.isNotBlank()) return Triple(g.summary, g.status, g.blocking)
+    val blocking = change.findings.filter {
+        (it.severity == "blocker" || it.severity == "high") && it.disposition != "resolved" && it.disposition != "rejected"
+    }.map { it.summary }
+    return Triple(change.summary, change.error, blocking)
 }

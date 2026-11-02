@@ -71,6 +71,33 @@ class ChangeViewModel(
 
     fun act(action: String) = send(action, null)
 
+    /** Runs the step Ryder chose on the change screen; revise sends what the decision box holds. */
+    fun perform(option: com.ryderdavid.nacre.data.model.GuideOption) {
+        if (option.action == "close") shelve(option.label) else act(option.action)
+    }
+
+    /** Shelving closes the bead the change grew from; nothing has been built. */
+    private fun shelve(why: String) {
+        if (sending.value) return
+        sending.value = true
+        viewModelScope.launch {
+            requests.withLock {
+                try {
+                    repository.close(repoKey, beadId, "Shelved from its specification change: $why")
+                    actionFailure = null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    actionFailure = e.friendly()
+                    state.value = state.value.copy(error = actionFailure)
+                } finally {
+                    sending.value = false
+                }
+            }
+            refresh()
+        }
+    }
+
     fun runEpic(onStarted: (com.ryderdavid.nacre.data.model.Round) -> Unit) {
         if (sending.value) return
         val change = state.value.data?.change ?: return

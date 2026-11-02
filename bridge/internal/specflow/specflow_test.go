@@ -155,10 +155,28 @@ type fakeModel struct {
 	mu    sync.Mutex
 	calls []claude.Headless
 	fn    func(context.Context, claude.Headless, int) (any, float64, error)
+	// guides are the guide calls, kept apart so call counts stay those of
+	// the author and reviewer.
+	guides []claude.Headless
+}
+
+// fakeGuide recommends the first allowed action the prompt lists.
+func fakeGuide(h claude.Headless) Guide {
+	allowed := strings.TrimSuffix(strings.SplitN(strings.SplitN(h.Prompt, "Allowed actions: ", 2)[1], "\n", 2)[0], ".")
+	first := strings.Split(allowed, ", ")[0]
+	return Guide{Summary: "Keeps drafts", Status: "Reviewed once", Blocking: []string{},
+		Recommended: GuideOption{Action: first, Label: "Do " + first, Why: "Best fit"},
+		Options:     []GuideOption{{Action: "close", Label: "Shelve it", Why: "Nothing built"}, {Action: "explode", Label: "Not allowed", Why: "Dropped"}}}
 }
 
 func (f *fakeModel) Run(ctx context.Context, _ string, h claude.Headless, _ func(api.RunEvent)) (assist.Outcome, error) {
 	f.mu.Lock()
+	if h.System == guideSystem {
+		f.guides = append(f.guides, h)
+		f.mu.Unlock()
+		b, _ := json.Marshal(fakeGuide(h))
+		return assist.Outcome{Output: b, CostUSD: 0.01}, nil
+	}
 	f.calls = append(f.calls, h)
 	n := len(f.calls)
 	fn := f.fn
@@ -1117,5 +1135,35 @@ func TestDuplicateDevelopCannotConsumeNewFeedback(t *testing.T) {
 	_ = develop(t, m, repo)
 	if _, e := m.Act(context.Background(), repo, "NAC-1", Action{Action: "develop", Feedback: "Please preserve this feedback"}); !errors.Is(e, ErrConflict) {
 		t.Fatalf("no-op develop consumed feedback: %v", e)
+	}
+}
+
+func TestAChangeWaitingOnTheOwnerGetsOneGuideForItsState(t *testing.T) {
+	repo, _, model, opts := fixture(t)
+	m := newManager(t, opts)
+	develop(t, m, repo)
+	m.Wait()
+	env, e := m.Get(context.Background(), repo, "NAC-1")
+	if e != nil {
+		t.Fatal(e)
+	}
+	g := env.Change.Guide
+	if g == nil || g.For != guideKey(*env.Change) || g.Recommended.Action != "revise" {
+		t.Fatalf("guide=%+v", g)
+	}
+	if len(g.Options) != 1 || g.Options[0].Action != "close" {
+		t.Fatalf("an action the state doesn't allow was kept: %+v", g.Options)
+	}
+	if !strings.Contains(model.guides[0].Prompt, "approve") || model.guides[0].MaxBudgetUSD != GuideBudgetUSD {
+		t.Fatalf("guide request %+v", model.guides[0])
+	}
+	m.Get(context.Background(), repo, "NAC-1")
+	m.Wait()
+	if len(model.guides) != 1 {
+		t.Fatalf("the same state was guided %d times", len(model.guides))
+	}
+	c := approve(t, m, repo, *env.Change)
+	if c.Guide != nil {
+		t.Fatal("a guide for an older state was shown")
 	}
 }

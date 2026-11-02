@@ -54,7 +54,10 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	if remaining < 0.05 {
 		return nil, fmt.Errorf("The $%.2f budget for this proposal action has been reached. Review the saved work before starting another revision.", MaxActionCostUSD)
 	}
-	perCall := 0.85
+	perCall := ReviewCallBudgetUSD
+	if !review {
+		perCall = AuthorCallBudgetUSD
+	}
 	if review && r.Change.Adoption != nil && r.Pass == 0 {
 		// Adopting has one review of a whole finished change, often large,
 		// instead of an author and reviewer sharing the action's budget.
@@ -101,6 +104,9 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	}
 	if cost > cap+0.01 || r.ActionCost > MaxActionCostUSD+0.01 {
 		e = fmt.Errorf("AI reported cost beyond the reserved action budget; review saved work before continuing")
+	}
+	if e != nil && strings.Contains(e.Error(), "maximum budget") {
+		e = fmt.Errorf("The %s call ran out of its $%.2f limit before it finished. Revise to try again.", kind, cap)
 	}
 	r.LastCall = &callResult{Kind: kind, Output: clone(outcome.Output)}
 	if e != nil {

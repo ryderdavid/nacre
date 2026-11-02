@@ -78,6 +78,8 @@ type Manager struct {
 	mu              sync.Mutex
 	records         map[string]*record
 	busy            map[string]bool
+	// guiding is the guide key being written, or last tried, per change.
+	guiding map[string]string
 	evidence        map[string]evidenceCache
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -96,7 +98,7 @@ func New(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{opts: opts, records: map[string]*record{}, busy: map[string]bool{}, evidence: map[string]evidenceCache{}, ctx: ctx, cancel: cancel, defaultValidate: opts.Validate == nil}
+	m := &Manager{opts: opts, records: map[string]*record{}, busy: map[string]bool{}, guiding: map[string]string{}, evidence: map[string]evidenceCache{}, ctx: ctx, cancel: cancel, defaultValidate: opts.Validate == nil}
 	if m.opts.Validate == nil {
 		m.opts.Validate = strictValidator
 	}
@@ -276,6 +278,9 @@ func (m *Manager) snapshot(r *record) Envelope {
 	if r != nil {
 		c := clone(r.Change)
 		c.AsApproved = asApproved(c, r.Repo)
+		if c.Guide != nil && c.Guide.For != guideKey(c) {
+			c.Guide = nil
+		}
 		if m.opts.Evidence != nil {
 			c.Evidence = m.opts.Evidence(r.Repo, c)
 		}
@@ -394,6 +399,9 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 			}
 		}
 	}
+	m.mu.Lock()
+	m.maybeGuideLocked(m.records[r.Change.ID])
+	m.mu.Unlock()
 	env := m.snapshot(r)
 	if inv, e := collect(repo); e == nil {
 		env.Inventory = summarize(inv)
@@ -577,7 +585,12 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 }
 func (m *Manager) work(r *record) {
 	defer m.wg.Done()
-	defer func() { m.mu.Lock(); delete(m.busy, r.Repo); m.mu.Unlock() }()
+	defer func() {
+		m.mu.Lock()
+		delete(m.busy, r.Repo)
+		m.maybeGuideLocked(m.records[r.Change.ID])
+		m.mu.Unlock()
+	}()
 	ctx, cancel := context.WithTimeout(m.ctx, OperationTimeout)
 	defer cancel()
 	var err error

@@ -51,6 +51,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
@@ -133,6 +135,24 @@ fun ChangeDetail(
     val action = change?.let { changeNextAction(it, feedback) }
     val working = change?.isWorking == true || sending
     val canAct = !working && envelope?.available == true && state.error == null
+    // A change waiting on Ryder leads with a summary and one recommended step; the files fold into Details.
+    val guided = envelope?.available == true && change != null && isGuided(change)
+    val choices = change?.takeIf { guided }?.let(::guideChoices)
+    // The step he picked, by label; none is the recommendation. "" is his own decision from the chat.
+    var picked by rememberSaveable(change?.id, change?.guide?.recommended) { mutableStateOf<String?>(null) }
+    val own = com.ryderdavid.nacre.data.model.GuideOption("revise", "Your decision", why = "Drafts and reviews the change again with what you wrote, up to \$5.")
+    val chosen = choices?.let { (rec, others) -> if (picked == "") own else others.firstOrNull { it.label == picked } ?: rec }
+    var showDetails by rememberSaveable(change?.id) { mutableStateOf(false) }
+    val prefs by com.ryderdavid.nacre.ui.common.LocalContainer.current.settings.settings.collectAsState(initial = null)
+    // The recommended revise arrives with its feedback written; it fills an empty box once.
+    LaunchedEffect(change?.guide?.recommended, draftReady) {
+        val rec = choices?.first
+        if (draftReady && picked == null && rec?.action == "revise" && rec.feedback.isNotBlank() && feedback.isBlank()) vm.setFeedback(rec.feedback)
+    }
+    // Poll until the computer has written the guide.
+    LaunchedEffect(guided, change?.guide == null) {
+        while (guided && change?.guide == null) { kotlinx.coroutines.delay(4000); vm.refresh() }
+    }
     val scope = rememberCoroutineScope()
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -156,7 +176,7 @@ fun ChangeDetail(
                 )
             },
             bottomBar = {
-                if (action != null || (envelope?.available == true && change == null && !linked)) {
+                if (!guided && (action != null || (envelope?.available == true && change == null && !linked))) {
                     Surface(tonalElevation = 2.dp) {
                         Box(Modifier.fillMaxWidth().navigationBarsPadding().imePadding(), contentAlignment = Alignment.Center) {
                             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -182,18 +202,16 @@ fun ChangeDetail(
                                     enabled = if (action?.action in setOf("review", "epic")) !sending else canAct && draftReady,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(if (sending) "Sending…" else action?.label ?: "Develop a proposal") }
-                                if (change?.phase == "awaiting_approval" && action?.action == "approve") TextButton(
-                                    onClick = { vm.act("revise") }, enabled = canAct && draftReady, modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Revise") }
                             }
                         }
                     }
                 }
             },
         ) { padding ->
-            Box(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(), contentAlignment = Alignment.TopCenter) {
+            BoxWithConstraints(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(), contentAlignment = Alignment.TopCenter) {
+                val wide = guided && maxWidth >= 720.dp
                 LazyColumn(
-                    modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
+                    modifier = Modifier.widthIn(max = if (wide) 1120.dp else 840.dp).fillMaxSize(),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -223,6 +241,36 @@ fun ChangeDetail(
                             }
                         }
                     } else {
+                        if (guided && choices != null && chosen != null) {
+                            item { GuideHeader(change, change.changeName.ifBlank { change.seedId }.let(::changeTitle)) }
+                            item {
+                                AdaptivePair(wide, { GuideSummary(change) }, {
+                                    GuideDecision(
+                                        chosen, recommended = chosen == choices.first, seedId = change.seedId,
+                                        feedback = feedback, onFeedback = vm::setFeedback,
+                                        enabled = canAct && draftReady, sending = sending, onGo = { vm.perform(chosen) },
+                                    )
+                                })
+                            }
+                            item {
+                                AdaptivePair(wide, {
+                                    GuideOptions((listOf(choices.first) + choices.second).filter { it != chosen }, choices.first) { o ->
+                                        picked = if (o == choices.first) null else o.label
+                                        if (o.action == "revise") vm.setFeedback(o.feedback)
+                                    }
+                                }, {
+                                    ChangeChat(change, vm.repoKey, prefs?.claudeConfigured == true, busy = !canAct, startOpen = wide) { text ->
+                                        vm.setFeedback(text); picked = ""
+                                    }
+                                })
+                            }
+                            item {
+                                TextButton(onClick = { showDetails = !showDetails }) {
+                                    Text(if (showDetails) "Hide details" else "Details: the files, ${change.findings.size} review findings and history")
+                                }
+                            }
+                        }
+                        if (!guided || showDetails) {
                         item {
                             Text(changeStatusTitle(change), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(8.dp))
@@ -302,8 +350,9 @@ fun ChangeDetail(
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
                             )
                         }
+                        }
                     }
-                    if (envelope?.available == true && (change != null || !linked)) item {
+                    if (envelope?.available == true && (change != null || !linked) && !guided) item {
                         SectionHeader(if (change == null) "Additional context" else "Your feedback")
                         OutlinedTextField(
                             value = feedback, onValueChange = vm::setFeedback, enabled = draftReady,

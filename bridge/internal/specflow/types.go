@@ -113,6 +113,9 @@ type Change struct {
 	// happened elsewhere in the specifications. Set on each read.
 	AsApproved bool    `json:"as_approved,omitempty"`
 	CostUSD    float64 `json:"cost_usd"`
+	// Guide is the plain summary and recommended next step while the change
+	// waits on the owner; absent until written for its current state.
+	Guide *Guide `json:"guide,omitempty"`
 	UpdatedAt  string  `json:"updated_at"`
 }
 type Beads interface {
@@ -156,6 +159,13 @@ const MaxActionCostUSD = 5.0
 
 // AdoptReviewBudgetUSD bounds the one independent review of an adopted change.
 const AdoptReviewBudgetUSD = 2.5
+
+// AuthorCallBudgetUSD bounds one drafting call. Drafting writes every file of
+// the change after reading source, so it needs more room than a review.
+const AuthorCallBudgetUSD = 1.6
+
+// ReviewCallBudgetUSD bounds one independent review call.
+const ReviewCallBudgetUSD = 0.85
 const MaxPasses = 3
 const OperationTimeout = 30 * time.Minute
 
