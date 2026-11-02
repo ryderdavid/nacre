@@ -386,13 +386,23 @@ func TestSendFailingBeforeWritingIsNotPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gone := make(chan struct{})
 	go func() {
 		// Answer the guard's probe, then go away so the send cannot connect.
 		if conn, err := ln.Accept(); err == nil {
 			conn.Close()
 		}
 		ln.Close()
+		close(gone)
 	}()
+	// Dial only once the session is gone; otherwise the dial can land in the
+	// listener's backlog before the close and the write succeeds.
+	real := dialSend
+	dialSend = func(path string) (net.Conn, error) {
+		<-gone
+		return real(path)
+	}
+	defer func() { dialSend = real }()
 	c := &Client{PID: 781, Host: "darwin", Alive: func(int, string) bool { return true }}
 	defer c.Close()
 	_, err = c.Send(good(sock), "hi")

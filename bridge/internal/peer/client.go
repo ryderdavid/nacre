@@ -109,6 +109,12 @@ func SocketExists(path string) bool {
 	return err == nil && fi.Mode()&os.ModeSocket != 0
 }
 
+// dialSend opens the connection a send writes to. Tests replace it to order
+// the dial against the session going away.
+var dialSend = func(path string) (net.Conn, error) {
+	return net.DialTimeout("unix", path, sendTimeout)
+}
+
 // Sent is what a successful send leaves to track.
 type Sent struct {
 	MsgID     string
@@ -154,7 +160,7 @@ func (c *Client) Send(t Target, content string) (Sent, error) {
 	if err != nil {
 		return Sent{}, err
 	}
-	conn, err := net.DialTimeout("unix", t.SocketPath, sendTimeout)
+	conn, err := dialSend(t.SocketPath)
 	if err != nil {
 		return Sent{}, err
 	}
