@@ -544,8 +544,17 @@ data class Round(
     val openQuestions get() = questions.filter { it.answer.isBlank() }
     val mergesAutomatically get() = autoLand || landWhenReady
     val needsYou get() = state == ROUND_NEEDS_DECISION || (state == ROUND_READY && !mergesAutomatically) || state == ROUND_PAUSED
+    /** Still going on its own: not landed or cancelled, and not stopped or waiting on the user. */
+    val isWorking get() = isActive && !needsYou
     fun runKey(runId: String) = Keys.of(hostId, runId)
 }
+
+/**
+ * The Activity tab's badge: runs working now, as the Runs list shows them, plus rounds working on
+ * their own. A round waiting on a decision, a landing or a stop is left out: Inbox lists and counts it.
+ */
+fun activityBadgeCount(runs: List<Run>, rounds: List<Round>): Int =
+    runs.count { it.isActive && it.inRunsList } + rounds.count { it.isWorking }
 
 @Serializable
 data class RoundBead(
