@@ -582,3 +582,75 @@ func TestFinishEpicWithoutConfigClosesAnEpicWithNothingToMerge(t *testing.T) {
 		t.Fatalf("an epic with a branch still needs nacre.yaml: %v", err)
 	}
 }
+
+// A Run epic whose last child was left open for a person's check waits for
+// that check instead of giving up, and finishes once the child is closed.
+func TestRunEpicFinishesAfterTheLastHumanCheckCloses(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-E", Type: "epic", Status: "open"}, &fakeBead{ID: "T-F", Type: "feature", Parent: "T-E"})
+	h := newHarness(t, beads, emptyPlan)
+	ctx := context.Background()
+	branch, err := ensureEpicBranch(ctx, h.repo, "T-E", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "waits-for-check"
+	ws, err := h.m.opts.Workspaces.CreateIntegration(ctx, h.repo, "repo", id, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Path, "f.txt"), []byte("done"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	head, err := gitx.CommitAll(ctx, ws.Path, "Implement child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.FastForward(ctx, h.repo, branch, head); err != nil {
+		t.Fatal(err)
+	}
+	meta := api.Round{ID: id, RepoID: "repo", RepoPath: h.repo, Epic: "T-E", Target: branch, State: api.RoundLanded, Finish: true, LandedCommit: head, FinalCommit: head,
+		Beads: []api.RoundBead{{ID: "T-F", Type: "feature", State: api.BeadIntegrated, HumanCheck: "Look at it on a device"}}}
+	dir := filepath.Join(h.m.opts.Dir, id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := h.m.newRound(meta, dir)
+	r.mu.Lock()
+	r.saveLocked()
+	r.mu.Unlock()
+	loaded, err := h.m.load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.m.mu.Lock()
+	h.m.rounds[id] = loaded
+	h.m.mu.Unlock()
+	h.m.Start()
+	waitFor := func(what string, ok func(api.Round) bool) api.Round {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			m, _, _ := h.m.Get(id)
+			if ok(m) {
+				return m
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		m, _, _ := h.m.Get(id)
+		t.Fatalf("%s: %+v", what, m)
+		return m
+	}
+	got := waitFor("waiting for the check", func(m api.Round) bool { return m.FinishWaiting })
+	if got.FinishChecked || beads.bead("T-E").Status == "closed" {
+		t.Fatalf("finished before the check: %+v", got)
+	}
+	if err := beads.Close(ctx, h.repo, "T-F", "checked"); err != nil {
+		t.Fatal(err)
+	}
+	loaded.poke()
+	got = waitFor("finish after the check", func(m api.Round) bool { return m.FinishRoundID != "" })
+	done := h.wait(t, got.FinishRoundID, api.RoundLanded, api.RoundPaused)
+	if done.State != api.RoundLanded || beads.bead("T-E").Status != "closed" {
+		t.Fatalf("finish: %+v", done)
+	}
+}

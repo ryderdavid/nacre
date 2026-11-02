@@ -486,7 +486,10 @@ type Round struct {
 	// Finish requests automatic FinishEpic after landing and closing all children.
 	Finish bool `json:"finish"`
 	// FinishChecked records the automatic finish attempt, including open children.
-	FinishChecked bool   `json:"finish_checked,omitempty"`
+	FinishChecked bool `json:"finish_checked,omitempty"`
+	// FinishWaiting: the automatic finish is waiting for children left open
+	// for a person's check; it runs once they are closed.
+	FinishWaiting bool   `json:"finish_waiting,omitempty"`
 	FinishRoundID string `json:"finish_round_id,omitempty"`
 	Epic          string `json:"epic,omitempty"`
 	State         string `json:"state"`

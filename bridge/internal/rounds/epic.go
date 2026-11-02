@@ -272,7 +272,17 @@ func (r *round) maybeFinishEpic() bool {
 			next, closed, err = r.m.FinishEpic(meta.RepoID, meta.Epic)
 		}
 		return func() {
-			r.meta.FinishChecked = true
+			if err == nil && len(open) > 0 && r.awaitingChecks(open) {
+				// Every open child is this round's, built and waiting on a
+				// person's check: keep the finish pending and look again on
+				// the next tick, so closing the last one finishes the epic.
+				if !r.meta.FinishWaiting {
+					r.meta.FinishWaiting = true
+					r.event("note", meta.Epic, "Waiting for you to check "+strings.Join(open, ", ")+"; the epic finishes by itself once you close them.")
+				}
+				return
+			}
+			r.meta.FinishChecked, r.meta.FinishWaiting = true, false
 			switch {
 			case err != nil:
 				r.meta.Error = "Finishing " + meta.Epic + " failed: " + err.Error()
@@ -287,5 +297,17 @@ func (r *round) maybeFinishEpic() bool {
 			}
 		}
 	})
+	return true
+}
+
+// awaitingChecks says whether every open child is one of this round's beads
+// that was integrated and left open only for a person's check.
+func (r *round) awaitingChecks(open []string) bool {
+	for _, id := range open {
+		b := r.bead(id)
+		if b == nil || b.State != api.BeadIntegrated || b.HumanCheck == "" {
+			return false
+		}
+	}
 	return true
 }
