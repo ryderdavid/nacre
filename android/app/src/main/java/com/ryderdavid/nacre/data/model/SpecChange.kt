@@ -46,6 +46,7 @@ data class ChangeAction(
     /** The active change an `adopt` takes over, and whether its review.md stands in for a new review. */
     @SerialName("change_name") val changeName: String = "",
     @SerialName("recorded_review") val recordedReview: Boolean = false,
+    val run: Boolean = false,
 )
 
 /** The New effort verdict a develop was confirmed with. */

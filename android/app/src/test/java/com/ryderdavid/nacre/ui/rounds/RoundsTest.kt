@@ -63,4 +63,15 @@ class RoundsTest {
         ))
         assertEquals(listOf("E", "B", "A"), roundCandidates(ix).map { it.id })
     }
+    @kotlin.test.Test fun automaticLandingAndFinishingDecodeWithoutRequestingAMerge() {
+        val round = com.ryderdavid.nacre.data.bridge.BridgeClient.json.decodeFromString<com.ryderdavid.nacre.data.model.Round>(
+            """{"id":"r1","state":"ready_to_land","land_when_ready":true,"finish":true}""",
+        )
+        kotlin.test.assertTrue(round.finish)
+        kotlin.test.assertTrue(round.mergesAutomatically)
+        kotlin.test.assertFalse(round.needsYou)
+        kotlin.test.assertTrue(round.copy(landWhenReady = false, autoLand = true).mergesAutomatically)
+        kotlin.test.assertFalse(round.copy(landWhenReady = false).mergesAutomatically)
+    }
+
 }

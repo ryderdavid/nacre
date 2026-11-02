@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,8 +59,6 @@ import com.ryderdavid.nacre.data.model.EFFORT_LABELS
 import com.ryderdavid.nacre.data.model.RUN_AGENTS
 import com.ryderdavid.nacre.data.model.runAgent
 import com.ryderdavid.nacre.data.settings.AppSettings
-import com.ryderdavid.nacre.ui.common.GoalOptionsPicker
-import com.ryderdavid.nacre.data.model.GoalOptions
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.HandleDismissSheet
 import com.ryderdavid.nacre.ui.common.PriorityPill
@@ -111,7 +107,7 @@ fun LabelsDialog(initial: List<String>, onDismiss: () -> Unit, onSave: (List<Str
         text = {
             Column {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    labels.forEach { l ->
+                    labels.filterNot(::isMachineLabel).forEach { l ->
                         InputChip(selected = false, onClick = { labels = labels - l }, label = { Text(l) }, trailingIcon = { Icon(Icons.Rounded.Close, "Remove $l") })
                     }
                 }
@@ -200,9 +196,6 @@ fun RunLaunchSheet(
     initialTarget: String,
     sending: Boolean,
     onDismiss: () -> Unit,
-    /** Where finished work lands: the bead's epic branch, or the main branch. */
-    landsOn: String = "main",
-    onWorkUntilDone: ((targetKey: String, landWhenReady: Boolean, goal: GoalOptions) -> Unit)? = null,
     onStart: (targetKey: String, RunRequest) -> Unit,
 ) {
     var target by rememberSaveable { mutableStateOf(initialTarget) }
@@ -216,44 +209,14 @@ fun RunLaunchSheet(
     val choice = AgentChoice(agent, modelId, effortLevel).withModel(modelId)
     fun choose(c: AgentChoice) { agentWire = c.agent.wire; modelId = c.model; effortLevel = c.effort }
     var worktree by rememberSaveable { mutableStateOf(prefs.runWorktree) }
-    var goalEnabled by rememberSaveable { mutableStateOf(prefs.runGoal.enabled) }
-    var goalCommitted by rememberSaveable { mutableStateOf(prefs.runGoal.committed) }
-    var goalPushed by rememberSaveable { mutableStateOf(prefs.runGoal.pushed) }
-    val goal = GoalOptions(goalEnabled, goalCommitted, goalPushed)
     var instructions by rememberSaveable { mutableStateOf("") }
-    var sentTo by rememberSaveable { mutableStateOf<String?>(null) }
-    var landWhenReady by rememberSaveable { mutableStateOf(true) }
     val permission = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
     val hostName = targetRepo?.repo?.hostName?.ifBlank { null } ?: "your computer"
 
     HandleDismissSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState())) {
-            Text("Implement", style = MaterialTheme.typography.titleLarge)
+            Text("Run an agent manually", style = MaterialTheme.typography.titleLarge)
             Text("${issue.id} · ${issue.title}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            // Above both buttons: the goal applies to Work until done and to a plain run.
-            Column(Modifier.padding(top = 8.dp)) {
-                GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !sending)
-            }
-            if (onWorkUntilDone != null) {
-                Text(
-                    "Claude works on it in its own worktree on $hostName. nacred checks the result itself: a clean commit, every gate and the build in nacre.yaml, sending it back with what failed. Then it commits, merges into $landsOn, pushes and closes the bead.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
-                )
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { landWhenReady = !landWhenReady }, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Merge into $landsOn when it passes", style = MaterialTheme.typography.bodyLarge)
-                        Text(if (landWhenReady) "Merges into $landsOn and pushes without waiting for you" else "Waits for you to tap Merge into $landsOn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = landWhenReady, onCheckedChange = { landWhenReady = it })
-                }
-                Button(
-                    onClick = { permission(); sentTo = "round"; onWorkUntilDone(target, landWhenReady, goal) },
-                    enabled = !sending && targetRepo != null,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
-                ) { Text(if (sending && sentTo == "round") "Sending to $hostName…" else "Work until done") }
-                Text("Or just run it", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 24.dp))
-            }
-
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 RUN_AGENTS.forEachIndexed { i, a ->
                     SegmentedButton(
@@ -265,8 +228,7 @@ fun RunLaunchSheet(
             }
             val codexBlocker = targetRepo?.codexBlocker.takeIf { agent == CODEX_AGENT }
             Text(
-                codexBlocker ?: if (agent == CODEX_AGENT) "Runs on $hostName with Codex on the ChatGPT account it is signed in to there. Codex claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or merged for you" else ", verifies it and closes it when done"}."
-                else "Runs on $hostName with Claude Code on your Claude subscription. Claude claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or merged for you" else ", verifies it and closes it when done"}.",
+                codexBlocker ?: "Runs ${agent.label} on $hostName with the options below.",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (codexBlocker != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
@@ -335,21 +297,36 @@ fun RunLaunchSheet(
             )
 
 
-            val canSend = !sending && targetRepo != null && codexBlocker == null
-            val runButton: @Composable (onClick: () -> Unit, enabled: Boolean, modifier: Modifier, content: @Composable RowScope.() -> Unit) -> Unit =
-                if (onWorkUntilDone != null) { c, e, m, t -> FilledTonalButton(onClick = c, enabled = e, modifier = m, content = t) }
-                else { c, e, m, t -> Button(onClick = c, enabled = e, modifier = m, content = t) }
-            runButton(
-                {
+            Button(
+                onClick = {
                     permission()
-                    sentTo = "agent"
-                    onStart(target, choice.request(mode, instructions.ifBlank { null }, worktree).copy(goal = goal))
+                    onStart(target, choice.request(mode, instructions.ifBlank { null }, worktree))
                 },
-                canSend,
-                Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
+                enabled = !sending && targetRepo != null && codexBlocker == null,
+                modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
             ) {
-                Text(if (sending && sentTo == "agent") "Sending to $hostName…" else if (onWorkUntilDone != null) "Run with ${agent.label}" else "Implement with ${agent.label}")
+                Text(if (sending) "Sending to $hostName…" else "Run with ${agent.label}")
             }
         }
     }
+}
+
+/** Only the destination is needed for automatic work. */
+@Composable
+fun StartWorkDialog(targets: List<RunTarget>, sending: Boolean, onDismiss: () -> Unit, onStart: (String) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Start work on…") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                targets.forEach { target ->
+                    Button(onClick = { onStart(target.repo.key) }, enabled = !sending, modifier = Modifier.fillMaxWidth()) {
+                        Text(target.repo.hostName.ifBlank { "This computer" })
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 
 class SpecChangeTest {
     private val approved = SpecChange(
-        id = "flow1", seedId = "NAC-1", phase = "ready", revision = "exact-content", approvedRevision = "exact-content",
+        id = "flow1", seedId = "NAC-1", epicId = "NAC-E", phase = "ready", revision = "exact-content", approvedRevision = "exact-content",
         sections = listOf(ChangeSection("stable-A", "Interface", beadId = "NAC-1.2"), ChangeSection("stable-B", "Verification", beadId = "NAC-1.1")),
     )
 
@@ -56,8 +56,8 @@ class SpecChangeTest {
         assertEquals(0, approved.copy(evidence = evidence).verifiedSections)
         val valid = approved.copy(evidence = approved.sections.map { ChangeEvidence(it.id, it.beadId, runId = "run-${it.id}", roundId = "round1", verified = true, buildVerified = true, humanCheck = true) })
         assertEquals(2, valid.verifiedSections)
-        assertEquals("Review implementation", changeNextAction(valid)?.label)
-        assertEquals("Implementation ready for review", changeStatusTitle(valid))
+        assertEquals("View progress", changeNextAction(valid)?.label)
+        assertEquals("Working", changeStatusTitle(valid))
         assertEquals(0, valid.copy(phase = "stale").verifiedSections)
         assertEquals("revise", changeNextAction(valid.copy(phase = "stale"))?.action)
     }
@@ -67,14 +67,14 @@ class SpecChangeTest {
         assertEquals(2, runsOnly.verifiedSections)
         assertEquals(0, runsOnly.buildVerifiedSections)
         assertFalse(runsOnly.implementationReadyForReview)
-        assertEquals("Ready to implement", changeStatusTitle(runsOnly))
-        assertEquals("implement", changeNextAction(runsOnly)?.action)
+        assertEquals("Working", changeStatusTitle(runsOnly))
+        assertEquals("review", changeNextAction(runsOnly)?.action)
     }
 
     @Test fun activeRoundAndInterruptedPromotionKeepTheExistingLoopMoving() {
         val active = approved.copy(evidence = listOf(ChangeEvidence("stable-A", "NAC-1.2", roundId = "round-existing", roundState = "needs_decision")))
         assertEquals("round-existing", active.activeRoundId)
-        assertEquals("View implementation", changeNextAction(active)?.label)
+        assertEquals("View progress", changeNextAction(active)?.label)
         assertEquals("review", changeNextAction(active)?.action)
         assertEquals("review", changeNextAction(active, "Keep this for later")?.action)
         assertEquals("revise", changeNextAction(approved, "Change the interaction")?.action)
@@ -108,15 +108,17 @@ class SpecChangeTest {
         assertFalse(approved.implementationReadyForReview)
     }
 
-    @Test fun approvalAndExecutionCarryExactRevisionWithoutStartingImplicitly() {
-        val action = BridgeClient.json.encodeToString(ChangeAction("approve", "digest-reviewed", "keep navigation"))
+    @Test fun approvalAndExecutionCarryExactRevisionAndStartWork() {
+        val action = BridgeClient.json.encodeToString(ChangeAction("approve", "digest-reviewed", "keep navigation", run = true))
         assertTrue(action.contains("\"revision\":\"digest-reviewed\""))
+        assertTrue(action.contains("\"run\":true"))
+        assertEquals("Approve and run", changeNextAction(approved.copy(phase = "awaiting_approval"), "some feedback")?.label)
         val round = BridgeClient.json.encodeToString(StartRound(beads = approved.implementationIds, budgetUsd = 5.0, specChangeId = approved.id, specRevision = approved.revision))
         assertTrue(round.contains("\"spec_change_id\":\"flow1\""))
         assertTrue(round.contains("\"spec_revision\":\"exact-content\""))
         assertTrue(round.contains("\"budget_usd\":5.0"))
         assertEquals("approve", changeNextAction(approved.copy(phase = "awaiting_approval"))?.action)
-        assertEquals("implement", changeNextAction(approved)?.action)
+        assertEquals("run", changeNextAction(approved)?.action)
         assertNull(changeNextAction(approved.copy(phase = "future_phase")))
         assertNull(changeNextAction(approved.copy(phase = "covered")))
         assertNull(changeNextAction(approved.copy(phase = "reviewing")))
@@ -134,18 +136,20 @@ class SpecChangeTest {
 
         val landed = approved.copy(route = "adopted", evidence = approved.sections.map { ChangeEvidence(it.id, it.beadId, landed = true, verified = true, buildVerified = true) })
         assertTrue(landed.allLanded)
-        assertNull(changeNextAction(landed))
+        assertEquals("epic", changeNextAction(landed)?.action)
         assertEquals("Adopted as written", changeRouteLabel(landed.route))
         val partly = landed.copy(evidence = landed.evidence.take(1))
         assertFalse(partly.allLanded)
-        assertEquals("implement", changeNextAction(partly)?.action)
+        assertEquals("run", changeNextAction(partly)?.action)
     }
 
     @Test fun workUntilDoneAndEpicFinishingTravelOverTheBridge() {
         val body = BridgeClient.json.encodeToString(StartRound.serializer(), StartRound(beads = listOf("NAC-1"), landWhenReady = true))
         assertTrue("\"land_when_ready\":true" in body, body)
-        val epicRound = BridgeClient.json.encodeToString(StartRound.serializer(), StartRound(epic = "NAC-E", landWhenReady = true))
+        val epicRound = BridgeClient.json.encodeToString(StartRound.serializer(), StartRound(epic = "NAC-E", landWhenReady = true, finish = true))
         assertTrue("\"epic\":\"NAC-E\"" in epicRound, epicRound)
+        assertTrue("\"finish\":true" in epicRound, epicRound)
+        assertFalse("\"goal\"" in epicRound, epicRound)
         val finish = BridgeClient.json.decodeFromString<com.ryderdavid.nacre.data.model.EpicFinish>("""{"round":{"id":"r1","state":"integrating","target":"main","finish_epic":"NAC-E","beads":[]}}""")
         assertEquals("NAC-E", finish.round?.finishEpic)
         assertFalse(finish.closed)
@@ -161,4 +165,29 @@ class SpecChangeTest {
         assertEquals("revise", changeNextAction(stopped.copy(adoption = null))?.action)
         assertEquals("resume", changeNextAction(stopped.copy(phase = "stale"))?.action)
     }
+    @Test fun phasesUseTheSingleWorkflowVocabulary() {
+        listOf("drafting", "reviewing", "promoting").forEach { assertEquals("Planning", changePhaseLabel(it)) }
+        assertEquals("Ready for your approval", changePhaseLabel("awaiting_approval"))
+        listOf("needs_attention", "stale", "interrupted").forEach { assertEquals("Needs attention", changePhaseLabel(it)) }
+        assertEquals("Ready", changeStatusTitle(approved))
+        assertEquals("Working", changeStatusTitle(approved.copy(evidence = listOf(ChangeEvidence("stable-A", "NAC-1.2", roundId = "r", roundState = "implementing")))))
+        assertEquals("Done", changeStatusTitle(approved.copy(phase = "archived")))
+        assertNull(changeNextAction(approved.copy(phase = "awaiting_approval", revision = "")))
+        assertNull(changeNextAction(approved.copy(phase = "archived")))
+    }
+
+    @Test fun epicActionsPreferAnActiveRoundThenRunOrFinish() {
+        assertEquals("Running", epicPrimaryAction(2, 3, true))
+        assertEquals("Running", epicPrimaryAction(0, 3, true))
+        assertEquals("Run epic", epicPrimaryAction(2, 3, false))
+        assertEquals("Finish epic", epicPrimaryAction(0, 3, false))
+        assertNull(epicPrimaryAction(0, 0, false))
+    }
+
+    @Test fun machineLabelsAreHiddenAndClosingIsOnlyInOverflow() {
+        listOf("specflow:flow1", "spec-section:A", "round:r", "nacre-worker").forEach { assertTrue(isMachineLabel(it)) }
+        listOf("human", "ui", "found:flow1").forEach { assertFalse(isMachineLabel(it)) }
+        assertFalse("closed" in STATUSES)
+    }
+
 }

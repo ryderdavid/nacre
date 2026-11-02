@@ -87,7 +87,6 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.data.model.BEAD_SKIPPED
 import com.ryderdavid.nacre.data.model.BEAD_VERIFYING
 import com.ryderdavid.nacre.data.model.BEAD_WAITING
-import com.ryderdavid.nacre.data.model.FINDING_ORDERING
 import com.ryderdavid.nacre.data.model.FINDING_OVERLAP
 import com.ryderdavid.nacre.data.model.Question
 import com.ryderdavid.nacre.data.model.ROUND_CANCELLED
@@ -247,13 +246,13 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
             r == null -> LoadingState("Loading the round…", Modifier.padding(pad))
             else -> LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item("status") {
-                    StatusCard(r, busy, onResume = vm::resume, onBudget = vm::setBudget, onChoose = vm::choose, onCancel = { confirmCancel = true })
+                    StatusCard(r, busy, onBudget = vm::setBudget, onChoose = vm::choose, onCancel = { confirmCancel = true })
                 }
                 if (error != null) item("error") { Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (r.state == ROUND_NEEDS_DECISION || r.openQuestions.isNotEmpty()) items(r.openQuestions, key = { "q:" + it.id }) { q ->
                     QuestionCard(q, busy) { vm.answer(q.id, it) }
                 }
-                if (r.state == ROUND_READY) item("land") { LandCard(r, busy, onLand = vm::land) }
+                if (r.state == ROUND_READY && !r.mergesAutomatically) item("land") { LandCard(r, busy, onLand = vm::land) }
                 if (r.state == ROUND_LANDED) item("landed") { LandedCard(r) }
                 item("beads-h") { SectionHeader("Beads") }
                 items(r.beads, key = { "b:" + it.id }) { b ->
@@ -262,12 +261,11 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
                         onOpenBead = { onOpenBead(r.repoKey, b.id) },
                         onOpenRun = { if (b.runId.isNotBlank()) onOpenRun(r.runKey(b.runId)) },
                         onRetry = { vm.retry(b.id) },
-                        onUnlink = { from -> vm.unlink(b.id, from) },
                     )
                 }
                 r.plan?.let { plan ->
                     item("plan-h") { SectionHeader("Plan") }
-                    item("plan") { PlanCard(r, onAccept = { a, on -> vm.acceptDependency(a, on) }) }
+                    item("plan") { PlanCard(r) }
                 }
                 item("log-h") { SectionHeader("What happened") }
                 items(events.asReversed(), key = { "e:" + it.seq }) { e -> EventRow(e) }
@@ -292,7 +290,6 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
 private fun StatusCard(
     r: Round,
     busy: Boolean,
-    onResume: () -> Unit,
     onBudget: (Double) -> Unit,
     onChoose: (String, Double) -> Unit,
     onCancel: () -> Unit,
@@ -310,6 +307,8 @@ private fun StatusCard(
                     Text(beadSummary(r), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (r.finish) Text("Then merges into main", style = MaterialTheme.typography.bodyMedium)
+            if (r.state == ROUND_READY && r.mergesAutomatically) Text("Merging automatically…", style = MaterialTheme.typography.bodyMedium)
             if (r.pauseReason.isNotBlank()) Text(r.pauseReason, style = MaterialTheme.typography.bodyMedium)
             if (r.error.isNotBlank()) Text(r.error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             val frac = if (r.budgetUsd > 0) (r.spentUsd / r.budgetUsd).toFloat().coerceIn(0f, 1f) else 0f
@@ -336,7 +335,6 @@ private fun StatusCard(
                 )
                 // An older nacred: no stop to read, so the plain controls.
                 r.state == ROUND_PAUSED -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = onResume, enabled = !busy) { Text("Resume") }
                     OutlinedButton(onClick = { raising = true }, enabled = !busy) { Text("Raise budget") }
                 }
                 r.isActive -> TextButton(onClick = { raising = true }, enabled = !busy) { Text("Change budget") }
@@ -608,7 +606,7 @@ private fun LandedCard(r: Round) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Unit, onOpenRun: () -> Unit, onRetry: () -> Unit, onUnlink: (String) -> Unit) {
+private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Unit, onOpenRun: () -> Unit, onRetry: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onOpenBead),
@@ -640,9 +638,6 @@ private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Uni
             if (b.humanCheck.isNotBlank()) Text("Left for you: ${b.humanCheck}", style = MaterialTheme.typography.bodySmall, color = Nacre.colors.needsYou)
             if (r.isActive) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (b.state == BEAD_PARKED || b.state == BEAD_SKIPPED) OutlinedButton(onClick = onRetry, enabled = !busy) { Text("Try again") }
-                if (b.state == BEAD_WAITING) b.after.forEach { from ->
-                    TextButton(onClick = { onUnlink(from) }, enabled = !busy) { Text("Don't wait for $from") }
-                }
             }
         }
     }
@@ -663,7 +658,7 @@ private fun BeadStateIcon(state: String) {
 }
 
 @Composable
-private fun PlanCard(r: Round, onAccept: (String, String) -> Unit) {
+private fun PlanCard(r: Round) {
     val plan = r.plan ?: return
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -676,9 +671,6 @@ private fun PlanCard(r: Round, onAccept: (String, String) -> Unit) {
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                     )
                     Text(f.text, style = MaterialTheme.typography.bodySmall)
-                    if (f.kind == FINDING_ORDERING && f.beads.size == 2 && !f.accepted && r.isActive) TextButton(onClick = { onAccept(f.beads[1], f.beads[0]) }) {
-                        Text("Record ${f.beads[1]} depends on ${f.beads[0]} in bd")
-                    }
                     if (f.kind == FINDING_OVERLAP && f.unlinked) Text("You said these can run side by side.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

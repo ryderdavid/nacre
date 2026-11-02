@@ -22,7 +22,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,8 +36,6 @@ import com.ryderdavid.nacre.data.board.BoardFilter
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.friendly
-import com.ryderdavid.nacre.data.model.GoalOptions
-import com.ryderdavid.nacre.ui.common.GoalOptionsPicker
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.model.SpecChange
@@ -113,48 +110,38 @@ fun roundUnavailable(repo: Repo?): String? = when {
  */
 @Composable
 fun StartRoundSheet(
-    repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit, specChange: SpecChange? = null,
+    repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onStarted: (roundKey: String) -> Unit,
     /** The board's search and epic filter when the sheet opened; the list starts narrowed to it. */
     boardFilter: BoardFilter? = null,
 ) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
-    val prefs by container.settings.settings.collectAsState(initial = null)
-    val saved = prefs?.runGoal
-    var goalEnabled by rememberSaveable(saved) { mutableStateOf(saved?.enabled ?: false) }
-    var goalCommitted by rememberSaveable(saved) { mutableStateOf(saved?.committed ?: false) }
-    var goalPushed by rememberSaveable(saved) { mutableStateOf(saved?.pushed ?: false) }
-    val goal = GoalOptions(goalEnabled, goalCommitted, goalPushed)
-    var picked by rememberSaveable(specChange?.id, specChange?.revision) { mutableStateOf(specChange?.let { specificationCandidates(index, it).map(Issue::id) }.orEmpty()) }
-    var budget by rememberSaveable(specChange?.id) { mutableStateOf(if (specChange == null) "" else "5") }
+    var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var budget by rememberSaveable { mutableStateOf("") }
     var starting by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
-    val unavailable = roundUnavailable(repo) ?: specChange?.let { specificationUnavailable(index, it) }
-    val candidates = specChange?.let { specificationCandidates(index, it) } ?: roundCandidates(index, repo?.let { container.repository.changes(it.key) })
+    val unavailable = roundUnavailable(repo)
+    val candidates = roundCandidates(index, repo?.let { container.repository.changes(it.key) })
     var query by rememberSaveable { mutableStateOf(boardFilter?.query.orEmpty()) }
-    val scopeLabel = if (specChange == null) boardScopeLabel(index, boardFilter) else null
+    val scopeLabel = boardScopeLabel(index, boardFilter)
     var keepScope by rememberSaveable { mutableStateOf(scopeLabel != null) }
-    val shown = if (specChange != null) candidates else scopedCandidates(candidates, index, boardFilter, query, keepScope)
+    val shown = scopedCandidates(candidates, index, boardFilter, query, keepScope)
     val hiddenPicks = picked.count { id -> shown.none { it.id == id } }
-    val budgetValid = (budget.isBlank() && specChange == null) || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
+    val budgetValid = budget.isBlank() || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
 
     HandleDismissSheet(onDismiss = onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).navigationBarsPadding().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (specChange == null) "Work several beads until done" else "Implement this change", style = MaterialTheme.typography.headlineSmall)
+            Text("Start work", style = MaterialTheme.typography.headlineSmall)
             Text(
-                if (specChange != null) "Only sections from the approved proposal are included. The computer checks this revision again, installs its specification, then implements and verifies the selected work. Merging it into the target branch remains your decision."
-                else "${repo?.hostName?.ifBlank { null } ?: "The computer"} reviews them together first and asks you only where they disagree. " +
-                    "Then it works each on its own branch, checks it against the repository's gates, and merges them into one commit that builds.",
+                "${repo?.hostName?.ifBlank { null } ?: "The computer"} works each bead in its own worktree, checks the repository's gates, and merges the work automatically.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (unavailable != null) {
                 Text(unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             } else {
                 Text("Gates: ${repo!!.gates.joinToString(", ")}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (specChange != null) Text("${specChange.changeName} · revision ${specChange.revision.take(12)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                if (specChange != null && candidates.size < specChange.implementationIds.size) Text("${specChange.implementationIds.size - candidates.size} closed section beads are omitted. Their evidence remains in the change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (candidates.isEmpty()) Text("No ordinary open work is available. Specification work starts from its Change card.", style = MaterialTheme.typography.bodyMedium)
-                if (specChange == null && candidates.isNotEmpty()) {
+                if (candidates.isNotEmpty()) {
                     OutlinedTextField(
                         value = query, onValueChange = { query = it }, singleLine = true,
                         placeholder = { Text("Search titles, ids, labels") },
@@ -195,8 +182,6 @@ fun StartRoundSheet(
                     isError = !budgetValid,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !starting && prefs != null)
-                if (goal.enabled) Text("One session works every selected bead and commits it. Nacre bumps the version and, if pushed is selected, pushes when it merges the round.", style = MaterialTheme.typography.bodySmall)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(
                     onClick = {
@@ -204,7 +189,7 @@ fun StartRoundSheet(
                         error = null
                         scope.launch {
                             try {
-                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull(), specChange?.id, specChange?.revision, goal = goal)
+                                val round = container.repository.startRound(repo.key, picked, budget.toDoubleOrNull(), landWhenReady = true)
                                 onStarted(round.key)
                             } catch (e: Exception) {
                                 error = e.friendly()
@@ -213,14 +198,14 @@ fun StartRoundSheet(
                             }
                         }
                     },
-                    enabled = picked.isNotEmpty() && !starting && budgetValid && prefs != null,
+                    enabled = picked.isNotEmpty() && !starting && budgetValid,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 ) {
                     Text(
                         when (picked.size) {
                             0 -> "Pick the beads to work on"
-                            1 -> "Work this one until done"
-                            else -> "Work these ${picked.size} until done"
+                            1 -> "Start work"
+                            else -> "Start work on ${picked.size} beads"
                         },
                     )
                 }
