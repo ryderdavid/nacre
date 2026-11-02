@@ -2,7 +2,9 @@
 
 ## Purpose
 One list, on the Boards screen and for the assistant, of everything on Ryder's computers that waits on him, each item saying why and offering its answers.
+
 ## Requirements
+
 ### Requirement: One list of what waits on the owner
 nacred SHALL report, for every repository on its computer, each item waiting on Ryder: beads labelled
 `human` or typed `decision`, proposals and stale or blocked reviews, interrupted workflows, round
@@ -33,21 +35,6 @@ Every item SHALL include a title, a plain one- or two-sentence reason that stand
 - **WHEN** a round asks a question about a bead Ryder hasn't looked at recently
 - **THEN** the item states the bead, what is being asked and why, and offers the answers without opening the transcript
 
-### Requirement: Needs you on the Boards screen
-The Boards screen SHALL show Needs you above the board summary whenever there are items, ordered questions, decisions and discovered work first, then approvals, then landing and archive, showing at most five before Show all. Answering inline SHALL call the item's action and refresh. The section SHALL be hidden when empty or when no computer supports it. Boards SHALL carry its own badge with the item count; the Runs badge SHALL keep its current meaning.
-
-#### Scenario: Approve from the list
-- **WHEN** Ryder taps Review and approve on a proposal item
-- **THEN** the change view opens at that revision, ready for approval
-
-#### Scenario: A human check on a section
-- **WHEN** a spec section bead carries the `human` label
-- **THEN** it appears as a bead decision item that opens the bead
-
-#### Scenario: Nothing waiting
-- **WHEN** no item waits on Ryder
-- **THEN** Boards looks as it does today
-
 ### Requirement: The assistant starts from Needs you
 The board assistant SHALL see the same list on both backends, through a read tool on the API backend and in the prompt context nacred supplies on the Mac backend, and SHALL use it first when Ryder asks what to work on or what needs him.
 
@@ -59,3 +46,27 @@ The board assistant SHALL see the same list on both backends, through a read too
 - **WHEN** the assistant runs on the Mac backend
 - **THEN** it answers from the attention list in its prompt context without a read tool
 
+### Requirement: Inbox
+The app SHALL show Needs you as its own Inbox destination beside Boards and Activity, ordered questions,
+decisions and discovered work first, then approvals, then landing and archive. Answering inline SHALL
+call the item's action and refresh. Inbox SHALL carry a badge with the item count, and the Boards
+screen SHALL show the boards without Needs you items or totals above them.
+
+#### Scenario: Approve from the list
+- **WHEN** Ryder taps Review and approve on a proposal item in Inbox
+- **THEN** the change view opens at that revision, ready for approval
+
+#### Scenario: A human check on a section
+- **WHEN** a spec section bead carries the `human` label
+- **THEN** it appears as a bead decision item that opens the bead
+
+#### Scenario: Boards first
+- **WHEN** Ryder opens Boards while items wait in Inbox
+- **THEN** the boards are the first thing on the screen and the Inbox badge shows the count
+
+### Requirement: Only actionable items
+nacred SHALL NOT list a Needs you item whose only action cannot run.
+
+#### Scenario: Unrunnable stuck bead
+- **WHEN** a bead has been in progress for a day in a repository without `nacre.yaml`
+- **THEN** it is not listed in Inbox

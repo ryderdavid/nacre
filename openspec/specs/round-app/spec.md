@@ -2,28 +2,8 @@
 
 ## Purpose
 Today every bead runs on its own: nacred starts one `claude -p` per bead, the run "succeeds" when the process exits, and nobody owns putting the pieces back together. In one week that produced work built on a stale base (NAC-eky on 0.2.1 because `claude --worktree` branched from an unmerged `main`), finished work left uncommitted (NAC-j5z.6), a release branch that sat unmerged while runs kept fork…
+
 ## Requirements
-### Requirement: Start a round from a board
-The app SHALL let Ryder select several beads on a board and start a round on the repository's home computer
-(or another computer in the group that has the repository) with an optional budget. The action SHALL be
-unavailable, with a reason, when the repository has no `nacre.yaml` on that computer. The round's bead list
-SHALL open with the board's search and filter, which Ryder can change.
-
-#### Scenario: Multi-select
-- **WHEN** Ryder long-presses NAC-1, selects NAC-2 and NAC-3, and chooses "Work these until done"
-- **THEN** the app starts a round with those three beads and opens the round's screen
-
-#### Scenario: No gates
-- **WHEN** the repository has no `nacre.yaml`
-- **THEN** the action is disabled and says the repository needs `nacre.yaml`
-
-#### Scenario: Board search carries over
-- **WHEN** the board is searched for "search" and Ryder chooses "Work several beads until done"
-- **THEN** the sheet lists only open beads matching "search", with the search filled in, and clearing it lists every candidate
-
-#### Scenario: Filters and hidden picks
-- **WHEN** the board has an epic, type or needs-you filter, or Ryder narrows the search after picking beads
-- **THEN** the list opens with the same filter, which Ryder can turn off, and picked beads stay picked, with a count, when the search hides them
 
 ### Requirement: Round screen
 The app SHALL show each round with its state, spend against budget, elapsed time, and for each bead its
@@ -82,3 +62,16 @@ optional budget, approved like other writes, which starts a round and links to i
 - **WHEN** Ryder asks the assistant to finish everything ready under an epic
 - **THEN** the assistant proposes `start_round` with those beads, and approving it starts the round
 
+### Requirement: Start work from beads and epics
+The app SHALL start rounds from the work itself: Start work on a bead and Run epic on an epic, on the
+repository's home computer or another computer in the group that has the repository. The action SHALL be
+unavailable, with a reason, when the repository has no `nacre.yaml` on that computer. The board SHALL NOT
+offer a multi-select sheet for picking beads across epics.
+
+#### Scenario: Run an epic
+- **WHEN** Ryder taps Run epic on NAC-9 with children NAC-9.1 to NAC-9.3
+- **THEN** the app starts one round with those children and shows its progress on the epic
+
+#### Scenario: No gates
+- **WHEN** the repository has no `nacre.yaml`
+- **THEN** the action is disabled and says the repository needs `nacre.yaml`

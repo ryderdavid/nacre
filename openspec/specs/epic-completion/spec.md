@@ -2,19 +2,27 @@
 
 ## Purpose
 Work set in the app ends finished: a bead's round lands it, an epic's work collects on the epic's branch, and finishing the epic merges it into the main branch, archives its change and closes it. Pushing the main branch is the hand-off to the repository's CI.
+
 ## Requirements
+
 ### Requirement: Work until done
-The app SHALL offer Work until done first when a bead is implemented: a round of that bead which lands
-when it passes unless Ryder switches that off. A plain run SHALL remain available as a secondary
-choice that leaves checking, committing and closing to Ryder.
+The app SHALL offer one primary action to get work done: Start work on a bead, a round of that bead
+which lands when it passes, and Run epic on an epic with open children, a round of every open child
+that lands on the epic's branch and then finishes the epic. A plain run SHALL be available only as Run
+an agent manually… in a bead's overflow, and starting work SHALL NOT offer goal, committed or pushed
+options.
 
 #### Scenario: Approved specification sections
-- **WHEN** Ryder asks a round of approved specification sections to land when ready
-- **THEN** it lands without waiting; without being asked, `land.auto` alone still leaves such a round waiting for him
+- **WHEN** Ryder runs an epic whose children are approved specification sections
+- **THEN** nacred resolves the approved change and revision itself and the round lands without waiting
 
 #### Scenario: One tap to finished work
-- **WHEN** Ryder taps Work until done on a bead outside any epic
-- **THEN** a round works it in its own worktree, checks every gate and the build, lands it on the landing target, pushes it and closes the bead without waiting for him
+- **WHEN** Ryder taps Start work on a bead outside any epic
+- **THEN** a round works it in its own worktree, checks every gate and the build, lands it on the landing target, pushes it when `nacre.yaml` says so and closes the bead without waiting for him
+
+#### Scenario: Manual run
+- **WHEN** Ryder chooses Run an agent manually… from a bead's overflow
+- **THEN** the app offers the agent, computer, permission, model, effort, worktree and instruction choices and starts a plain run
 
 ### Requirement: Epic work lands on the epic's branch
 A round of beads under an epic SHALL land on the epic's branch, `epic/<id>`, made from the landing
@@ -78,3 +86,16 @@ hand-off to the repository's own CI.
 - **WHEN** a round lands with `land.push` on
 - **THEN** nacred pushes the target and its tag and publishes nothing else
 
+### Requirement: Run epic finishes the epic
+A round started with `finish` on an epic SHALL, once it has landed on the epic's branch and the epic has
+no open children, finish the epic without waiting for Ryder: merge into the landing target with every
+gate and the build, archive the epic's change when it has one, push as `nacre.yaml` says, and close the
+epic. When children remain open, the epic SHALL NOT be finished and Needs you SHALL say why.
+
+#### Scenario: Whole epic in one action
+- **WHEN** Ryder taps Run epic on an epic with three open children and every child passes
+- **THEN** the three are merged into `epic/<id>`, the epic is merged into main, its change is archived and the epic is closed
+
+#### Scenario: A child set aside
+- **WHEN** one child is parked and the other two land
+- **THEN** the epic stays open with its branch and Needs you says one child is unfinished

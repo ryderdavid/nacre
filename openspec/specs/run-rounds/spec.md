@@ -2,7 +2,9 @@
 
 ## Purpose
 Today every bead runs on its own: nacred starts one `claude -p` per bead, the run "succeeds" when the process exits, and nobody owns putting the pieces back together. In one week that produced work built on a stale base (NAC-eky on 0.2.1 because `claude --worktree` branched from an unmerged `main`), finished work left uncommitted (NAC-j5z.6), a release branch that sat unmerged while runs kept fork…
+
 ## Requirements
+
 ### Requirement: Start a round from a set of beads
 nacred SHALL accept a request to start a round in one repository from an explicit list of bead ids or
 from an epic (whose open children become the set). nacred SHALL refuse the request when the
@@ -109,3 +111,16 @@ remove the `round:<id>` labels and record the cancellation on each bead.
 - **WHEN** Ryder cancels a round with one bead integrated and one running
 - **THEN** the running turn is stopped, the round is `cancelled`, and both branches still exist so the work can be recovered
 
+### Requirement: Goal-driven workers fan out
+Every bead in a round SHALL be worked by its own goal-driven session in its own worktree and branch,
+whose goal is that bead and its acceptance criteria, so the session keeps working until they hold and
+nacred's checks pass. A round SHALL NOT run one session for all of its beads. Goal options sent by
+older apps SHALL NOT change this, and whether nacred pushes SHALL follow only `nacre.yaml`.
+
+#### Scenario: Three beads, three workers
+- **WHEN** a round of three independent beads starts
+- **THEN** three goal-driven sessions run, each in its own worktree, and each bead is verified and integrated on its own
+
+#### Scenario: Older app asks to push
+- **WHEN** an older app starts a round with the pushed goal option and `nacre.yaml` turns pushing off
+- **THEN** the round lands without pushing
