@@ -209,3 +209,50 @@ func TestSpecDriftCitationsAreNormalized(t *testing.T) {
 		t.Fatalf("plan=%+v err=%v", plan, err)
 	}
 }
+
+// Every open question gets a recommended answer with a reason, and accepting
+// the recommendations answers them all at once.
+func TestQuestionsGetRecommendationsAndAcceptAll(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-A", Title: "Add a", Type: "task"},
+		&fakeBead{ID: "T-B", Title: "Add b", Type: "task"},
+		&fakeBead{ID: "T-C", Title: "Add c", Type: "task", After: []string{"T-B"}},
+		&fakeBead{ID: "T-D", Title: "Add d", Type: "task", Labels: []string{"found:sf1"}},
+	)
+	h := newHarnessWith(t, beads, driftPlan, harnessOpts{requirements: boardsIndex})
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-A", "T-B", "T-C", "T-D"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundNeedsDecision)
+	var got api.Round
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		got, _, _ = h.m.Get(r.ID)
+		done := len(got.Questions) > 0
+		for _, q := range got.Questions {
+			done = done && q.Recommended != ""
+		}
+		if done {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for _, q := range got.Questions {
+		if q.Recommended != q.Options[0] || q.Reason == "" || !q.RecommendTried {
+			t.Fatalf("question without a recommendation: %+v", q)
+		}
+	}
+	if _, err := h.m.AcceptRecommended(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = h.m.Get(r.ID)
+	for _, q := range got.Questions {
+		if q.Answer != q.Recommended {
+			t.Fatalf("not answered with its recommendation: %+v", q)
+		}
+	}
+	if _, err := h.m.AcceptRecommended(r.ID); err == nil {
+		t.Fatal("accepting again with nothing open should be refused")
+	}
+}

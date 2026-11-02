@@ -646,6 +646,12 @@ type Question struct {
 	Options    []string `json:"options"`
 	Answer     string   `json:"answer,omitempty"`
 	AnsweredAt string   `json:"answered_at,omitempty"`
+	// Recommended is the option Claude recommends, one of Options, and
+	// Reason says why in a sentence or two. RecommendTried is set once a
+	// recommendation was asked for, so a failure isn't retried forever.
+	Recommended    string `json:"recommended,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	RecommendTried bool   `json:"recommend_tried,omitempty"`
 	// Problem says why an earlier answer couldn't be carried out, when the
 	// question has come back to be answered again.
 	Problem string `json:"problem,omitempty"`

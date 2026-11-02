@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -411,27 +412,73 @@ func roundItems(ref repos.Ref, r api.Round) []api.AttentionItem {
 		titles[b.ID] = b.Title
 	}
 	if r.State == api.RoundNeedsDecision {
+		// One item per round asks all its open questions, each with the
+		// recommended answer first, so they never pile up one by one.
+		var qs []api.AttentionQuestion
+		var beads []string
+		all := true
+		problem := ""
 		for _, q := range r.Questions {
 			if q.Answer != "" {
 				continue
 			}
-			opts := make([]api.AttentionOption, 0, len(q.Options)+1)
+			text := q.Text
+			if q.Problem != "" {
+				text += " " + q.Problem
+				problem += q.Problem
+			}
+			aq := api.AttentionQuestion{ID: q.ID, Text: text, Reason: q.Reason}
+			if q.Recommended != "" {
+				o := action(q.Recommended, "POST", roundPath+"/answers", map[string]any{"question_id": q.ID, "answer": q.Recommended})
+				o.Recommended = true
+				aq.Options = append(aq.Options, o)
+			} else {
+				all = false
+			}
 			for _, o := range q.Options {
-				opts = append(opts, action(o, "POST", roundPath+"/answers", map[string]any{"question_id": q.ID, "answer": o}))
+				if o != q.Recommended {
+					aq.Options = append(aq.Options, action(o, "POST", roundPath+"/answers", map[string]any{"question_id": q.ID, "answer": o}))
+				}
+			}
+			qs = append(qs, aq)
+			for _, b := range q.Beads {
+				if !slices.Contains(beads, b) {
+					beads = append(beads, b)
+				}
+			}
+		}
+		if len(qs) > 0 {
+			var opts []api.AttentionOption
+			if all {
+				label := "Accept recommendation"
+				if len(qs) > 1 {
+					label = fmt.Sprintf("Accept all %d recommendations", len(qs))
+				}
+				o := action(label, "POST", roundPath+"/answers/recommended", nil)
+				o.Recommended = true
+				opts = append(opts, o)
 			}
 			opts = append(opts, openRound)
-			why := q.Text
-			if q.Problem != "" {
-				why += " " + q.Problem
+			title := "1 question before work starts on " + beadList(beads, titles)
+			if len(qs) > 1 {
+				title = fmt.Sprintf("%d questions before work starts on %s", len(qs), beadList(beads, titles))
+			}
+			why := "Claude recommends an answer to each; accept them, pick another, or ask Claude about it."
+			if !all {
+				why = "Claude is working out a recommended answer for each."
 			}
 			beadID := ""
-			if len(q.Beads) > 0 {
-				beadID = q.Beads[0]
+			if len(beads) > 0 {
+				beadID = beads[0]
+			}
+			ids := make([]string, len(qs))
+			for i, q := range qs {
+				ids[i] = q.ID
 			}
 			out = append(out, api.AttentionItem{
-				ID: digest(api.AttentionRoundQuestion, r.ID, q.ID, q.Problem), Kind: api.AttentionRoundQuestion,
+				ID: digest(api.AttentionRoundQuestion, r.ID, strings.Join(ids, ","), problem), Kind: api.AttentionRoundQuestion,
 				Repo: ref.ID, RepoName: ref.Name, BeadID: beadID, RoundID: r.ID,
-				Title: "Round question about " + beadList(q.Beads, titles), Why: why, CreatedAt: r.UpdatedAt, Options: opts,
+				Title: title, Why: why, CreatedAt: r.UpdatedAt, Options: opts, Questions: qs,
 			})
 		}
 	}

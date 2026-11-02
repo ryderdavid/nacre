@@ -41,18 +41,32 @@ type AttentionItem struct {
 	Why       string            `json:"why"`
 	SourceRef string            `json:"source_ref,omitempty"`
 	Options   []AttentionOption `json:"options"`
-	CreatedAt string            `json:"created_at"`
+	// Questions holds every unanswered question of a round, so one item
+	// asks them all.
+	Questions []AttentionQuestion `json:"questions,omitempty"`
+	CreatedAt string              `json:"created_at"`
+}
+
+// AttentionQuestion is one round question with its answers, the
+// recommended one first and marked.
+type AttentionQuestion struct {
+	ID      string            `json:"id"`
+	Text    string            `json:"text"`
+	Reason  string            `json:"reason,omitempty"`
+	Options []AttentionOption `json:"options"`
 }
 
 // AttentionOption is either an exact API action (Type "action": Method, Path
 // and Body) or a navigation (Type "open": Target).
 type AttentionOption struct {
-	Type   string           `json:"type"`
-	Label  string           `json:"label"`
-	Method string           `json:"method,omitempty"`
-	Path   string           `json:"path,omitempty"`
-	Body   map[string]any   `json:"body,omitempty"`
-	Target *AttentionTarget `json:"target,omitempty"`
+	Type  string `json:"type"`
+	Label string `json:"label"`
+	// Recommended marks the answer Claude recommends.
+	Recommended bool             `json:"recommended,omitempty"`
+	Method      string           `json:"method,omitempty"`
+	Path        string           `json:"path,omitempty"`
+	Body        map[string]any   `json:"body,omitempty"`
+	Target      *AttentionTarget `json:"target,omitempty"`
 	// Disabled says why the option can't be used yet; the app shows it
 	// instead of sending the action.
 	Disabled string `json:"disabled,omitempty"`

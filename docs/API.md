@@ -664,7 +664,7 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `review_blocked` | change `needs_attention` | open change |
 | `approval_stale` | change `stale`, including a ready or awaiting change whose live check fails when the list is built; `why` is its `stale_reason` | `revise`; open change |
 | `workflow_interrupted` | change `interrupted` | `resume`; open change |
-| `round_question` | each unanswered question of a round in `needs_decision` | each answer via `POST /v1/rounds/{round}/answers`; open round |
+| `round_question` | one item per round in `needs_decision`, carrying every unanswered question in `questions` (`{id, text, reason?, options}`; the recommended answer first with `recommended: true`) | each answer via `POST /v1/rounds/{round}/answers`; Accept all recommendations (`POST /v1/rounds/{round}/answers/recommended`, offered once every question has one); open round |
 | `bead_parked` | parked bead of an active round | `POST /v1/rounds/{round}/beads/{id}/retry`; open round |
 | `round_ready` | round `ready_to_land` | `POST /v1/rounds/{round}/land`; open round |
 | `found_work` | an unanswered `Found:` comment on a spec section bead that has finished in a round (any end state); or an open `found-amend` bead not carried by a revision under way | comment: Answer (opens `found_something`), Dismiss (action), open bead; `found-amend` bead: Revise now (action with every such bead of the change; `disabled` while the change has active work; `why` states how many landed sections a revision reopens), Make it a follow-on change (opens `new_effort`), open bead |
@@ -687,7 +687,8 @@ on the computer that has the repository, without any client connected.
 | GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
 | GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |
 | GET | `/v1/rounds/{round}/stream[?after=seq]` | – | SSE: `event: event` (RoundEvent, `id: seq`) for log entries after `after`, and `event: round` (Round) whenever it changes; honours `Last-Event-ID` |
-| POST | `/v1/rounds/{round}/answers` | `{"question_id","answer"}` | `Round` |
+| POST | `/v1/rounds/{round}/answers` | `{"question_id","answer"}` | `Round`; any answer text is accepted, so a reply worked out in chat can be sent as is |
+| POST | `/v1/rounds/{round}/answers/recommended` | – | `Round`; answers every open question with its recommendation; 409 while one has none or nothing is open |
 | POST | `/v1/rounds/{round}/plan` | `{"unlink":[["NAC-2","NAC-1"]], "accept_dependencies":[["NAC-2","NAC-1"]]}` | `Round`; unlink only before the bead starts |
 | POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round stopped by a limit resumes |
 | POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
@@ -758,7 +759,7 @@ is verified; the round reports it as `auto_land`.
   "plan": {"summary": "…", "beads": [{"id","areas","files","depends_on","needs","human_check"}],
            "findings": [{"id":"f1","kind":"overlap","beads":["NAC-1","NAC-2"],"branch":"","files":[],"text":"…","accepted":false,"unlinked":false}],
            "cost_usd": 0.4},
-  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again
+  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"recommended":"…","reason":"…","answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again. recommended/reason: the option Claude recommends and why, filled in by one cheap call per round once questions are open
   "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…",
                   "branch":"","rebump":false,"attempted":["fix:version","turn:land-merge×1"]},
                                     // the merge in progress, if any. phase: merge | conflict | gates | final for the

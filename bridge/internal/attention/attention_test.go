@@ -119,8 +119,10 @@ func TestItemsCoverBeadsRoundsAndChangesInOrder(t *testing.T) {
 		}
 		switch it.Kind {
 		case api.AttentionRoundQuestion:
-			if len(it.Options) != 3 || it.Options[0].Path != "/v1/rounds/R1/answers" || it.Options[0].Body["question_id"] != "q1" {
-				t.Fatalf("question options=%+v", it.Options)
+			// One item asks the round's questions; answers live on each question.
+			if len(it.Questions) != 1 || len(it.Questions[0].Options) != 2 || it.Questions[0].Options[0].Path != "/v1/rounds/R1/answers" ||
+				it.Questions[0].Options[0].Body["question_id"] != "q1" || it.Options[len(it.Options)-1].Label != "Open round" {
+				t.Fatalf("question=%+v options=%+v", it.Questions, it.Options)
 			}
 		case api.AttentionProposalReady:
 			if it.Options[1].Body["revision"] != "abcdef123456" || it.Options[1].Path != "/v1/repos/r1/issues/N-5/change" {
@@ -434,5 +436,30 @@ func TestStuckBeadsSuppressedWithoutRoundConfiguration(t *testing.T) {
 	f.b.Invalidate(repo)
 	if got := f.b.Items(context.Background()); len(got) != 1 || got[0].Kind != api.AttentionBeadStuck {
 		t.Fatalf("configured repo: %+v", got)
+	}
+}
+
+// A round's questions share one item; each lists its recommended answer
+// first, and the item offers to accept them all once every one has one.
+func TestRoundQuestionsShareOneItemWithRecommendationsFirst(t *testing.T) {
+	r := api.Round{ID: "R9", State: api.RoundNeedsDecision, Beads: []api.RoundBead{{ID: "N-1", Title: "Pending proposals"}}, Questions: []api.Question{
+		{ID: "q1", Beads: []string{"N-1"}, Text: "Which moment?", Options: []string{"Gap", "Drafting", "All"}, Recommended: "Drafting", Reason: "Covers the visible wait."},
+		{ID: "q2", Beads: []string{"N-1"}, Text: "Spec?", Options: []string{"Amend", "Exception"}, Recommended: "Amend", Reason: "Keeps the spec true."},
+		{ID: "q3", Beads: []string{"N-1"}, Text: "Done already", Options: []string{"A"}, Answer: "A"},
+	}}
+	items := roundItems(repos.Ref{ID: "r1", Name: "Nacre"}, r)
+	if len(items) != 1 || len(items[0].Questions) != 2 {
+		t.Fatalf("items=%+v", items)
+	}
+	q := items[0].Questions[0]
+	if !q.Options[0].Recommended || q.Options[0].Label != "Drafting" || len(q.Options) != 3 || q.Reason == "" {
+		t.Fatalf("recommended first: %+v", q)
+	}
+	if o := items[0].Options[0]; !o.Recommended || o.Path != "/v1/rounds/R9/answers/recommended" || o.Label != "Accept all 2 recommendations" {
+		t.Fatalf("accept all: %+v", items[0].Options)
+	}
+	r.Questions[1].Recommended = ""
+	if o := roundItems(repos.Ref{ID: "r1"}, r)[0].Options; len(o) != 1 || o[0].Label != "Open round" {
+		t.Fatalf("accept all offered before every question has a recommendation: %+v", o)
 	}
 }

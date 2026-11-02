@@ -145,6 +145,8 @@ func (r *round) advance() bool {
 			r.watchIntegration()
 		case r.allAnswered() && !r.ops["decide"] && !r.ops["reset"]:
 			r.applyDecisions()
+		case r.needsRecommendation() && !r.ops["recommend"]:
+			r.startRecommend()
 		}
 	case api.RoundImplementing, api.RoundIntegrating:
 		r.drive()

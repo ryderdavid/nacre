@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/rounds/{round}", s.getRound)
 	mux.HandleFunc("GET /v1/rounds/{round}/stream", s.streamRound)
 	mux.HandleFunc("POST /v1/rounds/{round}/answers", s.answerRound)
+	mux.HandleFunc("POST /v1/rounds/{round}/answers/recommended", s.acceptRecommended)
 	mux.HandleFunc("POST /v1/rounds/{round}/plan", s.editRoundPlan)
 	mux.HandleFunc("POST /v1/rounds/{round}/limits", s.setRoundLimits)
 	mux.HandleFunc("GET /v1/rounds/{round}/changes", s.roundChanges)

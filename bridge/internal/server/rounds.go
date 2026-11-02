@@ -154,6 +154,14 @@ func (s *Server) answerRound(w http.ResponseWriter, r *http.Request) {
 	s.roundResult(w, func() (api.Round, error) { return s.Rounds.Answer(r.PathValue("round"), body.QuestionID, body.Answer) })
 }
 
+// acceptRecommended answers every open question with its recommendation.
+func (s *Server) acceptRecommended(w http.ResponseWriter, r *http.Request) {
+	if !s.roundsReady(w) {
+		return
+	}
+	s.roundResult(w, func() (api.Round, error) { return s.Rounds.AcceptRecommended(r.PathValue("round")) })
+}
+
 func (s *Server) editRoundPlan(w http.ResponseWriter, r *http.Request) {
 	var body rounds.PlanEdit
 	if !s.roundsReady(w) || !decodeOK(w, r, &body) {

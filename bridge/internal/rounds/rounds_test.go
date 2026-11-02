@@ -151,6 +151,8 @@ type fakeHeadless struct {
 	plan      string
 	prompt    string
 	diagnoses []string
+	// recommends holds each recommendation request's prompt.
+	recommends []string
 	// hold, when set, keeps each diagnosis waiting until it is closed.
 	hold chan struct{}
 }
@@ -167,6 +169,22 @@ func (h *fakeHeadless) Run(_ context.Context, _ string, hl claude.Headless, _ fu
 	if hl.System == diagnosisSystem {
 		h.diagnoses = append(h.diagnoses, hl.Prompt)
 		return assist.Outcome{CostUSD: 0.03, Output: json.RawMessage(`{"summary":"The merge conflicts in a file both sides changed.","cause":"clash.txt","choices":[{"id":"retry-with-budget","explanation":"Claude tries the merge again."}]}`)}, nil
+	}
+	if hl.System == recommendSystem {
+		// Recommend each question's first option.
+		h.recommends = append(h.recommends, hl.Prompt)
+		var answers []map[string]string
+		id := ""
+		for _, line := range strings.Split(hl.Prompt, "\n") {
+			if i := strings.Index(line, "question_id "); i >= 0 {
+				id = strings.Fields(line[i+len("question_id "):])[0]
+			} else if id != "" && strings.HasPrefix(line, "  - ") {
+				answers = append(answers, map[string]string{"question_id": id, "recommended": strings.TrimPrefix(line, "  - "), "reason": "First is safest."})
+				id = ""
+			}
+		}
+		out, _ := json.Marshal(map[string]any{"answers": answers})
+		return assist.Outcome{Output: out, CostUSD: 0.01}, nil
 	}
 	h.prompt = hl.Prompt
 	return assist.Outcome{Output: json.RawMessage(h.plan), CostUSD: 0.05}, nil
