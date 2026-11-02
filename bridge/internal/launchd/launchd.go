@@ -40,7 +40,10 @@ func Plist(p Paths, configPath string) []byte {
 	if configPath != "" {
 		args = append(args, "--config", configPath)
 	}
-	pathEnv := fmt.Sprintf("/opt/homebrew/bin:%s/.local/bin:/usr/local/bin:/usr/bin:/bin", p.Home)
+	// ~/.local/bin first, as in Ryder's shell: tools installed both there and
+	// by Homebrew (openspec, node) must be the same versions the daemon's
+	// gates run as the ones he runs by hand.
+	pathEnv := fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", p.Home)
 	esc := func(s string) string {
 		var b bytes.Buffer
 		_ = xml.EscapeText(&b, []byte(s))

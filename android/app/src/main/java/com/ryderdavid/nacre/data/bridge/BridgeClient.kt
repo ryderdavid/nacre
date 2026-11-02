@@ -224,6 +224,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun editPlan(id: String, unlink: List<Pair<String, String>> = emptyList(), accept: List<Pair<String, String>> = emptyList()): Round =
         send("POST", "/v1/rounds/${enc(id)}/plan", PlanEdit(unlink.map { listOf(it.first, it.second) }, accept.map { listOf(it.first, it.second) }))
     suspend fun setLimits(id: String, budgetUsd: Double, minutes: Int): Round = send("POST", "/v1/rounds/${enc(id)}/limits", Limits(budgetUsd, minutes))
+    suspend fun roundChanges(id: String): com.ryderdavid.nacre.data.model.RoundChanges = get("/v1/rounds/${enc(id)}/changes")
     suspend fun land(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/land", Reason())
     suspend fun cancelRound(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/cancel", Reason())
     suspend fun resumeRound(id: String): Round = send<Reason, Round>("POST", "/v1/rounds/${enc(id)}/resume", Reason())

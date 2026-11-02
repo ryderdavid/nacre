@@ -253,7 +253,7 @@ func (m *Manager) load(dir string) (*round, error) {
 			r.meta.State, r.meta.PauseReason = api.RoundPaused, reason
 			r.meta.Stop = &api.Stop{Kind: api.StopConfig, Reason: reason, Choices: legacyStop(reason).Choices}
 		}
-		r.cfg = cfg
+		r.setCfg(cfg)
 		if r.meta.State == api.RoundPaused && r.meta.Stop == nil {
 			// Paused before stops existed.
 			r.meta.Stop = legacyStop(r.meta.PauseReason)
@@ -433,7 +433,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		return api.Round{}, err
 	}
 	r := m.newRound(meta, dir)
-	r.cfg = cfg
+	r.setCfg(cfg)
 	r.mu.Lock()
 	r.event("state", "", fmt.Sprintf("Round started with %d beads from %s at %s", len(beads), target, short(ws.Base)))
 	r.saveLocked()
@@ -580,6 +580,18 @@ func (s *Subscription) Close() {
 		delete(s.r.subs, s.ch)
 		s.r.mu.Unlock()
 	})
+}
+
+// setCfg keeps the round's nacre.yaml and resolves from it whether landing
+// pushes, so the app can say so before Ryder confirms.
+func (r *round) setCfg(cfg *repoconfig.Config) {
+	r.cfg = cfg
+	if cfg == nil {
+		r.meta.LandPush = nil
+		return
+	}
+	push := cfg.Land.Push
+	r.meta.LandPush = &push
 }
 
 // ---- persistence and notification (callers hold r.mu) ----

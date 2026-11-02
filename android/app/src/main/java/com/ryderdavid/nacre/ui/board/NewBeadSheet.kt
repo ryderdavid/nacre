@@ -100,6 +100,8 @@ fun NewBeadSheet(
     var chat by rememberSaveable { mutableStateOf(saved.chat) }
     var message by rememberSaveable { mutableStateOf(saved.message) }
     var drafted by rememberSaveable { mutableStateOf(saved.drafted) }
+    /** Acceptance and design fields opened by hand before either has text. */
+    var addingDetails by rememberSaveable { mutableStateOf(false) }
     var drafting by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -125,7 +127,7 @@ fun NewBeadSheet(
         title = blank.title; description = blank.description; acceptance = blank.acceptance; design = blank.design
         type = blank.type; priority = blank.priority; labels = blank.labels; parent = blank.parent
         questions = blank.questions; chat = blank.chat; message = blank.message; drafted = blank.drafted
-        error = null; offerApiKey = false
+        error = null; offerApiKey = false; addingDetails = false
         edited()
         container.newBeadDrafts.clear(draftKey)
     }
@@ -246,9 +248,12 @@ fun NewBeadSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(description, { description = it; edited() }, label = { Text("Description or a rough note") }, minLines = 3, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-            if (acceptance.isNotBlank() || design.isNotBlank()) {
-                OutlinedTextField(acceptance, { acceptance = it }, label = { Text("Acceptance criteria") }, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                OutlinedTextField(design, { design = it }, label = { Text("Design") }, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            if (showDetailFields(addingDetails, acceptance, design)) {
+                OutlinedTextField(acceptance, { acceptance = it; edited() }, label = { Text("Acceptance criteria") }, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                OutlinedTextField(design, { design = it; edited() }, label = { Text("Design") }, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            } else {
+                // Written by hand as well as by Claude's draft (NAC-3mc).
+                TextButton(onClick = { addingDetails = true }, modifier = Modifier.padding(top = 4.dp)) { Text("Add acceptance criteria and design") }
             }
             FilledTonalButton(
                 onClick = { draft() },
@@ -428,3 +433,7 @@ private fun IntakeChoice(
         }
     }
 }
+
+/** Acceptance and design show once either has text, or when the owner asks for them. */
+fun showDetailFields(adding: Boolean, acceptance: String, design: String): Boolean =
+    adding || acceptance.isNotBlank() || design.isNotBlank()

@@ -649,6 +649,7 @@ class NacreRepository(
     suspend fun unlink(key: String, bead: String, from: String) = roundAction(key) { editPlan(it, unlink = listOf(bead to from)) }
     suspend fun acceptDependency(key: String, bead: String, on: String) = roundAction(key) { editPlan(it, accept = listOf(bead to on)) }
     suspend fun setRoundLimits(key: String, budgetUsd: Double, minutes: Int = 0) = roundAction(key) { setLimits(it, budgetUsd, minutes) }
+    suspend fun roundChanges(key: String) = pairedFor(key).client.roundChanges(Keys.id(key))
     suspend fun land(key: String) = roundAction(key) { land(it) }
     suspend fun cancelRound(key: String) = roundAction(key) { cancelRound(it) }
     suspend fun resumeRound(key: String) = roundAction(key) { resumeRound(it) }

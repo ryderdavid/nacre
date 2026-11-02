@@ -174,7 +174,7 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 		return api.Round{}, false, err
 	}
 	r := m.newRound(meta, dir)
-	r.cfg = cfg
+	r.setCfg(cfg)
 	r.mu.Lock()
 	what := fmt.Sprintf("merging %s into %s", branch, target)
 	if merged {

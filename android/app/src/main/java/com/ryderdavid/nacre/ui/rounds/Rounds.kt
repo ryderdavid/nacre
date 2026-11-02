@@ -7,6 +7,10 @@ import com.ryderdavid.nacre.data.model.CHOICE_CANCEL
 import com.ryderdavid.nacre.data.model.RoundStop
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.produceState
+import com.ryderdavid.nacre.data.model.RoundChanges
+import com.ryderdavid.nacre.data.friendly
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -487,22 +491,67 @@ private fun QuestionCard(q: Question, busy: Boolean, onAnswer: (String) -> Unit)
     }
 }
 
+/** What landing [target] does about pushing, resolved from nacre.yaml; null [landPush] is an older nacred that doesn't say. */
+data class LandWording(val note: String, val confirm: String, val body: String)
+
+fun landWording(target: String, commit: String, landPush: Boolean?): LandWording {
+    val moved = "If $target moved since the round started, nacred merges those changes in and runs the gates and build again first."
+    return when (landPush) {
+        true -> LandWording(
+            note = "Landing pushes $target to origin.",
+            confirm = "Fast-forward $target and push",
+            body = "nacred moves $target to $commit and pushes it to origin. $moved",
+        )
+        false -> LandWording(
+            note = "Landing doesn't push: nacre.yaml sets land.push to false.",
+            confirm = "Fast-forward $target, don't push",
+            body = "nacred moves $target to $commit on this computer only. It doesn't push, because the repository's nacre.yaml sets land.push to false. $moved",
+        )
+        null -> LandWording(
+            note = "",
+            confirm = "Land",
+            body = "nacred moves $target to $commit and pushes it if the repository's nacre.yaml says to. $moved",
+        )
+    }
+}
+
 @Composable
 private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
     var confirm by remember { mutableStateOf(false) }
+    var reviewing by rememberSaveable(r.finalCommit) { mutableStateOf(false) }
+    val container = LocalContainer.current
     val closing = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isBlank() }
     val checks = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isNotBlank() }
     val parked = r.beads.filter { it.state == BEAD_PARKED || it.state == BEAD_SKIPPED }
+    val wording = landWording(r.target, r.finalCommit.take(7), r.landPush)
     Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("One commit, every gate and the build pass", style = MaterialTheme.typography.titleMedium)
-            Text(
-                listOfNotNull("Commit ${r.finalCommit.take(7)}", r.version.ifBlank { null }?.let { "version $it" }, r.artifacts.firstOrNull()?.substringAfterLast('/')).joinToString(" · "),
-                style = MaterialTheme.typography.bodyMedium, fontFamily = MonoFamily,
-            )
+            // Selectable so the commit and the build's path on the computer can be copied.
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        listOfNotNull("Commit ${r.finalCommit.take(7)}", r.version.ifBlank { null }?.let { "version $it" }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium, fontFamily = MonoFamily,
+                    )
+                    r.artifacts.forEach { a ->
+                        Text("Build on ${r.hostName.ifBlank { "the computer" }}: $a", style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily)
+                    }
+                }
+            }
             if (closing.isNotEmpty()) Text("Closed: " + closing.joinToString(", ") { it.id }, style = MaterialTheme.typography.bodyMedium)
             checks.forEach { Text("${it.id} stays open for you to verify: ${it.humanCheck}", style = MaterialTheme.typography.bodyMedium) }
             if (parked.isNotEmpty()) Text("Not in this round: " + parked.joinToString(", ") { "${it.id} (${it.reason})" }, style = MaterialTheme.typography.bodyMedium)
+            if (wording.note.isNotEmpty()) Text(wording.note, style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { reviewing = !reviewing }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (reviewing) "Hide the changes" else "Review the changes")
+            }
+            if (reviewing) {
+                val changes by produceState<Result<RoundChanges>?>(null, r.key, r.finalCommit) {
+                    value = runCatching { container.repository.roundChanges(r.key) }
+                }
+                RoundChangesList(changes)
+            }
             Button(onClick = { confirm = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.RocketLaunch, null)
                 Spacer(Modifier.width(8.dp))
@@ -513,12 +562,37 @@ private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
         title = { Text("Land on ${r.target}?") },
-        text = {
-            Text("nacred moves ${r.target} to ${r.finalCommit.take(7)} and pushes it if the repository's nacre.yaml says to. If ${r.target} moved since the round started, it merges those changes in and runs the gates and build again first.")
-        },
-        confirmButton = { TextButton(onClick = { confirm = false; onLand() }) { Text("Land") } },
+        text = { Text(wording.body) },
+        confirmButton = { TextButton(onClick = { confirm = false; onLand() }) { Text(wording.confirm) } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Not yet") } },
     )
+}
+
+/** The commits and files a round adds, loaded on demand. */
+@Composable
+private fun RoundChangesList(changes: Result<RoundChanges>?) {
+    val c = changes?.getOrNull()
+    when {
+        changes == null -> Text("Loading the changes…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        c == null -> Text("Couldn't load the changes: ${changes.exceptionOrNull()?.friendly()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        else -> SelectionContainer {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "${c.commits.size + c.moreCommits} commits · ${c.files.size} files · +${c.added} −${c.deleted} since ${c.base.take(7)}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                c.commits.forEach { Text("${it.sha.take(7)} ${it.subject}", style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                if (c.moreCommits > 0) Text("and ${c.moreCommits} earlier", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                c.files.forEach { f ->
+                    Text(
+                        if (f.binary) "${f.path} (binary)" else "+${f.added} −${f.deleted}  ${f.path}",
+                        style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
