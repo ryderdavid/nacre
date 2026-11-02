@@ -29,6 +29,8 @@ type fakeBeads struct {
 	failDependency bool
 	beforeGet      func()
 	created        []bd.CreateParams
+	// failGet makes reads of these ids fail, like a bd call that was killed.
+	failGet map[string]bool
 }
 
 func newBeads() *fakeBeads {
@@ -43,6 +45,9 @@ func (f *fakeBeads) Get(_ context.Context, _, id string) (api.Issue, error) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failGet[id] {
+		return nil, errors.New("bd: signal: killed")
+	}
 	is, ok := f.issues[id]
 	if !ok {
 		return nil, fmt.Errorf("missing %s", id)
@@ -1165,5 +1170,42 @@ func TestAChangeWaitingOnTheOwnerGetsOneGuideForItsState(t *testing.T) {
 	c := approve(t, m, repo, *env.Change)
 	if c.Guide != nil {
 		t.Fatal("a guide for an older state was shown")
+	}
+}
+
+func TestABeadReadThatFailsNeverMakesAnApprovedChangeStale(t *testing.T) {
+	repo, b, _, opts := fixture(t)
+	m := newManager(t, opts)
+	c := approve(t, m, repo, develop(t, m, repo))
+	id := c.Sections[0].BeadID
+
+	b.mu.Lock()
+	b.failGet = map[string]bool{id: true}
+	b.mu.Unlock()
+	env, e := m.Get(context.Background(), repo, "NAC-1")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if env.Change.Phase != "ready" {
+		t.Fatalf("a failed read made the change %s: %s", env.Change.Phase, env.Change.Error)
+	}
+	if _, e := m.Contract(context.Background(), repo, id); e == nil || errors.Is(e, ErrConflict) || !strings.Contains(e.Error(), "Try again") {
+		t.Fatalf("a failed read should ask to try again, not block: %v", e)
+	}
+
+	// One that was marked stale that way is ready again once it checks out.
+	m.mu.Lock()
+	key, _ := canonicalRepo(repo)
+	r := m.findLocked(key, "NAC-1")
+	r.Change.Phase, r.Change.Error = "stale", "bd: signal: killed"
+	m.mu.Unlock()
+	b.mu.Lock()
+	b.failGet = nil
+	b.mu.Unlock()
+	if env, e = m.Get(context.Background(), repo, "NAC-1"); e != nil || env.Change.Phase != "ready" || env.Change.Error != "" {
+		t.Fatalf("still %s: %v %s", env.Change.Phase, e, env.Change.Error)
+	}
+	if _, e := m.Contract(context.Background(), repo, id); e != nil {
+		t.Fatalf("its sections can't run: %v", e)
 	}
 }
