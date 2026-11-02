@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Check
@@ -164,10 +165,9 @@ fun BeadChatContent(
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Clearing ends the conversation; closing only puts it away.
+                if (messages > 0) IconButton(onClick = onDismissChat) { Icon(Icons.Rounded.DeleteSweep, "Clear this conversation") }
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close chat") }
-                IconButton(onClick = onDismissChat) {
-                    Icon(Icons.Rounded.Close, "Dismiss chat")
-                }
             }
             // Refining the bead itself is the usual move; a reviewed proposal is the quiet alternative.
             if (onDevelop != null) androidx.compose.material3.TextButton(onClick = onDevelop, modifier = Modifier.padding(start = 12.dp)) {
