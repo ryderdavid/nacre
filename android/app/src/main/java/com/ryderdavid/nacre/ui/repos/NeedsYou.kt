@@ -61,8 +61,9 @@ private fun labelColors(kind: String): Pair<Color, Color> = when (kind) {
 }
 
 /**
- * Needs you at the top of Boards: every item waiting on Ryder across computers,
- * each explaining itself and offering its answers inline. Hidden when empty.
+ * The Inbox list: every item waiting on Ryder across computers, each explaining
+ * itself and offering its answers inline. No heading or count of its own (the
+ * screen title and the nav badge carry those). Hidden when empty.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -77,13 +78,6 @@ fun NeedsYouSection(
     if (items.isEmpty()) return
     var all by rememberSaveable { mutableStateOf(initiallyAll) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Needs you", style = MaterialTheme.typography.titleLarge)
-            val (bg, fg) = labelColors(AttentionItem.BEAD_DECISION)
-            Surface(color = bg, contentColor = fg, shape = RoundedCornerShape(12.dp)) {
-                Text("${items.size}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp))
-            }
-        }
         (if (all) items else items.take(NEEDS_YOU_SHOWN)).forEach { item ->
             NeedsYouCard(item, busy = item.id in busy, showComputer = showComputers, onOption = { onOption(item, it) })
         }
