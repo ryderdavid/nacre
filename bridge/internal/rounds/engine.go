@@ -66,12 +66,41 @@ func (r *round) goOp(key string, work func(ctx context.Context) func()) {
 		r.mu.Lock()
 		delete(r.ops, key)
 		if apply != nil && r.m.ctx.Err() == nil {
+			ended := endedState{done: !r.meta.Active(), state: r.meta.State, endedAt: r.meta.EndedAt, stop: r.meta.Stop}
 			apply()
+			if ended.done {
+				r.stayEnded(ended)
+			}
 		}
 		r.saveLocked()
 		r.mu.Unlock()
 		r.poke()
 	}()
+}
+
+// endedState is what a round that had already ended looked like when an
+// operation's result came in.
+type endedState struct {
+	done    bool
+	state   string
+	endedAt string
+	stop    *api.Stop
+}
+
+// stayEnded keeps a round that was cancelled (or landed) while an operation
+// ran from being moved on by that operation's result: the end is restored,
+// and any run or lease the result took up is let go. Caller holds r.mu.
+func (r *round) stayEnded(e endedState) {
+	r.meta.State, r.meta.EndedAt, r.meta.Stop = e.state, e.endedAt, e.stop
+	r.m.leases.release(r.meta.ID + "/goal")
+	for _, runID := range r.meta.RunIDs {
+		if run, err := r.m.opts.Runs.Run(runID); err == nil && run.Active() {
+			_, _ = r.m.opts.Runs.Cancel(runID)
+		}
+	}
+	for _, b := range r.meta.Beads {
+		r.m.leases.release(r.meta.ID + "/" + b.ID)
+	}
 }
 
 // async runs a side effect (bd comments and labels) that nothing waits for.
