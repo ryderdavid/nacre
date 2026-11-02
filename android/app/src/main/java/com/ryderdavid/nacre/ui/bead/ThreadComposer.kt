@@ -65,6 +65,9 @@ import com.ryderdavid.nacre.data.claude.ChatMode
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.ui.common.AiIcon
+import com.ryderdavid.nacre.ui.common.ClaudeSignInDialog
+import com.ryderdavid.nacre.ui.common.signedOutOn
+import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
 import kotlinx.coroutines.delay
@@ -170,6 +173,8 @@ private fun BeadChatCard(
     // Follow the newest message, including when the card first lays out.
     LaunchedEffect(items.size, thinking, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     val saved = comments.filter { it.author == "Claude" }.map { it.text.trim() }.toSet()
+    var signingIn by remember { mutableStateOf(false) }
+    if (signingIn) ClaudeSignInDialog(Keys.host(vm.repoKey), onDismiss = { signingIn = false })
     Surface(
         shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth(),
@@ -226,6 +231,7 @@ private fun BeadChatCard(
                 failure?.let { f ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(f.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                        if (signedOutOn(f.message) != null) TextButton(onClick = { signingIn = true }) { Text("Sign in to Claude") }
                         TextButton(onClick = vm::retryChat) { Text("Retry") }
                     }
                 }

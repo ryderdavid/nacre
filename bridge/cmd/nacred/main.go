@@ -165,6 +165,10 @@ func serve(cfg *config.Config, listenFlag string) error {
 		Logger: logger,
 	}
 	defer live.Close()
+	// Claude's own long-lived token, when the app has signed this computer in.
+	if err := claude.UseTokenFile(cfg.ClaudeTokenPath()); err != nil {
+		logger.Printf("claude token: %v", err)
+	}
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),

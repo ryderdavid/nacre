@@ -86,6 +86,7 @@ import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.data.settings.ThemeMode
 import com.ryderdavid.nacre.ui.bead.RUN_MODES
+import com.ryderdavid.nacre.ui.common.ClaudeSignInDialog
 import com.ryderdavid.nacre.ui.common.SectionHeader
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -437,6 +438,8 @@ private fun KeyDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
 @Composable
 private fun HostRow(hs: HostState, update: DaemonUpdate?, onReconnect: () -> Unit, onRename: () -> Unit, onRemove: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    var signIn by remember { mutableStateOf(false) }
+    if (signIn) ClaudeSignInDialog(hs.host.id, onDismiss = { signIn = false })
     val (sub, ok) = when (val c = hs.connection) {
         is Connection.Online -> listOfNotNull(
             hs.host.url,
@@ -472,6 +475,7 @@ private fun HostRow(hs: HostState, update: DaemonUpdate?, onReconnect: () -> Uni
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
                     DropdownMenuItem(text = { Text("Reconnect") }, onClick = { menu = false; onReconnect() })
+                    DropdownMenuItem(text = { Text("Sign in to Claude") }, enabled = hs.online, onClick = { menu = false; signIn = true })
                     DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; onRemove() })
                 }
             }

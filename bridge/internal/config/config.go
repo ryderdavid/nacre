@@ -268,6 +268,10 @@ func (c *Config) RunsDir() string { return filepath.Join(c.dataDir(), "runs") }
 func (c *Config) RoundsDir() string { return filepath.Join(c.dataDir(), "rounds") }
 
 // ChangesDir holds recoverable OpenSpec workflow journals.
+// ClaudeTokenPath holds the long-lived Claude token the app signed this
+// computer in with, beside the config.
+func (c *Config) ClaudeTokenPath() string { return filepath.Join(filepath.Dir(c.path), "claude-token") }
+
 func (c *Config) ChangesDir() string { return filepath.Join(c.dataDir(), "changes") }
 
 func (c *Config) UpdatesDir() string { return filepath.Join(c.dataDir(), "updates") }

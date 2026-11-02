@@ -264,6 +264,16 @@ class NacreRepository(
 
     fun hostName(hostId: String) = paired.value[hostId]?.host?.name.orEmpty()
 
+    suspend fun claudeSignIn(hostId: String) = pairedFor(hostId).client.claudeSignIn()
+    suspend fun startClaudeSignIn(hostId: String) = pairedFor(hostId).client.startClaudeSignIn().url
+    suspend fun finishClaudeSignIn(hostId: String, code: String) = pairedFor(hostId).client.finishClaudeSignIn(code)
+
+    /** The paired computer an error about [hostName] means: the only one, or the one by that name. */
+    fun hostCalled(hostName: String): String? = paired.value.values.let { all ->
+        all.singleOrNull()?.host?.id
+            ?: all.firstOrNull { p -> p.host.name.equals(hostName, true) || (connections.value[p.host.id] as? Connection.Online)?.health?.hostName.equals(hostName, true) }?.host?.id
+    }
+
     fun notify(text: String, undo: (suspend () -> Unit)? = null) {
         _notices.tryEmit(Notice(text, undo))
     }

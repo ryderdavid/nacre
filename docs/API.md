@@ -869,3 +869,19 @@ Status fields: `available`, `id`, `host_id`, `phase`, `message`, `active`, `curr
 The standard macOS LaunchAgent installation is required. The helper is a separate LaunchAgent, uses the existing local gh authentication, resolves the stable tag to a commit, downloads bounded source, builds with `-buildvcs=false`, and verifies the candidate's declared version/commit/update protocol. It preserves the old binary, replaces atomically, restarts the daemon and checks authenticated health against exact version, commit and host ID. Failed verification attempts restoration and separately reports whether the old daemon verified. Source staging is removed; status and `previous-nacred` remain in the `updates` data directory. The operation is bounded; stale or unreadable state never implies success and requires local inspection.
 
 No published release is an explicit failure; main is never a substitute. The updater does not publish releases, force-stop active work, update Android, alter Git checkouts, change pairing configuration, or automatically queue a retry for busy/offline hosts.
+
+## Signing Claude in from the phone
+
+Claude Code's everyday sign-in lapses on a computer nacred drives, and renewing it means going to that computer.
+Instead the app signs the computer in with `claude setup-token`, which issues a token that lasts a year. nacred keeps
+it in `claude-token` beside its config (mode 0600) and passes it as `CLAUDE_CODE_OAUTH_TOKEN` to every claude it
+starts: chats, guides, proposals and rounds. Codex never gets it.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/v1/claude/signin` | – | `{"token":bool,"host_name":"…"}`: whether claude runs with nacred's token |
+| POST | `/v1/claude/signin` | `{}` | `{"url":"https://claude.com/…"}`: the sign-in page to open on the phone. Starts `claude setup-token` under script(1) with no browser; a sign-in not finished in 15 minutes ends |
+| POST | `/v1/claude/signin/code` | `{"code":"…"}` | `{"token":true}` once nacred has the token. A wrong code answers 400 and ends the sign-in; start again |
+
+A call that fails because claude is signed out says `Claude is signed out on <host name>. Sign it in from the app with
+Sign in to Claude, then try again.`, and the app offers Sign in to Claude beside it.

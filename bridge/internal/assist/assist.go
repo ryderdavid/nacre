@@ -72,7 +72,7 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 
 	cmd := exec.CommandContext(ctx, r.ClaudePath, h.Args()...)
 	cmd.Dir = cwd
-	cmd.Env = claude.ChildEnv()
+	cmd.Env = claude.RunEnv()
 	cmd.Stdin = nil
 	// Own process group, so the whole tree dies with the context.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -171,7 +171,7 @@ func (r *Runner) signInError(err error) error {
 			if host == "" {
 				host = "this computer"
 			}
-			return fmt.Errorf("Claude is signed out on %s. On that computer, open Terminal, run claude and type /login, then try again.", host)
+			return fmt.Errorf("Claude is signed out on %s. Sign it in from the app with Sign in to Claude, then try again.", host)
 		}
 	}
 	return err

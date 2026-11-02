@@ -1,5 +1,8 @@
 package com.ryderdavid.nacre.ui.assistant
 
+import com.ryderdavid.nacre.data.model.Keys
+import com.ryderdavid.nacre.ui.common.signedOutOn
+import com.ryderdavid.nacre.ui.common.ClaudeSignInDialog
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -140,6 +143,8 @@ fun AssistantPane(
     val input = chatDraft(chatContext)
     fun setInput(text: String) = container.chatStack.updateView(chatContext) { it.copy(draft = text) }
     val list = rememberChatList(chatContext)
+    var signInHost by remember { mutableStateOf<String?>(null) }
+    signInHost?.let { ClaudeSignInDialog(it, onDismiss = { signInHost = null }) }
     var firstComposition by remember { mutableStateOf(true) }
 
     LaunchedEffect(items.size, items.lastOrNull()) {
@@ -229,6 +234,10 @@ fun AssistantPane(
                                     Text(item.text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
                                 }
                                 Row {
+                                    signedOutOn(item.text)?.let { name ->
+                                        val host = (target as? AssistantTarget.Board)?.repoKey?.let(Keys::host) ?: container.repository.hostCalled(name)
+                                        if (host != null) TextButton(onClick = { signInHost = host }) { Text("Sign in to Claude") }
+                                    }
                                     if (item.canRetry) TextButton(onClick = assistant::retry, enabled = !busy) { Text("Retry") }
                                     if (item.offerApiKey) TextButton(
                                         onClick = { scope.launch { container.settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) } } },
