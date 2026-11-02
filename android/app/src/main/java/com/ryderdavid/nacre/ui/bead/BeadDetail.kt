@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -51,7 +50,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -92,7 +90,6 @@ import kotlinx.coroutines.isActive
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.data.claude.ChatContext
 import com.ryderdavid.nacre.ui.assistant.ChatHost
-import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.Dot
@@ -105,7 +102,6 @@ import com.ryderdavid.nacre.ui.common.TypeLabel
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.common.typeIcon
-import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
 import com.ryderdavid.nacre.ui.runs.AgentChip
 import com.ryderdavid.nacre.ui.runs.RunStatusIcon
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -141,7 +137,6 @@ fun BeadDetail(
     onOpenRound: (String) -> Unit,
     openChange: Boolean = false,
     onOpenChatBead: (String, String) -> Unit,
-    onSelectChat: ((ChatContext) -> Unit)? = null,
 ) {
     val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
@@ -202,7 +197,6 @@ fun BeadDetail(
                 },
                 title = { BeadId(beadId, color = MaterialTheme.colorScheme.onSurface) },
                 actions = {
-                    ChatHeaderAction(ChatContext.Bead(repoKey, beadId), issue?.title?.ifBlank { null } ?: beadId, onSelectChat)
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Copy id") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
@@ -270,7 +264,7 @@ fun BeadDetail(
                 onRemoveBlocker = vm::removeBlocker,
                 onOpenBead = onOpenBead,
                 onOpenRun = onOpenRun,
-                onComment = vm::addComment,
+                composer = { ThreadComposer(vm, i, comments, prefs?.claudeConfigured == true, onComment = vm::addComment) },
                 changeCard = {
                     val epicOf = boardChanges?.changes?.firstOrNull { it.epicId == i.id }
                     when {
@@ -387,7 +381,7 @@ private fun DetailBody(
     onRemoveBlocker: (String) -> Unit,
     onOpenBead: (String) -> Unit,
     onOpenRun: (String) -> Unit,
-    onComment: (String) -> Unit,
+    composer: @Composable () -> Unit,
     changeCard: @Composable () -> Unit,
     epicHeader: (@Composable () -> Unit)? = null,
     epicCompletion: (@Composable () -> Unit)? = null,
@@ -480,7 +474,7 @@ private fun DetailBody(
             }
         }
 
-        item { SectionHeader("Comments · ${comments.size}") }
+        item { SectionHeader("Thread · ${comments.size}") }
         items(comments, key = { "m:${it.id}" }) { c ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(12.dp)) {
@@ -490,7 +484,7 @@ private fun DetailBody(
                 }
             }
         }
-        item { CommentComposer(onComment) }
+        item(key = "composer") { composer() }
         item {
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Text(
@@ -580,24 +574,6 @@ fun RelatedRow(id: String, issue: Issue?, ix: BoardIndex, onOpen: (String) -> Un
         if (issue != null) PriorityPill(issue.priority)
         trailing?.invoke()
     }
-}
-
-@Composable
-private fun CommentComposer(onSend: (String) -> Unit) {
-    var text by rememberSaveable { mutableStateOf("") }
-    val send = { onSend(text.trim()); text = "" }
-    OutlinedTextField(
-        value = text,
-        onValueChange = { text = it },
-        placeholder = { Text("Add a comment") },
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).sendOnHardwareEnter(text.isNotBlank(), send),
-        shape = RoundedCornerShape(16.dp),
-        trailingIcon = {
-            IconButton(onClick = send, enabled = text.isNotBlank()) {
-                Icon(Icons.AutoMirrored.Rounded.Send, "Send comment")
-            }
-        },
-    )
 }
 
 /** The bead's one work button: what its round is doing, or Start work. */

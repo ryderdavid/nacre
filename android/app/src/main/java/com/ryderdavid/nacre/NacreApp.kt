@@ -45,19 +45,8 @@ class AppContainer(app: Application) {
 
     val chatStack = ChatStack(onRemoved = ::resetChat)
 
-    /** Each bead's chat with Claude; accepted messages and replies update the shared stack. */
-    val beadChats = BeadChats(
-        java.io.File(app.filesDir, "bead-chats.json"), scope,
-        onStarted = { key ->
-            beadContext(key)?.let { chatStack.started(it, chatLabel(it)) }
-        },
-        onActivity = { key -> beadContext(key)?.let(chatStack::touch) },
-    )
-
-    private fun beadContext(key: String): ChatContext.Bead? {
-        val split = key.lastIndexOf('/')
-        return if (split < 0) null else ChatContext.Bead(key.substring(0, split), key.substring(split + 1))
-    }
+    /** Each bead's chat with Claude, held on the bead's own screen beside its thread. */
+    val beadChats = BeadChats(java.io.File(app.filesDir, "bead-chats.json"), scope)
 
     fun chatLabel(context: ChatContext): String = when (context) {
         ChatContext.Multi -> "multi"

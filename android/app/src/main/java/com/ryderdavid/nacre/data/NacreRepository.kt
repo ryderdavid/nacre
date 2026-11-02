@@ -516,7 +516,7 @@ class NacreRepository(
     suspend fun close(key: String, id: String, reason: String?): Issue = clientFor(key).close(Keys.id(key), id, reason).also { patchLocal(key, it) }
     suspend fun reopen(key: String, id: String): Issue = clientFor(key).reopen(Keys.id(key), id).also { patchLocal(key, it) }
     suspend fun detail(key: String, id: String) = clientFor(key).detail(Keys.id(key), id).also { patchLocal(key, it.issue) }
-    suspend fun comment(key: String, id: String, text: String) = clientFor(key).comment(Keys.id(key), id, text)
+    suspend fun comment(key: String, id: String, text: String, fromClaude: Boolean = false) = clientFor(key).comment(Keys.id(key), id, text, fromClaude)
     suspend fun addDep(key: String, issue: String, dependsOn: String, type: String = "blocks") {
         clientFor(key).addDep(Keys.id(key), issue, dependsOn, type); refreshBoard(key, quiet = true)
     }

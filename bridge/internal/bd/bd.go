@@ -223,9 +223,14 @@ func (c *Client) Comments(ctx context.Context, repo, id string) ([]api.Comment, 
 
 // AddComment adds a comment authored by the configured actor.
 func (c *Client) AddComment(ctx context.Context, repo, id, text string) error {
+	return c.AddCommentAs(ctx, repo, id, c.Actor, text)
+}
+
+// AddCommentAs adds a comment from author; empty uses bd's own default.
+func (c *Client) AddCommentAs(ctx context.Context, repo, id, author, text string) error {
 	args := []string{"comments", "add"}
-	if c.Actor != "" {
-		args = append(args, "--author="+c.Actor)
+	if author != "" {
+		args = append(args, "--author="+author)
 	}
 	args = append(args, "--", id, text)
 	_, err := c.run(ctx, repo, true, args...)

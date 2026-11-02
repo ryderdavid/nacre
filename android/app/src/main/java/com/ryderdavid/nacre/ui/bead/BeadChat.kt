@@ -347,7 +347,7 @@ private fun changesOf(p: RefineProposal, issue: Issue) = buildList {
  * its summary and what happened to it.
  */
 @Composable
-private fun ProposalCard(item: BeadChatItem.Proposal, issue: Issue, onApply: (RefineSelection) -> Unit, onDiscard: () -> Unit) {
+internal fun ProposalCard(item: BeadChatItem.Proposal, issue: Issue, onApply: (RefineSelection) -> Unit, onDiscard: () -> Unit) {
     val p = item.proposal
     Surface(
         shape = RoundedCornerShape(16.dp),

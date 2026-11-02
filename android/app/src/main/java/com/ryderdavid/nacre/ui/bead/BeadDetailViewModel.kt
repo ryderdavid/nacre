@@ -141,6 +141,12 @@ class BeadDetailViewModel(
     }
 
     fun addComment(text: String) = act("Commenting") { comments.value = repo.comment(repoKey, beadId, text) }
+
+    /** Saves an answer from the chat about this bead to its thread, as Claude's. */
+    fun addToThread(text: String) = act("Adding to the thread") { comments.value = repo.comment(repoKey, beadId, text, fromClaude = true) }
+
+    /** Ends the chat about this bead; the thread is untouched. */
+    fun clearChat() = chats.clear(chatKey)
     fun addBlocker(id: String) = act("Adding dependency") { repo.addDep(repoKey, beadId, id) }
     fun removeBlocker(id: String) = act("Removing dependency") { repo.removeDep(repoKey, beadId, id) }
 

@@ -293,6 +293,9 @@ func (s *Server) reopenIssue(w http.ResponseWriter, r *http.Request) {
 	s.respondIssue(w, r, path, id, http.StatusOK)
 }
 
+// ClaudeAuthor is who an answer saved from a chat about a bead is from.
+const ClaudeAuthor = "Claude"
+
 func (s *Server) addComment(w http.ResponseWriter, r *http.Request) {
 	path, ok := s.repoPath(w, r)
 	if !ok {
@@ -304,6 +307,9 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Text string `json:"text"`
+		// FromClaude saves an answer from a chat about the bead as Claude's
+		// comment, so the thread says who said it.
+		FromClaude bool `json:"from_claude"`
 	}
 	if err := decode(r, &req, false); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
@@ -313,7 +319,11 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text is required", "")
 		return
 	}
-	if err := s.BD.AddComment(r.Context(), path, id, req.Text); err != nil {
+	author := s.BD.Actor
+	if req.FromClaude {
+		author = ClaudeAuthor
+	}
+	if err := s.BD.AddCommentAs(r.Context(), path, id, author, req.Text); err != nil {
 		s.fail(w, err)
 		return
 	}

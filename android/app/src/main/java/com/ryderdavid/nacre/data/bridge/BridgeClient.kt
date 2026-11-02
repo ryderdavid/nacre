@@ -119,6 +119,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     @Serializable data class RunDetail(val run: Run, val events: List<RunEvent> = emptyList())
     @Serializable private data class Reason(val reason: String? = null)
     @Serializable private data class Text(val text: String)
+    @Serializable private data class NewComment(val text: String, @SerialName("from_claude") val fromClaude: Boolean = false)
     @Serializable private data class Dep(val issue_id: String, val depends_on_id: String, val type: String)
     @Serializable private data class FollowUp(val message: String, val mode: String? = null)
     @Serializable private data class LiveMessage(val message: String)
@@ -176,7 +177,8 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun update(repo: String, id: String, body: UpdateIssue): Issue = send<UpdateIssue, One>("PATCH", "/v1/repos/$repo/issues/${enc(id)}", body).issue
     suspend fun close(repo: String, id: String, reason: String? = null): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/close", Reason(reason)).issue
     suspend fun reopen(repo: String, id: String): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/reopen", Reason()).issue
-    suspend fun comment(repo: String, id: String, text: String): List<Comment> = send<Text, Comments>("POST", "/v1/repos/$repo/issues/${enc(id)}/comments", Text(text)).comments
+    suspend fun comment(repo: String, id: String, text: String, fromClaude: Boolean = false): List<Comment> =
+        send<NewComment, Comments>("POST", "/v1/repos/$repo/issues/${enc(id)}/comments", NewComment(text, fromClaude)).comments
     suspend fun addDep(repo: String, issue: String, dependsOn: String, type: String = "blocks") {
         send<Dep, JsonObject>("POST", "/v1/repos/$repo/deps", Dep(issue, dependsOn, type))
     }

@@ -241,7 +241,7 @@ still a 409).
 | PATCH | `/v1/repos/{repo}/issues/{id}` | UpdateIssue | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/close` | `{"reason":"…","force":false}` (body and both fields optional; `force` defaults to `false`; `true` closes even while dependencies are open) | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/reopen` | – | `{"issue":Issue}` |
-| POST | `/v1/repos/{repo}/issues/{id}/comments` | `{"text":"…"}` | `{"comments":[Comment]}` (full list after add) |
+| POST | `/v1/repos/{repo}/issues/{id}/comments` | `{"text":"…","from_claude":false}` | `{"comments":[Comment]}` (full list after add). `from_claude` saves an answer from the app's chat about the bead as a comment by `Claude` |
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
 | DELETE | `/v1/repos/{repo}/deps?issue_id=&depends_on_id=` | – | `{"ok":true}` |
 | POST | `/v1/repos/{repo}/issues/{id}/runs` | RunRequest | `Run` (201) |

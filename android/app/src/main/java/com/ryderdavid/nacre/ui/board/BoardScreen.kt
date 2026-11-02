@@ -192,8 +192,7 @@ fun BoardScreen(
                             pane?.let { current ->
                                 BeadDetail(repoKey, current, inPane = true, onClose = { pane = null },
                                     onOpenBead = { pane = it }, onOpenRun = onOpenRun, onOpenRound = onOpenRound,
-                                    onOpenChatBead = onOpenChatBead,
-                                    onSelectChat = { container.chatStack.select(chatContext, it) })
+                                    onOpenChatBead = onOpenChatBead)
                             }
                         },
                     ) {
