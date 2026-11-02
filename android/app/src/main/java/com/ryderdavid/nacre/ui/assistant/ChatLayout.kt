@@ -12,7 +12,8 @@ fun chatLayout(
     isWide: Boolean,
     available: Dp,
     paneWidth: Dp,
-    minBody: Dp = 360.dp,
+    // The bead pane docks beside a body this narrow (a single lane), so chat does too.
+    minBody: Dp = 240.dp,
     presentation: ChatPresentation,
     beadPaneOpen: Boolean = false,
 ): ChatLayout = when {
@@ -27,6 +28,10 @@ fun boardSlot(layout: ChatLayout, beadPaneOpen: Boolean): BoardSlot = when {
     beadPaneOpen -> BoardSlot.Bead
     else -> BoardSlot.None
 }
+
+/** A card tap replaces an expanded chat even when that bead was remembered underneath it. */
+fun boardBeadAfterTap(current: String?, tapped: String, presentation: ChatPresentation): String? =
+    if (presentation.selected != null && !presentation.collapsed) tapped else tapped.takeUnless { it == current }
 
 fun chatBack(layout: ChatLayout, beadPaneOpen: Boolean): ChatBack = when {
     layout == ChatLayout.Docked -> ChatBack.CollapseChat

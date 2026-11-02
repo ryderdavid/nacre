@@ -4,7 +4,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import kotlinx.coroutines.flow.distinctUntilChanged
 

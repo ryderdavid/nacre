@@ -20,8 +20,12 @@ class ChatLayoutTest {
         assertEquals(ChatLayout.Sheet, chatLayout(false, 500.dp, 440.dp, presentation = selected))
     }
     @Test fun preservesMinimumBodyAtExactBoundary() {
-        assertEquals(ChatLayout.Sheet, chatLayout(true, 799.dp, 440.dp, presentation = selected))
-        assertEquals(ChatLayout.Docked, chatLayout(true, 800.dp, 440.dp, presentation = selected))
+        assertEquals(ChatLayout.Sheet, chatLayout(true, 679.dp, 440.dp, presentation = selected))
+        assertEquals(ChatLayout.Docked, chatLayout(true, 680.dp, 440.dp, presentation = selected))
+    }
+    @Test fun unfoldedFoldDocksAtTheHinge() {
+        // Unfolded Fold: ~700dp beside the rail, pane snapped to the hinge, like the bead pane.
+        assertEquals(ChatLayout.Docked, chatLayout(true, 700.dp, 395.dp, presentation = selected))
     }
     @Test fun collapsedChatHasAnEdgeOnlyOnWide() {
         assertEquals(ChatLayout.EdgeTab, chatLayout(true, 1000.dp, 440.dp, presentation = selected.copy(collapsed = true)))
@@ -34,6 +38,9 @@ class ChatLayoutTest {
         assertEquals(BoardSlot.None, boardSlot(ChatLayout.None, false))
     }
     @Test fun tappingBeadCollapsesChatAndRestoresBeadAlongsideEdgeTab() {
+        assertEquals("NAC-1", boardBeadAfterTap("NAC-1", "NAC-1", selected))
+        assertEquals("NAC-2", boardBeadAfterTap("NAC-1", "NAC-2", selected))
+        assertEquals(null, boardBeadAfterTap("NAC-1", "NAC-1", selected.copy(collapsed = true)))
         val stack = com.ryderdavid.nacre.data.claude.ChatStack()
         val screen = ChatContext.Board("repo")
         stack.select(screen, screen)

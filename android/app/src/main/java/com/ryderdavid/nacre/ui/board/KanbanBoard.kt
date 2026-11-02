@@ -78,11 +78,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-fun columnColor(key: String) = when {
-    key.startsWith("p") && key.length == 2 -> Nacre.colors.priority[key[1].digitToInt()]
-    key.startsWith("t:") -> Nacre.colors.type(key.removePrefix("t:"))
-    else -> Lane.entries.firstOrNull { it.key == key }?.let { Nacre.colors.lane(it) } ?: MaterialTheme.colorScheme.outline
-}
+fun columnColor(key: String) =
+    Lane.entries.firstOrNull { it.key == key }?.let { Nacre.colors.lane(it) } ?: MaterialTheme.colorScheme.outline
 
 /** "All work", one chip per open epic with its progress, and "Not in an epic". */
 @Composable

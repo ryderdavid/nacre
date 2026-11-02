@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
 import com.ryderdavid.nacre.data.claude.ChatContext
+import com.ryderdavid.nacre.ui.assistant.boardBeadAfterTap
 import com.ryderdavid.nacre.ui.assistant.ChatHost
 import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
 import com.ryderdavid.nacre.ui.common.isPaneWide
@@ -215,8 +216,8 @@ fun BoardScreen(
                             Box(Modifier.fillMaxSize()) {
                                 val open: (com.ryderdavid.nacre.data.model.Issue) -> Unit = { i ->
                                     if (canPane) {
+                                        pane = boardBeadAfterTap(pane, i.id, container.chatStack.presentation(chatContext))
                                         container.chatStack.collapse(chatContext)
-                                        pane = if (pane == i.id) null else i.id
                                     } else onOpenBead(i.id)
                                 }
                                 if (boardWide) WideBoard(
@@ -245,4 +246,3 @@ fun BoardScreen(
         effort = ui.snapshot.changes?.openspec == true,
     )
 }
-

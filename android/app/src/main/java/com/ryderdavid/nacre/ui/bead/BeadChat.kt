@@ -113,7 +113,9 @@ private fun look(mode: ChatMode, id: String) = when (mode) {
 @Composable
 fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, onDismiss: () -> Unit, onDismissChat: () -> Unit, onDevelop: (() -> Unit)? = null) {
     HandleDismissSheet(onDismiss) {
-        BeadChatContent(vm, issue, claudeReady, onDismiss, onDismissChat, onDevelop)
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().heightIn(max = 720.dp)) {
+            BeadChatContent(vm, issue, claudeReady, onDismiss, onDismissChat, onDevelop)
+        }
     }
 }
 
@@ -122,6 +124,7 @@ fun BeadChatSheet(vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean, o
 fun BeadChatContent(
     vm: BeadDetailViewModel, issue: Issue, claudeReady: Boolean,
     onClose: () -> Unit, onDismissChat: () -> Unit, onDevelop: (() -> Unit)? = null,
+    inPane: Boolean = false,
     context: com.ryderdavid.nacre.data.claude.ChatContext = com.ryderdavid.nacre.data.claude.ChatContext.Bead(vm.repoKey, issue.id),
 ) {
     val items by vm.chat.collectAsState()
@@ -150,7 +153,7 @@ fun BeadChatContent(
         setText("")
     }
 
-        Column(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding()) {
             Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(look.icon, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(10.dp))

@@ -33,7 +33,18 @@ fun ChatHeaderAction(
     val active by stack.active.collectAsState()
     var menu by remember(screenContext) { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { stack.expire(); menu = true }) {
+        val open: (ChatContext) -> Unit = { ctx ->
+            stack.expire()
+            if (!stack.contains(ctx)) container.resetChat(ctx)
+            menu = false
+            if (onSelect != null) onSelect(ctx) else stack.select(screenContext, ctx)
+        }
+        IconButton(onClick = {
+            stack.expire()
+            // With nothing to choose between, the button opens the chat itself.
+            val slots = stack.slots(screenContext, label)
+            if (slots.size == 1) open(slots.single().context) else menu = true
+        }) {
             BadgedBox(badge = { if (active.isNotEmpty()) Badge { Text("${active.size}") } }) {
                 Icon(AiIcon, "AI chat: $label")
             }
@@ -48,12 +59,7 @@ fun ChatHeaderAction(
                             Icon(Icons.Rounded.Close, "Dismiss chat: ${slot.label}")
                         }
                     },
-                    onClick = {
-                        stack.expire()
-                        if (!stack.contains(slot.context)) container.resetChat(slot.context)
-                        menu = false
-                        if (onSelect != null) onSelect(slot.context) else stack.select(screenContext, slot.context)
-                    },
+                    onClick = { open(slot.context) },
                 )
             }
         }
@@ -84,7 +90,7 @@ fun ChatHost(
     BoxWithConstraints(modifier.fillMaxSize().onGloballyPositioned { root = it.boundsInWindow() }) {
         val wide = isPaneWide(maxWidth)
         val width = rememberPaneWidth(root, maxWidth, prefs?.detailPaneDp ?: 440)
-        val layout = chatLayout(wide, maxWidth, width.width, presentation = presentation, beadPaneOpen = beadPaneOpen)
+        val layout = chatLayout(wide, maxWidth - 16.dp, width.width, presentation = presentation, beadPaneOpen = beadPaneOpen)
         val slot = boardSlot(layout, wide && beadPaneOpen)
         val back = chatBack(layout, wide && beadPaneOpen)
         BackHandler(layout == ChatLayout.Docked || (wide && beadPaneOpen && layout != ChatLayout.Sheet)) {
@@ -129,7 +135,7 @@ fun ChatHost(
         }
         if (layout == ChatLayout.Sheet && selected != null) HandleDismissSheet(close) {
             Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
-                ChatContent(selected, close, onOpenBead, onOpenRun, onDevelop?.takeIf { selected == screenContext })
+                ChatContent(selected, close, onOpenBead, onOpenRun, onDevelop?.takeIf { selected == screenContext }, inPane = false)
             }
         }
     }
@@ -142,6 +148,7 @@ fun ChatContent(
     onOpenBead: (String, String) -> Unit,
     onOpenRun: (String) -> Unit,
     onDevelop: (() -> Unit)? = null,
+    inPane: Boolean = true,
 ) {
     val container = LocalContainer.current
     val dismiss = { container.chatStack.dismiss(selected); onClose() }
@@ -154,7 +161,7 @@ fun ChatContent(
             val prefs by vm.prefs.collectAsState(initial = null)
             val bead = issue
             if (bead == null) LoadingState("Loading ${selected.beadId}…")
-            else BeadChatContent(vm, bead, prefs?.claudeConfigured == true, onClose, dismiss, onDevelop, context = selected)
+            else BeadChatContent(vm, bead, prefs?.claudeConfigured == true, onClose, dismiss, onDevelop, inPane = inPane, context = selected)
         } else {
             val target = if (selected is ChatContext.Board) AssistantTarget.Board(selected.repoKey, container.chatLabel(selected)) else AssistantTarget.AllBoards
             AssistantPane(target, inPane = true, onClose, onOpenBead, onOpenRun, dismiss)

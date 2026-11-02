@@ -61,4 +61,13 @@ class ChatPresentationTest {
         assertEquals(ChatViewState(), stack.view(bead))
         assertEquals("keep", stack.view(ChatContext.Multi).draft)
     }
+    @Test fun lateViewUpdatesCannotRestoreAnExpiredOrDismissedDraft() {
+        stack.started(bead, "Bead")
+        stack.select(board, bead)
+        stack.dismiss(bead)
+        stack.updateView(bead) { ChatViewState("late", 4, 10) }
+        assertEquals(ChatViewState(), stack.view(bead))
+        assertFalse(bead in stack.views.value)
+    }
+
 }

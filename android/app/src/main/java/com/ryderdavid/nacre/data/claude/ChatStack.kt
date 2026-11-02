@@ -35,6 +35,7 @@ class ChatStack(
         presentationState.value = presentationState.value + (screen to ChatPresentation(selected))
     }
     @Synchronized fun collapse(screen: ChatContext) {
+        if (presentation(screen).selected == null) return
         presentationState.value = presentationState.value + (screen to presentation(screen).copy(collapsed = true))
     }
     @Synchronized fun expand(screen: ChatContext) {
@@ -44,6 +45,7 @@ class ChatStack(
         presentationState.value = presentationState.value - screen
     }
     @Synchronized fun updateView(context: ChatContext, change: (ChatViewState) -> ChatViewState) {
+        if (!contains(context) && presentationState.value.values.none { it.selected == context }) return
         viewState.value = viewState.value + (context to change(view(context)))
     }
     private fun clearView(context: ChatContext) {
