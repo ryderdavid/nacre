@@ -263,8 +263,8 @@ private fun EmptyAssistant(everyBoard: Boolean, modifier: Modifier, onAsk: (Stri
         Spacer(Modifier.height(12.dp))
         Text(if (everyBoard) "Every board, with Claude" else "Your board, with Claude", style = MaterialTheme.typography.titleLarge)
         Text(
-            if (everyBoard) "Claude can read the beads on all of your projects, answer questions about any one of them, and line up work across them. You approve each change."
-            else "Claude can read every bead here and propose edits, new beads and dependencies. You approve each change.",
+            if (everyBoard) "Claude can read the beads and code of all your projects on a computer, answer questions about any of them, and line up work across them. You approve each change."
+            else "Claude can read every bead and the code here, answer questions, and propose edits, new beads and work to run. You approve each change, or let them through with the shield.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp).widthIn(max = 420.dp),
         )
@@ -302,6 +302,8 @@ private fun ThinkingRow(item: ChatItem.Thinking) {
 
 private fun toolTitle(name: String) = when (name) {
     "bd" -> "Read the board on the Mac"
+    "code" -> "Read the code"
+    "git" -> "Read the history"
     CONNECTION_STEP -> "Connection"
     BOARDS_STEP -> "Boards not read"
     "list_boards" -> "Looked at the boards"

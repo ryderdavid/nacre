@@ -113,10 +113,10 @@ func TestParseLineStructuredOutput(t *testing.T) {
 
 func TestBoardReadToolsNameEachBoardAndOnlyReads(t *testing.T) {
 	got := BoardReadTools([]string{"nacre", "home"})
-	if len(got) != 2*len(BdReadTools) {
-		t.Fatalf("got %d patterns, want %d", len(got), 2*len(BdReadTools))
+	if want := 2 * (len(BdReadTools) + len(gitReadCommands)); len(got) != want {
+		t.Fatalf("got %d patterns, want %d", len(got), want)
 	}
-	for _, want := range []string{"Bash(bd -C nacre list:*)", "Bash(bd -C home dep tree:*)", "Bash(bd -C home show:*)"} {
+	for _, want := range []string{"Bash(bd -C nacre list:*)", "Bash(bd -C home dep tree:*)", "Bash(bd -C home show:*)", "Bash(git -C nacre log:*)"} {
 		found := false
 		for _, p := range got {
 			found = found || p == want
