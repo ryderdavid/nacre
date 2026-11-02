@@ -244,7 +244,7 @@ fun BeadDetail(
                             }
                         },
                         icon = { Icon(Icons.Rounded.PlayArrow, null) },
-                        text = { Text(if (activeRound != null) "Running" else if (busy) "Starting…" else "Start work") },
+                        text = { Text(startWorkLabel(activeRound, busy)) },
                     )
                 }
             }
@@ -598,4 +598,12 @@ private fun CommentComposer(onSend: (String) -> Unit) {
             }
         },
     )
+}
+
+/** The bead's one work button: what its round is doing, or Start work. */
+internal fun startWorkLabel(activeRound: com.ryderdavid.nacre.data.model.Round?, busy: Boolean): String = when {
+    activeRound?.needsYou == true -> "Needs you"
+    activeRound != null -> "Running"
+    busy -> "Starting…"
+    else -> "Start work"
 }
