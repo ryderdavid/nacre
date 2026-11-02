@@ -60,8 +60,9 @@ All start unchecked; the app remembers the last successful launch's choices.
 Pushed also selects committed. A goal includes the full bead and its acceptance
 criteria and keeps the native agent session working until its conditions hold.
 Goals can still pause for blockers, permissions or spending limits. In a round,
-one goal session works every selected bead to one combined commit; an optional
-push publishes the round branch, with landing still handled separately.
+the goal session only commits its work on the round branch and stops; when the
+round lands, nacred bumps the version and pushes the target (that is what pushed
+means for a round).
 
 ## Rounds
 
