@@ -804,6 +804,47 @@ func (r *round) cancelLocked(why string) {
 	r.saveLocked()
 }
 
+// maxChangeCommits caps the commits Changes lists.
+const maxChangeCommits = 50
+
+// Changes lists the commits and files a round's result adds to the commit it
+// started from, for review before landing.
+func (m *Manager) Changes(id string) (api.RoundChanges, error) {
+	r := m.get(id)
+	if r == nil {
+		return api.RoundChanges{}, ErrNotFound
+	}
+	meta := r.metaCopy()
+	head := meta.FinalCommit
+	if meta.LandedCommit != "" {
+		head = meta.LandedCommit
+	}
+	if head == "" || meta.Base == "" {
+		return api.RoundChanges{}, conflict("the round has no result to review yet")
+	}
+	out := api.RoundChanges{Base: meta.Base, Head: head, Commits: []api.RoundCommit{}, Files: []api.RoundFile{}}
+	commits, err := gitx.Log(m.ctx, meta.RepoPath, meta.Base, head, maxChangeCommits+1)
+	if err != nil {
+		return out, err
+	}
+	if len(commits) > maxChangeCommits {
+		total, _ := gitx.CommitsBetween(m.ctx, meta.RepoPath, meta.Base, head)
+		out.MoreCommits = max(total-maxChangeCommits, 1)
+		commits = commits[:maxChangeCommits]
+	}
+	for _, c := range commits {
+		out.Commits = append(out.Commits, api.RoundCommit{SHA: c.SHA, Subject: c.Subject})
+	}
+	files, err := gitx.DiffStat(m.ctx, meta.RepoPath, meta.Base, head)
+	if err != nil {
+		return out, err
+	}
+	for _, f := range files {
+		out.Files = append(out.Files, api.RoundFile{Path: f.Path, Added: f.Added, Deleted: f.Deleted, Binary: f.Binary})
+	}
+	return out, nil
+}
+
 // Land lands a ready round.
 func (m *Manager) Land(id string) (api.Round, error) {
 	r := m.get(id)

@@ -270,6 +270,45 @@ func TestLiveSendErrorKeepsTheRunReadOnly(t *testing.T) {
 	}
 }
 
+// partialLive fails every send partway through its write.
+type partialLive struct{}
+
+func (partialLive) Send(t peer.Target, content string) (peer.Sent, error) {
+	return peer.Sent{}, &peer.PartialWrite{
+		Sent:    peer.Sent{MsgID: "msg-p", IdleMsgID: "msg-p-idle", From: "uds:/tmp/cc-socks/1.sock"},
+		Written: 120, Err: errors.New("write: broken pipe"),
+	}
+}
+
+func TestLiveSendPartialWriteIsRecordedUnconfirmed(t *testing.T) {
+	m := liveManager(t, partialLive{})
+	s := liveSession(t, "sess-live")
+	m.SyncAdopted([]sessions.Session{s})
+	r := adoptedRun(t, m)
+	got, err := m.SendLive(r.ID, "hi", "")
+	if err != nil {
+		t.Fatalf("SendLive = %v, want the send recorded", err)
+	}
+	if len(got.PeerMessages) != 1 {
+		t.Fatalf("peer messages = %+v", got.PeerMessages)
+	}
+	pm := got.PeerMessages[0]
+	if pm.MsgID != "msg-p" || pm.Status != api.PeerUnconfirmed || !strings.Contains(pm.Reason, "broken pipe") {
+		t.Fatalf("partial send = %+v", pm)
+	}
+	// A receipt for its msg_id still applies.
+	m.PeerFrame(peer.Frame{Type: "control", Action: peer.ActionMessageStatus, Status: peer.StatusDelivered, OrigMsgID: "msg-p"})
+	if pm := mustRun(t, m, r.ID).PeerMessages[0]; pm.Status != peer.StatusDelivered {
+		t.Fatalf("after receipt: %+v", pm)
+	}
+	// And so does the transcript.
+	s.TranscriptState.PeerMsgIDs = []string{"msg-p"}
+	m.SyncAdopted([]sessions.Session{s})
+	if pm := mustRun(t, m, r.ID).PeerMessages[0]; !pm.Confirmed {
+		t.Fatalf("after transcript: %+v", pm)
+	}
+}
+
 func TestLiveSendEndsWithTheSession(t *testing.T) {
 	m := liveManager(t, &fakeLive{})
 	m.SyncAdopted([]sessions.Session{liveSession(t, "sess-live")})

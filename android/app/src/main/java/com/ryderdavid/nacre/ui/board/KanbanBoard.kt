@@ -185,6 +185,9 @@ private fun CardList(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
     onClose: (Issue) -> Unit = {},
+    /** Other lanes that have matches, offered when this one is empty under a search. */
+    elsewhere: List<Column> = emptyList(),
+    onReveal: (Column) -> Unit = {},
 ) {
     if (col.issues.isEmpty()) {
         Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -194,6 +197,9 @@ private fun CardList(
                 if (col.key == Lane.PROPOSED.key) "No changes being planned. Start a New effort." else "Nothing here for this filter",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            elsewhere.forEach { other ->
+                TextButton(onClick = { onReveal(other) }) { Text("${other.total} in ${other.title}") }
+            }
         }
         return
     }
@@ -312,11 +318,20 @@ fun CompactBoard(
     onShowMoreDone: () -> Unit,
     modifier: Modifier = Modifier,
     onClose: (Issue) -> Unit = {},
+    /** The board's search; a new search that misses this lane moves to a lane it matches (NAC-3mc). */
+    query: String = "",
 ) {
     // The pager opens on Ready even when Proposals comes first.
     val pager = rememberPagerState(initialPage = ui.columns.indexOfFirst { it.key == Lane.READY.key }.coerceAtLeast(0)) { ui.columns.size }
     val scope = rememberCoroutineScope()
     val index = ui.snapshot.index
+
+    // Keyed on the totals too: the filtered columns arrive a moment after the query changes.
+    LaunchedEffect(query, ui.columns.map { it.total }) {
+        if (query.isBlank()) return@LaunchedEffect
+        // Launched outside the effect: a restart as the totals settle must not stop the pager between lanes.
+        laneWithMatches(ui.columns, pager.targetPage)?.let { scope.launch { pager.animateScrollToPage(it) } }
+    }
 
     LaunchedEffect(scrollToLane) {
         if (scrollToLane != null) {
@@ -353,6 +368,8 @@ fun CompactBoard(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
                     modifier = Modifier.fillMaxSize(),
                     onClose = onClose,
+                    elsewhere = if (query.isBlank()) emptyList() else ui.columns.filter { it.key != col.key && it.total > 0 },
+                    onReveal = { other -> ui.columns.indexOfFirst { it.key == other.key }.takeIf { it >= 0 }?.let { scope.launch { pager.animateScrollToPage(it) } } },
                 )
             }
         }
@@ -429,4 +446,14 @@ fun FilterSummary(filter: BoardFilter, onClear: () -> Unit) {
         Text("Filtered", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         TextButton(onClick = onClear) { Text("Clear filters") }
     }
+}
+
+/**
+ * The lane to show when the lane at [current] has nothing for the filter but another lane does:
+ * the nearest one with matches, so a search on the cover screen doesn't look empty. Null when the
+ * current lane has matches or no lane does.
+ */
+fun laneWithMatches(columns: List<Column>, current: Int): Int? {
+    if (columns.getOrNull(current)?.let { it.total > 0 } == true) return null
+    return columns.indices.filter { columns[it].total > 0 }.minByOrNull { kotlin.math.abs(it - current) }
 }

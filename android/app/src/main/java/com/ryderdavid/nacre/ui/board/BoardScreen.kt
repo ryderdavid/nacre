@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.ui.board
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
@@ -196,6 +197,8 @@ fun BoardScreen(
                 else -> BoxWithConstraints(Modifier.fillMaxSize()) {
                     val canPane = maxWidth >= 760.dp
                     LaunchedEffect(canPane) { if (!canPane) pane = null }
+                    // Back closes the open side pane before it leaves the board (NAC-3mc).
+                    BackHandler(enabled = canPane && pane != null) { pane = null }
 
                     val paneWidth = rememberPaneWidth(rootBounds, maxWidth, prefs?.detailPaneDp ?: 440)
                     Row(Modifier.fillMaxSize()) {
@@ -224,7 +227,7 @@ fun BoardScreen(
                                     ui, groupBy, selectedId = pane, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
                                     onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
                                 ) else CompactBoard(
-                                    ui, groupBy, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
+                                    ui, groupBy, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null }, query = filter.query,
                                     onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
                                 )
                             }
@@ -250,7 +253,7 @@ fun BoardScreen(
     }
 
     if (startRound && ui != null) StartRoundSheet(
-        repo = repo, index = ui.snapshot.index,
+        repo = repo, index = ui.snapshot.index, boardFilter = filter,
         onDismiss = { startRound = false },
         onStarted = { key -> startRound = false; onOpenRound(key) },
     )

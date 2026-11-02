@@ -174,6 +174,20 @@ func (s *Server) setRoundLimits(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// roundChanges lists the commits and files a round's result adds, so it can
+// be reviewed before landing.
+func (s *Server) roundChanges(w http.ResponseWriter, r *http.Request) {
+	if !s.roundsReady(w) {
+		return
+	}
+	changes, err := s.Rounds.Changes(r.PathValue("round"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, changes)
+}
+
 func (s *Server) landRound(w http.ResponseWriter, r *http.Request) {
 	if s.roundsReady(w) {
 		s.roundResult(w, func() (api.Round, error) { return s.Rounds.Land(r.PathValue("round")) })

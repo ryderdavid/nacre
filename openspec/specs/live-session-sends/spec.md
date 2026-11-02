@@ -5,9 +5,10 @@ Adopted runs are read-only: a follow-up is refused (409) because `claude -p --re
 ## Requirements
 ### Requirement: Version guard with a read-only fallback
 nacred SHALL offer a live send (`can_send_live: true`) only on an active adopted Claude Code run whose
-session can safely receive one, SHALL check again before each send, and on any failed check or send
-error SHALL answer `POST /v1/runs/{run}/live` with 409 and the reason, write nothing to the session, and
-leave the run read-only. `POST /v1/runs/{run}/followup` SHALL keep answering 409 for every adopted run.
+session can safely receive one, and SHALL check again before each send. A failed check, or a send error
+before anything is written, SHALL answer `POST /v1/runs/{run}/live` with 409, write nothing and leave the
+run read-only; once writing has started, a failed send SHALL be kept with its `msg_id` as `unconfirmed`.
+`POST /v1/runs/{run}/followup` SHALL keep answering 409 for every adopted run.
 
 #### Scenario: Unknown peer protocol
 - **WHEN** an adopted session's record says `peerProtocol: 2`

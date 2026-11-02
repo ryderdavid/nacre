@@ -333,3 +333,81 @@ func TestStaleInboxIsReplaced(t *testing.T) {
 		t.Fatalf("Send over a stale inbox = %v", err)
 	}
 }
+
+// A session that stops reading mid-send: the write times out after part of
+// the frames went out, and Send says so with the msg_ids it wrote (NAC-jif).
+func TestSendPartialWriteKeepsTheMsgID(t *testing.T) {
+	dir := sockDir(t)
+	sock := filepath.Join(dir, "4242.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var mu sync.Mutex
+	var held []net.Conn
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, conn) // never read
+			mu.Unlock()
+		}
+	}()
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			c.Close()
+		}
+	}()
+
+	c := &Client{PID: 780, Host: "darwin", Alive: func(int, string) bool { return true }}
+	defer c.Close()
+	// Far more than a unix socket buffers, so the write cannot finish.
+	_, err = c.Send(good(sock), strings.Repeat("x", 8<<20))
+	var pw *PartialWrite
+	if !errors.As(err, &pw) {
+		t.Fatalf("Send = %v, want a PartialWrite", err)
+	}
+	if pw.Written <= 0 || pw.Sent.MsgID == "" || pw.Sent.IdleMsgID == "" || pw.Sent.From == "" {
+		t.Fatalf("partial write = %+v", pw)
+	}
+}
+
+// A write that fails before any byte goes out stays a plain error.
+func TestSendFailingBeforeWritingIsNotPartial(t *testing.T) {
+	dir := sockDir(t)
+	sock := filepath.Join(dir, "4242.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := make(chan struct{})
+	go func() {
+		// Answer the guard's probe, then go away so the send cannot connect.
+		if conn, err := ln.Accept(); err == nil {
+			conn.Close()
+		}
+		ln.Close()
+		close(gone)
+	}()
+	// Dial only once the session is gone; otherwise the dial can land in the
+	// listener's backlog before the close and the write succeeds.
+	real := dialSend
+	dialSend = func(path string) (net.Conn, error) {
+		<-gone
+		return real(path)
+	}
+	defer func() { dialSend = real }()
+	c := &Client{PID: 781, Host: "darwin", Alive: func(int, string) bool { return true }}
+	defer c.Close()
+	_, err = c.Send(good(sock), "hi")
+	var pw *PartialWrite
+	if err == nil || errors.As(err, &pw) {
+		t.Fatalf("Send = %v, want a plain error", err)
+	}
+}
