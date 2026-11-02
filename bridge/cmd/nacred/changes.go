@@ -118,13 +118,27 @@ func assessChangeEvidence(path string, c specflow.Change, history []api.Round, s
 		if readErr != nil {
 			e.Note = "Beads could not be read; implementation evidence is not confirmed."
 		}
-		if (c.Phase != "ready" && !(c.Phase == "stale" && c.AsApproved)) || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision {
+		if !evidencePhase(c, true) || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision {
 			e.Verified, e.BuildVerified, e.Landed = false, false, false
 			e.Note = "Review and approve the current revision before its implementation can be verified. " + e.Note
 		}
 		result = append(result, e)
 	}
 	return result
+}
+
+// evidencePhase reports whether a change's phase lets its sections carry
+// implementation evidence: an approved change ready for work, or one archived
+// after its epic finished (its approved revision is what landed). allowStale
+// also admits a stale change whose own files are still as approved.
+func evidencePhase(c specflow.Change, allowStale bool) bool {
+	switch c.Phase {
+	case "ready", "archived":
+		return true
+	case "stale":
+		return allowStale && c.AsApproved
+	}
+	return false
 }
 
 func sameRepoPath(a, b string) bool {
@@ -145,7 +159,7 @@ type beadEvidenceState struct {
 }
 
 func matchingVerification(c specflow.Change, section specflow.Section, run api.Run, bead beadEvidenceState, readable bool) bool {
-	if !readable || c.Phase != "ready" || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision ||
+	if !readable || !evidencePhase(c, false) || c.ApprovedRevision == "" || c.ApprovedRevision != c.Revision ||
 		bead.ID != section.BeadID || run.IssueID != section.BeadID || run.Status != api.StatusSucceeded ||
 		run.SpecChangeID != c.ID || run.SpecRevision != c.ApprovedRevision || run.SpecSectionID != section.ID ||
 		run.Verification == nil || !run.Verification.OK {

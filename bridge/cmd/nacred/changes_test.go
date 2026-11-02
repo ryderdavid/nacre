@@ -142,3 +142,34 @@ func TestSpecEvidenceCountsSectionsFinishedBeforeAdoption(t *testing.T) {
 		t.Fatal("evidence counted without a current approval")
 	}
 }
+
+func TestSpecEvidenceKeepsArchivedSectionsLanded(t *testing.T) {
+	path := t.TempDir()
+	c := specflow.Change{ID: "c", Phase: "archived", Revision: "r", ApprovedRevision: "r",
+		Sections: []specflow.Section{{ID: "s", BeadID: "N-1"}, {ID: "old", BeadID: "N-2", Body: "- [x] Done"}},
+		Adoption: &specflow.Adoption{Completed: []string{"old"}}}
+	v := &api.Verification{OK: true, At: "2026-10-28T01:01:00Z"}
+	run := api.Run{ID: "run", IssueID: "N-1", Status: api.StatusSucceeded, SpecChangeID: "c", SpecRevision: "r", SpecSectionID: "s", EndedAt: "2026-10-28T01:00:00Z", Verification: v}
+	r := api.Round{ID: "round", RepoPath: path, State: api.RoundLanded, FinalCommit: "final", LandedCommit: "landed",
+		Beads: []api.RoundBead{{ID: "N-1", SpecChangeID: "c", SpecRevision: "r", SpecSectionID: "s", RunID: "run", State: api.BeadIntegrated, MergeCommit: "merge", Verification: v}}}
+	states := map[string]beadEvidenceState{"N-1": {ID: "N-1", Status: "closed"}, "N-2": {ID: "N-2", Status: "closed"}}
+	read := func(string) (api.Run, error) { return run, nil }
+	got := assessChangeEvidence(path, c, []api.Round{r}, states, nil, read)
+	for _, e := range got {
+		if !e.Verified || !e.BuildVerified || !e.Landed || specflow.EvidenceState(e) != api.EvidenceLanded {
+			t.Fatalf("archived section lost its landed evidence: %+v", e)
+		}
+	}
+	c.ApprovedRevision = "r0"
+	for _, e := range assessChangeEvidence(path, c, []api.Round{r}, states, nil, read) {
+		if e.Landed {
+			t.Fatalf("archived change without a matching approval counted as landed: %+v", e)
+		}
+	}
+	c.Phase, c.ApprovedRevision = "draft", "r"
+	for _, e := range assessChangeEvidence(path, c, []api.Round{r}, states, nil, read) {
+		if e.Landed {
+			t.Fatalf("unapproved phase counted as landed: %+v", e)
+		}
+	}
+}
