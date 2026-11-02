@@ -235,3 +235,47 @@ func (r *round) finishedEpic(ctx context.Context, meta api.Round, head string, p
 	}
 	return notes
 }
+
+// maybeFinishEpic waits for landing's closing operations before handing the
+// epic to the existing archive/merge machinery. Caller holds r.mu. A failed
+// or partial finish leaves the ordinary Needs you actions available.
+func (r *round) maybeFinishEpic() bool {
+	if r.meta.State != api.RoundLanded || !r.meta.Finish || r.meta.FinishChecked {
+		return false
+	}
+	// Resume closing if nacred stopped just after the landing was persisted.
+	for _, b := range r.meta.Beads {
+		if b.State == api.BeadIntegrated && !b.Closed && b.CloseError == "" && b.HumanCheck == "" {
+			r.closeBeads(r.meta.LandedCommit)
+			break
+		}
+	}
+	if len(r.ops) != 0 {
+		return true
+	}
+	meta := clone(r.meta)
+	r.goOp("finish-epic", func(ctx context.Context) func() {
+		open, err := r.m.openChildren(ctx, meta.RepoPath, meta.Epic)
+		var next api.Round
+		var closed bool
+		if err == nil && len(open) == 0 {
+			next, closed, err = r.m.FinishEpic(meta.RepoID, meta.Epic)
+		}
+		return func() {
+			r.meta.FinishChecked = true
+			switch {
+			case err != nil:
+				r.meta.Error = "Finishing " + meta.Epic + " failed: " + err.Error()
+				r.event("error", meta.Epic, r.meta.Error)
+			case len(open) > 0:
+				r.event("note", meta.Epic, "Epic remains open: "+strings.Join(open, ", ")+" still need work. Finish the epic once its children are closed.")
+			case closed:
+				r.event("note", meta.Epic, "Epic finished and closed; its work was already on the landing target")
+			default:
+				r.meta.FinishRoundID = next.ID
+				r.event("note", meta.Epic, "Finishing epic automatically in round "+next.ID)
+			}
+		}
+	})
+	return true
+}

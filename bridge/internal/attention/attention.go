@@ -9,12 +9,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 )
 
@@ -344,6 +347,9 @@ const StuckAfter = 24 * time.Hour
 // on and that haven't changed for StuckAfter.
 func (b *Builder) stuckItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
 	if b.Working == nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(ref.Path, repoconfig.FileName)); err != nil {
 		return nil
 	}
 	var out []api.AttentionItem

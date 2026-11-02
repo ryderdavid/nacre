@@ -67,6 +67,7 @@ type record struct {
 	ReservedCost      float64              `json:"reserved_cost"`
 	ReviewCalls       int                  `json:"review_calls"`
 	Pass              int                  `json:"pass"`
+	RunAfterApproval  bool                 `json:"run_after_approval,omitempty"`
 	PromotionRevision string               `json:"promotion_revision,omitempty"`
 	// PendingFound are found beads whose notes the current revision carries;
 	// they are closed once it is approved and synchronized.
@@ -175,7 +176,7 @@ func newID() string {
 	return "sf" + hex.EncodeToString(b)
 }
 func history(r *record, kind, text string) {
-	r.Change.History = append(r.Change.History, History{stamp(), kind, text})
+	r.Change.History = append(r.Change.History, History{At: stamp(), Kind: kind, Text: text})
 	r.Change.UpdatedAt = stamp()
 }
 func clone[T any](value T) T {
@@ -496,6 +497,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		}
 		r.Change.Phase = "promoting"
 		r.Stage = "promote"
+		r.RunAfterApproval = a.Run
 		r.PromotionRevision = a.Revision
 		history(r, "approval", "Owner approved revision "+a.Revision+". Synchronizing the epic and section beads.")
 	} else if a.Action == "resume" {
@@ -584,6 +586,12 @@ func (m *Manager) work(r *record) {
 	} else {
 		err = m.cycle(ctx, r)
 	}
+	if err == nil && r.Change.Phase == "ready" && r.RunAfterApproval {
+		// The ready checkpoint is visible to the round's contract lookups;
+		// keep mutation admission held until its round ID is recorded.
+		m.runApprovedEpic(ctx, r)
+		return
+	}
 	if err != nil {
 		r.Change.Error = err.Error()
 		r.Change.Phase = "needs_attention"
@@ -630,7 +638,7 @@ func (m *Manager) Contract(ctx context.Context, repo, id string) (*Contract, err
 	if r.Change.EpicID == id || r.Change.SeedID == id {
 		return nil, fmt.Errorf("%w: this bead is a specification orchestration entry point; start a specification round with its section beads", ErrConflict)
 	}
-	if busy || r.Change.Phase != "ready" || r.Change.ApprovedRevision == "" || r.Change.ApprovedRevision != r.Change.Revision {
+	if (busy && !r.RunAfterApproval) || r.Change.Phase != "ready" || r.Change.ApprovedRevision == "" || r.Change.ApprovedRevision != r.Change.Revision {
 		return nil, fmt.Errorf("%w: the linked proposal must be reviewed, approved, and synchronized before implementation", ErrConflict)
 	}
 	if e = m.current(r); e != nil {

@@ -47,8 +47,8 @@ func (r *round) undoGoalVersion(ctx context.Context, ws string, meta api.Round) 
 	return nil
 }
 
-// driveGoal keeps the round in one session: a goal that includes all beads
-// cannot be fulfilled by isolated workers waiting for one another. Preflight,
+// driveGoal finishes a legacy round's shared goal session. New rounds use
+// per-bead goals and never enter this path. Preflight,
 // decisions, specification guards, resource leases, the version bump, the
 // final gates and landing (with its push) remain owned by the round
 // controller; the session only commits in its worktree.
@@ -146,6 +146,7 @@ func (r *round) driveGoal() {
 		delete(r.stallCancelled, run.ID)
 		if run.SessionID == "" {
 			r.meta.GoalRunID = ""
+			r.meta.GoalRetry = true
 			r.poke()
 			return
 		}

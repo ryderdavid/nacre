@@ -203,7 +203,7 @@ case "$prompt" in
   *"nacred checked your work"*)
     git add -A; git commit -q -m "commit the rest" >/dev/null 2>&1;;
   *"You are working on bead"*)
-    bead=$(printf '%s\n' "$prompt" | sed -n '1s/^You are working on bead \([^ ]*\) .*/\1/p')
+    bead=$(printf '%s\n' "$prompt" | sed -n 's/^You are working on bead \([^ ]*\) .*/\1/p')
     case "$bead" in
       T-A) echo a > a.txt; echo A >> shared.txt; echo A > conflict.txt; git add -A; git commit -q -m A;;
       T-B) echo B >> shared.txt; git add -A; git commit -q -m B;;

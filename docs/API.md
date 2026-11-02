@@ -411,7 +411,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
-| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, feedback?, change_name?, recorded_review?}` | The same envelope; long operations run independently of the HTTP connection. |
+| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, run?, feedback?, change_name?, recorded_review?}` | The same envelope; long operations run independently of the HTTP connection. |
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total, openspec}`: `openspec` says the repository's OpenSpec setup is valid (New effort, intake and the Proposals lane apply); the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
@@ -420,7 +420,12 @@ Actions are `develop`, `revise`, `approve`, `refresh`, `resume` and `adopt`. `de
 `intake: {verdict, change_name?}`, the New effort verdict it was confirmed with; the change keeps it
 as `intake`, and when the author's full reconciliation picks a different route its history records
 "Intake suggested …; reconciliation chose … because …". The author's route stands. `approve` must name the exact
-reviewed `revision`; it promotes/synchronizes Beads but never starts code execution. Conflicts return
+reviewed `revision`; it promotes/synchronizes Beads. With `run:true`, once promotion
+reaches `ready`, nacred starts an epic round with `finish:true` and
+`land_when_ready:true`. Omitting `run` (or `false`) approves without starting work.
+A round-start failure leaves the approval `ready`, sets the change's visible
+`error`, and appends a `run_error` history entry with the reason; it does not fail
+or roll back approval. Conflicts return
 409, unavailable prerequisites 503. `GET` reports unsupported prerequisites as `available:false`
 with a reason. All routes require the ordinary bearer authentication.
 
@@ -450,12 +455,15 @@ adopted as it stands. An adopted change carries
 a `stale_reason` naming what broke the approval: the files that changed since review ("AGENTS.md
 changed", "Active change X changed", "Accepted spec Y changed", "tasks.md was edited after approval…"),
 "Seed bead N changed", "Section bead N was edited…", or a generic reason when the record has no
-baseline. Approval is never restored without a new review (`revise`). The envelope also carries
+baseline. nacred records the stored fields after its own section sync, so its
+normalized writes, ordinary execution labels, notes and status updates do not stale
+approval; later external edits to section content still do. Approval is never restored without a new review (`revise`). The envelope also carries
 `inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
 repository's OpenSpec setup can be read. Artifacts are exact
 `{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from
 `<!-- nacre-section: ID -->` markers, never heading numbers. Findings carry
-`{id,severity,summary,detail,disposition}`. History entries are `{at,kind,text}`.
+`{id,severity,summary,detail,disposition}`. History entries are `{at,kind,text,round_id?}`. A successful approve-and-run appends
+`{at,kind:"round",text,round_id:"<round id>"}`, persisted so clients can open the round.
 
 Phases: `drafting`, `reviewing`, `needs_attention`, `awaiting_approval`, `promoting`, `ready`,
 `stale`, `interrupted`, `covered`. Routes: `new`, `amend`, `repair`, `covered`, `adopted`. Coverage is a reviewed
@@ -463,12 +471,16 @@ read-only recommendation and does not create an epic or close the seed. A propos
 at most three author/reviewer passes, $5 total and 30 minutes. The bridge persists checkpoints and
 does not silently resume a paid call after restart.
 
-Start implementation through `POST /v1/repos/{repo}/rounds` with approved child `beads`,
-`spec_change_id` and `spec_revision`. A stale or omitted revision, missing workflow, linked epic as
-a task, or mixed contract selection is refused. One or more current section beads may be selected.
+Start implementation through `POST /v1/repos/{repo}/rounds` with `epic`, `finish:true`
+and `land_when_ready:true`. nacred resolves the epic's approved change and revision
+from its section contracts; clients need not send `spec_change_id` or `spec_revision`.
+Explicit pins must still match. Alternatively, select approved child `beads` and
+supply both pins. A stale or omitted revision on a bead selection, missing workflow,
+linked epic as a task, or mixed contract selection is refused.
 The round stores `spec_contracts`, keyed by bead ID, including exact artifact content and section
 intent. It installs those artifacts in its integration workspace before creating task workspaces.
-Automatic landing is disabled for these rounds. Generic run creation/follow-up cannot bypass the
+`land_when_ready:true` explicitly enables automatic landing for these rounds;
+`land.auto` alone does not. Generic run creation/follow-up cannot bypass the
 round's revision guards; spec runs expose `can_followup:false`.
 
 `Run` and `RoundBead` optionally carry `spec_change_id`, `spec_revision`, `spec_section_id`.
@@ -477,7 +489,8 @@ Evidence entries contain `{section_id,bead_id,run_id?,round_id?,round_state?,ver
 is integrated into the round's final commit with passing final gates and build.
 Only a passing verification of the current approved revision counts; unknown, reopened or changed
 work never becomes successful from a checkbox or status alone. Landing, human acceptance and
-OpenSpec archive are separate obligations; this workflow never closes the epic automatically.
+OpenSpec archive use separate verified steps; `finish:true` chains those steps automatically
+after landing when every child is closed. Parked or human-check children keep the epic open.
 
 `IntakeVerdict` is `{verdict, change_name?, rationale, references:[{path, requirement?}], cost_usd,
 fallback?, target_tracked, target_active?, active_changes}` (`active_changes` names every active change, for overriding the verdict). `verdict` is `bead` (changes no specified "done": chores,
@@ -551,7 +564,7 @@ Both `RunRequest` and the round-start body accept an optional `goal` object:
 {"goal":{"enabled":true,"committed":true,"pushed":true}}
 ```
 
-All values default to false. `pushed` implies `committed`. Disabled goals add no
+For standalone runs, all values default to false. `pushed` implies `committed`. Disabled goals add no
 `/goal` and confer no commit or push authority. Android remembers all three choices
 locally after a successful launch, including child choices while disabled, and
 shares those defaults between Implement (Claude or Codex) and round start. Disabled
@@ -567,27 +580,20 @@ thread while its native goal remains active, retaining the run and concurrency s
 Cancellation, permission failures, unavailable goal support and budget limits do
 not count as completion. `Run.goal_text` records the requested objective.
 
-A goal-enabled round retains preflight review, decisions, specification guards,
-resource leases and budgets, then uses **one session for all selected beads** in
-its integration worktree. As in every round, the agent only edits and commits in
-that worktree (one or more commits, whatever the committed checkbox says); it
-never bumps the version or pushes. When the session finishes, the controller
-checks that the worktree is still on the round branch, clean and holds at least
-one commit of the agent's above the round's base, then makes its own version bump
-commit once (`minor` if any of the round's beads is a feature or epic) and runs
-every final gate and build step. Failed checks resume the native `/goal` session
-within the round's budget, and the agent commits its fixes on top. Blocked,
-interrupted or exhausted sessions pause for an explicit retry; a stalled session
-is resumed once. The round is then `ready_to_land` on nacred's bump commit.
+Every new round fans out into one **goal-driven worker per bead**, each in its
+own worktree and branch. Its native goal contains that bead alone: full description,
+design and verbatim acceptance criteria. Workers keep working until those criteria
+hold and always commit their work. The round retains preflight review, dependencies,
+resource leases, budgets and nacred's existing verification/send-back loop. nacred
+verifies each worker, merges passing work into the integration branch, then runs
+final gates and build and makes the version bump where applicable.
 
-In a round, `pushed` means **nacred pushes when it lands the round**: landing
-pushes the target (and its release tag) as if the repository's `land.push` were
-set. The round branch itself is never pushed. Landing on a target that moved
-undoes and redoes nacred's bump commit as in any round. In a plain run, committed
-and pushed remain the agent's to do, as described above. `Round.goal`,
-`goal_text` and `goal_run_id` preserve the options, objective and session across
-restarts. Resume goal sessions through the round controls, not the standalone
-follow-up endpoint.
+Round `goal.enabled`, `goal.committed` and `goal.pushed` are accepted for compatibility
+and do not change this behavior. Pushing follows **only `nacre.yaml` `land.push`**;
+workers never push or bump versions. In a standalone run, the goal options still
+control the agent's completion condition as described above. `Run.goal_text` records
+each worker's objective. Persisted legacy rounds with `goal_run_id` continue their
+existing shared goal session and can finish and land through the round controls.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
@@ -666,7 +672,7 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | Finish: archive and merge (`POST /v1/repos/{repo}/epics/{epic}/finish`); open change |
 | `epic_finishable` | an open epic, not a change's, with at least one bead under it and all of them closed | Finish epic (`POST /v1/repos/{repo}/epics/{epic}/finish`); open epic |
 | `bead_unclosed` | a round finished the bead's work but closing it failed (`close_error` is set), and the bead is still open | Close anyway (`POST /v1/repos/{repo}/issues/{id}/close` with `force: true`); Open bead |
-| `bead_stuck` | a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
+| `bead_stuck` | in a repository with `nacre.yaml`, a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
 
 A repository whose beads can't be read contributes no items; its board shows the error.
 
@@ -677,7 +683,7 @@ on the computer that has the repository, without any client connected.
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes", "land_when_ready", "goal"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, a bead is in another active round, or the beads belong to different epics |
+| POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes", "land_when_ready", "finish", "goal"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, a bead is in another active round, or the beads belong to different epics |
 | POST | `/v1/repos/{repo}/epics/{id}/finish` | – | `{"round": Round}` (201): a round that finishes the epic; or `{"closed": true}` (200) when its work is already on the landing target and it has no change to archive. 409 while beads under it are open or a round still works on its branch |
 | GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
 | GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |
@@ -694,7 +700,15 @@ on the computer that has the repository, without any client connected.
 **Epic branches.** A round lands where its beads belong: beads under an epic land on the epic's
 branch, `epic/<lower-case id>`, made from `land.target` the first time and pushed with `land.push`;
 other beads land on `land.target`. One round can't mix epics (409). Epic-branch rounds neither bump
-nor tag the version. Finishing an epic is a round with no beads (`finish_epic` names the epic) that
+nor tag the version. `finish` is a boolean (default `false`), accepted only with
+an explicit `epic` and its epic landing branch (409 otherwise), and stored as `Round.finish`. After a `finish:true`
+round lands on `epic/<id>` and all closing operations finish, nacred checks the epic's
+children. If none remain open, it automatically calls FinishEpic with automatic
+landing; otherwise it leaves the epic open and the existing Needs you path available.
+`finish_round_id`, when present, links to the resulting finish round; `finish_checked`
+records that this automatic check ran. A finish-start failure is visible in the
+landed round's `error` and log. The finish endpoint remains available for a manual retry.
+Finishing an epic is a round with no beads (`finish_epic` names the epic) that
 starts from the epic's branch, or from `land.target` when nothing is left on the branch but the
 epic's change still needs archiving. For a change's epic it runs `openspec archive <change> --yes`
 in the round's workspace and commits it. Then it runs every gate and the build with one minor
@@ -710,6 +724,8 @@ is verified; the round reports it as `auto_land`.
 {
   "id": "rdtnf62ywld", "repo_id": "…", "repo_name": "Nacre", "repo_path": "/Users/ryder/Code/Nacre",
   "epic": "",                       // set when started from an epic
+  "finish": false,                  // automatically finish the epic after its children land
+  "finish_checked": false, "finish_round_id": "", // optional automatic finish result
   "state": "implementing",          // planning | needs_decision | implementing | integrating | ready_to_land | landed | cancelled | paused
   "paused_from": "", "pause_reason": "",     // pause_reason repeats stop.reason for older clients
   "stop": {                         // only while paused: why, and the ways forward

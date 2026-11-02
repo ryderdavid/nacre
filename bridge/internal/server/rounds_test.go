@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
@@ -78,5 +79,25 @@ func TestRoundsAPI(t *testing.T) {
 	}
 	if resp, _ := post(t, ts.URL+"/v1/rounds/rdnope/choose", `{"choice":"continue"}`); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("choose on an unknown round: %d", resp.StatusCode)
+	}
+}
+
+// Exercise the actual HTTP decoding and dispatch without opening a socket.
+func TestRoundFinishJSONRequiresEpic(t *testing.T) {
+	repo := t.TempDir()
+	client := bd.New("/nonexistent/bd", "")
+	registry := repos.New(func() []string { return []string{repo} }, client)
+	rm, err := rounds.New(rounds.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rm.Shutdown(time.Second)
+	s := &Server{Config: &config.Config{Token: "tok"}, Repos: registry, Rounds: rm, Log: log.New(io.Discard, "", 0)}
+	req := httptest.NewRequest("POST", "/v1/repos/"+discovery.RepoID(repo)+"/rounds", strings.NewReader(`{"beads":["X-1"],"finish":true}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "finish requires an epic") {
+		t.Fatalf("finish contract: %d %s", w.Code, w.Body.String())
 	}
 }

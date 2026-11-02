@@ -465,7 +465,7 @@ func (r *round) closeBeads(head string) {
 			continue
 		}
 		// Specification sections remain open until the reviewed build lands.
-		// Their epic remains manual regardless of round completion.
+		// An automatic epic finish waits for these closes too.
 		if b.SpecChangeID != "" && r.meta.State != api.RoundLanded {
 			continue
 		}
@@ -804,10 +804,9 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 }
 
 // pushesOnLand says whether landing pushes the target: when the repository's
-// landing policy does, or when the owner checked pushed on a goal round, which
-// asks nacred (not the agent) to push the round's work when it lands.
+// landing policy does. Goal options never override repository policy.
 func pushesOnLand(meta api.Round, cfg *repoconfig.Config) bool {
-	return cfg.Land.Push || (meta.GoalText != "" && meta.Goal.Pushed)
+	return cfg.Land.Push
 }
 
 // fastForward is gitx.FastForward, replaced in tests to move the target first.
