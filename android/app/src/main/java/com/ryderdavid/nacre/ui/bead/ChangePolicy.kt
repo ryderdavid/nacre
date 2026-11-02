@@ -25,7 +25,7 @@ fun changePhaseLabel(phase: String): String = when (phase) {
 /** A phase alone never grants execution; the revision and entire mapping must agree. */
 fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextAction? {
     if (change.activeRoundId.isNotBlank()) return ChangeNextAction(
-        "review", "View implementation", "Continue the existing round to see progress, answer questions, review its build or decide on landing. Resolve active work before revising the proposal.",
+        "review", "View implementation", "Continue the existing round to see progress, answer questions, review its build or decide on merging. Resolve active work before revising the proposal.",
     )
     if (feedback.isNotBlank() && change.activeRoundId.isBlank() && change.phase in setOf("awaiting_approval", "ready", "covered")) return ChangeNextAction(
         "revise", if (change.phase == "covered") "Reconsider with feedback" else "Revise with feedback",
@@ -38,7 +38,7 @@ fun changeNextAction(change: SpecChange, feedback: String = ""): ChangeNextActio
         else "Updates the linked section beads and may reopen completed work. Previous verification will need to be established again. Implementation starts separately.",
     )
     "ready" -> if (change.implementationReadyForReview) ChangeNextAction(
-        "review", "Review implementation", "Inspect the verified round, resolve human checks, and review landing. Acceptance and archival remain separate steps.",
+        "review", "Review implementation", "Inspect the verified round, resolve human checks, and review merging. Acceptance and archival remain separate steps.",
     ) else if (change.allLanded) null
     else if (change.implementationIds.isNotEmpty()) ChangeNextAction(
         "implement", "Implement change", "Choose the approved sections and review the round budget before starting.",

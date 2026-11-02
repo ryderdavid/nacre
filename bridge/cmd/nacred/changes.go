@@ -41,7 +41,7 @@ func activeChange(path, changeID string, rm *rounds.Manager, runMgr *runs.Manage
 			}
 			for _, b := range r.Beads {
 				if b.SpecChangeID == changeID {
-					return "Round " + r.ID + " is still active. Land or cancel it before revising the change."
+					return "Round " + r.ID + " is still active. Merge or cancel it before revising the change."
 				}
 			}
 		}
@@ -101,7 +101,7 @@ func assessChangeEvidence(path string, c specflow.Change, history []api.Round, s
 					e.Note += " Human acceptance is still required: " + b.HumanCheck
 				}
 				if !e.Landed {
-					e.Note += " Landing and final acceptance remain separate."
+					e.Note += " Merging and final acceptance remain separate."
 				}
 				found = true
 				break

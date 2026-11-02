@@ -246,7 +246,7 @@ func (m *Manager) promote(ctx context.Context, r *record) error {
 	r.Stage = "ready"
 	r.PromotionRevision = ""
 	r.Planned = map[string]generated{}
-	history(r, "promotion", fmt.Sprintf("Prepared epic %s with %d current section beads. Start a specification round to implement; acceptance, landing and archive remain explicit.", r.Change.EpicID, len(r.Change.Sections)))
+	history(r, "promotion", fmt.Sprintf("Prepared epic %s with %d current section beads. Start a specification round to implement; acceptance, merging and archive remain explicit.", r.Change.EpicID, len(r.Change.Sections)))
 	return m.checkpoint(r)
 }
 func (m *Manager) decisionComments(ctx context.Context, r *record, phase string) error {
@@ -276,7 +276,7 @@ func (m *Manager) decisionComments(ctx context.Context, r *record, phase string)
 	for _, s := range r.Change.RetiredSections {
 		fmt.Fprintf(&body, "\nRetired %s (%s): %s. Existing bead was retained without automatic closure.", s.ID, s.BeadID, s.Reason)
 	}
-	body.WriteString("\n\nImplementation requires current revision evidence, human review and landing. This workflow does not automatically close the epic or archive the change.")
+	body.WriteString("\n\nImplementation requires current revision evidence, human review and merging. This workflow does not automatically close the epic or archive the change.")
 	ids := []string{r.Change.SeedID}
 	if r.Change.EpicID != "" {
 		ids = append(ids, r.Change.EpicID)

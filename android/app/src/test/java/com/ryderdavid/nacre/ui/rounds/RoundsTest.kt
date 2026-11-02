@@ -39,7 +39,7 @@ class RoundsTest {
     }
 
     @Test fun labelsReadLikeTheApp() {
-        assertEquals("Ready to land", roundStateLabel(ROUND_READY))
+        assertEquals("Ready to merge", roundStateLabel(ROUND_READY))
         assertEquals("Needs your decision", roundStateLabel(ROUND_NEEDS_DECISION))
         assertEquals("Merged", beadStateLabel(BEAD_INTEGRATED))
         assertEquals("Overlap, run one after the other", findingLabel("overlap"))

@@ -258,8 +258,8 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 				item.Kind = api.AttentionChangeArchivable
 				item.BeadID = c.EpicID
 				item.Title = name + " is ready to archive"
-				item.Why = fmt.Sprintf("All %d sections landed, and the change's own files are still the approved ones (%s). Finishing archives it, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections), strings.ToLower(or(c.StaleReason, "other specifications changed")))
-				item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Finish: archive and merge"), openChange}
+				item.Why = fmt.Sprintf("All %d sections merged, and the change's own files are still the approved ones (%s). Merging archives it, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections), strings.ToLower(or(c.StaleReason, "other specifications changed")))
+				item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Archive spec and merge into main"), openChange}
 				break
 			}
 			item.Kind = api.AttentionApprovalStale
@@ -278,8 +278,8 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 			item.Kind = api.AttentionChangeArchivable
 			item.BeadID = c.EpicID
 			item.Title = name + " is ready to archive"
-			item.Why = fmt.Sprintf("All %d sections landed with evidence for the approved revision. Finishing archives the change, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections))
-			item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Finish: archive and merge"), openChange}
+			item.Why = fmt.Sprintf("All %d sections merged with evidence for the approved revision. Merging archives the change, merges its epic's work into the main branch with every gate and the build, pushes it and closes the epic.", len(c.Sections))
+			item.Options = []api.AttentionOption{finishEpic(ref.ID, c.EpicID, "Archive spec and merge into main"), openChange}
 		default:
 			continue
 		}
@@ -328,9 +328,9 @@ func epicItems(ref repos.Ref, beads map[string]bead, changes []api.ChangeSummary
 		out = append(out, api.AttentionItem{
 			ID: digest(api.AttentionEpicFinishable, ref.ID, e.ID, last), Kind: api.AttentionEpicFinishable,
 			Repo: ref.ID, RepoName: ref.Name, BeadID: e.ID, Title: e.Title + " is done",
-			Why:       fmt.Sprintf("All %d beads under %s are closed. Finishing merges the epic's branch into the main branch with every gate and the build, pushes it and closes the epic.", len(kids), e.ID),
+			Why:       fmt.Sprintf("All %d beads under %s are closed. Merging the epic merges its branch into the main branch with every gate and the build, pushes it and closes the epic.", len(kids), e.ID),
 			CreatedAt: last,
-			Options:   []api.AttentionOption{finishEpic(ref.ID, e.ID, "Finish epic"), open("Open epic", "bead", ref.ID, e.ID)},
+			Options:   []api.AttentionOption{finishEpic(ref.ID, e.ID, "Merge epic into main"), open("Open epic", "bead", ref.ID, e.ID)},
 		})
 	}
 	return out
@@ -358,7 +358,7 @@ func (b *Builder) stuckItems(ref repos.Ref, beads map[string]bead) []api.Attenti
 		out = append(out, api.AttentionItem{
 			ID: digest(api.AttentionBeadStuck, ref.ID, x.ID, x.UpdatedAt), Kind: api.AttentionBeadStuck,
 			Repo: ref.ID, RepoName: ref.Name, BeadID: x.ID, Title: x.Title + " is stuck in progress",
-			Why:       x.ID + " has been in progress since " + at.Format("Jan 2") + " with nothing working on it. Work it until it's done (it lands and closes when it passes every gate), or put it back in Ready.",
+			Why:       x.ID + " has been in progress since " + at.Format("Jan 2") + " with nothing working on it. Work it until it's done (it is merged and closed when it passes every gate), or put it back in Ready.",
 			CreatedAt: x.UpdatedAt,
 			Options: []api.AttentionOption{
 				action("Work until done", "POST", "/v1/repos/"+ref.ID+"/rounds", map[string]any{"beads": []string{x.ID}, "land_when_ready": true}),
@@ -447,11 +447,11 @@ func roundItems(ref repos.Ref, r api.Round) []api.AttentionItem {
 		out = append(out, api.AttentionItem{
 			ID: digest(api.AttentionRoundReady, r.ID, r.FinalCommit), Kind: api.AttentionRoundReady,
 			Repo: ref.ID, RepoName: ref.Name, RoundID: r.ID,
-			Title: fmt.Sprintf("Round %s is ready to land", r.ID),
-			Why: fmt.Sprintf("Its %d beads passed the gates and the final build. Landing moves %s to %s.",
+			Title: fmt.Sprintf("Round %s is ready to merge", r.ID),
+			Why: fmt.Sprintf("Its %d beads passed the gates and the final build. Merging moves %s to %s.",
 				len(r.Beads), or(r.Target, "the target"), short(r.FinalCommit)),
 			CreatedAt: r.UpdatedAt,
-			Options:   []api.AttentionOption{action("Land", "POST", roundPath+"/land", nil), openRound},
+			Options:   []api.AttentionOption{action("Merge into "+or(r.Target, "the target"), "POST", roundPath+"/land", nil), openRound},
 		})
 	}
 	return out

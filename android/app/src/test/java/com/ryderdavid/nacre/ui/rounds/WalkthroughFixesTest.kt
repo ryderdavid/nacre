@@ -40,10 +40,10 @@ class WalkthroughFixesTest {
 
     @Test fun landingSaysWhetherItPushes() {
         val push = landWording("main", "abc1234", true)
-        assertEquals("Fast-forward main and push", push.confirm)
+        assertEquals("Merge and push", push.confirm)
         assertTrue("pushes it to origin" in push.body)
         val local = landWording("main", "abc1234", false)
-        assertEquals("Fast-forward main, don't push", local.confirm)
+        assertEquals("Merge, don't push", local.confirm)
         assertTrue("doesn't push" in local.body && "land.push" in local.body)
         // An older nacred doesn't say; the dialog stays conditional rather than guessing.
         assertTrue("if the repository's nacre.yaml says to" in landWording("main", "abc1234", null).body)

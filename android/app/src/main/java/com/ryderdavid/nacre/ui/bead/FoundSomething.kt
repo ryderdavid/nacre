@@ -49,7 +49,7 @@ enum class FoundAnswer(val wire: String, val label: String) {
 /** What each answer does, said before Ryder picks it. */
 fun FoundAnswer.explain(change: ChangeSummary, landed: Int) = when (this) {
     FoundAnswer.HOW_ORDER -> "Add a bead under ${change.epicId}. The approved plan stays as it is."
-    FoundAnswer.AMEND -> if (landed > 0) "Files it and asks whether to revise ${change.name} now, which reopens $landed landed section${if (landed == 1) "" else "s"}, or make it a follow-on change."
+    FoundAnswer.AMEND -> if (landed > 0) "Files it and asks whether to revise ${change.name} now, which reopens $landed merged section${if (landed == 1) "" else "s"}, or make it a follow-on change."
     else "Files it and asks whether to revise ${change.name} now (a new review and your approval, up to \$5) or make it a follow-on change."
     FoundAnswer.OUT_OF_SCOPE -> "Start a New effort, linked to ${change.epicId} as related."
 }

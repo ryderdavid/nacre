@@ -61,9 +61,9 @@ internal fun roundNotice(before: Round?, after: Round): RoundNotice? {
     val beads = after.beads.joinToString(", ") { it.id }
     if (before?.state != after.state) when (after.state) {
         ROUND_NEEDS_DECISION -> return RoundNotice("A round needs your decision", after.openQuestions.firstOrNull()?.text ?: "Beads $beads")
-        ROUND_READY -> return RoundNotice("Ready to land", "One commit with $beads passes every gate and the build. Land it on ${after.target}.")
+        ROUND_READY -> return RoundNotice("Ready to merge", "One commit with $beads passes every gate and the build. Merge it into ${after.target}.")
         ROUND_PAUSED -> return RoundNotice("A round paused", after.pauseReason.ifBlank { "Beads $beads" })
-        ROUND_LANDED -> return RoundNotice("Round landed", "${after.target} is at ${after.landedCommit.take(7)}${if (after.pushed) " and pushed" else ""}.")
+        ROUND_LANDED -> return RoundNotice("Round merged", "${after.target} is at ${after.landedCommit.take(7)}${if (after.pushed) " and pushed" else ""}.")
     }
     val parkedBefore = before?.beads.orEmpty().filter { it.state == BEAD_PARKED }.map { it.id }.toSet()
     after.beads.firstOrNull { it.state == BEAD_PARKED && it.id !in parkedBefore }?.let {
@@ -151,7 +151,7 @@ class RunNotifier(
             description = "When a Claude Code run has printed nothing for a long time"
         })
         nm.createNotificationChannel(NotificationChannel(CH_ROUNDS, "Rounds that need you", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "When a round needs a decision, parks a bead, pauses, or is ready to land, and when a proposal is ready for review or a change is ready to archive"
+            description = "When a round needs a decision, parks a bead, pauses, or is ready to merge, and when a proposal is ready for review or a change is ready to archive"
         })
     }
 

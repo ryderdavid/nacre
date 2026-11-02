@@ -26,7 +26,7 @@ class SpecSurfacesTest {
     @Test fun oneSpecChipPerCard() {
         assertEquals(SpecChip("Ready to implement", ChipTone.SPEC, changes.changes[0].sections), specChip(issue("E"), changes))
         assertEquals(ChipTone.NEEDS_YOU, specChip(issue("N"), changes)!!.tone)
-        assertEquals("§ 1 of retain-drafts · landed", specChip(issue("S1"), changes)!!.text)
+        assertEquals("§ 1 of retain-drafts · merged", specChip(issue("S1"), changes)!!.text)
         assertEquals("Closed, not verified", specChip(issue("S2", status = "closed"), changes)!!.text)
         assertEquals("Changes retain-drafts", specChip(issue("F", labels = listOf("found:c1", "found-amend")), changes)!!.text)
         assertEquals("Added to retain-drafts", specChip(issue("G", labels = listOf("found:c1")), changes)!!.text)

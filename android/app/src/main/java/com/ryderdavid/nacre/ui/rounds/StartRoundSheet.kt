@@ -142,7 +142,7 @@ fun StartRoundSheet(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).navigationBarsPadding().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (specChange == null) "Work several beads until done" else "Implement this change", style = MaterialTheme.typography.headlineSmall)
             Text(
-                if (specChange != null) "Only sections from the approved proposal are included. The computer checks this revision again, installs its specification, then implements and verifies the selected work. Landing remains your decision."
+                if (specChange != null) "Only sections from the approved proposal are included. The computer checks this revision again, installs its specification, then implements and verifies the selected work. Merging it into the target branch remains your decision."
                 else "${repo?.hostName?.ifBlank { null } ?: "The computer"} reviews them together first and asks you only where they disagree. " +
                     "Then it works each on its own branch, checks it against the repository's gates, and merges them into one commit that builds.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -196,7 +196,7 @@ fun StartRoundSheet(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !starting && prefs != null)
-                if (goal.enabled) Text("One session works every selected bead and commits it. Nacre bumps the version and, if pushed is selected, pushes when it lands the round.", style = MaterialTheme.typography.bodySmall)
+                if (goal.enabled) Text("One session works every selected bead and commits it. Nacre bumps the version and, if pushed is selected, pushes when it merges the round.", style = MaterialTheme.typography.bodySmall)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(
                     onClick = {

@@ -264,7 +264,7 @@ fun ChangeDetail(
                                         Text(evidence.note.ifBlank { if (change.hasCurrentApproval && evidence.verified) "Verified implementation recorded." else "Verification has not been established." }, style = MaterialTheme.typography.bodyMedium)
                                         if (evidence.humanCheck) Text("Human check outstanding", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
                                         if (evidence.runId.isNotBlank()) TextButton(onClick = { onOpenRun(Keys.of(Keys.host(vm.repoKey), evidence.runId)) }) { Text("Inspect run") }
-                                        if (evidence.roundId.isNotBlank()) TextButton(onClick = { onOpenRound(Keys.of(Keys.host(vm.repoKey), evidence.roundId)) }) { Text(if (evidence.landed) "Inspect landed round" else "Inspect round") }
+                                        if (evidence.roundId.isNotBlank()) TextButton(onClick = { onOpenRound(Keys.of(Keys.host(vm.repoKey), evidence.roundId)) }) { Text(if (evidence.landed) "Inspect merged round" else "Inspect round") }
                                     }
                                 }
                             }
@@ -349,9 +349,9 @@ private fun EvidenceSummary(change: SpecChange) {
             else {
                 append("\n${change.buildVerifiedSections} of ${change.sections.size} sections in a verified build")
                 append("\n${relevant.filter { it.humanCheck }.map { it.sectionId }.distinct().size} human checks outstanding")
-                append(" · ${relevant.filter { it.landed && it.roundId.isNotBlank() }.map { it.roundId }.distinct().size} landed rounds")
+                append(" · ${relevant.filter { it.landed && it.roundId.isNotBlank() }.map { it.roundId }.distinct().size} merged rounds")
             }
-            append("\nReview the implementation, resolve human checks, land the work and archive the change when accepted. The epic stays open until those steps are complete.")
+            append("\nReview the implementation, resolve human checks, merge the work and archive the change when accepted. The epic stays open until those steps are complete.")
         },
     )
 }
@@ -398,7 +398,7 @@ private fun PlanProgress(change: SpecChange, summary: com.ryderdavid.nacre.data.
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Work · from beads", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                Text("$landed of ${change.sections.size} landed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("$landed of ${change.sections.size} merged", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             change.sections.forEachIndexed { n, s ->
                 val e = evidence[s.id] ?: "none"

@@ -121,8 +121,8 @@ fun roundStateLabel(state: String): String = when (state) {
     ROUND_NEEDS_DECISION -> "Needs your decision"
     ROUND_IMPLEMENTING -> "Working"
     ROUND_INTEGRATING -> "Merging"
-    ROUND_READY -> "Ready to land"
-    ROUND_LANDED -> "Landed"
+    ROUND_READY -> "Ready to merge"
+    ROUND_LANDED -> "Merged"
     ROUND_CANCELLED -> "Cancelled"
     ROUND_PAUSED -> "Paused"
     else -> state
@@ -317,7 +317,7 @@ private fun StatusCard(
             Text(
                 listOfNotNull(
                     "${usd(r.spentUsd)} of ${usd(r.budgetUsd)}",
-                    if (r.finishEpic.isNotBlank()) "from ${com.ryderdavid.nacre.data.model.epicBranch(r.finishEpic)} at ${r.base.take(7)}" else "lands on ${r.target} · from ${r.base.take(7)}",
+                    if (r.finishEpic.isNotBlank()) "from ${com.ryderdavid.nacre.data.model.epicBranch(r.finishEpic)} at ${r.base.take(7)}" else "merges into ${r.target} · from ${r.base.take(7)}",
                     r.startedAt.takeIf { it.isNotBlank() }?.let { "started ${relativeTime(it)}" },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -498,18 +498,18 @@ fun landWording(target: String, commit: String, landPush: Boolean?): LandWording
     val moved = "If $target moved since the round started, nacred merges those changes in and runs the gates and build again first."
     return when (landPush) {
         true -> LandWording(
-            note = "Landing pushes $target to origin.",
-            confirm = "Fast-forward $target and push",
+            note = "Merging pushes $target to origin.",
+            confirm = "Merge and push",
             body = "nacred moves $target to $commit and pushes it to origin. $moved",
         )
         false -> LandWording(
-            note = "Landing doesn't push: nacre.yaml sets land.push to false.",
-            confirm = "Fast-forward $target, don't push",
+            note = "Merging doesn't push: nacre.yaml sets land.push to false.",
+            confirm = "Merge, don't push",
             body = "nacred moves $target to $commit on this computer only. It doesn't push, because the repository's nacre.yaml sets land.push to false. $moved",
         )
         null -> LandWording(
             note = "",
-            confirm = "Land",
+            confirm = "Merge",
             body = "nacred moves $target to $commit and pushes it if the repository's nacre.yaml says to. $moved",
         )
     }
@@ -555,13 +555,13 @@ private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
             Button(onClick = { confirm = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.RocketLaunch, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Land on ${r.target}")
+                Text("Merge into ${r.target}")
             }
         }
     }
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
-        title = { Text("Land on ${r.target}?") },
+        title = { Text("Merge into ${r.target}?") },
         text = { Text(wording.body) },
         confirmButton = { TextButton(onClick = { confirm = false; onLand() }) { Text(wording.confirm) } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Not yet") } },

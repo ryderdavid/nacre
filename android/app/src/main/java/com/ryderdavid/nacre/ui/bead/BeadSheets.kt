@@ -236,13 +236,13 @@ fun RunLaunchSheet(
             }
             if (onWorkUntilDone != null) {
                 Text(
-                    "Claude works on it in its own worktree on $hostName. nacred checks the result itself: a clean commit, every gate and the build in nacre.yaml, sending it back with what failed. Then it commits, lands on $landsOn, pushes and closes the bead.",
+                    "Claude works on it in its own worktree on $hostName. nacred checks the result itself: a clean commit, every gate and the build in nacre.yaml, sending it back with what failed. Then it commits, merges into $landsOn, pushes and closes the bead.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { landWhenReady = !landWhenReady }, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Land when it passes", style = MaterialTheme.typography.bodyLarge)
-                        Text(if (landWhenReady) "Lands and pushes without waiting for you" else "Waits for you to tap Land", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Merge into $landsOn when it passes", style = MaterialTheme.typography.bodyLarge)
+                        Text(if (landWhenReady) "Merges into $landsOn and pushes without waiting for you" else "Waits for you to tap Merge into $landsOn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = landWhenReady, onCheckedChange = { landWhenReady = it })
                 }
@@ -265,8 +265,8 @@ fun RunLaunchSheet(
             }
             val codexBlocker = targetRepo?.codexBlocker.takeIf { agent == CODEX_AGENT }
             Text(
-                codexBlocker ?: if (agent == CODEX_AGENT) "Runs on $hostName with Codex on the ChatGPT account it is signed in to there. Codex claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or landed for you" else ", verifies it and closes it when done"}."
-                else "Runs on $hostName with Claude Code on your Claude subscription. Claude claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or landed for you" else ", verifies it and closes it when done"}.",
+                codexBlocker ?: if (agent == CODEX_AGENT) "Runs on $hostName with Codex on the ChatGPT account it is signed in to there. Codex claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or merged for you" else ", verifies it and closes it when done"}."
+                else "Runs on $hostName with Claude Code on your Claude subscription. Claude claims the bead, does the work${if (onWorkUntilDone != null) "; nothing is checked, committed or merged for you" else ", verifies it and closes it when done"}.",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (codexBlocker != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),

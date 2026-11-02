@@ -375,7 +375,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 			for _, id := range ids {
 				if b.ID == id {
 					m.mu.Unlock()
-					return api.Round{}, conflict(fmt.Sprintf("%s is already in round %s, which hasn't landed or been cancelled", id, other.meta.ID))
+					return api.Round{}, conflict(fmt.Sprintf("%s is already in round %s, which hasn't been merged or cancelled", id, other.meta.ID))
 				}
 			}
 		}

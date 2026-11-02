@@ -42,7 +42,7 @@ func fakeNacred(t *testing.T, repoPath string, got *map[string]any) *config.Conf
 	})
 	mux.HandleFunc("POST /v1/rounds/rdx/land", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
-		json.NewEncoder(w).Encode(api.Error{Error: "the round isn't ready to land"})
+		json.NewEncoder(w).Encode(api.Error{Error: "the round isn't ready to merge"})
 	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
@@ -80,7 +80,7 @@ func TestRoundCommand(t *testing.T) {
 	if err := runRound(cfg, []string{"answer", "rd1", "q1", "Go", "right"}, &out); err != nil || got["answer"] != "Go right" {
 		t.Errorf("answer: %v %v", err, got)
 	}
-	if err := runRound(cfg, []string{"land", "rdx"}, &out); err == nil || !strings.Contains(err.Error(), "isn't ready to land") {
+	if err := runRound(cfg, []string{"land", "rdx"}, &out); err == nil || !strings.Contains(err.Error(), "isn't ready to merge") {
 		t.Errorf("land refusal: %v", err)
 	}
 	if err := runRound(cfg, []string{"start", "--repo", "Elsewhere", "X-1"}, &out); err == nil || !strings.Contains(err.Error(), "doesn't know") {

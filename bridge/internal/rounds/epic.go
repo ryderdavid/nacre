@@ -33,7 +33,7 @@ func (is issue) parent() string {
 
 // sharedEpic is the epic every bead belongs to, or "" when none does. Beads
 // from different epics, or epic work mixed with work outside any epic, can't
-// share a round: each epic's work lands on its own branch.
+// share a round: each epic's work is merged into its own branch.
 func (m *Manager) sharedEpic(ctx context.Context, repo string, issues []issue) (string, error) {
 	epics := map[string][]string{}
 	isEpic := map[string]bool{}
@@ -65,7 +65,7 @@ func (m *Manager) sharedEpic(ctx context.Context, repo string, issues []issue) (
 		groups = append(groups, name+": "+strings.Join(ids, ", "))
 	}
 	sort.Strings(groups)
-	return "", conflict("These beads belong to different epics, and each epic's work lands on its own branch. Start a round per epic (" + strings.Join(groups, "; ") + ")")
+	return "", conflict("These beads belong to different epics, and each epic's work is merged into its own branch. Start a round per epic (" + strings.Join(groups, "; ") + ")")
 }
 
 // ensureEpicBranch makes the epic's branch from the landing target the first
@@ -147,7 +147,7 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	for _, other := range m.rounds {
 		if other.meta.Active() && other.meta.RepoID == repoID && (other.meta.Target == branch || other.meta.FinishEpic == epic) {
 			m.mu.Unlock()
-			return api.Round{}, false, conflict(fmt.Sprintf("Round %s is still working on %s; let it land or cancel it first", other.meta.ID, branch))
+			return api.Round{}, false, conflict(fmt.Sprintf("Round %s is still working on %s; let it merge or cancel it first", other.meta.ID, branch))
 		}
 	}
 	m.mu.Unlock()
@@ -183,7 +183,7 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	if change != "" {
 		what = "archiving " + change + "; " + what
 	}
-	r.event("state", "", fmt.Sprintf("Finishing epic %s: %s, with every gate and the build", epic, what))
+	r.event("state", "", fmt.Sprintf("Merging epic %s: %s, with every gate and the build", epic, what))
 	r.saveLocked()
 	out := clone(r.meta)
 	r.mu.Unlock()
@@ -216,7 +216,7 @@ func (r *round) finishedEpic(ctx context.Context, meta api.Round, head string, p
 	var notes []string
 	epic, branch := meta.FinishEpic, EpicBranch(meta.FinishEpic)
 	if err := r.m.opts.Beads.Close(ctx, meta.RepoPath, epic, fmt.Sprintf("Merged into %s at %s by round %s; gates and build pass", meta.Target, short(head), meta.ID)); err != nil {
-		notes = append(notes, "Landed, but closing "+epic+" failed: "+err.Error())
+		notes = append(notes, "Merged, but closing "+epic+" failed: "+err.Error())
 	}
 	r.m.repoChanged(meta.RepoID)
 	if r.m.opts.ChangeArchived != nil {
