@@ -373,11 +373,13 @@ func (r *round) integrated(id, commit string) {
 // the integration branch.
 func (r *round) startFinish() {
 	if r.integratedCount() == 0 && r.meta.FinishEpic == "" {
-		reason := "No bead could be reconciled, so there is nothing to merge. Retry a parked bead or cancel the round."
 		if r.allLeftOut() {
-			reason = "Every bead was left out at pre-flight, so there is nothing to merge. Cancel the round."
+			// Ryder's own answers left nothing to do: end the round instead
+			// of asking him to cancel it.
+			r.cancelLocked("Every bead was left out by your answers, so the round ended itself")
+			return
 		}
-		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: reason})
+		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: "No bead could be reconciled, so there is nothing to merge. Retry a parked bead or cancel the round."})
 		return
 	}
 	meta, cfg := clone(r.meta), r.cfg

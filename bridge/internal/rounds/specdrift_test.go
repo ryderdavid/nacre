@@ -3,6 +3,8 @@ package rounds
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -254,5 +256,25 @@ func TestQuestionsGetRecommendationsAndAcceptAll(t *testing.T) {
 	}
 	if _, err := h.m.AcceptRecommended(r.ID); err == nil {
 		t.Fatal("accepting again with nothing open should be refused")
+	}
+}
+
+// A round whose every bead the owner's answers left out ends itself instead
+// of stopping to ask him to cancel it.
+func TestRoundEndsItselfWhenEveryBeadIsLeftOut(t *testing.T) {
+	h := newHarness(t, newFakeBeads(&fakeBead{ID: "T-A", Title: "Add a", Type: "task"}), emptyPlan)
+	meta := api.Round{ID: "left-out", RepoID: "repo", RepoPath: h.repo, State: api.RoundIntegrating,
+		Beads: []api.RoundBead{{ID: "T-A", State: api.BeadSkipped, Reason: leftOutPrefix + " to amend the spec first"}}}
+	dir := filepath.Join(h.m.opts.Dir, meta.ID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := h.m.newRound(meta, dir)
+	r.mu.Lock()
+	r.startFinish()
+	state, stop := r.meta.State, r.meta.Stop
+	r.mu.Unlock()
+	if state != api.RoundCancelled || stop != nil {
+		t.Fatalf("state=%s stop=%+v", state, stop)
 	}
 }
