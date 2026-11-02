@@ -104,6 +104,9 @@ func (m *Manager) Summaries(repo string) ([]api.ChangeSummary, int, error) {
 		s := api.ChangeSummary{ID: c.ID, ChangeName: c.ChangeName, Phase: c.Phase, Revision: c.Revision,
 			ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases), AsApproved: c.AsApproved,
 			Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt}
+		if g := c.Guide; g != nil && g.For == guideKey(c) {
+			s.Status, s.Recommended = g.Status, g.Recommended.Label
+		}
 		if m.opts.Active != nil && c.EpicID != "" {
 			s.Active = m.opts.Active(repo, c.ID)
 		}

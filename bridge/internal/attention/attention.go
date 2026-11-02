@@ -243,11 +243,18 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 			Target: &api.AttentionTarget{Kind: "change", Repo: ref.ID, ID: seed, Revision: c.Revision}}
 		item := api.AttentionItem{Repo: ref.ID, RepoName: ref.Name, BeadID: seed, ChangeID: c.ID, CreatedAt: c.UpdatedAt}
 		reason := strings.TrimSpace(c.Error)
+		// The change's guide, once written, says plainly how it went and what to do next.
+		guided := func(why string) string {
+			if c.Recommended == "" {
+				return why
+			}
+			return strings.TrimSpace(or(c.Status, why) + " Recommended: " + c.Recommended + ".")
+		}
 		switch c.Phase {
 		case "awaiting_approval":
 			item.Kind = api.AttentionProposalReady
 			item.Title = "Proposal ready: " + name
-			item.Why = "The proposal passed independent review. Approve revision " + short(c.Revision) + " to create its beads, or open it to give feedback."
+			item.Why = guided("The proposal passed independent review. Approve revision " + short(c.Revision) + " to create its beads, or open it to give feedback.")
 			item.Options = []api.AttentionOption{
 				{Type: "open", Label: "Review and approve", Target: openChange.Target},
 				action("Approve", "POST", changePath, map[string]any{"action": "approve", "revision": c.Revision}),
@@ -255,8 +262,12 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 		case "needs_attention":
 			item.Kind = api.AttentionReviewBlocked
 			item.Title = "Review found problems in " + name
-			item.Why = or(reason, "The reviewer left blocking findings. Open the change and give feedback to start another revision.")
+			item.Why = guided(or(reason, "The reviewer left blocking findings. Open the change and give feedback to start another revision."))
 			item.Options = []api.AttentionOption{openChange}
+			if c.Recommended != "" {
+				item.Title = name + " needs your decision"
+				item.Options = []api.AttentionOption{{Type: "open", Label: "See recommendation", Target: openChange.Target}}
+			}
 		case "stale":
 			if c.AsApproved && archivable(c, beads) {
 				item.Kind = api.AttentionChangeArchivable
@@ -268,7 +279,7 @@ func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]be
 			}
 			item.Kind = api.AttentionApprovalStale
 			item.Title = name + " needs a new review"
-			item.Why = or(c.StaleReason, or(reason, "The project's specifications changed since this was reviewed."))
+			item.Why = guided(or(c.StaleReason, or(reason, "The project's specifications changed since this was reviewed.")))
 			item.Options = []api.AttentionOption{action("Review again", "POST", changePath, map[string]any{"action": "revise"}), openChange}
 		case "interrupted":
 			item.Kind = api.AttentionWorkflowInterrupted

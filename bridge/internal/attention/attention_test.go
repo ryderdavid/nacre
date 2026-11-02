@@ -463,3 +463,19 @@ func TestRoundQuestionsShareOneItemWithRecommendationsFirst(t *testing.T) {
 		t.Fatalf("accept all offered before every question has a recommendation: %+v", o)
 	}
 }
+
+func TestABlockedChangeWithAGuideSaysWhatToDoNext(t *testing.T) {
+	f := newFixture(t)
+	f.change = []api.ChangeSummary{{ID: "sf5", ChangeName: "placeholders", Phase: "needs_attention", SeedIDs: []string{"N-8"},
+		Error: "claude: Reached maximum budget ($0.85)", Status: "Reviewed three times; one point still blocks it.", Recommended: "Revise with stable order"}}
+	items := f.b.Items(context.Background())
+	if len(items) != 1 {
+		t.Fatalf("items=%+v", items)
+	}
+	it := items[0]
+	if it.Title != "placeholders needs your decision" || strings.Contains(it.Why, "maximum budget") ||
+		it.Why != "Reviewed three times; one point still blocks it. Recommended: Revise with stable order." ||
+		len(it.Options) != 1 || it.Options[0].Label != "See recommendation" || it.Options[0].Target.Kind != "change" {
+		t.Fatalf("item=%+v", it)
+	}
+}

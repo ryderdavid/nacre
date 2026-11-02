@@ -467,7 +467,8 @@ writes it with one headless call (up to $0.30, added to `cost_usd`) the first ti
 finished operation finds the change waiting without a guide for its current state, and drops it
 from the envelope once the state moves on; a failed call is not retried for that state, and the app
 falls back to its own next action. Writing a guide never moves `updated_at`. Drafting calls are
-capped at $1.60 and review calls at $0.85, within the $5 per action. The envelope also carries
+capped at $1.60 and review calls at $0.85, within the $5 per action. Change summaries
+(`GET /v1/repos/{repo}/changes`) carry the guide's `status` and the `recommended` step's label. The envelope also carries
 `inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
 repository's OpenSpec setup can be read. Artifacts are exact
 `{path,content}` pairs. Sections are `{id,title,body,bead_id,depends_on}`; their IDs come from
@@ -671,7 +672,7 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 |---|---|---|
 | `bead_decision` | open bead labelled `human` or typed `decision` | open bead |
 | `proposal_ready` | change `awaiting_approval` | open change at its revision; `approve` with that revision |
-| `review_blocked` | change `needs_attention` | open change |
+| `review_blocked` | change `needs_attention` | open change; once the change has a guide the title reads "… needs your decision", `why` is the guide's status plus "Recommended: <step>.", and the one option is "See recommendation" (proposal-ready and stale items add the same recommendation to `why`) |
 | `approval_stale` | change `stale`, including a ready or awaiting change whose live check fails when the list is built; `why` is its `stale_reason` | `revise`; open change |
 | `workflow_interrupted` | change `interrupted` | `resume`; open change |
 | `round_question` | one item per round in `needs_decision`, carrying every unanswered question in `questions` (`{id, text, reason?, options}`; the recommended answer first with `recommended: true`) | each answer via `POST /v1/rounds/{round}/answers`; Accept all recommendations (`POST /v1/rounds/{round}/answers/recommended`, offered once every question has one); open round |

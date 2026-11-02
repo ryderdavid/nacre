@@ -121,6 +121,10 @@ type ChangeSummary struct {
 	// archived without another review.
 	AsApproved bool   `json:"as_approved,omitempty"`
 	UpdatedAt  string `json:"updated_at"`
+	// Status and Recommended come from the change's guide while it waits on
+	// the owner: how it went, and the label of the recommended next step.
+	Status      string `json:"status,omitempty"`
+	Recommended string `json:"recommended,omitempty"`
 }
 
 // SectionSummary is one task section of a change and its evidence.
