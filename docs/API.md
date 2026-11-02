@@ -565,10 +565,9 @@ Both `RunRequest` and the round-start body accept an optional `goal` object:
 ```
 
 For standalone runs, all values default to false. `pushed` implies `committed`. Disabled goals add no
-`/goal` and confer no commit or push authority. Android remembers all three choices
-locally after a successful launch, including child choices while disabled, and
-shares those defaults between Implement (Claude or Codex) and round start. Disabled
-goals are omitted from Android's requests for compatibility with older bridges.
+`/goal` and confer no commit or push authority. Android no longer sends `goal`: Start
+work and Run epic start rounds, whose workers are always goal-driven (below), and a
+manual run from a bead's overflow runs without a goal.
 
 The shared builder includes each bead's ID, title, full description, design and
 verbatim acceptance criteria, followed by the selected completion condition.

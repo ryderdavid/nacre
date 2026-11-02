@@ -29,7 +29,7 @@ A native Android (Material You) kanban for [beads](https://github.com/steveyegge
 
 ## Several computers
 
-Run `nacred` on each Mac (`cd bridge && make install`, set `host_name` in its config if you like) and pair each one from Settings › *Add a computer*. Boards from every computer are listed together, tagged with the computer they live on; the Runs tab shows where each run ran.
+Run `nacred` on each Mac (`cd bridge && make install`, set `host_name` in its config if you like) and pair each one from Settings (the gear on Boards) › *Add a computer*. Boards from every computer are listed together, tagged with the computer they live on; Activity shows where each run ran.
 
 Settings › **Update connected computers** asks every reachable Mac to install the latest published stable Nacre GitHub release. Each computer shows its own progress or reason it cannot update. Busy computers keep their work; retry after their runs, rounds, assistant turns or specification jobs finish. Updating idle computers briefly disconnects them while the daemon restarts, then verifies the exact release and computer identity. Failed health checks restore the previous binary.
 
@@ -40,11 +40,11 @@ A repository checked out on more than one computer (same git `origin`, SSH host 
 ## Agent sessions
 
 When `adopt_sessions` is on in `nacred`'s config, the Mac also watches Claude Code sessions an **agent
-started on its own** — claiming a bead from the terminal, say — and Nacre lists them in the Runs tab
+started on its own** — claiming a bead from the terminal, say — and Nacre lists them in Activity
 beside its own, marked **Agent** with what the session is doing (*working*, *waiting for input*,
 *session ended*). The transcript, cost and bead link are all there, read live from the session's
 own transcript. A session that has written nothing for 15 minutes (`adopt_idle_minutes`) is left
-open rather than working: it drops out of the Runs tab and its count, but its bead still shows the
+open rather than working: it drops out of Activity and its count, but its bead still shows the
 agent, as idle.
 
 They are read-only, because the Mac owns no process for them: there is no *Cancel* and no follow-up
@@ -54,74 +54,42 @@ reason an agent session never posts a run-finished notification and never keeps 
 watcher service alive: quitting a terminal you left open for an afternoon is not a run of ours
 finishing.
 
-Implement (Claude or Codex) and round start offer **Use a goal to work until
-acceptance criteria are met and:** with **committed** and **pushed** choices.
-All start unchecked; the app remembers the last successful launch's choices.
-Pushed also selects committed. A goal includes the full bead and its acceptance
-criteria and keeps the native agent session working until its conditions hold.
-Goals can still pause for blockers, permissions or spending limits. In a round,
-the goal session only commits its work on the round branch and stops; when the
-round is merged into its target branch, nacred bumps the version and pushes the target (that is what pushed
-means for a round).
+## Getting work done
 
-## Rounds
+Nacre has one way to finish work: open it and tap its one primary button.
 
-To get one bead done, open it and tap **Implement…**, then **Work until done**. That's a round of one
-bead: it gets its own worktree, nacred checks the result itself against `nacre.yaml`, and with
-**Merge into main when it passes** on (the default; under an epic it names `epic/<id>`) it commits,
-merges into that branch, pushes and closes the bead without
-waiting for you. **Or just run it** starts a plain Claude Code or Codex run that leaves checking,
-committing and closing to you.
+- **Start work** on a bead. nacred runs it as a round of one bead: a goal-driven agent works in its own
+  worktree until the bead's acceptance criteria hold, nacred checks the result itself against
+  `nacre.yaml`, then merges it into its target (`main`, or `epic/<id>` under an epic), pushes when
+  `nacre.yaml` says so and closes the bead.
+- **Run epic** on an epic. Every open child gets its own goal-driven agent in its own worktree, all at
+  once where their dependencies allow. Each passes nacred's checks and merges into `epic/<id>`; once no
+  child is left open, nacred finishes the epic by itself: it merges the branch into `main` with every
+  gate, the build and one version bump, archives the epic's OpenSpec change when it has one, pushes,
+  closes the epic and deletes its branch. **Finish epic** appears instead when every child is already
+  closed.
+- **Run an agent manually…**, in a bead's overflow, starts a plain Claude Code or Codex run with your
+  choice of agent, computer, permissions, model and worktree. It leaves checking, committing and
+  closing to you.
 
-Every epic has a branch. Work on an epic's beads is merged into `epic/<id>`, not into `main`, so `main` only
-moves when the epic is finished. An open epic's detail shows how many of its beads are closed, offers
-**Work the other N until done**, and once they are all closed, **Merge epic into main**. That merges the
-branch into `main` with every gate and the build and one version bump, pushes it, closes the epic and
-deletes its branch. For a specification change's epic, the button reads **Archive spec and merge into main** and also
-archives the change, merging its
-requirements into `openspec/specs`. Needs you offers the same button when an epic is done, and asks
-about beads stuck in progress that nothing has worked on for a day (**Work until done** or **Back to
-Ready**). Pushing `main` is where Nacre stops: building and publishing releases belongs to the
-repository's own CI.
+While it works, a round reviews its beads before any code is written and asks you only when they
+genuinely disagree, sequences overlaps itself, sends a failing worker back with exactly what failed,
+and fixes what it can (version bumps that collide, lockfiles, merges Claude can settle, a locked file
+worth retrying) before it stops. When it does stop, Inbox says what's wrong in plain words with the
+choices: let Claude try again with more budget, carry on after you've fixed it, set a bead aside, raise
+the limit, or cancel. A bead that truly can't be finished is set aside; its epic stays open and says so.
+Pushing `main` is where Nacre stops: building and publishing releases belongs to the repository's CI.
 
-To get several beads done together, open a board's menu and choose **Work several beads until
-done**, pick the beads, and optionally a budget. That computer's `nacred` carries them as a
-**round**, without the phone attached:
-
-1. It reviews the beads together before any code is written. Where they genuinely disagree, the
-   round asks you, with suggested answers. Overlaps and orderings it sequences itself, and it asks
-   about unmerged branches that touch the same files.
-2. Each bead runs in its own worktree, on its own branch from the round's integration branch.
-   `nacred` checks it, not the agent: a clean tree, commits on the branch, and every gate in the
-   repository's `nacre.yaml`. When the check fails, it sends the same session back with exactly what
-   failed. A bead that can't be fixed is parked, and the rest carry on.
-3. It merges the beads one at a time, running the gates after each merge, and hands conflicts to
-   Claude with both beads' intent. It finishes with one version bump, every gate and the build on
-   one commit.
-4. **Merge into main** (or the round's target, such as `epic/<id>`) merges the round's verified
-   work into that branch, tags the version, pushes it and closes the beads; the confirmation offers
-   **Merge and push**, or **Merge, don't push** when `nacre.yaml` turns pushing off. If `main` moved meanwhile, the round merges it in
-   first, redoes its version bump on top of `main`'s, and builds again.
-
-A round fixes what it can before it bothers you: version bumps that collide, beads logs, lockfiles
-it can rebuild, a merge Claude can settle, a locked file worth trying again. When it does stop, the
-card says what's wrong in plain words and gives you choices: let Claude try again with more budget,
-carry on after you've fixed it by hand (it checks something actually changed first), set a bead
-aside, or cancel. Rounds merge whole: a bead that truly can't be finished is set aside and listed
-when you merge, and the next round that includes it picks up its work where it stopped.
-
-The Runs tab shows rounds first, with their decisions, beads, plan, spend and log. You get a
-notification when a round needs a decision, parks a bead, pauses or is ready to merge. A Claude
-Code session in a terminal can start one too, with `nacred round start NAC-1 NAC-2 …`. A repository
-needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way rounds do.
+**Activity** lists rounds first, with their decisions, beads, spend and log, then individual runs. A
+Claude Code session in a terminal can start a round too, with `nacred round start NAC-1 NAC-2 …`. A
+repository needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way rounds do.
 
 ## Specification-guided work
 
-**Needs you**, at the top of Boards, lists everything waiting on you across your computers:
-decisions and human checks, proposals ready for approval, blocked or stale reviews, interrupted
-workflows, round questions, parked beads, rounds ready to merge, changes ready to archive and found
-work. Each item says why and offers its answers inline; Boards carries its own badge with the count,
-and the board assistant starts from the same list when you ask what needs you.
+**Inbox** lists everything waiting on you across your computers: decisions and human checks,
+proposals ready for approval, blocked reviews, round questions, set-aside beads and found work. Each
+item says why and offers its answers inline, and only items whose answer can actually run are listed.
+The board assistant starts from the same list when you ask what needs you.
 
 In a repository with OpenSpec, the board's button is **New effort**. Continuing runs one cheap intake
 check against your specs and active changes and suggests just a bead, a new change, an amendment of a
@@ -142,16 +110,14 @@ artifacts and decisions stay visible in the change view and are recorded on the 
 saved when you leave the view. Each proposal action is bounded to three review passes, $5 and
 30 minutes; an interrupted operation can resume from its saved checkpoint.
 
-Approve the reviewed revision to turn the seed into an epic with one child per task section.
-Approval prepares the work. **Implement change** opens the existing round controls with those
-children and an explicit budget. The round carries the exact approved artifacts into its
-workspaces; later proposal or project-context edits require another review. Generic runs cannot
-bypass that handoff. Retries recover mapped children and preserve manually edited bead content.
-
-The change view distinguishes task progress, verified runs, human checks and merging. A checked
-task or closed bead is not evidence that the specification has been implemented. Specification
-rounds require an explicit merge; accepting the result, closing the epic and archiving the OpenSpec
-change remain deliberate final steps. Other beads and rounds keep their existing behavior.
+A change reads **Planning** while it is drafted and reviewed, **Ready for your approval**, **Working**
+once approved and **Done** once archived, with one **Needs attention** banner when something needs a
+fix. **Approve and run** approves the reviewed revision, turns the seed into an epic with one child per
+task section and runs that epic straight away: the sections fan out, merge into `epic/<id>`, and the
+epic finishes into `main` with its change archived. The round carries the exact approved artifacts
+into its workspaces; later proposal or project-context edits require another review. A checked task or
+closed bead is not evidence that the specification has been implemented: the change view shows
+verified runs and merges per section.
 
 This requires an OpenSpec-enabled repository with project context in `openspec/config.yaml`,
 `AGENTS.md`, the OpenSpec CLI and Claude Code on its bridge. Implementation also needs `nacre.yaml`
@@ -169,9 +135,9 @@ Lanes are derived from bd, as in the static Thought Catalog board:
 
 Beads labelled `human`, and open decisions, are marked **Needs you** and sort first. Epic chips filter to an epic's descendants and show its progress.
 
-Long-press a card to drag it. On the unfolded screen you drop it on a column. On the cover screen a dock of lanes slides up to drop onto. Every move can be undone from the snackbar. You can also group by priority or type instead of workflow; dropping then changes that field.
+Long-press a card to drag it. On the unfolded screen you drop it on a column. On the cover screen a dock of lanes slides up to drop onto. Every move can be undone from the snackbar.
 
-Unfolded, beads and the assistant — the board's own, or the cross-project one from the boards screen — open in a side pane. Drag the divider to resize it; on a separating hinge the pane snaps to the hinge. Run transcripts keep their controls on the lower half in tabletop posture.
+Unfolded, beads and chat open in a side pane; the chat button sits in the top app bar of Boards, a board and a bead, and on the cover screen chat opens as a sheet. Drag the divider to resize it; on a separating hinge the pane snaps to the hinge. Run transcripts keep their controls on the lower half in tabletop posture.
 
 ## Development
 
