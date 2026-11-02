@@ -98,26 +98,29 @@ fun ThreadComposer(vm: BeadDetailViewModel, issue: Issue, comments: List<Comment
     val pill by animateColorAsState(if (chatting) scheme.primary else scheme.surfaceContainerHighest, label = "pill")
     val onPill by animateColorAsState(if (chatting) scheme.onPrimary else scheme.onSurface, label = "onPill")
 
-    // Opening the chat grows the card above the field; show all of it.
-    // The rect reaches below the field so the Start work button doesn't cover it.
-    val whole = remember { BringIntoViewRequester() }
+    // Opening the chat grows the card above the field; keep the field in view,
+    // with room below it so the Start work button doesn't cover it.
+    val fieldInView = remember { BringIntoViewRequester() }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val clearance = with(LocalDensity.current) { 96.dp.toPx() }
     LaunchedEffect(chatting) {
         if (chatting) {
             delay(300)
-            whole.bringIntoView(Rect(0f, 0f, size.width.toFloat(), size.height + clearance))
+            fieldInView.bringIntoView(Rect(0f, 0f, size.width.toFloat(), size.height + clearance))
         }
     }
 
     Column(
-        Modifier.fillMaxWidth().padding(top = 8.dp).bringIntoViewRequester(whole).onSizeChanged { size = it },
+        Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         AnimatedVisibility(chatting, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             BeadChatCard(vm, issue, comments, claudeReady, onFold = { chatting = false }, onSuggest = { s, mode -> vm.sendChat(s, mode) })
         }
-        Surface(color = field, shape = RoundedCornerShape(30.dp), border = BorderStroke(1.dp, border), modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            color = field, shape = RoundedCornerShape(30.dp), border = BorderStroke(1.dp, border),
+            modifier = Modifier.fillMaxWidth().bringIntoViewRequester(fieldInView).onSizeChanged { size = it },
+        ) {
             Row(Modifier.heightIn(min = 60.dp).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     onClick = { chatting = !chatting }, color = pill, contentColor = onPill, shape = RoundedCornerShape(20.dp),
@@ -164,7 +167,8 @@ private fun BeadChatCard(
     val thinking by vm.chatThinking.collectAsState()
     val failure by vm.chatFailure.collectAsState()
     val scroll = rememberScrollState()
-    LaunchedEffect(items.size, thinking) { scroll.animateScrollTo(scroll.maxValue) }
+    // Follow the newest message, including when the card first lays out.
+    LaunchedEffect(items.size, thinking, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     val saved = comments.filter { it.author == "Claude" }.map { it.text.trim() }.toSet()
     Surface(
         shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
