@@ -559,3 +559,26 @@ func TestRestartFinishesLandedEpicAfterResumingChildCloses(t *testing.T) {
 		t.Fatalf("finish: %+v", done)
 	}
 }
+
+// A repository without nacre.yaml can't merge anything, but an epic with no
+// branch and no change has nothing to merge, so finishing just closes it.
+func TestFinishEpicWithoutConfigClosesAnEpicWithNothingToMerge(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-D", Title: "Done already", Type: "epic", Status: "open"},
+		&fakeBead{ID: "T-G", Title: "Old", Type: "task", Parent: "T-D", Status: "closed"},
+		&fakeBead{ID: "T-B", Title: "Branched", Type: "epic", Status: "open"},
+	)
+	h := newHarness(t, beads, emptyPlan)
+	if err := os.Remove(filepath.Join(h.repo, "nacre.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, closed, err := h.m.FinishEpic("repo", "T-D"); err != nil || !closed || beads.bead("T-D").Status != "closed" {
+		t.Fatalf("branchless epic without nacre.yaml: closed=%v err=%v", closed, err)
+	}
+	if _, err := gitx.Run(context.Background(), h.repo, "branch", EpicBranch("T-B")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.m.FinishEpic("repo", "T-B"); err == nil || !strings.Contains(err.Error(), "nacre.yaml") {
+		t.Fatalf("an epic with a branch still needs nacre.yaml: %v", err)
+	}
+}

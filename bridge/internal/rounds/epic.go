@@ -98,10 +98,7 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	if err != nil {
 		return api.Round{}, false, err
 	}
-	cfg, err := repoconfig.Load(path)
-	if err != nil {
-		return api.Round{}, false, conflict(name + " needs a valid " + repoconfig.FileName + " to finish an epic: " + err.Error())
-	}
+	cfg, cfgErr := repoconfig.Load(path)
 	raw, err := m.opts.Beads.Get(ctx, path, epic)
 	if err != nil {
 		return api.Round{}, false, conflict(fmt.Sprintf("%s: %v", epic, err))
@@ -117,11 +114,24 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	if len(open) > 0 {
 		return api.Round{}, false, conflict("Finish " + epic + "'s open beads first: " + strings.Join(open, ", "))
 	}
-	branch, target := EpicBranch(epic), cfg.Land.Target
+	branch := EpicBranch(epic)
 	change := ""
 	if m.opts.ChangeOf != nil {
 		change = m.opts.ChangeOf(path, epic)
 	}
+	if cfgErr != nil {
+		// Without nacre.yaml there is no target to merge into, but an epic
+		// with no branch and no change has nothing to merge: just close it.
+		if gitx.BranchExists(ctx, path, branch) || change != "" {
+			return api.Round{}, false, conflict(name + " needs a valid " + repoconfig.FileName + " to finish an epic: " + cfgErr.Error())
+		}
+		if err := m.opts.Beads.Close(ctx, path, epic, "Every bead is done and the epic has no branch to merge."); err != nil {
+			return api.Round{}, false, err
+		}
+		m.repoChanged(repoID)
+		return api.Round{}, true, nil
+	}
+	target := cfg.Land.Target
 	merged := !gitx.BranchExists(ctx, path, branch) || gitx.IsAncestor(ctx, path, "refs/heads/"+branch, "refs/heads/"+target)
 	if merged && change != "" {
 		// A finish that landed the archive but stopped before closing the
