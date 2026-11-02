@@ -46,7 +46,7 @@ fun EpicChangeHeader(summary: ChangeSummary, change: SpecChange?, ix: BoardIndex
             if (summary.phase == "stale") Text(staleText(summary.staleReason), style = MaterialTheme.typography.bodyMedium)
             SectionStrip(summary.sections)
             Text(
-                "${summary.landed} of ${summary.sections.size} landed · ${summary.verified} verified",
+                "${summary.landed} of ${summary.sections.size} merged · ${summary.verified} verified",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             summary.sections.forEachIndexed { n, s ->
@@ -87,14 +87,14 @@ fun EpicCompletionCard(epic: Issue, ix: BoardIndex, isChange: Boolean, busy: Boo
                 Text("$closed of ${kids.size} closed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
-                "Work on its beads lands on ${epicBranch(epic.id)}. Finishing ${if (isChange) "archives its change and " else ""}merges the branch into the main branch with every gate and the build, pushes it and closes the epic.",
+                "Work on its beads is merged into ${epicBranch(epic.id)}. Merging the epic ${if (isChange) "archives its spec change and " else ""}merges the branch into the main branch with every gate and the build, pushes it and closes the epic.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when {
                 kids.isEmpty() -> Text("It has no beads yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                open == 0 -> Button(onClick = onFinish, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (isChange) "Finish: archive and merge" else "Finish epic") }
+                open == 0 -> Button(onClick = onFinish, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (isChange) "Archive spec and merge into main" else "Merge epic into main") }
                 !isChange -> FilledTonalButton(onClick = onWorkRest, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Work the other $open until done") }
-                else -> Text("Implement its open sections from the change; finish once they're closed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> Text("Implement its open sections from the change; merge once they're closed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

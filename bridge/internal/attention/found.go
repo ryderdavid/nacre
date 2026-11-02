@@ -52,7 +52,7 @@ func foundBeadItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string
 		}
 		cost := "Revising " + c.ChangeName + " needs a new review and your approval (up to $5)."
 		if landed > 0 {
-			cost = fmt.Sprintf("Revising %s reopens %d landed section%s; they will need new rounds. Or make it a follow-on change.", c.ChangeName, landed, plural(landed))
+			cost = fmt.Sprintf("Revising %s reopens %d merged section%s; they will need new rounds. Or make it a follow-on change.", c.ChangeName, landed, plural(landed))
 		}
 		revise := action("Revise now", "POST", foundPath(ref, c.ID), map[string]any{"answer": "revise", "found_beads": ids})
 		if c.Active != "" {

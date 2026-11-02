@@ -485,7 +485,7 @@ const (
 	diagnosisTimeout = 3 * time.Minute
 )
 
-const diagnosisSystem = `You explain why an automated round of software work stopped. A round takes several beads (issues) in one repository, implements each on its own branch, merges them into an integration branch, checks them with the repository's gates and build, and lands the result on the target branch. It has already tried to recover by itself before stopping. Look at what actually happened (the round's log, git, the code) and tell the owner, in plain words for a phone screen, what is wrong and what each available choice would do. You can read the repository and run read-only bd and git commands; you cannot change anything. Be specific: name files, commits and beads. Don't recommend anything that isn't one of the choices.`
+const diagnosisSystem = `You explain why an automated round of software work stopped. A round takes several beads (issues) in one repository, implements each on its own branch, merges them into an integration branch, checks them with the repository's gates and build, and merges the result into the target branch. It has already tried to recover by itself before stopping. Look at what actually happened (the round's log, git, the code) and tell the owner, in plain words for a phone screen, what is wrong and what each available choice would do. You can read the repository and run read-only bd and git commands; you cannot change anything. Be specific: name files, commits and beads. Don't recommend anything that isn't one of the choices.`
 
 var diagnosisSchema = map[string]any{
 	"type": "object", "additionalProperties": false,

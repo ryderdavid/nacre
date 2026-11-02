@@ -264,7 +264,7 @@ func TestFoundWorkItems(t *testing.T) {
 	if len(items) != 2 || amend == nil || comment == nil {
 		t.Fatalf("items=%+v", items)
 	}
-	if !strings.Contains(amend.Why, "reopens 1 landed section;") || amend.Options[0].Body["answer"] != "revise" || amend.Options[0].Disabled != "" {
+	if !strings.Contains(amend.Why, "reopens 1 merged section;") || amend.Options[0].Body["answer"] != "revise" || amend.Options[0].Disabled != "" {
 		t.Fatalf("amend item=%+v", amend)
 	}
 	if tg := amend.Options[1].Target; tg.Kind != "new_effort" || tg.FollowOnOf != "F-1" || tg.Related[0] != "E" || tg.Note != "Archive needs human checks closed." {

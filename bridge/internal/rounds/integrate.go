@@ -101,7 +101,7 @@ func (r *round) startIntegrationRun(ctx context.Context, step api.IntegrationSte
 	case step.Branch != "":
 		title = "Bring " + step.Branch + " into round " + meta.ID
 	case landPhase(step.Phase):
-		title = "Merge " + meta.Target + " into round " + meta.ID + " before landing"
+		title = "Merge " + meta.Target + " into round " + meta.ID + " to bring it up to date"
 	}
 	var run api.Run
 	n, err := retry(ctx, func() (e error) {
@@ -373,9 +373,9 @@ func (r *round) integrated(id, commit string) {
 // the integration branch.
 func (r *round) startFinish() {
 	if r.integratedCount() == 0 && r.meta.FinishEpic == "" {
-		reason := "No bead could be reconciled, so there is nothing to land. Retry a parked bead or cancel the round."
+		reason := "No bead could be reconciled, so there is nothing to merge. Retry a parked bead or cancel the round."
 		if r.allLeftOut() {
-			reason = "Every bead was left out at pre-flight, so there is nothing to land. Cancel the round."
+			reason = "Every bead was left out at pre-flight, so there is nothing to merge. Cancel the round."
 		}
 		r.stop(api.Stop{Kind: api.StopNothingIntegrated, Reason: reason})
 		return
@@ -450,7 +450,7 @@ func (r *round) finishOK(ctx context.Context, head string, results []gates.Resul
 		r.eventWith(api.RoundEvent{Kind: "build", Text: "Final gates and build pass", Commit: head, Gates: toAPI(results)})
 		r.closeBeads(head)
 		r.meta.State = api.RoundReadyToLand
-		r.event("state", "", fmt.Sprintf("Ready to land %s on %s", short(head), r.meta.Target))
+		r.event("state", "", fmt.Sprintf("Ready to merge %s into %s", short(head), r.meta.Target))
 	}
 }
 
@@ -476,7 +476,7 @@ func (r *round) closeBeads(head string) {
 		}
 		reason := fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head))
 		if b.SpecChangeID != "" {
-			reason = fmt.Sprintf("Landed in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), b.SpecChangeID, b.SpecRevision)
+			reason = fmt.Sprintf("Merged in round %s at %s; approved specification %s, revision %s; gates and build pass", round, short(head), b.SpecChangeID, b.SpecRevision)
 		}
 		batch = append(batch, closing{id, reason})
 	}
@@ -588,7 +588,7 @@ func bumpCommit(ctx context.Context, ws, round string) string {
 // the target in and re-verifying if it moved, then pushes and cleans up.
 func (r *round) startLand() {
 	meta, cfg := clone(r.meta), r.cfg
-	r.event("land", "", "Landing on "+meta.Target)
+	r.event("land", "", "Merging into "+meta.Target)
 	r.saveLocked()
 	r.goOp("land", func(ctx context.Context) func() { return r.land(ctx, meta, cfg) })
 }
@@ -634,7 +634,7 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 			rebump = true
 		}
 	}
-	res, err := gitx.Merge(ctx, ws, meta.Target, fmt.Sprintf("Merge %s into round %s before landing", meta.Target, meta.ID))
+	res, err := gitx.Merge(ctx, ws, meta.Target, fmt.Sprintf("Merge %s into round %s to bring it up to date", meta.Target, meta.ID))
 	if err != nil {
 		_ = gitx.ResetHard(ctx, ws, final)
 		return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: fmt.Sprintf("Merging %s into the round failed: %s", meta.Target, firstLine(err.Error()))})
@@ -769,7 +769,7 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 		if len(artifacts) > 0 {
 			r.meta.Artifacts = artifacts
 		}
-		text := fmt.Sprintf("Landed: %s is at %s", meta.Target, short(head))
+		text := fmt.Sprintf("Merged: %s is at %s", meta.Target, short(head))
 		if tag != "" {
 			r.meta.Tag = tag
 			text += ", tagged " + tag

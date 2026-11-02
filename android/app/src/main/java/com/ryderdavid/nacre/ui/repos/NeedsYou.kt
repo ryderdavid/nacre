@@ -43,7 +43,7 @@ fun attentionLabel(kind: String) = when (kind) {
     AttentionItem.WORKFLOW_INTERRUPTED -> "Interrupted"
     AttentionItem.ROUND_QUESTION -> "Round question"
     AttentionItem.BEAD_PARKED -> "Parked"
-    AttentionItem.ROUND_READY -> "Ready to land"
+    AttentionItem.ROUND_READY -> "Ready to merge"
     AttentionItem.CHANGE_ARCHIVABLE -> "Ready to archive"
     AttentionItem.FOUND_WORK -> "Found work"
     AttentionItem.EPIC_FINISHABLE -> "Epic done"

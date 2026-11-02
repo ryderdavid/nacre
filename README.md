@@ -61,23 +61,25 @@ Pushed also selects committed. A goal includes the full bead and its acceptance
 criteria and keeps the native agent session working until its conditions hold.
 Goals can still pause for blockers, permissions or spending limits. In a round,
 the goal session only commits its work on the round branch and stops; when the
-round lands, nacred bumps the version and pushes the target (that is what pushed
+round is merged into its target branch, nacred bumps the version and pushes the target (that is what pushed
 means for a round).
 
 ## Rounds
 
 To get one bead done, open it and tap **Implement…**, then **Work until done**. That's a round of one
 bead: it gets its own worktree, nacred checks the result itself against `nacre.yaml`, and with
-**Land when it passes** on (the default) it commits, lands, pushes and closes the bead without
+**Merge into main when it passes** on (the default; under an epic it names `epic/<id>`) it commits,
+merges into that branch, pushes and closes the bead without
 waiting for you. **Or just run it** starts a plain Claude Code or Codex run that leaves checking,
 committing and closing to you.
 
-Every epic has a branch. Work on an epic's beads lands on `epic/<id>`, not on `main`, so `main` only
+Every epic has a branch. Work on an epic's beads is merged into `epic/<id>`, not into `main`, so `main` only
 moves when the epic is finished. An open epic's detail shows how many of its beads are closed, offers
-**Work the other N until done**, and once they are all closed, **Finish epic**. That merges the
+**Work the other N until done**, and once they are all closed, **Merge epic into main**. That merges the
 branch into `main` with every gate and the build and one version bump, pushes it, closes the epic and
-deletes its branch. For a specification change's epic, Finish also archives the change, merging its
-requirements into `openspec/specs`. Needs you offers the same Finish when an epic is done, and asks
+deletes its branch. For a specification change's epic, the button reads **Archive spec and merge into main** and also
+archives the change, merging its
+requirements into `openspec/specs`. Needs you offers the same button when an epic is done, and asks
 about beads stuck in progress that nothing has worked on for a day (**Work until done** or **Back to
 Ready**). Pushing `main` is where Nacre stops: building and publishing releases belongs to the
 repository's own CI.
@@ -96,18 +98,20 @@ done**, pick the beads, and optionally a budget. That computer's `nacred` carrie
 3. It merges the beads one at a time, running the gates after each merge, and hands conflicts to
    Claude with both beads' intent. It finishes with one version bump, every gate and the build on
    one commit.
-4. **Land** fast-forwards `main` and pushes it. If `main` moved meanwhile, the round merges it in
+4. **Merge into main** (or the round's target, such as `epic/<id>`) merges the round's verified
+   work into that branch, tags the version, pushes it and closes the beads; the confirmation offers
+   **Merge and push**, or **Merge, don't push** when `nacre.yaml` turns pushing off. If `main` moved meanwhile, the round merges it in
    first, redoes its version bump on top of `main`'s, and builds again.
 
 A round fixes what it can before it bothers you: version bumps that collide, beads logs, lockfiles
 it can rebuild, a merge Claude can settle, a locked file worth trying again. When it does stop, the
 card says what's wrong in plain words and gives you choices: let Claude try again with more budget,
 carry on after you've fixed it by hand (it checks something actually changed first), set a bead
-aside, or cancel. Rounds land whole: a bead that truly can't be finished is set aside and listed
-when you land, and the next round that includes it picks up its work where it stopped.
+aside, or cancel. Rounds merge whole: a bead that truly can't be finished is set aside and listed
+when you merge, and the next round that includes it picks up its work where it stopped.
 
 The Runs tab shows rounds first, with their decisions, beads, plan, spend and log. You get a
-notification when a round needs a decision, parks a bead, pauses or is ready to land. A Claude
+notification when a round needs a decision, parks a bead, pauses or is ready to merge. A Claude
 Code session in a terminal can start one too, with `nacred round start NAC-1 NAC-2 …`. A repository
 needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way rounds do.
 
@@ -115,7 +119,7 @@ needs a `nacre.yaml` first (see `docs/API.md`); `nacred gates` runs it the way r
 
 **Needs you**, at the top of Boards, lists everything waiting on you across your computers:
 decisions and human checks, proposals ready for approval, blocked or stale reviews, interrupted
-workflows, round questions, parked beads, rounds ready to land, changes ready to archive and found
+workflows, round questions, parked beads, rounds ready to merge, changes ready to archive and found
 work. Each item says why and offers its answers inline; Boards carries its own badge with the count,
 and the board assistant starts from the same list when you ask what needs you.
 
@@ -127,7 +131,7 @@ in a **Proposals** lane before Ready. Cards carry one spec chip (phase, section 
 not verified", "Touches a spec", found work), spec epics show a section strip and open with their
 change, and a stale approval names what changed. **Found something**, on spec epics, their beads and
 spec rounds, sorts discovered work by whether it changes what "done" means: a bead under the epic, a
-pending amendment that asks before revising (and says how many landed sections that would reopen),
+pending amendment that asks before revising (and says how many merged sections that would reopen),
 or a follow-on effort. Agents in spec rounds report such work as `Found:` comments instead of doing it.
 The approved `tasks.md` is the plan; progress is read from beads.
 
@@ -144,9 +148,9 @@ children and an explicit budget. The round carries the exact approved artifacts 
 workspaces; later proposal or project-context edits require another review. Generic runs cannot
 bypass that handoff. Retries recover mapped children and preserve manually edited bead content.
 
-The change view distinguishes task progress, verified runs, human checks and landing. A checked
+The change view distinguishes task progress, verified runs, human checks and merging. A checked
 task or closed bead is not evidence that the specification has been implemented. Specification
-rounds require explicit landing; accepting the result, closing the epic and archiving the OpenSpec
+rounds require an explicit merge; accepting the result, closing the epic and archiving the OpenSpec
 change remain deliberate final steps. Other beads and rounds keep their existing behavior.
 
 This requires an OpenSpec-enabled repository with project context in `openspec/config.yaml`,

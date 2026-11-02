@@ -41,7 +41,7 @@ fun isSpecLabel(label: String) = label.startsWith("specflow:") || label.startsWi
 private val WAITING = setOf("awaiting_approval", "needs_attention", "stale", "interrupted")
 
 fun evidenceLabel(evidence: String) = when (evidence) {
-    "landed" -> "landed"
+    "landed" -> "merged"
     "verified" -> "verified"
     "in_round" -> "in a round"
     else -> "no evidence yet"
@@ -98,7 +98,7 @@ fun SectionStrip(sections: List<SectionSummary>, modifier: Modifier = Modifier) 
     val verified = sections.count { it.evidence == "verified" || it.evidence == "landed" }
     val landed = sections.count { it.evidence == "landed" }
     Row(
-        modifier.semantics { contentDescription = "${sections.size} sections: $verified verified, $landed landed" },
+        modifier.semantics { contentDescription = "${sections.size} sections: $verified verified, $landed merged" },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         sections.take(16).forEach { s ->

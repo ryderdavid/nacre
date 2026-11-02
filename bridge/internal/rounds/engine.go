@@ -859,7 +859,7 @@ func (m *Manager) Land(id string) (api.Round, error) {
 	defer r.poke()
 	defer r.mu.Unlock()
 	if r.meta.State != api.RoundReadyToLand {
-		return clone(r.meta), conflict("the round isn't ready to land")
+		return clone(r.meta), conflict("the round isn't ready to merge")
 	}
 	if !r.ops["land"] {
 		r.startLand()

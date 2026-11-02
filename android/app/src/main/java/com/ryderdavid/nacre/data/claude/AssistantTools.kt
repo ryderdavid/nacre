@@ -134,7 +134,7 @@ val BOARD_TOOLS: List<ToolSpec> = listOf(
 /** Needs you, across computers; offered on the API backend (the Mac backend gets it in the prompt). */
 val NEEDS_YOU = ToolSpec(
     "needs_you",
-    "List everything waiting on Ryder across his computers: decisions, proposals ready for approval, blocked or stale reviews, round questions, parked beads, rounds ready to land, changes ready to archive and found work, each with why. Call it first when Ryder asks what to work on next or what needs him.",
+    "List everything waiting on Ryder across his computers: decisions, proposals ready for approval, blocked or stale reviews, round questions, parked beads, rounds ready to merge, changes ready to archive and found work, each with why. Call it first when Ryder asks what to work on next or what needs him.",
     emptyMap(), write = false,
 )
 

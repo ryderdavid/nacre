@@ -153,7 +153,7 @@ class BeadDetailViewModel(
     }
 
     /** Merges this finished epic into the main branch; [onDone] gets the round, or null when it simply closed. */
-    fun finishEpic(onDone: (Round?) -> Unit) = act("Finishing the epic") {
+    fun finishEpic(onDone: (Round?) -> Unit) = act("Merging the epic") {
         val result = repo.finishEpic(repoKey, beadId)
         load()
         onDone(result.round)

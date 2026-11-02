@@ -27,7 +27,7 @@ class RoundNoticeTest {
 
     @Test fun readyAndLanded() {
         val ready = base.copy(state = ROUND_READY)
-        assertTrue(roundNotice(base, ready)!!.body.contains("Land it on main"))
+        assertTrue(roundNotice(base, ready)!!.body.contains("Merge it into main"))
         val landed = ready.copy(state = ROUND_LANDED, landedCommit = "abcdef123", pushed = true)
         assertEquals("main is at abcdef1 and pushed.", roundNotice(ready, landed)?.body)
     }
