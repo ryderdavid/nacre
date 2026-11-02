@@ -239,7 +239,7 @@ still a 409).
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
 | POST | `/v1/repos/{repo}/issues` | CreateIssue | `{"issue":Issue}` (201) |
 | PATCH | `/v1/repos/{repo}/issues/{id}` | UpdateIssue | `{"issue":Issue}` |
-| POST | `/v1/repos/{repo}/issues/{id}/close` | `{"reason":"…"}` (optional) | `{"issue":Issue}` |
+| POST | `/v1/repos/{repo}/issues/{id}/close` | `{"reason":"…","force":false}` (body and both fields optional; `force` defaults to `false`; `true` closes even while dependencies are open) | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/reopen` | – | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/comments` | `{"text":"…"}` | `{"comments":[Comment]}` (full list after add) |
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
@@ -665,6 +665,7 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `found_work` | an unanswered `Found:` comment on a spec section bead that has finished in a round (any end state); or an open `found-amend` bead not carried by a revision under way | comment: Answer (opens `found_something`), Dismiss (action), open bead; `found-amend` bead: Revise now (action with every such bead of the change; `disabled` while the change has active work; `why` states how many landed sections a revision reopens), Make it a follow-on change (opens `new_effort`), open bead |
 | `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | Finish: archive and merge (`POST /v1/repos/{repo}/epics/{epic}/finish`); open change |
 | `epic_finishable` | an open epic, not a change's, with at least one bead under it and all of them closed | Finish epic (`POST /v1/repos/{repo}/epics/{epic}/finish`); open epic |
+| `bead_unclosed` | a round finished the bead's work but closing it failed (`close_error` is set), and the bead is still open | Close anyway (`POST /v1/repos/{repo}/issues/{id}/close` with `force: true`); Open bead |
 | `bead_stuck` | a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
 
 A repository whose beads can't be read contributes no items; its board shows the error.
@@ -735,6 +736,7 @@ is verified; the round reports it as `auto_land`.
     "reason": "",                   // why it was parked or skipped
     "human_check": "",              // what only a person can verify; such beads stay open
     "closed": false,
+    "close_error": "…",              // why closing failed after its work was done; omitted when empty; Needs you offers to close the still-open bead
     "carried_from": "",             // an earlier round's kept branch this bead's work continues from
     "picked_up_by": ""              // the later round that continued this bead's kept branch
   }],
