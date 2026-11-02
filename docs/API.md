@@ -569,21 +569,25 @@ not count as completion. `Run.goal_text` records the requested objective.
 
 A goal-enabled round retains preflight review, decisions, specification guards,
 resource leases and budgets, then uses **one session for all selected beads** in
-its integration worktree. A round still requires one combined commit regardless
-of the optional committed checkbox. The controller bumps the version before that
-commit and independently verifies the final gates/build, a clean worktree and one
-commit above the round's base. If pushed was selected, it also reads the live
-remote branch and requires the same final SHA. Failed checks resume the native
-`/goal` session within the round's budget. Blocked, interrupted or exhausted
-sessions pause for an explicit retry; a stalled session is resumed once.
+its integration worktree. As in every round, the agent only edits and commits in
+that worktree (one or more commits, whatever the committed checkbox says); it
+never bumps the version or pushes. When the session finishes, the controller
+checks that the worktree is still on the round branch, clean and holds at least
+one commit of the agent's above the round's base, then makes its own version bump
+commit once (`minor` if any of the round's beads is a feature or epic) and runs
+every final gate and build step. Failed checks resume the native `/goal` session
+within the round's budget, and the agent commits its fixes on top. Blocked,
+interrupted or exhausted sessions pause for an explicit retry; a stalled session
+is resumed once. The round is then `ready_to_land` on nacred's bump commit.
 
-The optional push publishes `origin`'s **round branch**, without force pushing.
-Landing on the target branch remains separate and follows the repository's landing
-policy. If the target moved after a goal round's combined version commit, landing
-pauses for version reconciliation rather than silently applying another version
-bump. `Round.goal`, `goal_text` and `goal_run_id` preserve the options, objective and
-session across restarts. Resume goal sessions through the round controls, not the
-standalone follow-up endpoint.
+In a round, `pushed` means **nacred pushes when it lands the round**: landing
+pushes the target (and its release tag) as if the repository's `land.push` were
+set. The round branch itself is never pushed. Landing on a target that moved
+undoes and redoes nacred's bump commit as in any round. In a plain run, committed
+and pushed remain the agent's to do, as described above. `Round.goal`,
+`goal_text` and `goal_run_id` preserve the options, objective and session across
+restarts. Resume goal sessions through the round controls, not the standalone
+follow-up endpoint.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",

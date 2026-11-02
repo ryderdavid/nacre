@@ -146,7 +146,7 @@ fun StartRoundSheet(repo: Repo?, index: BoardIndex, onDismiss: () -> Unit, onSta
                     modifier = Modifier.fillMaxWidth(),
                 )
                 GoalOptionsPicker(goal, { goalEnabled = it.enabled; goalCommitted = it.committed; goalPushed = it.pushed }, enabled = !starting && prefs != null)
-                if (goal.enabled) Text("One session works every selected bead to one combined commit. If pushed is selected, it pushes the round branch; landing remains a separate decision.", style = MaterialTheme.typography.bodySmall)
+                if (goal.enabled) Text("One session works every selected bead and commits it. Nacre bumps the version and, if pushed is selected, pushes when it lands the round.", style = MaterialTheme.typography.bodySmall)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(
                     onClick = {

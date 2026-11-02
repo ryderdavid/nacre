@@ -15,14 +15,19 @@ import (
 )
 
 // goalVersionPatch names the file in the round's directory holding the diff
-// of the controller's version bump in a goal round, which is folded into the
-// round's one combined commit and so can't be reverted as a commit of its own.
+// of the version bump that goal rounds started before NAC-ow0 folded into the
+// agent's combined commit. Goal rounds now get nacred's own bump commit like
+// every other round; the patch is read only to land such an older round.
 const goalVersionPatch = "goal-version.patch"
 
-// undoGoalVersion commits the reverse of a goal round's recorded version bump
-// on top of ws's HEAD, so a moved target can be merged and the bump redone
-// from its version. The round's commits stay as they are: nothing is
-// rewritten, so a round branch already pushed never needs a force push.
+// goalCommitRule tells the goal session what it may do with git: commit in its
+// worktree and stop. nacred bumps the version, and pushes when it lands the
+// round, as in every round ("Agents never move branches").
+const goalCommitRule = "Commit your work on this round branch in this worktree (one or more commits), then stop. Do not bump or edit the version, push, or rewrite commits nacred made: nacred bumps the version in a commit of its own, runs the final gates and build, and pushes when it lands the round. Do not commit .beads state.\n"
+
+// undoGoalVersion commits the reverse of an older goal round's recorded
+// version bump on top of ws's HEAD, so a moved target can be merged and the
+// bump redone from its version.
 func (r *round) undoGoalVersion(ctx context.Context, ws string, meta api.Round) error {
 	patch := filepath.Join(r.dir, goalVersionPatch)
 	if _, err := os.Stat(patch); err != nil {
@@ -44,8 +49,9 @@ func (r *round) undoGoalVersion(ctx context.Context, ws string, meta api.Round) 
 
 // driveGoal keeps the round in one session: a goal that includes all beads
 // cannot be fulfilled by isolated workers waiting for one another. Preflight,
-// decisions, specification guards, resource leases and landing remain owned
-// by the round controller.
+// decisions, specification guards, resource leases, the version bump, the
+// final gates and landing (with its push) remain owned by the round
+// controller; the session only commits in its worktree.
 func (r *round) driveGoal() {
 	if r.ops["goal"] {
 		return
@@ -66,12 +72,7 @@ func (r *round) driveGoal() {
 			}
 			var s strings.Builder
 			fmt.Fprintf(&s, "Implement every bead in round %s in this integration worktree on %s. Work in dependency order. Do not switch branches, close beads, merge the target, or land the round. nacred owns landing.\n", meta.ID, meta.Branch)
-			fmt.Fprintf(&s, "The round always requires one combined implementation commit above base %s, including installed specification files, approved preflight merges and the version bump. Consolidate this round branch's commits since that base before creating the combined commit. Amend it when fixing verification failures before pushing. Do not commit .beads state.\n", meta.Base)
-			if meta.Goal.Pushed {
-				fmt.Fprintf(&s, "Push only this round branch to origin: git push origin HEAD:refs/heads/%s. Never force push.\n", meta.Branch)
-			} else {
-				s.WriteString("Do not push; the owner has not selected pushed for this goal.\n")
-			}
+			s.WriteString(goalCommitRule)
 			for _, d := range meta.Questions {
 				if d.Answer != "" {
 					fmt.Fprintf(&s, "Round decision: %s: %s\n", d.Text, d.Answer)
@@ -90,28 +91,6 @@ func (r *round) driveGoal() {
 					s.WriteString(specContractPrompt(c))
 				}
 			}
-			version := meta.Version
-			if cfg.Version.Bump != "" && version == "" {
-				minor := false
-				for _, b := range meta.Beads {
-					if b.Type == "feature" || b.Type == "epic" {
-						minor = true
-					}
-				}
-				results := r.m.opts.Gates.RunAll(ctx, meta.Workspace, cfg, []repoconfig.Step{{Name: "version bump", Run: cfg.BumpCommand(minor)}}, true)
-				if !gates.AllOK(results) {
-					return r.stopFn(api.Stop{Kind: api.StopBumpFailed, Reason: failure(results)})
-				}
-				version = lastLine(results[0].Tail)
-				// The bump is folded into the combined commit, so keep its
-				// diff: landing on a target that moved reverses exactly this
-				// to redo the bump from the target's version.
-				if diff, err := gitx.Run(ctx, meta.Workspace, "--no-optional-locks", "diff", "--binary", "HEAD"); err == nil && diff != "" {
-					_ = os.WriteFile(filepath.Join(r.dir, goalVersionPatch), []byte(diff+"\n"), 0o644)
-				}
-				s.WriteString("The controller has already bumped the version in this worktree. Include those changes in the combined commit; do not bump again.\n")
-			}
-
 			s.WriteString("Run all final gates and builds before finishing:\n")
 			for _, g := range finalSteps(cfg) {
 				fmt.Fprintf(&s, "- %s: %s\n", g.Name, g.Run)
@@ -124,7 +103,6 @@ func (r *round) driveGoal() {
 				MaxBudgetUSD: meta.BudgetUSD - meta.SpentUSD, Env: env,
 			})
 			return func() {
-				r.meta.Version = version
 				if err != nil {
 					r.m.leases.release(meta.ID + "/goal")
 					r.stop(api.Stop{Kind: api.StopGitError, Reason: "The goal session couldn't start: " + err.Error()})
@@ -193,29 +171,14 @@ func (r *round) driveGoal() {
 		if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
 			return r.specStop(err)
 		}
-		v := r.m.check(ctx, meta.Workspace, meta.Base, cfg, finalSteps(cfg))
+		v, version, err := r.verifyGoal(ctx, meta, cfg)
+		if err != nil {
+			return r.stopFn(api.Stop{Kind: api.StopBumpFailed, Phase: "final", Reason: err.Error()})
+		}
 		if err := r.m.guardSpec(ctx, meta, meta.Workspace); err != nil {
 			return r.specStop(err)
 		}
-		if v.OK && gitx.CurrentBranch(ctx, meta.Workspace) != meta.Branch {
-			v.OK, v.Reason = false, "The worktree is no longer on the round's branch"
-		}
-		if v.OK {
-			dirty, err := gitx.Dirty(ctx, meta.Workspace, ignoredPaths...)
-			if err != nil || len(dirty) > 0 {
-				v.OK, v.Reason = false, "The final gates left uncommitted changes or the worktree could not be checked"
-			}
-		}
-		if v.OK && v.Commits != 1 {
-			v.OK, v.Reason = false, "The round needs one combined commit containing all its work"
-		}
 		head, _ := gitx.RevParse(ctx, meta.Workspace, "HEAD")
-		if v.OK && meta.Goal.Pushed {
-			remote, err := gitx.Run(ctx, meta.Workspace, "ls-remote", "--exit-code", "origin", "refs/heads/"+meta.Branch)
-			if err != nil || !strings.HasPrefix(remote, head+"\t") {
-				v.OK, v.Reason = false, "The remote does not contain this round's final commit on "+meta.Branch
-			}
-		}
 		_ = r.m.opts.Runs.SetVerification(run.ID, v)
 		if !v.OK {
 			if run.SessionID == "" {
@@ -223,6 +186,7 @@ func (r *round) driveGoal() {
 			}
 			_, err := r.m.opts.Runs.FollowupWith(run.ID, runs.Followup{Message: goalContinuation(meta.GoalText, v.Reason), MaxBudgetUSD: meta.BudgetUSD - meta.SpentUSD, Env: env})
 			return func() {
+				r.meta.Version = version
 				if err != nil {
 					r.stop(api.Stop{Kind: api.StopGatesFailed, Reason: err.Error()})
 				} else {
@@ -235,6 +199,7 @@ func (r *round) driveGoal() {
 		}
 		finish := r.finishOK(ctx, head, gateResults(v.Gates))
 		return func() {
+			r.meta.Version = version
 			if r.meta.State != api.RoundImplementing && r.meta.State != api.RoundIntegrating {
 				return
 			}
@@ -248,6 +213,49 @@ func (r *round) driveGoal() {
 	})
 }
 
+// verifyGoal checks a finished goal session's work: the worktree is still on
+// the round branch, clean, and holds at least one commit of the agent's own
+// above the base. Then, once per round, nacred makes its version bump commit
+// (as startFinish does) and runs every final gate and build step. It returns
+// the round's version; err means the bump itself failed.
+func (r *round) verifyGoal(ctx context.Context, meta api.Round, cfg *repoconfig.Config) (*api.Verification, string, error) {
+	ws, version := meta.Workspace, meta.Version
+	v := &api.Verification{At: stamp()}
+	dirty, err := gitx.Dirty(ctx, ws, ignoredPaths...)
+	own, _ := gitx.CommitsBetween(ctx, ws, meta.Base, "HEAD")
+	if bumpCommit(ctx, ws, meta.ID) != "" {
+		own--
+	}
+	switch {
+	case gitx.CurrentBranch(ctx, ws) != meta.Branch:
+		v.Reason = "The worktree is no longer on the round's branch"
+	case err != nil:
+		v.Reason = "The worktree could not be checked: " + err.Error()
+	case len(dirty) > 0:
+		v.Uncommitted, v.Reason = dirty, "The round's work is not all committed: "+list(dirty, 8)
+	case own < 1:
+		v.Reason = "The round's work has not been committed on " + meta.Branch
+	}
+	if v.Reason != "" {
+		return v, version, nil
+	}
+	if version == "" && cfg.Version.Bump != "" && landsOnTarget(meta, cfg) {
+		// The session's beads are integrated by this commit if it passes,
+		// so they decide the bump's level as integrated beads do.
+		sized := clone(meta)
+		for i := range sized.Beads {
+			if sized.Beads[i].State == api.BeadRunning {
+				sized.Beads[i].State = api.BeadIntegrated
+			}
+		}
+		if version, err = r.bump(ctx, ws, cfg, sized, ""); err != nil {
+			_ = gitx.ResetHard(ctx, ws, "HEAD")
+			return nil, "", err
+		}
+	}
+	return r.m.check(ctx, ws, meta.Base, cfg, finalSteps(cfg)), version, nil
+}
+
 func gateResults(rs []api.GateResult) []gates.Result {
 	out := make([]gates.Result, len(rs))
 	for i, r := range rs {
@@ -257,5 +265,5 @@ func gateResults(rs []api.GateResult) []gates.Result {
 }
 
 func goalContinuation(goal, reason string) string {
-	return "/goal " + goal + "\nThe round goal is still incomplete: " + reason + ". Continue working, verify every criterion and selected condition, and amend the round's combined commit if it has not been pushed. Do not force push."
+	return "/goal " + goal + "\nThe round goal is still incomplete: " + reason + ". Continue working, verify every criterion and selected condition, and commit the fixes on the round branch. Do not bump the version, push, or rewrite commits nacred made."
 }

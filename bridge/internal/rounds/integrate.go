@@ -595,8 +595,7 @@ func (r *round) startLand() {
 
 // land brings in the target if it moved and lands. The round's version bump
 // was made from the base it started on, so before merging a moved target it
-// is undone (in a goal round, by reversing the recorded bump folded into its
-// combined commit), and after the merge it is redone from the target's version. A
+// is undone, and after the merge it is redone from the target's version. A
 // merge the catalogue can't settle, or a check that fails with the target's
 // changes, goes to a recovery turn.
 func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config) func() {
@@ -613,16 +612,7 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 		return r.completeLand(ctx, meta, cfg, final, meta.Version, false)
 	}
 	rebump := false
-	if meta.GoalText != "" && cfg.Version.Bump != "" && meta.Version != "" {
-		// A goal round's bump is part of its one combined commit: reverse
-		// just the recorded bump in a new commit on top, so the round branch
-		// (pushed, perhaps) is extended, never rewritten.
-		if err := r.undoGoalVersion(ctx, ws, meta); err != nil {
-			_ = gitx.ResetHard(ctx, ws, final)
-			return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved after this goal round's combined commit, and undoing the round's version bump before merging " + meta.Target + " failed: " + err.Error() + ". The round branch is preserved."})
-		}
-		rebump = true
-	} else if meta.GoalText == "" && cfg.Version.Bump != "" && meta.Version != "" {
+	if cfg.Version.Bump != "" && meta.Version != "" {
 		if bumped := bumpCommit(ctx, ws, meta.ID); bumped != "" {
 			if _, err := gitx.Run(ctx, ws, "revert", "--no-commit", bumped); err != nil {
 				_ = gitx.ResetHard(ctx, ws, final)
@@ -631,6 +621,15 @@ func (r *round) land(ctx context.Context, meta api.Round, cfg *repoconfig.Config
 			if _, err := gitx.CommitAll(ctx, ws, fmt.Sprintf("Undo round %s's version bump to redo it on top of %s", meta.ID, meta.Target)); err != nil {
 				_ = gitx.ResetHard(ctx, ws, final)
 				return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "Undoing the round's version bump failed: " + err.Error()})
+			}
+			rebump = true
+		} else if meta.GoalText != "" {
+			// A goal round started before nacred made its own bump commit
+			// there folded the bump into the agent's combined commit: reverse
+			// just the recorded bump in a new commit on top.
+			if err := r.undoGoalVersion(ctx, ws, meta); err != nil {
+				_ = gitx.ResetHard(ctx, ws, final)
+				return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved after this goal round's combined commit, and undoing the round's version bump before merging " + meta.Target + " failed: " + err.Error() + ". The round branch is preserved."})
 			}
 			rebump = true
 		}
@@ -737,8 +736,9 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			return r.stopFn(api.Stop{Kind: api.StopGitError, Phase: "land", Reason: "The target moved, but tagging release " + tag + " failed: " + err.Error()})
 		}
 	}
+	push := pushesOnLand(meta, cfg)
 	pushErr := ""
-	if cfg.Land.Push {
+	if push {
 		if _, err := retry(ctx, func() error { return gitx.Push(ctx, meta.RepoPath, "origin", meta.Target) }); err != nil {
 			pushErr = err.Error()
 		} else if tag != "" {
@@ -750,7 +750,7 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 	var epicNotes []string
 	hadBranch := meta.FinishEpic != "" && gitx.BranchExists(ctx, meta.RepoPath, EpicBranch(meta.FinishEpic))
 	if meta.FinishEpic != "" {
-		epicNotes = r.finishedEpic(ctx, meta, head, cfg.Land.Push && pushErr == "")
+		epicNotes = r.finishedEpic(ctx, meta, head, push && pushErr == "")
 	}
 	dropped := r.dropCarried(ctx, meta)
 	keep := map[string]bool{}
@@ -775,7 +775,7 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			text += ", tagged " + tag
 		}
 		switch {
-		case !cfg.Land.Push:
+		case !push:
 		case pushErr == "":
 			r.meta.Pushed = true
 			text += " and pushed"
@@ -801,6 +801,13 @@ func (r *round) completeLand(ctx context.Context, meta api.Round, cfg *repoconfi
 			r.event("note", "", "Cleaning up the round's worktrees and branches left something behind: "+firstLine(cleanErr.Error()))
 		}
 	}
+}
+
+// pushesOnLand says whether landing pushes the target: when the repository's
+// landing policy does, or when the owner checked pushed on a goal round, which
+// asks nacred (not the agent) to push the round's work when it lands.
+func pushesOnLand(meta api.Round, cfg *repoconfig.Config) bool {
+	return cfg.Land.Push || (meta.GoalText != "" && meta.Goal.Pushed)
 }
 
 // fastForward is gitx.FastForward, replaced in tests to move the target first.
