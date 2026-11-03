@@ -6,6 +6,7 @@ import com.ryderdavid.nacre.data.model.AttentionItem
 import com.ryderdavid.nacre.data.model.AttentionList
 import com.ryderdavid.nacre.data.model.ChangeEvent
 import com.ryderdavid.nacre.data.model.ChangesList
+import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.FoundRequest
 import com.ryderdavid.nacre.data.model.FoundResult
 import com.ryderdavid.nacre.data.model.IntakeDraft
@@ -161,6 +162,10 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     } catch (e: BridgeException) {
         if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
     }
+
+    /** Hides a change's failed draft; idempotent. Answers the change's summary. */
+    suspend fun dismissDraft(repo: String, change: String): ChangeSummary =
+        send("POST", "/v1/repos/$repo/changes/${enc(change)}/draft/dismiss", Reason())
 
     suspend fun intake(repo: String, draft: IntakeDraft): IntakeVerdict = send("POST", "/v1/repos/$repo/intake", draft)
 

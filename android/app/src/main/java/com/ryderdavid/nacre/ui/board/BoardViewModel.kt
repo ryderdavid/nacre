@@ -12,11 +12,16 @@ import com.ryderdavid.nacre.data.board.Column
 import com.ryderdavid.nacre.data.board.EpicSummary
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
+import com.ryderdavid.nacre.data.board.DraftActions
+import com.ryderdavid.nacre.data.board.LaneItem
 import com.ryderdavid.nacre.data.board.moveActionFor
+import com.ryderdavid.nacre.data.model.ChangeAction
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.liveRunIssueIds
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -85,6 +90,30 @@ class BoardViewModel(private val repo: NacreRepository, val repoKey: String) : V
     fun move(issue: Issue, columnKey: String) {
         val action = moveActionFor(columnKey) ?: return
         repo.move(repoKey, issue, action)
+    }
+
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** One-line messages for the board's snackbar, e.g. why a dismiss failed. */
+    val notices: SharedFlow<String> = _notices
+
+    /** Change IDs whose failed draft has a Dismiss or Resume on its way; their buttons wait. */
+    val draftsBusy = MutableStateFlow<Set<String>>(emptySet())
+
+    private val drafts = DraftActions(
+        dismiss = { repo.dismissDraft(repoKey, it) },
+        resume = { repo.changeAction(repoKey, it, ChangeAction("resume")) },
+        notify = { _notices.tryEmit(it) },
+    )
+
+    fun dismissDraft(item: LaneItem.DraftPlaceholder) = draftAction(item) { drafts.dismiss(it) }
+    fun resumeDraft(item: LaneItem.DraftPlaceholder) = draftAction(item) { drafts.resume(it) }
+
+    private fun draftAction(item: LaneItem.DraftPlaceholder, run: suspend (LaneItem.DraftPlaceholder) -> Boolean) {
+        if (item.changeId in draftsBusy.value) return
+        draftsBusy.value += item.changeId
+        viewModelScope.launch {
+            try { run(item) } finally { draftsBusy.value -= item.changeId }
+        }
     }
 
     fun setEpic(id: String) = filter.value.let { filter.value = it.copy(epic = if (it.epic == id) "" else id) }

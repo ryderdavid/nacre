@@ -145,6 +145,7 @@ private fun CardList(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
     onClose: (Issue) -> Unit = {},
+    drafts: DraftHandlers = DraftHandlers(),
     /** Other lanes that have matches, offered when this one is empty under a search. */
     elsewhere: List<Column> = emptyList(),
     onReveal: (Column) -> Unit = {},
@@ -167,7 +168,7 @@ private fun CardList(
         items(col.items, key = { it.key }) { item ->
             if (item is LaneItem.DraftPlaceholder) {
                 // No details, nothing to open and no drag: the proposal doesn't exist yet.
-                DraftPlaceholderCard(item, Modifier.animateItem())
+                DraftPlaceholderCard(item, drafts, Modifier.animateItem())
                 return@items
             }
             val issue = (item as LaneItem.Card).issue
@@ -210,6 +211,7 @@ fun WideBoard(
     onShowMoreDone: () -> Unit,
     modifier: Modifier = Modifier,
     onClose: (Issue) -> Unit = {},
+    drafts: DraftHandlers = DraftHandlers(),
 ) {
     val rowState = rememberLazyListState()
     var viewport by remember { mutableStateOf(Rect.Zero) }
@@ -264,6 +266,7 @@ fun WideBoard(
                             onShowMore = if (col.key == Lane.DONE.key) onShowMoreDone else null,
                             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 96.dp),
                             onClose = onClose,
+                            drafts = drafts,
                         )
                     }
                 }
@@ -284,6 +287,7 @@ fun CompactBoard(
     onShowMoreDone: () -> Unit,
     modifier: Modifier = Modifier,
     onClose: (Issue) -> Unit = {},
+    drafts: DraftHandlers = DraftHandlers(),
     /** The board's search; a new search that misses this lane moves to a lane it matches (NAC-3mc). */
     query: String = "",
 ) {
@@ -334,6 +338,7 @@ fun CompactBoard(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
                     modifier = Modifier.fillMaxSize(),
                     onClose = onClose,
+                    drafts = drafts,
                     elsewhere = if (query.isBlank()) emptyList() else ui.columns.filter { it.key != col.key && it.total > 0 },
                     onReveal = { other -> ui.columns.indexOfFirst { it.key == other.key }.takeIf { it >= 0 }?.let { scope.launch { pager.animateScrollToPage(it) } } },
                 )

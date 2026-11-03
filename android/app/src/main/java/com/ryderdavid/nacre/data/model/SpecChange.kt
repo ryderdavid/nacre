@@ -193,6 +193,8 @@ data class ChangeSummary(
     val name get() = changeName.ifBlank { seedIds.firstOrNull().orEmpty() }
     /** A proposal that doesn't exist yet: shown as one placeholder instead of its seeds' cards. */
     val shownAsDraft get() = planning && draft?.kind in ChangeDraft.KINDS
+    /** nacred offers `resume` for a stopped operation (`needs_attention` or `interrupted`). */
+    val offersResume get() = phase == "needs_attention" || phase == "interrupted"
     /** The lane's order within a rank group: when the change was started, else (older bridges) its last update. */
     val laneOrder get() = startedAt.ifBlank { updatedAt }
 

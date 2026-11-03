@@ -11,7 +11,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,14 +23,24 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import com.ryderdavid.nacre.data.board.LaneItem
+
+/** What a failed draft placeholder's buttons do; [busy] holds change IDs with a request on its way. */
+class DraftHandlers(
+    val busy: Set<String> = emptySet(),
+    val onResume: (LaneItem.DraftPlaceholder) -> Unit = {},
+    val onDismiss: (LaneItem.DraftPlaceholder) -> Unit = {},
+)
 
 /**
  * A proposal that doesn't exist yet, in place of its seeds' cards. It shows no title, change name,
- * agent or computer, and has no click or drag handlers.
+ * agent or computer, and has no click or drag handlers. A failed draft is drawn in the error colour
+ * with "Drafting failed", nacred's one-line message, the change's Resume when offered, and Dismiss.
  */
 @Composable
-fun DraftPlaceholderCard(item: LaneItem.DraftPlaceholder, modifier: Modifier = Modifier) {
+fun DraftPlaceholderCard(item: LaneItem.DraftPlaceholder, handlers: DraftHandlers = DraftHandlers(), modifier: Modifier = Modifier) {
     val failed = item.draft.failed
     val colors = MaterialTheme.colorScheme
     OutlinedCard(
@@ -54,6 +67,22 @@ fun DraftPlaceholderCard(item: LaneItem.DraftPlaceholder, modifier: Modifier = M
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+            }
+            if (failed) {
+                val busy = item.changeId in handlers.busy
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = { handlers.onDismiss(item) }, enabled = !busy,
+                        colors = ButtonDefaults.textButtonColors(contentColor = colors.onErrorContainer),
+                    ) { Text("Dismiss") }
+                    if (item.resumable) {
+                        Spacer(Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = { handlers.onResume(item) }, enabled = !busy,
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.error, contentColor = colors.onError),
+                        ) { Text("Resume") }
+                    }
+                }
             }
         }
     }
