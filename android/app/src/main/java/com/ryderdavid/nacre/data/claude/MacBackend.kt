@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.data.claude
 
+import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.bridge.AssistMessage
 import com.ryderdavid.nacre.data.bridge.BridgeException
@@ -28,22 +29,27 @@ import java.util.UUID
  * uses, so Refine's diff review and the assistant's approval flow are unchanged.
  */
 class MacBackend(
-    private val repo: NacreRepository,
+    private val repo: MacLink,
     private val settings: suspend () -> AppSettings,
 ) : ClaudeBackend {
+    constructor(repo: NacreRepository, settings: suspend () -> AppSettings) : this(repo.macLink(), settings)
+
     override val runner = ClaudeRunner.MAC
 
+    /** [images] go in the request's `images`, in marker order, with their markers in the prompt. */
     override suspend fun refine(
         repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages,
     ): RefineProposal =
-        json(repoKey, Prompts.refine(ctx, instruction, history), ClaudeService.refineSchema)
+        json(repoKey, Prompts.refine(ctx, instruction, history, images.current, images.request.marks), ClaudeService.refineSchema, images = images.request.images)
 
     /** On the Mac an answer can come from the code too: the call may read the repository, never write. */
     override suspend fun ask(
         repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages,
     ): String =
-        json<AskReply>(repoKey, Prompts.ask(ctx, history, question, readsRepo = true), ClaudeService.askSchema, Prompts.ADVISOR)
-            .answer.ifBlank { throw ClaudeException("The Mac answered without an answer. Try again.") }
+        json<AskReply>(
+            repoKey, Prompts.ask(ctx, history, question, readsRepo = true, images.current, images.request.marks),
+            ClaudeService.askSchema, Prompts.ADVISOR, images = images.request.images,
+        ).answer.ifBlank { throw ClaudeException("The Mac answered without an answer. Try again.") }
 
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         json(repoKey, Prompts.draft(repoName, rough, parentTitle, existingTitles), ClaudeService.draftSchema)
@@ -55,18 +61,23 @@ class MacBackend(
 
     override fun session(board: AssistantBoard): AssistantSession = MacSession(repo, settings, board)
 
-    /** One structured call, decoded with the same serializers as the API path; it may read the repository, never write. */
+    /**
+     * One structured call, decoded with the same serializers as the API path; it may read the repository, never write.
+     * [images] are sent numbered 1..N in their order; the call is never kept as a session, so they leave none behind.
+     */
     private suspend inline fun <reified T> json(
         repoKey: String, prompt: String, schema: Map<String, Any>,
-        system: String = Prompts.EDITOR, readRepo: Boolean = true,
+        system: String = Prompts.EDITOR, readRepo: Boolean = true, images: List<ImagePayload> = emptyList(),
     ): T {
         val s = settings()
-        val out = translate {
+        if (images.isNotEmpty()) checkImages(repo, repoKey)
+        val out = translate(images = images.isNotEmpty()) {
             repo.claudeJson(
                 repoKey,
                 AssistRequest(
                     prompt = prompt, system = system, schema = schema.toSchemaJson(),
                     model = s.claudeModel, effort = s.claudeEffort, bdReads = readRepo, readRepo = readRepo,
+                    images = images.map { it.toAssist() },
                 ),
             )
         }
@@ -85,11 +96,20 @@ class MacBackend(
  * API — Claude Code on the Mac is never allowed to change a bead itself.
  */
 class MacSession(
-    private val repo: NacreRepository,
+    private val repo: MacLink,
     private val settings: suspend () -> AppSettings,
     private val board: AssistantBoard,
 ) : AssistantSession {
     private var sessionId = ""
+
+    /**
+     * The images and decoded bytes this conversation has sent. The resumed
+     * session holds them all, so the conversation as a whole keeps to one
+     * request's budget. A failed turn doesn't give them back: the session may
+     * hold them already.
+     */
+    private var sentImages = 0
+    private var sentBytes = 0L
 
     /** A turn that lost its connection, kept so Retry can pick it back up. */
     private var pending: TurnProgress? = null
@@ -105,14 +125,32 @@ class MacSession(
         pending = null
         acrossHost = null
         reported.clear()
+        sentImages = 0
+        sentBytes = 0L
+    }
+
+    override fun imageLimit(count: Int, bytes: Long): String? = when {
+        count == 0 -> null
+        board.runKey == null -> ImageReasons.ACROSS_BOARDS
+        sentImages + count > ImageBudget.REQUEST_IMAGES || sentBytes + bytes > ImageBudget.REQUEST_BYTES -> ImageReasons.CONVERSATION_LIMIT
+        else -> null
     }
 
     override suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult {
         val s = settings()
+        // Only this turn's images: the resumed session already holds the earlier ones.
+        val images = (input as? TurnInput.Say)?.images.orEmpty()
         val prompt = when (input) {
-            is TurnInput.Say -> input.text
+            // Markers are numbered within the turn, matching its own images.
+            is TurnInput.Say -> withMarkers(
+                input.text, images.map { it.image },
+                images.withIndex().associate { (i, p) -> p.image.id to ImageMark.Sent(i + 1) },
+            )
             is TurnInput.Answers -> Prompts.outcomes(input.answers)
         }
+        // A Retry that picks a lost turn back up was counted when it was sent.
+        val reattaching = pending?.let { it.prompt == prompt && it.turn != null } == true
+        if (!reattaching) imageLimit(images.size, images.byteCount())?.let { throw ClaudeException(it) }
         val base = AssistRequest(
             prompt = prompt,
             schema = Prompts.proposalsSchema(board.tools).toSchemaJson(),
@@ -131,7 +169,8 @@ class MacSession(
         if (single != null) {
             runKey = single
             // One board's chat runs in its repository and can read the code there too.
-            req = base.copy(system = Prompts.macAssistant(board.system(), board.tools), readRepo = true)
+            if (images.isNotEmpty()) checkImages(repo, runKey)
+            req = base.copy(system = Prompts.macAssistant(board.system(), board.tools), readRepo = true, images = images.map { it.toAssist() })
             start = { repo.claudeStream(runKey, it) }
         } else {
             // Across boards: one call on one computer reads every board it holds.
@@ -159,9 +198,14 @@ class MacSession(
         var progress = pending?.takeIf { it.prompt == req.prompt } ?: TurnProgress(req.prompt)
         pending = null
         val reconnecting = Reconnecting(sink, host)
+        // Images count once they are sent; picking a lost turn back up sends nothing new.
+        if (progress.turn == null) {
+            sentImages += images.size
+            sentBytes += images.byteCount()
+        }
 
         val outcome = try {
-            translate {
+            translate(images = images.isNotEmpty()) {
                 val resumable = progress.turn
                 try {
                     val first = if (resumable != null) repo.claudeResume(runKey, resumable, progress.lastSeq) else start(req)
@@ -420,8 +464,12 @@ const val CONNECTION_STEP = "connection"
  * be reached at all is worth trying again, and the app offers the API key
  * instead; one that refused the request is not.
  */
-internal suspend fun <T> translate(block: suspend () -> T): T = try {
+internal suspend fun <T> translate(images: Boolean = false, block: suspend () -> T): T = try {
     block()
+} catch (e: BridgeException) {
+    // nacred refused the images (400) or the body (413): its reason names the image or the limit.
+    if (images && (e.code == 400 || e.code == 413)) throw ClaudeException("The computer didn't accept the images: ${e.message.orEmpty()}")
+    throw translated(e)
 } catch (e: ClaudeException) {
     throw e
 } catch (e: ClaudeUnavailableException) {
@@ -431,10 +479,14 @@ internal suspend fun <T> translate(block: suspend () -> T): T = try {
 } catch (e: kotlinx.coroutines.CancellationException) {
     throw e
 } catch (e: Exception) {
+    throw translated(e)
+}
+
+private fun translated(e: Exception): ClaudeUnavailableException {
     val friendly = e.friendly()
     val tooOld = friendly.contains("no such route")
     val network = e is IOException && (e !is BridgeException || e.code == 0)
-    throw ClaudeUnavailableException(
+    return ClaudeUnavailableException(
         when {
             tooOld -> "That computer's nacred is too old to run Claude for the app. Update nacred, or use your API key."
             else -> friendly
@@ -442,4 +494,34 @@ internal suspend fun <T> translate(block: suspend () -> T): T = try {
         offerApiKey = true,
         canRetry = network,
     )
+}
+
+/** Refuses an image send at the moment it is made when [repoKey]'s computer doesn't list `chat_images`. */
+private fun checkImages(repo: MacLink, repoKey: String) {
+    val host = Keys.host(repoKey)
+    macImageBlocker(repo.hostName(host).ifBlank { "this computer" }, repo.features(host))?.let { throw ClaudeException(it) }
+}
+
+/** What the Mac backend needs from the paired computers; [NacreRepository] in the app. */
+interface MacLink {
+    suspend fun claudeJson(key: String, req: AssistRequest): AssistResult
+    fun claudeStream(key: String, req: AssistRequest): Flow<AssistMessage>
+    fun claudeStreamAcross(hostId: String, req: AssistRequest): Flow<AssistMessage>
+    fun claudeResume(key: String, turn: String, after: Long): Flow<AssistMessage>
+    suspend fun claudeCancel(key: String, turn: String)
+    fun hostName(hostId: String): String
+
+    /** The features computer [hostId] reported; null while it isn't connected. */
+    fun features(hostId: String): List<String>?
+}
+
+internal fun NacreRepository.macLink(): MacLink = object : MacLink {
+    override suspend fun claudeJson(key: String, req: AssistRequest) = this@macLink.claudeJson(key, req)
+    override fun claudeStream(key: String, req: AssistRequest) = this@macLink.claudeStream(key, req)
+    override fun claudeStreamAcross(hostId: String, req: AssistRequest) = this@macLink.claudeStreamAcross(hostId, req)
+    override fun claudeResume(key: String, turn: String, after: Long) = this@macLink.claudeResume(key, turn, after)
+    override suspend fun claudeCancel(key: String, turn: String) { this@macLink.claudeCancel(key, turn) }
+    override fun hostName(hostId: String) = this@macLink.hostName(hostId)
+    override fun features(hostId: String) =
+        (hosts.value.firstOrNull { it.host.id == hostId }?.connection as? Connection.Online)?.health?.features
 }

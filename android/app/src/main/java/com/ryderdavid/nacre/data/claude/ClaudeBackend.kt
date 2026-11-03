@@ -95,6 +95,13 @@ interface AssistantSession {
 
     /** Forget the conversation so the next turn starts fresh. */
     fun reset()
+
+    /**
+     * Why a message with [count] images of [bytes] decoded bytes can't be sent
+     * in this conversation now, or null when it can. The pending images are
+     * kept and Send is disabled with the reason; text alone can still be sent.
+     */
+    fun imageLimit(count: Int, bytes: Long): String? = null
 }
 
 sealed interface TurnInput {
