@@ -34,8 +34,8 @@ class IdleResetTest {
 
     private class Backend(val s: AssistantSession) : ClaudeBackend {
         override val runner = ClaudeRunner.API
-        override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>) = RefineProposal()
-        override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String) = ""
+        override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages) = RefineProposal()
+        override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages) = ""
         override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>) = BeadDraft("x")
         override suspend fun reviseDraft(repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String, parentTitle: String?, existingTitles: List<String>) = current
         override fun session(board: AssistantBoard) = s

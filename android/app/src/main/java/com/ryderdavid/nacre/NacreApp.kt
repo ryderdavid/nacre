@@ -43,6 +43,9 @@ class AppContainer(app: Application) {
     )
     val notifier = RunNotifier(app, repository, settings, scope)
 
+    /** Whether a chat can take images on the chosen backend and its target computer; kept current. */
+    val imageSupport = com.ryderdavid.nacre.data.claude.ChatImageSupport(settings.settings, repository.hosts)
+
     val chatStack = ChatStack(onRemoved = ::resetChat)
 
     /** Each bead's chat with Claude, held on the bead's own screen beside its thread. */

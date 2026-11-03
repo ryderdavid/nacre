@@ -36,11 +36,20 @@ class ClaudeUnavailableException(
 interface ClaudeBackend {
     val runner: ClaudeRunner
 
-    /** Improve one bead; the result is reviewed field by field before anything is saved. */
-    suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal
+    /**
+     * Improve one bead; the result is reviewed field by field before anything
+     * is saved. [images] are the message's images and those its request carries.
+     */
+    suspend fun refine(
+        repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>,
+        images: ChatTurnImages = ChatTurnImages.NONE,
+    ): RefineProposal
 
-    /** Answer a question about one bead. Nothing is changed and nothing is proposed. */
-    suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String
+    /** Answer a question about one bead. Nothing is changed and nothing is proposed. [images] as for [refine]. */
+    suspend fun ask(
+        repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String,
+        images: ChatTurnImages = ChatTurnImages.NONE,
+    ): String
 
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft
@@ -86,6 +95,13 @@ interface AssistantSession {
 
     /** Forget the conversation so the next turn starts fresh. */
     fun reset()
+
+    /**
+     * Why a message with [count] images of [bytes] decoded bytes can't be sent
+     * in this conversation now, or null when it can. The pending images are
+     * kept and Send is disabled with the reason; text alone can still be sent.
+     */
+    fun imageLimit(count: Int, bytes: Long): String? = null
 }
 
 sealed interface TurnInput {

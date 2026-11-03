@@ -218,6 +218,12 @@ class BoardAssistant(
         approvals.keys.toList().forEach { decide(it, true) }
     }
 
+    /**
+     * Why a message with [count] images of [bytes] decoded bytes can't be sent
+     * in this conversation now (the Mac assistant's conversation budget), or null.
+     */
+    fun imageLimit(count: Int, bytes: Long): String? = session?.imageLimit(count, bytes)
+
     fun clear() {
         stop()
         retryInput = null
