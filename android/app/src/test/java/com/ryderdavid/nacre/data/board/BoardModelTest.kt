@@ -33,6 +33,8 @@ class BoardModelTest {
         assertEquals(Lane.CHECK, ix.laneOf(ix.byId["S"]!!))
         assertEquals(Lane.DONE, ix.laneOf(ix.byId["C"]!!), "a signed-off bead is done")
         assertEquals(listOf("S"), ix.columns(GroupBy.WORKFLOW, BoardFilter()).first { it.key == "check" }.issues.map { it.id })
+        val epic = BoardIndex(listOf(issue("E", type = "epic"), issue("E.1", parent = "E", status = "closed"), issue("E.2", parent = "E", labels = listOf("signoff"))))
+        assertEquals(Lane.CHECK, epic.laneOf(epic.byId["E"]!!), "an epic waiting only on sign-offs")
         val none = BoardIndex(listOf(issue("A")))
         assertTrue(none.columns(GroupBy.WORKFLOW, BoardFilter()).none { it.key == "check" }, "no empty To check column")
     }
