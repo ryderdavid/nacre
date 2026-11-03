@@ -225,6 +225,17 @@ class BeadChats(
     }
 }
 
+/**
+ * Ryder's message for a bead's thread: [text] in [mode] with references to
+ * [images]. Null when there is nothing to send: an Ask needs text or an image,
+ * while an empty Refine means "make it agent-ready".
+ */
+fun beadChatMessage(text: String, mode: ChatMode, images: List<ImagePayload> = emptyList()): BeadChatItem.Mine? {
+    val message = text.trim()
+    if (message.isEmpty() && images.isEmpty() && mode == ChatMode.ASK) return null
+    return BeadChatItem.Mine(message, mode, images = images.map { it.image })
+}
+
 /** The thread as the turns a prompt carries: Ryder's messages, Claude's answers, and what became of each proposal. */
 fun List<BeadChatItem>.turns(): List<DraftTurn> = mapNotNull { item ->
     when (item) {
