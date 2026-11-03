@@ -586,6 +586,9 @@ func TestRestartInterruptDoesNotRepeatBillableCall(t *testing.T) {
 	if e != nil || env.Change.Phase != "interrupted" || model.count() != 1 {
 		t.Fatalf("%+v %v", env, e)
 	}
+	if env.Change.Error != stoppedDuring {
+		t.Fatalf("a shutdown reads %q, not why it stopped", env.Change.Error)
+	}
 	model.fn = normalModel
 	c := act(t, m2, repo, "NAC-1", Action{Action: "resume"})
 	if c.Phase != "awaiting_approval" || model.count() != 3 {

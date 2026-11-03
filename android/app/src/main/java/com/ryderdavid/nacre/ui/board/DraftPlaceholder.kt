@@ -63,7 +63,7 @@ fun DraftPlaceholderCard(item: LaneItem.DraftPlaceholder, handlers: DraftHandler
                     item.draft.message,
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onErrorContainer,
-                    maxLines = 1,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp),
                 )

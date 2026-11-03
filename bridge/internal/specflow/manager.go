@@ -166,7 +166,7 @@ func New(opts Options) (*Manager, error) {
 		}
 		if r.Change.Phase == "drafting" || r.Change.Phase == "reviewing" || r.Change.Phase == "promoting" {
 			r.Change.Phase = "interrupted"
-			r.Change.Error = "The computer stopped during this operation. Resume to continue from the saved checkpoint."
+			r.Change.Error = stoppedDuring
 			if r.ReservedCost > 0 {
 				r.ActionCost += r.ReservedCost
 				r.Change.CostUSD += r.ReservedCost
@@ -656,6 +656,10 @@ func (m *Manager) work(r *record) {
 		if ctx.Err() != nil || r.Stage == "promote" || r.Stage == "decision" {
 			r.Change.Phase = "interrupted"
 		}
+		if ctx.Err() != nil {
+			// The computer is shutting down: say so, not "context canceled".
+			r.Change.Error = stoppedDuring
+		}
 		history(r, "error", err.Error())
 		if persistErr := m.checkpoint(r); persistErr != nil {
 			// A storage failure must remain visible immediately, even when writing
@@ -668,6 +672,9 @@ func (m *Manager) work(r *record) {
 		}
 	}
 }
+
+// stoppedDuring is what a change says when nacred stopped in the middle of it.
+const stoppedDuring = "The computer stopped during this operation. Resume to continue from the saved checkpoint."
 
 // Contract fails closed for every linked bead, including orphaned labels.
 func (m *Manager) Contract(ctx context.Context, repo, id string) (*Contract, error) {
