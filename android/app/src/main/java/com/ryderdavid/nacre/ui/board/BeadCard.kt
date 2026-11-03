@@ -208,5 +208,4 @@ private fun RunningBadge() {
 }
 
 /** Internal orchestration labels never belong on a board card. */
-fun isInternalCardLabel(label: String): Boolean =
-    listOf("specflow:", "round:", "spec-section:", "nacre-").any(label::startsWith)
+fun isInternalCardLabel(label: String): Boolean = com.ryderdavid.nacre.ui.bead.isMachineLabel(label)
