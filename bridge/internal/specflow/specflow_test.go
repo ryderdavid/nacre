@@ -1162,7 +1162,7 @@ func TestAChangeWaitingOnTheOwnerGetsOneGuideForItsState(t *testing.T) {
 	if len(g.Options) != 1 || g.Options[0].Action != "close" {
 		t.Fatalf("an action the state doesn't allow was kept: %+v", g.Options)
 	}
-	if !strings.Contains(model.guides[0].Prompt, "approve") || model.guides[0].MaxBudgetUSD != GuideBudgetUSD {
+	if !strings.Contains(model.guides[0].Prompt, "approve") || model.guides[0].MaxBudgetUSD != 0 {
 		t.Fatalf("guide request %+v", model.guides[0])
 	}
 	m.Get(context.Background(), repo, "NAC-1")

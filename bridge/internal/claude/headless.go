@@ -2,7 +2,6 @@ package claude
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 )
 
@@ -23,7 +22,8 @@ type Headless struct {
 	Schema json.RawMessage
 	Model  string
 	Effort string
-	// MaxBudgetUSD caps the call's spending (--max-budget-usd); 0 = no cap.
+	// MaxBudgetUSD caps the call's spending (--max-budget-usd); 0 leaves
+	// only the runaway ceiling.
 	MaxBudgetUSD float64
 	// Resume continues an earlier session by id; empty starts a new one.
 	Resume string
@@ -143,9 +143,7 @@ func (h Headless) Args() []string {
 	if h.Effort != "" {
 		args = append(args, "--effort", h.Effort)
 	}
-	if h.MaxBudgetUSD > 0 {
-		args = append(args, "--max-budget-usd", strconv.FormatFloat(h.MaxBudgetUSD, 'f', 2, 64))
-	}
+	args = append(args, budgetArgs(h.MaxBudgetUSD, RunawayUSD)...)
 	if h.Resume != "" {
 		args = append(args, "--resume", h.Resume)
 	}

@@ -51,7 +51,7 @@ func TestIntakeVerdicts(t *testing.T) {
 				t.Fatalf("verdict=%+v", v)
 			}
 			h := model.calls[0]
-			if h.MaxBudgetUSD != IntakeBudgetUSD || len(h.AllowedTools) != 0 || h.ReadRepo || h.ReadSource || h.Persist {
+			if h.MaxBudgetUSD != 0 || len(h.AllowedTools) != 0 || h.ReadRepo || h.ReadSource || h.Persist {
 				t.Fatalf("intake call is not bounded and read-only: %+v", h)
 			}
 			if !strings.Contains(h.Prompt, "resilient-rounds: Rounds should recover before they stop.") || !strings.Contains(h.Prompt, "Requirement: Retrying a parked bead") {

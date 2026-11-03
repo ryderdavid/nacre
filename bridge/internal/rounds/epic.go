@@ -1,6 +1,7 @@
 package rounds
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -176,7 +177,7 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 		ID: id, RepoID: repoID, RepoName: name, RepoPath: path, Epic: epic, FinishEpic: epic,
 		State: api.RoundIntegrating, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: []api.RoundBead{}, Plan: &api.Plan{Summary: "Merge " + branch + " into " + target, Beads: []api.PlanBead{}, Findings: []api.Finding{}},
-		BudgetUSD: m.opts.BudgetUSD, TimeLimitMinutes: m.opts.TimeLimitMinutes, Mode: m.opts.Mode, Model: m.opts.Model,
+		BudgetUSD: cmp.Or(m.opts.BudgetUSD, defaultBudget(0)), TimeLimitMinutes: m.opts.TimeLimitMinutes, Mode: m.opts.Mode, Model: m.opts.Model,
 		AutoLand: true, CreatedAt: now, UpdatedAt: now,
 	}
 	dir := filepath.Join(m.opts.Dir, id)

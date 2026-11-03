@@ -144,12 +144,12 @@ func TestToolSummaryTruncation(t *testing.T) {
 
 func TestTurnArgs(t *testing.T) {
 	first := Turn{Prompt: "do it", Mode: "plan", Model: "haiku", Worktree: true, Name: "Nacre · NAC-1"}.Args()
-	want := []string{"-p", "do it", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--model", "haiku", "--worktree", "--name", "Nacre · NAC-1"}
+	want := []string{"-p", "do it", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--model", "haiku", "--max-budget-usd", "50.00", "--worktree", "--name", "Nacre · NAC-1"}
 	if !reflect.DeepEqual(first, want) {
 		t.Fatalf("first = %q", first)
 	}
 	follow := Turn{Prompt: "-continue", Mode: "auto", Effort: "xhigh", Resume: "sid", Worktree: true, Name: "ignored"}.Args()
-	want = []string{"-p", " -continue", "--resume", "sid", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--effort", "xhigh"}
+	want = []string{"-p", " -continue", "--resume", "sid", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--effort", "xhigh", "--max-budget-usd", "50.00"}
 	if !reflect.DeepEqual(follow, want) {
 		t.Fatalf("follow = %q", follow)
 	}

@@ -314,7 +314,7 @@ func (r *round) diagnoseStop() {
 		return
 	}
 	s, meta, events := *r.meta.Stop, clone(r.meta), r.recentEvents(30)
-	if s.Kind == api.StopLimits || s.Kind == api.StopLegacy || r.remaining() < diagnosisCapUSD {
+	if s.Kind == api.StopLimits || s.Kind == api.StopLegacy || r.remaining() < minTurnBudget {
 		return
 	}
 	r.goOp("diagnose", func(ctx context.Context) func() {
@@ -352,7 +352,7 @@ func stateful(kind string) bool {
 // diagnoseQuestion adds Claude's read of a failed merge to the pre-flight
 // question it reopened. Caller holds r.mu.
 func (r *round) diagnoseQuestion(branch, problem string) {
-	if r.ops["diagnose"] || r.remaining() < diagnosisCapUSD {
+	if r.ops["diagnose"] || r.remaining() < minTurnBudget {
 		return
 	}
 	s := api.Stop{Kind: api.StopMergeConflict, Phase: "preflight", Branch: branch, Reason: problem,
@@ -479,11 +479,8 @@ func (m *Manager) fingerprint(ctx context.Context, meta api.Round, s api.Stop) s
 
 // ---- diagnosis ----
 
-// diagnosisCapUSD and diagnosisTimeout bound the diagnosis call.
-const (
-	diagnosisCapUSD  = 0.50
-	diagnosisTimeout = 3 * time.Minute
-)
+// diagnosisTimeout bounds the diagnosis call.
+const diagnosisTimeout = 3 * time.Minute
 
 const diagnosisSystem = `You explain why an automated round of software work stopped. A round takes several beads (issues) in one repository, implements each on its own branch, merges them into an integration branch, checks them with the repository's gates and build, and merges the result into the target branch. It has already tried to recover by itself before stopping. Look at what actually happened (the round's log, git, the code) and tell the owner, in plain words for a phone screen, what is wrong and what each available choice would do. You can read the repository and run read-only bd and git commands; you cannot change anything. Be specific: name files, commits and beads. Don't recommend anything that isn't one of the choices.`
 
@@ -560,7 +557,7 @@ func (m *Manager) diagnose(ctx context.Context, meta api.Round, s api.Stop, even
 	schema, _ := json.Marshal(diagnosisSchema)
 	out, err := m.opts.Headless.Run(ctx, cwd, claude.Headless{
 		Prompt: p.String(), System: diagnosisSystem, Schema: schema, Model: meta.Model,
-		AllowedTools: claude.BdReadTools, ReadRepo: true, MaxBudgetUSD: diagnosisCapUSD,
+		AllowedTools: claude.BdReadTools, ReadRepo: true,
 	}, nil)
 	if err != nil {
 		return nil

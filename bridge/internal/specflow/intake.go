@@ -14,11 +14,8 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
-// Intake is cheap and bounded: one read-only call, no files, no beads.
-const (
-	IntakeBudgetUSD = 0.50
-	IntakeTimeout   = 90 * time.Second
-)
+// Intake is one read-only call, no files, no beads.
+const IntakeTimeout = 90 * time.Second
 
 // Intake verdicts.
 const (
@@ -164,7 +161,7 @@ func (m *Manager) Intake(ctx context.Context, repo string, d IntakeDraft) (Intak
 	}
 	ctx, cancel := context.WithTimeout(ctx, IntakeTimeout)
 	defer cancel()
-	out, e := m.opts.Headless.Run(ctx, repo, claude.Headless{Prompt: p.String(), System: intakeSystem, Schema: intakeSchema, MaxBudgetUSD: IntakeBudgetUSD}, nil)
+	out, e := m.opts.Headless.Run(ctx, repo, claude.Headless{Prompt: p.String(), System: intakeSystem, Schema: intakeSchema}, nil)
 	if e != nil {
 		if ctx.Err() != nil {
 			return IntakeVerdict{CostUSD: out.CostUSD}, fmt.Errorf("intake took longer than %s", IntakeTimeout)

@@ -178,7 +178,7 @@ fun StartRoundSheet(
                     value = budget, onValueChange = { budget = it.filter { c -> c.isDigit() || c == '.' } }, singleLine = true,
                     prefix = { Text("$") }, label = { Text("Budget") },
                     placeholder = { Text("The computer's default") },
-                    supportingText = { Text("The round pauses when it has spent this much of your Claude subscription.") },
+                    supportingText = { Text("Only stops a round that runs away; leave it blank for \$50 a bead.") },
                     isError = !budgetValid,
                     modifier = Modifier.fillMaxWidth(),
                 )

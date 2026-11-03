@@ -82,8 +82,8 @@ func TestAdoptReviewsAsWrittenLinksBeadsAndKeepsFinishedWorkClosed(t *testing.T)
 	if model.count() != 1 || model.calls[0].System != reviewerSystem {
 		t.Fatalf("adoption must run exactly one independent review, got %d calls", model.count())
 	}
-	if b := model.calls[0].MaxBudgetUSD; b != AdoptReviewBudgetUSD {
-		t.Fatalf("adoption review budget = %v, want %v", b, AdoptReviewBudgetUSD)
+	if b := model.calls[0].MaxBudgetUSD; b != MaxActionCostUSD {
+		t.Fatalf("adoption review budget = %v, want %v", b, MaxActionCostUSD)
 	}
 	if len(c.Sections) != 3 || c.Sections[0].ID != "rd-save" || c.Sections[0].BeadID != "NAC-2" || c.Sections[1].BeadID != "" {
 		t.Fatalf("sections = %+v", c.Sections)

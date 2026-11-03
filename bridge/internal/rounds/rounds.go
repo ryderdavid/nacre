@@ -69,11 +69,17 @@ type Gates interface {
 	RunAll(ctx context.Context, dir string, cfg *repoconfig.Config, steps []repoconfig.Step, stopOnFail bool) []gates.Result
 }
 
-// Defaults for rounds that don't set their own limits.
-const (
-	DefaultBudgetUSD        = 25
-	DefaultTimeLimitMinutes = 240
-)
+// DefaultTimeLimitMinutes is the working time a round gets unless it sets
+// its own. Its budget, unless set, is defaultBudget.
+const DefaultTimeLimitMinutes = 240
+
+// defaultBudget is a round's budget when nothing sets one: a working
+// session's runaway ceiling for each bead, and a call's for checking and
+// merging. Like those ceilings it only stops a round that has run away; it
+// isn't a cost target.
+func defaultBudget(beads int) float64 {
+	return claude.SessionRunawayUSD*float64(beads) + claude.RunawayUSD
+}
 
 // Options configure a Manager.
 type Options struct {
@@ -171,9 +177,6 @@ type round struct {
 func New(opts Options) (*Manager, error) {
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
-	}
-	if opts.BudgetUSD <= 0 {
-		opts.BudgetUSD = DefaultBudgetUSD
 	}
 	if opts.TimeLimitMinutes <= 0 {
 		opts.TimeLimitMinutes = DefaultTimeLimitMinutes
@@ -432,6 +435,9 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	budget, limit := req.BudgetUSD, req.TimeLimitMinutes
 	if budget <= 0 {
 		budget = m.opts.BudgetUSD
+	}
+	if budget <= 0 {
+		budget = defaultBudget(len(beads))
 	}
 	if limit <= 0 {
 		limit = m.opts.TimeLimitMinutes

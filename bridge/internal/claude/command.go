@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -24,7 +23,8 @@ type Turn struct {
 	Worktree bool   // --worktree (first turn only)
 	Name     string // --name (first turn only)
 	Resume   string // --resume <session id> for follow-ups
-	// MaxBudgetUSD caps the turn's spending (--max-budget-usd); 0 = no cap.
+	// MaxBudgetUSD caps the turn's spending (--max-budget-usd); 0 leaves
+	// only the session runaway ceiling.
 	MaxBudgetUSD float64
 	// Env is added to the process environment, e.g. a leased resource.
 	Env []string
@@ -52,9 +52,7 @@ func (t Turn) Args() []string {
 	if t.Effort != "" {
 		args = append(args, "--effort", t.Effort)
 	}
-	if t.MaxBudgetUSD > 0 {
-		args = append(args, "--max-budget-usd", strconv.FormatFloat(t.MaxBudgetUSD, 'f', 2, 64))
-	}
+	args = append(args, budgetArgs(t.MaxBudgetUSD, SessionRunawayUSD)...)
 	if t.Resume == "" {
 		if t.Worktree {
 			args = append(args, "--worktree")

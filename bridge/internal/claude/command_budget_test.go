@@ -10,8 +10,15 @@ func TestTurnBudget(t *testing.T) {
 	if !strings.Contains(args, "--max-budget-usd 6.00") {
 		t.Errorf("args = %s", args)
 	}
-	if strings.Contains(strings.Join(Turn{Prompt: "x"}.Args(), " "), "max-budget") {
-		t.Error("budget flag without a budget")
+	// Without a budget, or with one above it, the runaway ceiling holds.
+	if args := strings.Join(Turn{Prompt: "x"}.Args(), " "); !strings.Contains(args, "--max-budget-usd 50.00") {
+		t.Errorf("a working session without the session ceiling: %s", args)
+	}
+	if args := strings.Join(Headless{Prompt: "x"}.Args(), " "); !strings.Contains(args, "--max-budget-usd 10.00") {
+		t.Errorf("a call without the runaway ceiling: %s", args)
+	}
+	if args := strings.Join(Headless{Prompt: "x", MaxBudgetUSD: 40}.Args(), " "); !strings.Contains(args, "--max-budget-usd 10.00") {
+		t.Errorf("a budget above the runaway ceiling: %s", args)
 	}
 }
 

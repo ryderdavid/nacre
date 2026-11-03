@@ -54,17 +54,7 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	if remaining < 0.05 {
 		return nil, fmt.Errorf("The $%.2f budget for this proposal action has been reached. Review the saved work before starting another revision.", MaxActionCostUSD)
 	}
-	perCall := ReviewCallBudgetUSD
-	if !review {
-		perCall = AuthorCallBudgetUSD
-	}
-	if review && r.Change.Adoption != nil && r.Pass == 0 {
-		// Adopting has one review of a whole finished change, often large,
-		// instead of an author and reviewer sharing the action's budget.
-		perCall = AdoptReviewBudgetUSD
-	}
-	cap := math.Min(perCall, remaining)
-	cap = math.Floor(cap*100) / 100
+	cap := math.Floor(remaining*100) / 100
 	system, schema, kind := authorSystem, authorSchema, "author"
 	if review {
 		if r.ReviewCalls >= MaxPasses {
@@ -92,9 +82,6 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
 		cost = cap
 		e = fmt.Errorf("The %s returned invalid cost metadata", kind)
-	}
-	if e != nil && cost == 0 {
-		cost = cap
 	}
 	r.ReservedCost = 0
 	r.ActionCost += cost

@@ -32,9 +32,6 @@ type GuideOption struct {
 	Why      string `json:"why"`
 }
 
-// GuideBudgetUSD bounds one guide call; it reads only what the record holds.
-const GuideBudgetUSD = 0.3
-
 const guideSystem = "You help a busy owner decide the next step on an OpenSpec change that has stopped and is waiting on them. " +
 	"Write short, plain sentences without jargon or file paths. summary: one or two sentences on what the change does for the user of the app. " +
 	"status: one sentence on how it went: reviews, cost so far, and why it stopped. blocking: each unresolved blocker or high finding, and a medium one when few remain, " +
@@ -115,7 +112,7 @@ func (m *Manager) writeGuide(r *record, key string) {
 	defer cancel()
 	allowed := guideActions(r)
 	schema, _ := json.Marshal(guideSchema)
-	out, e := m.opts.Headless.Run(ctx, r.Repo, claude.Headless{Prompt: guidePrompt(r, allowed), System: guideSystem, Schema: schema, MaxBudgetUSD: GuideBudgetUSD}, nil)
+	out, e := m.opts.Headless.Run(ctx, r.Repo, claude.Headless{Prompt: guidePrompt(r, allowed), System: guideSystem, Schema: schema}, nil)
 	var g Guide
 	if e == nil {
 		e = json.Unmarshal(out.Output, &g)

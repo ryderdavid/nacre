@@ -465,11 +465,12 @@ While a change waits on the owner (`awaiting_approval`, `needs_attention`, `stal
 carries a `guide` once nacred has written one: `{for, summary, status, blocking:[…], recommended,
 options:[…]}`, each step `{action, label, feedback?, why}` with `action` one of `approve`, `revise`
 (send `feedback` as the revise feedback), `resume` or `close` (shelve: close the seed bead). nacred
-writes it with one headless call (up to $0.30, added to `cost_usd`) the first time a read or a
+writes it with one headless call (its cost added to `cost_usd`) the first time a read or a
 finished operation finds the change waiting without a guide for its current state, and drops it
 from the envelope once the state moves on; a failed call is not retried for that state, and the app
-falls back to its own next action. Writing a guide never moves `updated_at`. Drafting calls are
-capped at $1.60 and review calls at $0.85, within the $5 per action. Change summaries
+falls back to its own next action. Writing a guide never moves `updated_at`. A proposal action
+(drafting and its reviews) may spend $10 in all, which only stops one that has run away (see
+[Spending limits](#spending-limits)). Change summaries
 (`GET /v1/repos/{repo}/changes`) carry the guide's `status` and the `recommended` step's label. The envelope also carries
 `inventory: {accepted_specs, active_changes}` (what a proposal is compared with) whenever the
 repository's OpenSpec setup can be read. Artifacts are exact
@@ -509,7 +510,7 @@ after landing when every child is closed. Parked or human-check children keep th
 fallback?, target_tracked, target_active?, active_changes}` (`active_changes` names every active change, for overriding the verdict). `verdict` is `bead` (changes no specified "done": chores,
 refactors, small fixes, bugs that restore specified behavior), `new`, `amend` (`change_name` is an
 active change) or `covered`. The call sees the requirement index and each active change's name and
-`## Why` (24 KB together), has no tools, and is capped at $0.50 and 90 s. An `amend` or `covered`
+`## Why` (24 KB together), has no tools, and is limited to 90 s. An `amend` or `covered`
 verdict that doesn't cite a listed requirement (or, for `amend`, a file of the named active change)
 becomes `new`, with `fallback` saying why. `target_tracked` is true when Nacre has a workflow record
 for the amended change; only then can `target_active` name the round or run using it (a change
@@ -930,3 +931,14 @@ starts: chats, guides, proposals and rounds. Codex never gets it.
 
 A call that fails because claude is signed out says `Claude is signed out on <host name>. Sign it in from the app with
 Sign in to Claude, then try again.`, and the app offers Sign in to Claude beside it.
+
+## Spending limits
+
+nacred's limits on spending only stop a process that has run away, stuck in a token-heavy loop with
+no way out; they aren't budgets for the work. Every claude process nacred starts gets
+`--max-budget-usd`: **$10** for a single call (a chat answer, drafting or reviewing a proposal, a
+guide, intake, a round's review and diagnosis) and **$50** for a working session (a bead's goal run
+in a round, Start work). A caller asking for less keeps its own limit; more is held to these. A
+round's budget, unless the request or `round_budget_usd` sets one, is $50 for each bead plus $10, and
+its time limit counts only time it worked.
+

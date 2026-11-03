@@ -160,17 +160,9 @@ type Options struct {
 	Changed func(repoPath string, change Change)
 }
 
-const MaxActionCostUSD = 5.0
-
-// AdoptReviewBudgetUSD bounds the one independent review of an adopted change.
-const AdoptReviewBudgetUSD = 2.5
-
-// AuthorCallBudgetUSD bounds one drafting call. Drafting writes every file of
-// the change after reading source, so it needs more room than a review.
-const AuthorCallBudgetUSD = 1.6
-
-// ReviewCallBudgetUSD bounds one independent review call.
-const ReviewCallBudgetUSD = 0.85
+// MaxActionCostUSD is what one proposal action (drafting and its reviews) may
+// spend in all: only a guard against a runaway, not a budget for the work.
+const MaxActionCostUSD = claude.RunawayUSD
 const MaxPasses = 3
 const OperationTimeout = 30 * time.Minute
 
