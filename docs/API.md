@@ -236,7 +236,7 @@ still a 409).
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.6.0","commit":"<sha>","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), and `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
+| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), `assist_turn_ids` when the streamed turn endpoints take the app's own `turn_id` (see [SSE](#sse)), and `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -729,8 +729,18 @@ output), then exactly one terminal message — `event: done` with the same body 
 The answer runs independently of the request. If the connection drops, claude keeps going; the
 client reattaches with `GET /v1/assist/{turn}/stream?after=<last seq>` (or `Last-Event-ID`), which
 replays the missed events and then follows live, ending with the same `done`/`error`. A finished
-answer stays readable for 10 minutes. `POST /v1/assist/{turn}/cancel` stops one the person no
-longer wants; its stream then ends with `event: error`.
+answer stays readable for 30 minutes, long enough for a phone that slept or changed networks.
+`POST /v1/assist/{turn}/cancel` stops one the person no longer wants; its stream then ends with
+`event: error`.
+
+With `assist_turn_ids` in `features`, both stream routes take an optional `turn_id` in the request:
+`c_` and 8–64 letters, digits, `-` or `_`, chosen by the app (400 `invalid turn id` otherwise). It
+becomes the turn's id. Sending the same request with a `turn_id` nacred already has attaches to that
+turn instead of starting another: the stream starts with its `turn` message and replays it from the
+first event. The app does this when its connection dropped before the `turn` message arrived, so it
+can't know whether the first request got here; one question never runs Claude twice. The app also
+runs bead chat (Ask, Refine, Draft) as a streamed turn on such a computer instead of
+`/claude/json`, so those calls reattach too.
 
 `/v1/runs/{run}/stream`: first replays stored events with `seq > after`, then sends the current
 `event: run` snapshot, then streams live ones.

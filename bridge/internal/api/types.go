@@ -35,6 +35,12 @@ const FeatureClaude = "claude"
 // /v1/repos/{repo}/claude/stream.
 const FeatureChatImages = "chat_images"
 
+// FeatureAssistTurnIDs is reported in /v1/health when the streamed turn
+// endpoints take the app's own turn_id and treat a resend with the same id as
+// the same turn, and when finished turns stay readable long enough for a
+// phone that slept or changed networks to pick its answer back up.
+const FeatureAssistTurnIDs = "assist_turn_ids"
+
 // FeatureCodex is reported in /v1/health when beads can be run with the
 // OpenAI Codex CLI here: it is installed and signed in. When it is missing,
 // health's codex_unavailable says why.

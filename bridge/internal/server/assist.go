@@ -56,6 +56,12 @@ type assistRequest struct {
 	// the image; the prompt marks each one's turn with [image N: <name>].
 	// Only the per-repo routes accept them.
 	Images []chatImage `json:"images,omitempty"`
+	// TurnID is the id the app chose for a streamed turn (see
+	// api.FeatureAssistTurnIDs). Sending the same request with the same id
+	// again attaches to the turn already running instead of starting another,
+	// so the app can safely resend after a drop that came before the "turn"
+	// message. Empty lets nacred choose.
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 var effortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
@@ -79,6 +85,8 @@ func (req assistRequest) headless() (claude.Headless, string) {
 		return claude.Headless{}, "invalid model"
 	case !safeFlagValue(req.SessionID):
 		return claude.Headless{}, "invalid session id"
+	case req.TurnID != "" && !assist.ValidTurnID(req.TurnID):
+		return claude.Headless{}, "invalid turn id"
 	}
 	h := claude.Headless{
 		Prompt: req.Prompt, System: req.System, Schema: req.Schema,
@@ -162,7 +170,8 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, bad, "")
 		return
 	}
-	turn := s.Assist.Start(path, h)
+	turn, _ := s.Assist.StartID(req.TurnID, path, h)
+	// A resend of a turn that is already running replays it from the start.
 	s.streamTurn(w, r, turn, 0, &assistTurn{TurnID: turn.ID})
 }
 
