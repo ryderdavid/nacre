@@ -121,6 +121,8 @@ class BoardIndex(val issues: List<Issue>) {
     fun laneOf(issue: Issue): Lane = when {
         issue.isClosed -> Lane.DONE
         issue.awaitsSignoff -> Lane.CHECK
+        // An epic with nothing left but its beads' sign-offs is waiting on the same check.
+        issue.isEpic && childrenOf(issue.id).filterNot { it.isClosed }.let { open -> open.isNotEmpty() && open.all { it.awaitsSignoff } } -> Lane.CHECK
         issue.status == "in_progress" || issue.status == "hooked" -> Lane.DOING
         issue.status == "deferred" || issue.status == "pinned" -> Lane.LATER
         issue.status == "blocked" -> Lane.BLOCKED
