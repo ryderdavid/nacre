@@ -59,6 +59,69 @@ func (c Change) seedIDs(aliases []string) []string {
 	return ids
 }
 
+// startedAt is when the change record was started: its first history entry,
+// or created_at when it has no history. It never changes.
+func startedAt(c Change) string {
+	if len(c.History) > 0 && c.History[0].At != "" {
+		return c.History[0].At
+	}
+	return c.CreatedAt
+}
+
+// failedDraft: drafting stopped before the proposal was created.
+func failedDraft(c Change) bool {
+	return c.CreatedAt == "" && (c.Phase == "needs_attention" || c.Phase == "interrupted")
+}
+
+// draftOf derives a change's draft from its phase and created_at: pending
+// while the first proposal is drafted, failed (with the change's error) if
+// drafting stopped before it was created, unless that was dismissed.
+func draftOf(r *record) *api.ChangeDraft {
+	c := r.Change
+	switch {
+	case c.CreatedAt != "":
+		return nil
+	case c.Phase == "drafting":
+		return &api.ChangeDraft{Kind: api.DraftPending}
+	case failedDraft(c) && !r.DraftDismissed:
+		return &api.ChangeDraft{Kind: api.DraftFailed, Message: c.Error}
+	}
+	return nil
+}
+
+// DismissDraft hides a change's failed draft until a new develop is
+// accepted, and returns the change's summary. It is idempotent: a pending,
+// created or already dismissed change is left as it is. changed reports
+// whether the dismissal was recorded now.
+func (m *Manager) DismissDraft(repo, changeID string) (summary api.ChangeSummary, changed bool, err error) {
+	repo, e := canonicalRepo(repo)
+	if e != nil {
+		return api.ChangeSummary{}, false, e
+	}
+	m.mu.Lock()
+	live := m.records[changeID]
+	if live == nil || live.Repo != repo {
+		m.mu.Unlock()
+		return api.ChangeSummary{}, false, fmt.Errorf("%w: no specification change %s in this repository", ErrConflict, changeID)
+	}
+	r := clone(live)
+	if !r.DraftDismissed && failedDraft(r.Change) {
+		r.DraftDismissed = true
+		history(r, "draft_dismissed", "The owner dismissed the failed draft.")
+		if e := m.saveLocked(r); e != nil {
+			m.mu.Unlock()
+			return api.ChangeSummary{}, false, e
+		}
+		changed = true
+	}
+	m.mu.Unlock()
+	stamp := ""
+	if m.opts.EvidenceStamp != nil {
+		stamp = m.opts.EvidenceStamp(repo)
+	}
+	return m.summary(r, stamp), changed, nil
+}
+
 type evidenceCache struct {
 	key    string
 	states map[string]string
@@ -97,29 +160,36 @@ func (m *Manager) Summaries(repo string) ([]api.ChangeSummary, int, error) {
 	}
 	out := make([]api.ChangeSummary, 0, len(recs))
 	for _, r := range recs {
-		c := r.Change
-		c.AsApproved = asApproved(c, repo)
-		r.Change.AsApproved = c.AsApproved
-		states := m.evidenceStates(r, stamp)
-		s := api.ChangeSummary{ID: c.ID, ChangeName: c.ChangeName, Phase: c.Phase, Revision: c.Revision,
-			ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases), AsApproved: c.AsApproved,
-			Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt}
-		if g := c.Guide; g != nil && g.For == guideKey(c) {
-			s.Status, s.Recommended = g.Status, g.Recommended.Label
-		}
-		if m.opts.Active != nil && c.EpicID != "" {
-			s.Active = m.opts.Active(repo, c.ID)
-		}
-		for _, sec := range c.Sections {
-			ev := states[sec.ID]
-			if ev == "" {
-				ev = api.EvidenceNone
-			}
-			s.Sections = append(s.Sections, api.SectionSummary{ID: sec.ID, Title: sec.Title, BeadID: sec.BeadID, Evidence: ev})
-		}
-		out = append(out, s)
+		out = append(out, m.summary(r, stamp))
 	}
 	return out, total, nil
+}
+
+// summary is one change's entry in the changes summary.
+func (m *Manager) summary(r *record, stamp string) api.ChangeSummary {
+	repo := r.Repo
+	c := r.Change
+	c.AsApproved = asApproved(c, repo)
+	r.Change.AsApproved = c.AsApproved
+	states := m.evidenceStates(r, stamp)
+	s := api.ChangeSummary{ID: c.ID, ChangeName: c.ChangeName, Phase: c.Phase, Revision: c.Revision,
+		ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases), AsApproved: c.AsApproved,
+		Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt,
+		CreatedAt: c.CreatedAt, StartedAt: startedAt(c), Draft: draftOf(r)}
+	if g := c.Guide; g != nil && g.For == guideKey(c) {
+		s.Status, s.Recommended = g.Status, g.Recommended.Label
+	}
+	if m.opts.Active != nil && c.EpicID != "" {
+		s.Active = m.opts.Active(repo, c.ID)
+	}
+	for _, sec := range c.Sections {
+		ev := states[sec.ID]
+		if ev == "" {
+			ev = api.EvidenceNone
+		}
+		s.Sections = append(s.Sections, api.SectionSummary{ID: sec.ID, Title: sec.Title, BeadID: sec.BeadID, Evidence: ev})
+	}
+	return s
 }
 
 func (m *Manager) evidenceStates(r *record, stamp string) map[string]string {

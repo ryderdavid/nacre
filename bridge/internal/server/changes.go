@@ -208,3 +208,25 @@ func (s *Server) found(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, result)
 }
+
+// dismissDraft hides a change's failed draft and returns its summary. It is
+// idempotent; a pending or created change is returned unchanged.
+func (s *Server) dismissDraft(w http.ResponseWriter, r *http.Request) {
+	path, ok := s.repoPath(w, r)
+	if !ok {
+		return
+	}
+	if s.Changes == nil {
+		writeError(w, http.StatusServiceUnavailable, "Specification workflows are unavailable on this bridge.", "")
+		return
+	}
+	summary, changed, err := s.Changes.DismissDraft(path, r.PathValue("change"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if changed {
+		s.changed(r.PathValue("repo"))
+	}
+	writeJSON(w, http.StatusOK, summary)
+}

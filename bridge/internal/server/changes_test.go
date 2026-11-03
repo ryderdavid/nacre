@@ -63,6 +63,8 @@ func TestSpecRoutesAuthenticateAndKeepOrphanLabelsClosed(t *testing.T) {
 		{"POST", base + "/change", `{"action":"develop"}`, "fixture", http.StatusConflict, "restore the workflow record"},
 		{"POST", base + "/change", `{"action":"approve","revision":"reviewed","run":true}`, "fixture", http.StatusConflict, "develop a proposal first"},
 		{"POST", base + "/runs", `{}`, "fixture", http.StatusConflict, "saved workflow is missing"},
+		{"POST", "/v1/repos/" + discovery.RepoID(repo) + "/changes/sfmissing/draft/dismiss", "", "", http.StatusUnauthorized, "missing or invalid bearer token"},
+		{"POST", "/v1/repos/" + discovery.RepoID(repo) + "/changes/sfmissing/draft/dismiss", "", "fixture", http.StatusConflict, "no specification change sfmissing"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		if tc.token != "" {

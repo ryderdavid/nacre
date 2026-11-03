@@ -121,10 +121,32 @@ type ChangeSummary struct {
 	// archived without another review.
 	AsApproved bool   `json:"as_approved,omitempty"`
 	UpdatedAt  string `json:"updated_at"`
+	// CreatedAt is when the change's proposal was first created; empty
+	// while it has never existed.
+	CreatedAt string `json:"created_at,omitempty"`
+	// StartedAt is when the change record was started (its first history
+	// entry). It never changes, so the Proposals lane can sort by it.
+	StartedAt string `json:"started_at,omitempty"`
+	// Draft is present while the change's proposal has not been created yet.
+	Draft *ChangeDraft `json:"draft,omitempty"`
 	// Status and Recommended come from the change's guide while it waits on
 	// the owner: how it went, and the label of the recommended next step.
 	Status      string `json:"status,omitempty"`
 	Recommended string `json:"recommended,omitempty"`
+}
+
+// Draft kinds: a proposal still being drafted, or drafting that stopped
+// before the proposal was created.
+const (
+	DraftPending = "pending"
+	DraftFailed  = "failed"
+)
+
+// ChangeDraft is a change whose proposal doesn't exist yet. Message is the
+// change's error when the draft failed.
+type ChangeDraft struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message,omitempty"`
 }
 
 // SectionSummary is one task section of a change and its evidence.

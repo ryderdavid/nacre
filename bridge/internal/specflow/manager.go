@@ -72,7 +72,39 @@ type record struct {
 	// PendingFound are found beads whose notes the current revision carries;
 	// they are closed once it is approved and synchronized.
 	PendingFound []string `json:"pending_found,omitempty"`
+	// Version is the record format; records saved before it existed have
+	// none and are backfilled once on load.
+	Version int `json:"version,omitempty"`
+	// DraftDismissed hides a failed draft until a new develop is accepted.
+	DraftDismissed bool `json:"draft_dismissed,omitempty"`
 }
+
+// recordVersion is the current record format. Version 1 added created_at.
+const recordVersion = 1
+
+// backfill gives a record saved by an older nacred, which has no format
+// version and no created_at, a created_at from its first history entry or
+// now, so an existing change is never mistaken for a draft. It reports
+// whether the record changed.
+func backfill(r *record, now string) bool {
+	if r.Version != 0 || r.Change.CreatedAt != "" {
+		return false
+	}
+	r.Change.CreatedAt = now
+	if len(r.Change.History) > 0 && r.Change.History[0].At != "" {
+		r.Change.CreatedAt = r.Change.History[0].At
+	}
+	r.Version = recordVersion
+	return true
+}
+
+// markCreated records that the change's proposal now exists. It is set once.
+func markCreated(r *record) {
+	if r.Change.CreatedAt == "" {
+		r.Change.CreatedAt = stamp()
+	}
+}
+
 type Manager struct {
 	opts    Options
 	mu      sync.Mutex
@@ -126,6 +158,11 @@ func New(opts Options) (*Manager, error) {
 		}
 		if r.Planned == nil {
 			r.Planned = map[string]generated{}
+		}
+		// A backfill that can't be saved still counts in memory; the next
+		// write saves it.
+		if backfill(&r, stamp()) {
+			_ = atomicJSON(filepath.Join(opts.Dir, r.Change.ID+".json"), &r)
 		}
 		if r.Change.Phase == "drafting" || r.Change.Phase == "reviewing" || r.Change.Phase == "promoting" {
 			r.Change.Phase = "interrupted"
@@ -239,6 +276,7 @@ func (m *Manager) findLocked(repo, id string) *record {
 
 func (m *Manager) saveLocked(r *record) error {
 	r.Change.UpdatedAt = stamp()
+	r.Version = recordVersion
 	if e := atomicJSON(filepath.Join(m.opts.Dir, r.Change.ID+".json"), r); e != nil {
 		return fmt.Errorf("cannot persist change workflow: %w", e)
 	}
@@ -464,7 +502,11 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		if strings.TrimSpace(a.Feedback) != "" {
 			return Envelope{}, fmt.Errorf("%w: this bead already has a proposal; submit your feedback with Revise", ErrConflict)
 		}
-		return m.snapshot(r), nil
+		// A draft that stopped before its proposal was created is developed
+		// again; anything else is already under way or exists.
+		if !failedDraft(r.Change) || r.Stage == "promote" {
+			return m.snapshot(r), nil
+		}
 	}
 	if a.Action == "revise" && r.Stage == "promote" {
 		return Envelope{}, fmt.Errorf("%w: resume the partially synchronized proposal before starting a revision", ErrConflict)
@@ -564,6 +606,9 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.PendingPrepared = false
 		r.LastCall = nil
 		r.Feedback = a.Feedback
+		if a.Action == "develop" {
+			r.DraftDismissed = false
+		}
 		r.PendingFound = append([]string(nil), a.FoundBeads...)
 		if r.Change.Adoption != nil {
 			// From here on, Nacre's own reviewer judges each revision.

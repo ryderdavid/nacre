@@ -491,6 +491,9 @@ func (m *Manager) cycle(ctx context.Context, r *record) error {
 					continue
 				}
 			}
+			// The proposal now exists: its artifacts passed strict validation,
+			// or a covered disposition was recorded.
+			markCreated(r)
 			r.Stage = "review"
 			if a := r.Change.Adoption; a != nil && a.RecordedReview {
 				r.Stage = "decision"
