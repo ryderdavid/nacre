@@ -30,6 +30,11 @@ const (
 // app's Claude features (Refine, Draft, the board assistant) headless.
 const FeatureClaude = "claude"
 
+// FeatureChatImages is reported in /v1/health when the per-repo turn
+// endpoints accept an images array: /v1/repos/{repo}/claude/json and
+// /v1/repos/{repo}/claude/stream.
+const FeatureChatImages = "chat_images"
+
 // FeatureCodex is reported in /v1/health when beads can be run with the
 // OpenAI Codex CLI here: it is installed and signed in. When it is missing,
 // health's codex_unavailable says why.

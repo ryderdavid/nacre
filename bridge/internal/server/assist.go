@@ -52,6 +52,10 @@ type assistRequest struct {
 	// Boards are the boards a call across several boards reads, for
 	// POST /v1/claude/stream; the per-repo routes ignore them.
 	Boards []assistBoard `json:"boards,omitempty"`
+	// Images are sent with the prompt, in order, as "Image N: <name>" and
+	// the image; the prompt marks each one's turn with [image N: <name>].
+	// Only the per-repo routes accept them.
+	Images []chatImage `json:"images,omitempty"`
 }
 
 var effortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
@@ -100,11 +104,13 @@ func (s *Server) assistJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req assistRequest
-	if err := decode(r, &req, false); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+	if !decodeTurn(w, r, &req) {
 		return
 	}
 	h, bad := req.headless()
+	if bad == "" {
+		h.Images, bad = decodeImages(req.Images)
+	}
 	if bad == "" && req.NeedsYou && s.Attention != nil {
 		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
 	}
@@ -142,11 +148,13 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req assistRequest
-	if err := decode(r, &req, false); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+	if !decodeTurn(w, r, &req) {
 		return
 	}
 	h, bad := req.headless()
+	if bad == "" {
+		h.Images, bad = decodeImages(req.Images)
+	}
 	if bad == "" && req.NeedsYou && s.Attention != nil {
 		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
 	}

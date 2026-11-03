@@ -197,6 +197,12 @@ func serve(cfg *config.Config, listenFlag string) error {
 	go registry.Rescan() // warm the repo list
 
 	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath, Host: cfg.Host().Name}
+	// Image directories a crash left mid-turn; no turn has started yet.
+	if n, err := assistant.SweepStaged(); err != nil {
+		logger.Printf("sweep staged chat images: %v", err)
+	} else if n > 0 {
+		logger.Printf("removed %d leftover chat image directories", n)
+	}
 	changes, err := specflow.New(specflow.Options{
 		Dir: cfg.ChangesDir(), Beads: client, Headless: assistant,
 		RunEpic: func(ctx context.Context, path, epic string) (string, error) {
