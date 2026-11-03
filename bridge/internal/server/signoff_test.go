@@ -46,7 +46,7 @@ func TestSigningOffClosesTheBeadAndNotRightSendsItBackToWork(t *testing.T) {
 	}
 
 	code, calls := signOff(`{"approve":true}`)
-	if code != http.StatusOK || !strings.Contains(calls, "close") || !strings.Contains(calls, "Signed off") ||
+	if code != http.StatusOK || !strings.Contains(calls, "close --force") || !strings.Contains(calls, "Signed off") ||
 		!strings.Contains(calls, "--remove-label=signoff") || !strings.Contains(calls, "--unset-metadata=signoff") {
 		t.Fatalf("sign off: %d\n%s", code, calls)
 	}

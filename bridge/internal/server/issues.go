@@ -307,7 +307,9 @@ func (s *Server) signOff(w http.ResponseWriter, r *http.Request) {
 		if note != "" {
 			reason += ": " + note
 		}
-		if err := s.BD.Close(r.Context(), path, id, reason); err != nil {
+		// The order beads were built in doesn't bind signing off: a bead
+		// whose blocker is still waiting on its own check closes too.
+		if err := s.BD.CloseForce(r.Context(), path, id, reason); err != nil {
 			s.fail(w, err)
 			return
 		}
