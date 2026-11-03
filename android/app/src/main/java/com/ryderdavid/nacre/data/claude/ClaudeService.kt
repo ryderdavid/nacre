@@ -92,8 +92,8 @@ data class BeadDraft(
     val reply: String = "",
 )
 
-/** One message in the chat that steers a draft. */
-data class DraftTurn(val fromUser: Boolean, val text: String) : java.io.Serializable
+/** One message in a chat that Claude reads as history; a message of Ryder's may carry [images]. */
+data class DraftTurn(val fromUser: Boolean, val text: String, val images: List<ChatImage> = emptyList()) : java.io.Serializable
 
 /** Claude's answer to a question about a bead, asked in Ask mode. */
 @Serializable
