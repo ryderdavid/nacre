@@ -526,7 +526,12 @@ type Round struct {
 	CreatedAt string `json:"created_at"`
 	// StartedAt is when implementation began (after pre-flight and decisions).
 	StartedAt string `json:"started_at,omitempty"`
-	UpdatedAt string `json:"updated_at"`
+	// PausedAt is when the round last paused, while it is paused;
+	// PausedSeconds is the time it spent paused before that. Neither counts
+	// against the time limit.
+	PausedAt      string `json:"paused_at,omitempty"`
+	PausedSeconds int64  `json:"paused_seconds,omitempty"`
+	UpdatedAt     string `json:"updated_at"`
 	EndedAt   string `json:"ended_at,omitempty"`
 
 	// FinalCommit, Version and Artifacts describe the verified result.

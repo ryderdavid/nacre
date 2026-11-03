@@ -702,7 +702,7 @@ on the computer that has the repository, without any client connected.
 | POST | `/v1/rounds/{round}/answers/recommended` | – | `Round`; answers every open question with its recommendation; 409 while one has none or nothing is open |
 | POST | `/v1/rounds/{round}/plan` | `{"unlink":[["NAC-2","NAC-1"]], "accept_dependencies":[["NAC-2","NAC-1"]]}` | `Round`; unlink only before the bead starts |
 | POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round stopped by a limit resumes |
-| POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
+| POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`; `raise-limits` with no `time_limit_minutes` on a round out of time adds its limit again. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
 | POST | `/v1/rounds/{round}/land` | – | `Round`; 409 unless `ready_to_land` |
 | POST | `/v1/rounds/{round}/cancel` | – | `Round` (branches are kept) |
 | POST | `/v1/rounds/{round}/resume` | – | `Round`; the `continue` choice: 409 unless `paused`, at a limit, or when nothing has changed since the failure |
@@ -781,6 +781,8 @@ is verified; the round reports it as `auto_land`.
   "budget_usd": 25, "spent_usd": 3.1, "overhead_usd": 0.04, // overhead: diagnoses, part of spent "time_limit_minutes": 240, "mode": "auto", "model": "",
   "run_ids": ["r_…"],               // every run the round started
   "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
+  "paused_at": "…", "paused_seconds": 600, // paused since, and paused before that; the time limit counts
+                                    // only time worked, started_at to now less time paused
   "final_commit": "", "version": "0.3.3 -> 0.4.0", "artifacts": ["…/rounds/<id>/artifacts/app-release.apk"],
   "landed_commit": "", "tag": "v0.4.0", "pushed": false, "auto_land": false, "error": ""
 }
