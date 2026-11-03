@@ -82,12 +82,22 @@ data class RequestImages(val images: List<ImagePayload>, val marks: Map<String, 
  */
 fun resolveImages(history: List<DraftTurn>, current: List<ChatImage>, read: (ChatImage) -> ByteArray?): RequestImages {
     val shown = history.takeLast(Prompts.HISTORY_TURNS)
-    if (current.isEmpty() && shown.none { it.images.isNotEmpty() }) return RequestImages.NONE
+    return selectImages(shown.map { it.images } + listOf(current), read)
+}
+
+/**
+ * Picks the images of [turns] (oldest first, each a message's own images) a
+ * request carries: the newest turn's first, then earlier turns' newest first,
+ * while the request stays within [ImageBudget.REQUEST_IMAGES] and
+ * [ImageBudget.REQUEST_BYTES]. The chosen ones are numbered 1..N oldest turn
+ * first. [read] returns an image's bytes, or null when they can't be had.
+ */
+fun selectImages(turns: List<List<ChatImage>>, read: (ChatImage) -> ByteArray?): RequestImages {
+    if (turns.all { it.isEmpty() }) return RequestImages.NONE
     val chosen = mutableMapOf<String, ByteArray>()
     val marks = mutableMapOf<String, ImageMark>()
     var bytes = 0L
-    val newestFirst = current + shown.asReversed().flatMap { it.images }
-    for (image in newestFirst) {
+    for (image in turns.asReversed().flatten()) {
         if (image.id in marks || image.id in chosen) continue
         if (chosen.size >= ImageBudget.REQUEST_IMAGES) { marks[image.id] = ImageMark.Omitted; continue }
         val data = read(image)
@@ -98,13 +108,28 @@ fun resolveImages(history: List<DraftTurn>, current: List<ChatImage>, read: (Cha
         }
     }
     val images = mutableListOf<ImagePayload>()
-    for (image in shown.flatMap { it.images } + current) {
+    for (image in turns.flatten()) {
         val data = chosen.remove(image.id) ?: continue
         images += ImagePayload(image, data)
         marks[image.id] = ImageMark.Sent(images.size)
     }
     return RequestImages(images, marks)
 }
+
+/**
+ * A bead chat message's images as one request sends them: [current] are the
+ * message's own, and [request] is what [resolveImages] chose for the request
+ * the message goes in, earlier turns included.
+ */
+data class ChatTurnImages(val current: List<ChatImage>, val request: RequestImages) {
+    companion object {
+        val NONE = ChatTurnImages(emptyList(), RequestImages.NONE)
+    }
+}
+
+/** The note a message's text carries for each of [images] that isn't sent with it; just [text] when there are none. */
+internal fun withNotes(text: String, images: List<ChatImage>, marks: Map<String, ImageMark>): String =
+    withMarkers(text, images.filter { marks[it.id] !is ImageMark.Sent }, marks)
 
 /** [text] with a marker for each of its [images]; just [text] when there are none. */
 internal fun withMarkers(text: String, images: List<ChatImage>, marks: Map<String, ImageMark>): String {

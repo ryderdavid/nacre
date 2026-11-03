@@ -13,6 +13,7 @@ import com.ryderdavid.nacre.data.claude.BeadChatItem
 import com.ryderdavid.nacre.data.claude.BeadChats
 import com.ryderdavid.nacre.data.claude.BeadContext
 import com.ryderdavid.nacre.data.claude.ChatMode
+import com.ryderdavid.nacre.data.claude.ChatTurnImages
 import com.ryderdavid.nacre.data.claude.turns
 import com.ryderdavid.nacre.data.claude.ChildDraft
 import com.ryderdavid.nacre.data.claude.ClaudeBackends
@@ -31,7 +32,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** One computer a bead can be sent to; [health] is what it last reported, null while unreachable. */
 data class RunTarget(val repo: Repo, val online: Boolean, val health: Health? = null) {
@@ -223,9 +226,11 @@ class BeadDetailViewModel(
         chats.send(chatKey, message, retrying) { history ->
             val backend = backends.of(settings.current())
             val turns = history.turns()
+            val images = if (message.images.isEmpty() && turns.none { it.images.isNotEmpty() }) ChatTurnImages.NONE
+            else ChatTurnImages(message.images, withContext(Dispatchers.IO) { chats.requestImages(turns, message.images) })
             when (message.mode) {
-                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.prompt))
-                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.prompt, turns))
+                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.prompt, images))
+                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.prompt, turns, images))
             }
         }
     }
