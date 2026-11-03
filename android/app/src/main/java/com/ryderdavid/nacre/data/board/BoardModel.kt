@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.data.board
 
+import com.ryderdavid.nacre.data.model.ChangeDraft
 import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Issue
@@ -31,8 +32,49 @@ enum class Lane(val key: String, val title: String) {
 
 enum class GroupBy(val title: String) { WORKFLOW("Workflow") }
 
-/** [note] qualifies the column, e.g. when only some of its changes are listed. */
-data class Column(val key: String, val title: String, val issues: List<Issue>, val total: Int, val note: String = "")
+/**
+ * [note] qualifies the column, e.g. when only some of its changes are listed. [items] is what the
+ * lane draws, in order: a card per bead in [issues], and in Proposals a placeholder in place of the
+ * cards of a change whose proposal hasn't been created yet.
+ */
+data class Column(
+    val key: String, val title: String, val issues: List<Issue>, val total: Int, val note: String = "",
+    val items: List<LaneItem> = issues.map { LaneItem.Card(it, draggable = key != Lane.PROPOSED.key) },
+)
+
+/** One entry in a lane. A placeholder shows no proposal details and can't be opened or dragged. */
+sealed interface LaneItem {
+    val key: String
+    val title: String?
+    val changeName: String?
+    val clickable: Boolean
+    val draggable: Boolean
+
+    data class Card(val issue: Issue, override val draggable: Boolean = true) : LaneItem {
+        override val key get() = issue.id
+        override val title: String get() = issue.title
+        override val changeName: String? get() = null
+        override val clickable get() = true
+    }
+
+    /** One per change being drafted, keyed by change ID; [seedIds] are the seeds whose cards it hides. */
+    data class DraftPlaceholder(val changeId: String, val draft: ChangeDraft, val seedIds: List<String>) : LaneItem {
+        override val key get() = "draft:$changeId"
+        override val title: String? get() = null
+        override val changeName: String? get() = null
+        override val clickable get() = false
+        override val draggable get() = false
+    }
+}
+
+/**
+ * Whether a change phase event means the board's changes summary must be fetched again. An event for a
+ * change the summary doesn't list always does: the app refreshes rather than guess where it belongs.
+ */
+fun changeEventNeedsRefresh(changes: ChangesList?, changeId: String, phase: String): Boolean {
+    val known = changes?.changes?.firstOrNull { it.id == changeId } ?: return true
+    return known.phase != phase
+}
 
 data class EpicSummary(val id: String, val title: String, val total: Int, val done: Int) {
     val fraction get() = if (total == 0) 0f else done.toFloat() / total
@@ -157,10 +199,10 @@ class BoardIndex(val issues: List<Issue>) {
             GroupBy.WORKFLOW -> {
                 val byLane = visible.groupBy { workflowLane(it, changes) }
                 Lane.entries.filter { it != Lane.PROPOSED || changes?.openspec == true }.map { lane ->
-                    val all = if (lane == Lane.PROPOSED) sortProposals(byLane[lane].orEmpty(), changes!!) else sortLane(lane, byLane[lane].orEmpty())
+                    if (lane == Lane.PROPOSED) return@map proposalsColumn(byLane[lane].orEmpty(), changes!!)
+                    val all = sortLane(lane, byLane[lane].orEmpty())
                     val shown = if (lane == Lane.DONE) all.take(doneLimit) else all
-                    val note = if (lane == Lane.PROPOSED && changes!!.total > changes.changes.size) "Showing ${changes.changes.size} of ${changes.total} changes" else ""
-                    Column(lane.key, lane.title, shown, all.size, note)
+                    Column(lane.key, lane.title, shown, all.size)
                 }
             }
 
@@ -170,16 +212,29 @@ class BoardIndex(val issues: List<Issue>) {
     fun stats(filter: BoardFilter, changes: ChangesList? = null): Map<Lane, Int> =
         issues.filter { matches(it, filter.copy(needsYou = false)) }.groupingBy { workflowLane(it, changes) }.eachCount()
 
-    /** Waiting on Ryder first, then being worked, then judged covered; newest first within each. */
-    private fun sortProposals(list: List<Issue>, changes: ChangesList): List<Issue> {
+    /**
+     * Proposals, keyed by change: waiting on Ryder first, then being worked, then judged covered; within
+     * each, newest started first (older bridges: newest updated). A change being drafted is one
+     * placeholder in place of all its seeds' cards, so creating the proposal leaves its slot unchanged.
+     */
+    private fun proposalsColumn(seeds: List<Issue>, changes: ChangesList): Column {
         fun rank(c: ChangeSummary?) = when (c?.phase) {
             "awaiting_approval", "needs_attention", "stale", "interrupted" -> 0
             "covered" -> 2
             else -> 1
         }
-        return list.map { it to proposalOf(it, changes) }
-            .sortedWith(compareBy<Pair<Issue, ChangeSummary?>> { rank(it.second) }.thenByDescending { it.second?.updatedAt.orEmpty() })
-            .map { it.first }
+        val placed = mutableSetOf<String>()
+        val items = seeds.map { it to proposalOf(it, changes) }
+            .sortedWith(compareBy<Pair<Issue, ChangeSummary?>> { rank(it.second) }.thenByDescending { it.second?.laneOrder.orEmpty() })
+            .mapNotNull { (issue, change) ->
+                when {
+                    change == null || !change.shownAsDraft -> LaneItem.Card(issue, draggable = false)
+                    placed.add(change.id) -> LaneItem.DraftPlaceholder(change.id, change.draft!!, change.seedIds)
+                    else -> null
+                }
+            }
+        val note = if (changes.total > changes.changes.size) "Showing ${changes.changes.size} of ${changes.total} changes" else ""
+        return Column(Lane.PROPOSED.key, Lane.PROPOSED.title, items.filterIsInstance<LaneItem.Card>().map { it.issue }, items.size, note, items)
     }
 
     fun needsYouCount(filter: BoardFilter): Int =

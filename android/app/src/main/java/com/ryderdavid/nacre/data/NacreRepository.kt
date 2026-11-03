@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.data
 
+import com.ryderdavid.nacre.data.board.changeEventNeedsRefresh
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.MoveAction
 import com.ryderdavid.nacre.data.bridge.AssistMessage
@@ -311,7 +312,11 @@ class NacreRepository(
                             _changeEvents.tryEmit(id to msg.event)
                             val k = Keys.of(id, msg.event.changeId)
                             working.update { if (msg.event.phase in WORKING_PHASES) it + k else it - k }
-                            Keys.of(id, msg.event.repoId).let { key -> if (boards.containsKey(key)) refreshBoard(key, quiet = true) }
+                            Keys.of(id, msg.event.repoId).let { key ->
+                                // A change the summary doesn't list yet is fetched, never slotted in by guess.
+                                val changes = boards[key]?.value?.data?.changes
+                                if (boards.containsKey(key) && changeEventNeedsRefresh(changes, msg.event.changeId, msg.event.phase)) refreshBoard(key, quiet = true)
+                            }
                             attentionSoon(p)
                         }
                         else -> Unit

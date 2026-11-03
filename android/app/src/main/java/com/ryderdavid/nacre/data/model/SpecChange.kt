@@ -114,6 +114,11 @@ data class SpecChange(
     val adoption: ChangeAdoption? = null,
     @SerialName("cost_usd") val costUsd: Double = 0.0,
     @SerialName("updated_at") val updatedAt: String = "",
+    /** When the proposal first existed; empty while it is still a draft (or on older bridges). */
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("started_at") val startedAt: String = "",
+    /** Set only while the proposal hasn't been created yet; null on older bridges. */
+    val draft: ChangeDraft? = null,
     /** Plain summary and recommended next step while the change waits on Ryder; null until written. */
     val guide: ChangeGuide? = null,
 ) {
@@ -174,15 +179,38 @@ data class ChangeSummary(
     @SerialName("pending_found") val pendingFound: List<String> = emptyList(),
     val active: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
+    /** When the proposal first existed; empty while it is still a draft (or on older bridges). */
+    @SerialName("created_at") val createdAt: String = "",
+    /** When the change record was started; never changes. Empty on older bridges. */
+    @SerialName("started_at") val startedAt: String = "",
+    /** Set only while the proposal hasn't been created yet; null on older bridges. */
+    val draft: ChangeDraft? = null,
 ) {
     /** Still being planned: no epic yet, or (for an amending seed) a revision before approval. */
     val planning get() = phase in PLANNING_PHASES && (phase != "stale" || epicId.isBlank())
     val landed get() = sections.count { it.evidence == "landed" }
     val verified get() = sections.count { it.evidence == "verified" || it.evidence == "landed" }
     val name get() = changeName.ifBlank { seedIds.firstOrNull().orEmpty() }
+    /** A proposal that doesn't exist yet: shown as one placeholder instead of its seeds' cards. */
+    val shownAsDraft get() = planning && draft?.kind in ChangeDraft.KINDS
+    /** The lane's order within a rank group: when the change was started, else (older bridges) its last update. */
+    val laneOrder get() = startedAt.ifBlank { updatedAt }
 
     companion object {
         val PLANNING_PHASES = setOf("drafting", "reviewing", "needs_attention", "awaiting_approval", "interrupted", "stale", "covered")
+    }
+}
+
+/** A proposal still being drafted (`pending`) or that stopped before it was created (`failed`). */
+@Serializable
+data class ChangeDraft(val kind: String, val message: String = "") {
+    val pending get() = kind == PENDING
+    val failed get() = kind == FAILED
+
+    companion object {
+        const val PENDING = "pending"
+        const val FAILED = "failed"
+        val KINDS = setOf(PENDING, FAILED)
     }
 }
 
