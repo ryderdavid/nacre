@@ -13,6 +13,8 @@ enum class Lane(val key: String, val title: String) {
     PROPOSED("proposed", "Proposals"),
     READY("ready", "Ready"),
     DOING("doing", "In progress"),
+    /** Built and merged, waiting only on Ryder's sign-off; a bd label, not a status. */
+    CHECK("check", "To check"),
     BLOCKED("blocked", "Blocked"),
     LATER("later", "Deferred"),
     DONE("done", "Done");
@@ -20,8 +22,8 @@ enum class Lane(val key: String, val title: String) {
     /** The bd status a bead gets when it is dropped into this lane. */
     val status: String
         get() = when (this) {
-            // Nothing drops into Proposals; "open" only keeps this total.
-            PROPOSED, READY -> "open"
+            // Nothing drops into Proposals or To check; "open" only keeps this total.
+            PROPOSED, READY, CHECK -> "open"
             DOING -> "in_progress"
             BLOCKED -> "blocked"
             LATER -> "deferred"
@@ -67,6 +69,7 @@ class BoardIndex(val issues: List<Issue>) {
 
     fun laneOf(issue: Issue): Lane = when {
         issue.isClosed -> Lane.DONE
+        issue.awaitsSignoff -> Lane.CHECK
         issue.status == "in_progress" || issue.status == "hooked" -> Lane.DOING
         issue.status == "deferred" || issue.status == "pinned" -> Lane.LATER
         issue.status == "blocked" -> Lane.BLOCKED
@@ -156,7 +159,8 @@ class BoardIndex(val issues: List<Issue>) {
         return when (groupBy) {
             GroupBy.WORKFLOW -> {
                 val byLane = visible.groupBy { workflowLane(it, changes) }
-                Lane.entries.filter { it != Lane.PROPOSED || changes?.openspec == true }.map { lane ->
+                // To check shows only while something waits on Ryder's sign-off.
+                Lane.entries.filter { (it != Lane.PROPOSED || changes?.openspec == true) && (it != Lane.CHECK || byLane[it].orEmpty().isNotEmpty()) }.map { lane ->
                     val all = if (lane == Lane.PROPOSED) sortProposals(byLane[lane].orEmpty(), changes!!) else sortLane(lane, byLane[lane].orEmpty())
                     val shown = if (lane == Lane.DONE) all.take(doneLimit) else all
                     val note = if (lane == Lane.PROPOSED && changes!!.total > changes.changes.size) "Showing ${changes.changes.size} of ${changes.total} changes" else ""

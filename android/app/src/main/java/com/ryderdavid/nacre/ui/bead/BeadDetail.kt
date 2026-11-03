@@ -228,7 +228,8 @@ fun BeadDetail(
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val i = issue
-                if (i != null && !i.isClosed && i.type != "epic") {
+                // A bead waiting on sign-off has nothing left to start.
+                if (i != null && !i.isClosed && i.type != "epic" && !i.awaitsSignoff) {
                     val activeRound = rounds.firstOrNull { it.isActive && it.beads.any { b -> b.id == beadId } }
                     ExtendedFloatingActionButton(
                         onClick = {

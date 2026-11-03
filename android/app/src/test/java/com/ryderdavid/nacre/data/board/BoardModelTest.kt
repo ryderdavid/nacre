@@ -28,6 +28,15 @@ class BoardModelTest {
         assertEquals(1, ix.epics.single().total)
     }
 
+    @Test fun aBeadWaitingOnSignOffSitsInToCheckWhichShowsOnlyThen() {
+        val ix = BoardIndex(listOf(issue("A"), issue("S", labels = listOf("signoff")), issue("C", status = "closed", labels = listOf("signoff"))))
+        assertEquals(Lane.CHECK, ix.laneOf(ix.byId["S"]!!))
+        assertEquals(Lane.DONE, ix.laneOf(ix.byId["C"]!!), "a signed-off bead is done")
+        assertEquals(listOf("S"), ix.columns(GroupBy.WORKFLOW, BoardFilter()).first { it.key == "check" }.issues.map { it.id })
+        val none = BoardIndex(listOf(issue("A")))
+        assertTrue(none.columns(GroupBy.WORKFLOW, BoardFilter()).none { it.key == "check" }, "no empty To check column")
+    }
+
     @Test fun needsYouSortsFirstThenPriority() {
         val ix = BoardIndex(listOf(issue("X", p = 0), issue("Y", p = 3, labels = listOf("human")), issue("Z", p = 1)))
         val ready = ix.columns(GroupBy.WORKFLOW, BoardFilter()).first { it.key == "ready" }
