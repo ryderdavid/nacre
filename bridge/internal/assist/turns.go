@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,9 +13,10 @@ import (
 )
 
 // TurnRetention is how long a finished turn can still be read back. It covers
-// a phone that lost its connection near the end of a turn and needs a minute
-// or two to come back.
-const TurnRetention = 10 * time.Minute
+// a phone that lost its connection near the end of a turn and was asleep or
+// between networks for a while: the app keeps reattaching for up to three
+// minutes of awake time, which can span far more wall-clock time than that.
+const TurnRetention = 30 * time.Minute
 
 // maxTurnEvents bounds one turn's buffered transcript. A board question is a
 // few dozen events; this only stops a runaway turn from growing without end.
@@ -53,16 +55,33 @@ type TurnState struct {
 // when claude does, when it times out, or when Cancel is called; a reader
 // going away does not stop it.
 func (r *Runner) Start(cwd string, h claude.Headless) *Turn {
-	// Reserve before starting the goroutine so maintenance cannot race it.
-	r.active.Add(1)
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &Turn{ID: newTurnID(), cancel: cancel, changed: make(chan struct{})}
+	t, _ := r.StartID("", cwd, h)
+	return t
+}
 
+// StartID is Start with the id the app chose for the turn. When a turn with
+// that id is already known it is returned as it is, with started false, and
+// nothing new runs: the app sends the same request again when its connection
+// dropped before it heard whether the first one arrived, and must not get two
+// answers for one question. An empty id gets a fresh one.
+func (r *Runner) StartID(id, cwd string, h claude.Headless) (t *Turn, started bool) {
 	r.turnsMu.Lock()
 	if r.turns == nil {
 		r.turns = map[string]*Turn{}
 	}
 	r.pruneLocked(time.Now())
+	if id != "" {
+		if t := r.turns[id]; t != nil {
+			r.turnsMu.Unlock()
+			return t, false
+		}
+	} else {
+		id = newTurnID()
+	}
+	// Reserve before starting the goroutine so maintenance cannot race it.
+	r.active.Add(1)
+	ctx, cancel := context.WithCancel(context.Background())
+	t = &Turn{ID: id, cancel: cancel, changed: make(chan struct{})}
 	r.turns[t.ID] = t
 	r.turnsMu.Unlock()
 
@@ -77,7 +96,22 @@ func (r *Runner) Start(cwd string, h claude.Headless) *Turn {
 		})
 		t.finish(out, err)
 	}()
-	return t
+	return t, true
+}
+
+// ValidTurnID reports whether id can name a turn the app chose: the app's
+// "c_" prefix and 8 to 64 letters, digits, '-' or '_'. Server-made ids start
+// "t_", so the two never collide.
+func ValidTurnID(id string) bool {
+	if !strings.HasPrefix(id, "c_") || len(id) < 10 || len(id) > 66 {
+		return false
+	}
+	for _, c := range id[2:] {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // Turn returns the turn with this id, or nil once it is unknown or expired.

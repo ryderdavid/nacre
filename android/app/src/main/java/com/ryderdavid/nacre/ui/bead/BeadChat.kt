@@ -198,6 +198,7 @@ fun BeadChatContent(
                     when (item) {
                         is BeadChatItem.Mine -> MyMessage(item, vm::chatImage)
                         is BeadChatItem.Answer -> MarkdownText(item.text, Modifier.fillMaxWidth())
+                        is BeadChatItem.Connection -> ConnectionNote(item)
                         is BeadChatItem.Proposal -> ProposalCard(
                             item, issue,
                             onApply = { sel -> vm.applyProposal(i, sel) },

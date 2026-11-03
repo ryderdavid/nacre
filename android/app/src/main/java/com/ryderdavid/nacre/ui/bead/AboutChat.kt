@@ -76,6 +76,7 @@ fun AboutChat(
                             }
                         }
                         is BeadChatItem.Answer -> MarkdownText(m.text, Modifier.fillMaxWidth())
+                        is BeadChatItem.Connection -> ConnectionNote(m)
                         else -> Unit
                     }
                 }

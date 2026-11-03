@@ -36,6 +36,7 @@ func TestAssistRequestValidation(t *testing.T) {
 		"invalid model":            {Prompt: "x", Model: "--dangerously-skip-permissions"},
 		"invalid session id":       {Prompt: "x", SessionID: "-rf /"},
 		"prompt too long":          {Prompt: strings.Repeat("a", maxAssistPrompt+1)},
+		"invalid turn id":          {Prompt: "x", TurnID: "t_server-made"},
 	}
 	for want, req := range cases {
 		if _, bad := req.headless(); bad != want {
@@ -291,6 +292,60 @@ func TestAssistTurnSurvivesDroppedConnection(t *testing.T) {
 	}
 }
 
+// A phone whose connection dropped before the "turn" message arrived can't
+// tell whether its request got here, so it sends it again with the same turn
+// id. That must attach to the turn already running, never start a second
+// claude for the same question.
+func TestAssistResendWithTheSameTurnIDAttaches(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "go")
+	runs := filepath.Join(t.TempDir(), "runs")
+	script := `#!/bin/sh
+echo run >> ` + runs + `
+echo '{"type":"system","subtype":"init","session_id":"s-9"}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"bd list"}}]}}'
+i=0; while [ ! -f ` + gate + ` ] && [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done
+echo '{"type":"result","subtype":"success","is_error":false,"session_id":"s-9","result":"{}","structured_output":{"reply":"once"}}'
+`
+	ts, repoID := assistServerScript(t, script)
+	send := func() *http.Response {
+		req, _ := http.NewRequest("POST", ts.URL+"/v1/repos/"+repoID+"/claude/stream", strings.NewReader(`{"prompt":"x","turn_id":"c_0123456789ab"}`))
+		req.Header.Set("Authorization", "Bearer tok")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	resp := send()
+	first := readSSE(resp.Body, func(m sseMsg) bool { return m.name == "turn" })
+	resp.Body.Close()
+	if len(first) != 1 || !strings.Contains(first[0].data, `"c_0123456789ab"`) {
+		t.Fatalf("first = %+v", first)
+	}
+
+	resp = send()
+	defer resp.Body.Close()
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again := readSSE(resp.Body, func(sseMsg) bool { return false })
+	if len(again) < 3 || again[0].name != "turn" || !strings.Contains(again[0].data, `"c_0123456789ab"`) {
+		t.Fatalf("resend = %+v", again)
+	}
+	// It replays the turn from its first event, so nothing is missing either.
+	if again[1].name != "event" || again[1].id != "1" {
+		t.Errorf("resend starts at %+v, want seq 1", again[1])
+	}
+	if last := again[len(again)-1]; last.name != "done" || !strings.Contains(last.data, "once") {
+		t.Fatalf("resend ended with %+v", last)
+	}
+	b, _ := os.ReadFile(runs)
+	if n := strings.Count(string(b), "run"); n != 1 {
+		t.Fatalf("claude ran %d times for one question", n)
+	}
+}
+
 func TestAssistTurnCancel(t *testing.T) {
 	ts, repoID, _ := slowAssist(t)
 	req, _ := http.NewRequest("POST", ts.URL+"/v1/repos/"+repoID+"/claude/stream", strings.NewReader(`{"prompt":"x"}`))
@@ -341,7 +396,7 @@ func TestHealthReportsClaudeFeature(t *testing.T) {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	feats, _ := body["features"].([]any)
-	if len(feats) != 2 || feats[0] != "claude" || feats[1] != "chat_images" {
+	if len(feats) != 3 || feats[0] != "claude" || feats[1] != "chat_images" || feats[2] != "assist_turn_ids" {
 		t.Fatalf("features = %v", body["features"])
 	}
 	// A computer without a usable claude binary offers nothing.

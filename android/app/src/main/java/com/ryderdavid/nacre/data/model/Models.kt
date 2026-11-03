@@ -387,6 +387,13 @@ object Features {
 
     /** The per-repo Claude turn endpoints accept images. */
     const val CHAT_IMAGES = "chat_images"
+
+    /**
+     * The streamed Claude turn endpoints take the app's own `turn_id`, and a
+     * resend with the same id is the same turn; finished turns stay readable
+     * long enough for a phone that slept to pick its answer back up.
+     */
+    const val ASSIST_TURN_IDS = "assist_turn_ids"
 }
 
 // ---- request bodies ----
@@ -470,6 +477,11 @@ data class AssistRequest(
      * Left out of the body when empty, so a text-only request is unchanged.
      */
     val images: List<AssistImage> = emptyList(),
+    /**
+     * The app's own id for a streamed turn ([Features.ASSIST_TURN_IDS]), so a
+     * resend after a drop attaches to the turn already running. Left out when empty.
+     */
+    @SerialName("turn_id") val turnId: String = "",
 )
 
 /** One image of an [AssistRequest]: its media type, file name and base64 bytes. */

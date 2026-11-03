@@ -8,10 +8,12 @@ import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.AssistBoardRef
 import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AssistResult
+import com.ryderdavid.nacre.data.model.Features
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.RunEvent
 import com.ryderdavid.nacre.data.settings.AppSettings
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -20,7 +22,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import java.io.IOException
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.UUID
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Runs the Claude features as `claude -p` on a paired computer, which spends
@@ -71,18 +77,75 @@ class MacBackend(
     ): T {
         val s = settings()
         if (images.isNotEmpty()) checkImages(repo, repoKey)
+        val req = AssistRequest(
+            prompt = prompt, system = system, schema = schema.toSchemaJson(),
+            model = s.claudeModel, effort = s.claudeEffort, bdReads = readRepo, readRepo = readRepo,
+            images = images.map { it.toAssist() },
+        )
         val out = translate(images = images.isNotEmpty()) {
-            repo.claudeJson(
-                repoKey,
-                AssistRequest(
-                    prompt = prompt, system = system, schema = schema.toSchemaJson(),
-                    model = s.claudeModel, effort = s.claudeEffort, bdReads = readRepo, readRepo = readRepo,
-                    images = images.map { it.toAssist() },
-                ),
-            )
+            // A computer that takes the app's turn ids runs the call as a turn the app can reattach to.
+            if (Features.ASSIST_TURN_IDS in repo.features(Keys.host(repoKey)).orEmpty()) oneTurn(repoKey, req)
+            else repo.claudeJson(repoKey, req)
         }
         val answer = out.output ?: throw ClaudeException("The Mac answered without a proposal. Try again, or switch to your API key in Settings.")
         return ClaudeService.json.decodeFromJsonElement(answer)
+    }
+
+    /** Calls that lost their connection, by repo and prompt, so Retry picks the answer back up. */
+    private val lost = LinkedHashMap<String, TurnProgress>()
+
+    /**
+     * One structured call as a streamed turn, so a brief drop doesn't lose it:
+     * the same reattach as the board assistant's, with the drop and the
+     * reconnection told to the caller's [LinkNotes]. Nothing else of the
+     * stream is shown; the answer is the structured result.
+     */
+    internal suspend fun oneTurn(repoKey: String, req: AssistRequest): AssistResult {
+        val key = repoKey + "\u0000" + req.prompt
+        var progress = synchronized(lost) { lost.remove(key) } ?: TurnProgress(req.prompt, newTurnId())
+        val host = repo.hostName(Keys.host(repoKey)).ifBlank { "the computer" }
+        val notes = currentCoroutineContext()[LinkNotes]
+        val dropped = object : DropListener {
+            var down = false
+            override fun lost(attempt: Int) { if (!down) notes?.dropped(host); down = true }
+            override fun back() { if (down) notes?.back(host); down = false }
+            fun gaveUp() { if (down) notes?.gaveUp(host); down = false }
+        }
+        val resume = { t: String, after: Long -> repo.claudeResume(repoKey, t, after) }
+        suspend fun follow(p: TurnProgress): TurnOutcome {
+            val sent = req.copy(turnId = p.turn!!)
+            val first = if (p.confirmed) resume(p.turn!!, p.lastSeq) else repo.claudeStream(repoKey, sent)
+            return followTurn(first, p, resume = resume, relay = {}, dropped = dropped, resend = { repo.claudeStream(repoKey, sent) })
+        }
+        val pickingUp = progress.confirmed
+        val outcome = try {
+            try {
+                follow(progress)
+            } catch (e: BridgeException) {
+                if (e.code != 404 || !progress.confirmed) throw e
+                if (!pickingUp) throw ClaudeUnavailableException("$host no longer has this answer; nacred may have restarted. Retry asks again.", canRetry = true)
+                // A Retry found the computer has forgotten the call; ask again.
+                progress = TurnProgress(req.prompt, newTurnId())
+                follow(progress)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            progress.turn?.let { t -> withContext(NonCancellable) { withTimeoutOrNull(3_000) { runCatching { repo.claudeCancel(repoKey, t) } } } }
+            throw e
+        } catch (e: TurnLostException) {
+            dropped.gaveUp()
+            synchronized(lost) {
+                // Only the latest few: a call nobody retries is answered, or forgotten, on the computer anyway.
+                while (lost.size >= 16) lost.remove(lost.keys.first())
+                lost[key] = progress
+            }
+            throw ClaudeUnavailableException("Lost the connection to $host. Claude kept working there; Retry picks the answer back up.", canRetry = true)
+        }
+        dropped.back()
+        return when (outcome) {
+            is TurnOutcome.Done -> outcome.result
+            // The same words and handling as a failed blocking call.
+            is TurnOutcome.Failed -> throw BridgeException(outcome.error, code = 502)
+        }
     }
 }
 
@@ -149,7 +212,7 @@ class MacSession(
             is TurnInput.Answers -> Prompts.outcomes(input.answers)
         }
         // A Retry that picks a lost turn back up was counted when it was sent.
-        val reattaching = pending?.let { it.prompt == prompt && it.turn != null } == true
+        val reattaching = pending?.let { it.prompt == prompt && it.reached } == true
         if (!reattaching) imageLimit(images.size, images.byteCount())?.let { throw ClaudeException(it) }
         val base = AssistRequest(
             prompt = prompt,
@@ -195,26 +258,41 @@ class MacSession(
         val host = repo.hostName(Keys.host(runKey)).ifBlank { "the computer" }
         // A Retry of a turn that lost its connection picks the same turn back up: it
         // carried on on the computer, and its answer is probably waiting there.
-        var progress = pending?.takeIf { it.prompt == req.prompt } ?: TurnProgress(req.prompt)
+        val turnIds = Features.ASSIST_TURN_IDS in repo.features(Keys.host(runKey)).orEmpty()
+        val fresh = { TurnProgress(req.prompt, if (turnIds) newTurnId() else null) }
+        var progress = pending?.takeIf { it.prompt == req.prompt } ?: fresh()
         pending = null
         val reconnecting = Reconnecting(sink, host)
         // Images count once they are sent; picking a lost turn back up sends nothing new.
-        if (progress.turn == null) {
+        if (!progress.reached) {
             sentImages += images.size
             sentBytes += images.byteCount()
         }
 
+        val resume = { t: String, after: Long -> repo.claudeResume(runKey, t, after) }
+        suspend fun follow(p: TurnProgress): TurnOutcome {
+            // The same request with the same id: nacred attaches a resend to the turn it already has.
+            val sent = req.copy(turnId = p.turn.orEmpty())
+            val first = if (p.confirmed) resume(p.turn!!, p.lastSeq) else start(sent)
+            return followTurn(
+                first, p, resume = resume, relay = { relay(it, sink) }, dropped = reconnecting, noted = { report(sink, it) },
+                resend = if (p.turn != null) ({ start(sent) }) else null,
+            )
+        }
+        val pickingUp = progress.confirmed
         val outcome = try {
             translate(images = images.isNotEmpty()) {
-                val resumable = progress.turn
                 try {
-                    val first = if (resumable != null) repo.claudeResume(runKey, resumable, progress.lastSeq) else start(req)
-                    followTurn(first, progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting, noted = { report(sink, it) })
+                    follow(progress)
                 } catch (e: BridgeException) {
-                    if (resumable == null || e.code != 404) throw e
-                    // The computer has forgotten that turn; ask again.
-                    progress = TurnProgress(req.prompt)
-                    followTurn(start(req), progress, resume = { t, after -> repo.claudeResume(runKey, t, after) }, relay = { relay(it, sink) }, dropped = reconnecting, noted = { report(sink, it) })
+                    if (e.code != 404 || !progress.confirmed) throw e
+                    if (!pickingUp) {
+                        // Mid-turn the computer forgot it (nacred restarted): asking again would repeat steps already shown.
+                        throw ClaudeUnavailableException("$host no longer has this answer; nacred may have restarted. Retry asks again.", canRetry = true)
+                    }
+                    // A Retry found the computer has forgotten that turn; ask again.
+                    progress = fresh()
+                    follow(progress)
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -223,9 +301,10 @@ class MacSession(
             throw e
         } catch (e: TurnLostException) {
             reconnecting.gaveUp()
-            if (progress.turn != null) pending = progress
+            val resumable = progress.turn != null && (progress.confirmed || turnIds)
+            if (resumable) pending = progress
             throw ClaudeUnavailableException(
-                if (progress.turn != null) "Lost the connection to $host. Claude kept working there; Retry picks the answer back up."
+                if (resumable) "Lost the connection to $host. Claude kept working there; Retry picks the answer back up."
                 else "Lost the connection to $host before Claude finished.",
                 canRetry = true,
             )
@@ -337,12 +416,25 @@ internal fun planAcross(boards: List<SpanBoard>, hostOrder: List<String>, pinned
     return AcrossPlan(host, on(host), boards.filter { b -> b.keys.none { Keys.host(it) == host } })
 }
 
-/** How far a Mac turn has got, so it can be reattached after a dropped connection. */
-internal class TurnProgress(val prompt: String) {
-    var turn: String? = null
+/**
+ * How far a Mac turn has got, so it can be reattached after a dropped connection.
+ *
+ * [turn] is set before the request goes out when the computer takes the app's
+ * own turn ids ([Features.ASSIST_TURN_IDS]), so even a drop before nacred's
+ * "turn" message arrives can be picked back up; [confirmed] says that message
+ * came, so the turn certainly exists there.
+ */
+internal class TurnProgress(val prompt: String, var turn: String? = null) {
+    var confirmed = false
     var lastSeq = 0L
     var events = 0
+
+    /** Something came back from the computer, so the request reached it. */
+    var reached = false
 }
+
+/** A turn id of the app's own, in the form nacred accepts ("c_" and 24 hex digits). */
+internal fun newTurnId(): String = "c_" + UUID.randomUUID().toString().replace("-", "").take(24)
 
 internal sealed interface TurnOutcome {
     data class Done(val result: AssistResult) : TurnOutcome
@@ -358,22 +450,47 @@ internal interface DropListener {
     fun back()
 }
 
-/** How long to keep trying to reattach before telling the user. */
+/** How long to keep trying to reattach before telling the user, counted while the phone is awake. */
 internal const val RECONNECT_BUDGET_MS = 3 * 60_000L
+
+/**
+ * A pause that ran this much longer than asked was spent asleep or frozen:
+ * the phone wasn't trying, so the time doesn't count against the budget.
+ */
+internal const val SLEPT_MS = 20_000L
+
+/** The most one reattach attempt counts for: longer, and the phone was asleep during it. */
+internal const val ATTEMPT_MAX_MS = 60_000L
 
 /** 1 s, 2 s, 4 s, 8 s, then every 10 s. */
 internal fun reconnectDelay(attempt: Int): Long = minOf(10_000L, 1_000L shl (attempt - 1).coerceIn(0, 4))
+
+/**
+ * HTTP answers that mean "not right now" rather than "no": a proxy or a
+ * restarting computer in between. Worth reattaching after, like a drop.
+ */
+internal val TRANSIENT_HTTP = setOf(408, 425, 429, 502, 503, 504)
+
+/** The phone never got a connection open, so the request can't have reached the computer. */
+private fun IOException.neverConnected() =
+    this is java.net.ConnectException || this is java.net.UnknownHostException || this is java.net.NoRouteToHostException
 
 /**
  * Follows one Mac turn to its answer, reattaching when the connection drops.
  *
  * nacred keeps the turn running when the phone goes away, so a drop costs
  * nothing as long as the app comes back: [resume] replays the events after
- * the last one seen, which are de-duplicated by seq. It gives up with
- * [TurnLostException] after [budgetMs] of failed attempts, always making one
- * attempt after each pause — a phone waking from sleep finds the answer
- * waiting. A failure that isn't the network, such as a 404 or a bad token,
- * ends it at once.
+ * the last one seen, which are de-duplicated by seq. When the drop came
+ * before nacred confirmed the turn, [resend] sends the same request with the
+ * same turn id again instead; nacred attaches it to the turn that is already
+ * running, if the first one got there, so the question is never asked twice.
+ *
+ * It gives up with [TurnLostException] after [budgetMs] of failed attempts,
+ * always making one attempt after each pause — a phone waking from sleep finds
+ * the answer waiting — and not counting a pause the phone slept through. A
+ * failure that isn't the network, such as a 404 or a bad token, ends it at
+ * once, and so does a computer that can't be reached at all before anything
+ * was sent: there is nothing running to come back to.
  */
 internal suspend fun followTurn(
     first: Flow<AssistMessage>,
@@ -382,24 +499,31 @@ internal suspend fun followTurn(
     relay: (RunEvent) -> Unit,
     dropped: DropListener,
     noted: (unreadable: List<String>) -> Unit = {},
+    resend: (() -> Flow<AssistMessage>)? = null,
     budgetMs: Long = RECONNECT_BUDGET_MS,
     pause: suspend (attempt: Int) -> Unit = { delay(reconnectDelay(it)) },
     now: () -> Long = System::currentTimeMillis,
 ): TurnOutcome {
     var stream = first
     var attempt = 0
-    var lostAt = 0L
+    // Time spent trying since the connection went, not counting sleep.
+    var spent = 0L
+    var tryingSince = 0L
     while (true) {
         var outcome: TurnOutcome? = null
         try {
             stream.collect { msg ->
+                progress.reached = true
                 if (attempt > 0) {
                     attempt = 0
+                    spent = 0
                     dropped.back()
                 }
                 when (msg) {
                     is AssistMessage.Turn -> {
+                        // An older nacred names the turn itself; its id is the one to resume.
                         progress.turn = msg.id
+                        progress.confirmed = true
                         if (msg.unreadable.isNotEmpty()) noted(msg.unreadable)
                     }
                     is AssistMessage.Event -> {
@@ -417,17 +541,32 @@ internal suspend fun followTurn(
             outcome?.let { return it }
             throw IOException("The computer closed the stream before Claude finished")
         } catch (e: IOException) {
-            if (e is BridgeException && e.code != 0) throw e
+            if (e is BridgeException && e.code != 0 && e.code !in TRANSIENT_HTTP) throw e
+            if (e is BridgeException && e.code != 0) progress.reached = true
             val turn = progress.turn
             // Nothing to reattach to: either nothing started (let the caller say the computer
             // can't be reached) or an older nacred that can't resume.
             if (turn == null) throw if (progress.events == 0) e else TurnLostException(e)
-            if (attempt == 0) lostAt = now()
-            else if (now() - lostAt > budgetMs) throw TurnLostException(e)
+            val again = when {
+                progress.confirmed -> { -> resume(turn, progress.lastSeq) }
+                resend != null -> resend
+                else -> throw if (progress.events == 0) e else TurnLostException(e)
+            }
+            // The first send never left the phone: the computer is down or unreachable, not a hiccup.
+            if (attempt == 0 && !progress.reached && e.neverConnected()) throw e
+            if (attempt > 0) {
+                spent += minOf(now() - tryingSince, ATTEMPT_MAX_MS)
+                if (spent > budgetMs) throw TurnLostException(e)
+            }
             attempt++
             dropped.lost(attempt)
+            val asked = reconnectDelay(attempt)
+            val before = now()
             pause(attempt)
-            stream = resume(turn, progress.lastSeq)
+            val took = now() - before
+            spent += if (took > asked + SLEPT_MS) asked else took
+            tryingSince = now()
+            stream = again()
         }
     }
 }
@@ -439,18 +578,47 @@ private class Reconnecting(private val sink: TurnSink, private val host: String)
     override fun lost(attempt: Int) {
         if (id != null) return
         id = "reconnect-" + UUID.randomUUID().toString().take(8)
-        sink.aside(id!!, CONNECTION_STEP, "The connection to $host dropped")
+        sink.aside(id!!, CONNECTION_STEP, LinkWords.dropped(host))
     }
 
     override fun back() {
-        id?.let { sink.asideDone(it, "Reconnected; Claude kept working on $host.", false) }
+        id?.let { sink.asideDone(it, LinkWords.back(host), false) }
         id = null
     }
 
     fun gaveUp() {
-        id?.let { sink.asideDone(it, "Couldn't reconnect.", true) }
+        id?.let { sink.asideDone(it, LinkWords.gaveUp(), true) }
         id = null
     }
+}
+
+/** What the conversation says about a dropped connection, with the time each thing happened. */
+internal object LinkWords {
+    private val clock = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+    fun at(now: LocalTime = LocalTime.now()): String = now.format(clock)
+    fun dropped(host: String, now: LocalTime = LocalTime.now()) = "The connection to $host dropped at ${at(now)}"
+    fun back(host: String, now: LocalTime = LocalTime.now()) = "Reconnected at ${at(now)}; Claude kept working on $host."
+    fun gaveUp(now: LocalTime = LocalTime.now()) = "Couldn't reconnect (gave up at ${at(now)})."
+}
+
+/**
+ * Hears about dropped connections during a Mac call that has no steps of its
+ * own to show them in, such as a bead chat's Ask or Refine. Put it in the
+ * calling coroutine's context; the Mac backend finds it there.
+ */
+interface LinkNotes : CoroutineContext.Element {
+    /** The connection to [host] dropped; the app is trying to get it back. */
+    fun dropped(host: String)
+
+    /** It came back and the call carried on. */
+    fun back(host: String)
+
+    /** It didn't come back in time; the call ends with a message offering Retry. */
+    fun gaveUp(host: String)
+
+    override val key: CoroutineContext.Key<*> get() = Key
+
+    companion object Key : CoroutineContext.Key<LinkNotes>
 }
 
 /** The step name for boards a turn across boards couldn't read. */

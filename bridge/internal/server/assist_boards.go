@@ -97,7 +97,7 @@ func (s *Server) assistBoardsStream(w http.ResponseWriter, r *http.Request) {
 	if req.NeedsYou && s.Attention != nil {
 		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
 	}
-	turn := s.Assist.Start(dir, h)
+	turn, _ := s.Assist.StartID(req.TurnID, dir, h)
 	s.streamTurn(w, r, turn, 0, &assistTurn{TurnID: turn.ID, Unreadable: unreadable})
 }
 

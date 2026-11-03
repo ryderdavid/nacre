@@ -380,6 +380,8 @@ func (s *Server) features(cx codex.Status) []string {
 		f = append(f, api.FeatureClaude)
 		// Bead chat and single-board assistant turns can carry images.
 		f = append(f, api.FeatureChatImages)
+		// Streamed turns take the app's turn id, so a resend is never a second turn.
+		f = append(f, api.FeatureAssistTurnIDs)
 	}
 	if cx.Available() {
 		// Beads can be run with the Codex CLI here.

@@ -44,6 +44,14 @@ sealed class BeadChatItem {
     @Serializable @SerialName("proposal")
     data class Proposal(val proposal: RefineProposal, val outcome: Outcome = Outcome.PENDING, val applied: Int = 0) : BeadChatItem()
 
+    /**
+     * The connection to the computer dropped while Claude was answering: when
+     * it went, and when it came back or that it didn't. Shown in the thread,
+     * never sent to Claude.
+     */
+    @Serializable @SerialName("connection")
+    data class Connection(val text: String, val failed: Boolean = false, val id: String = "") : BeadChatItem()
+
     enum class Outcome { PENDING, APPLIED, DISCARDED }
 }
 
@@ -140,7 +148,7 @@ class BeadChats(
         failures.update { it - key }
         if (!retrying) edit(key) { it + message }
         busy.update { it + key }
-        val job = scope.launch(start = CoroutineStart.LAZY) {
+        val job = scope.launch(linkNotes(key, request), start = CoroutineStart.LAZY) {
             try {
                 val reply = answer(history)
                 synchronized(this@BeadChats) {
@@ -171,6 +179,33 @@ class BeadChats(
         }
         jobs[key] = job
         job.start()
+    }
+
+    /** Writes a dropped connection into [key]'s thread while [request] is still the one waiting there. */
+    private fun linkNotes(key: String, request: Any): LinkNotes = object : LinkNotes {
+        var id: String? = null
+        var since = ""
+
+        private fun note(change: (List<BeadChatItem>) -> List<BeadChatItem>) = synchronized(this@BeadChats) {
+            if (requests[key] === request) edit(key, change)
+        }
+
+        private fun settle(text: String, failed: Boolean) {
+            val mine = id ?: return
+            id = null
+            note { list -> list.map { if (it is BeadChatItem.Connection && it.id == mine) it.copy(text = text, failed = failed) else it } }
+        }
+
+        override fun dropped(host: String) {
+            if (id != null) return
+            val mine = java.util.UUID.randomUUID().toString().take(8)
+            id = mine
+            since = LinkWords.dropped(host)
+            note { it + BeadChatItem.Connection("$since. Reconnecting…", id = mine) }
+        }
+
+        override fun back(host: String) = settle("$since. ${LinkWords.back(host)}", false)
+        override fun gaveUp(host: String) = settle("$since. ${LinkWords.gaveUp()}", true)
     }
 
     /** Replace the item at [index], e.g. to record what became of a proposal. */
@@ -239,6 +274,7 @@ fun beadChatMessage(text: String, mode: ChatMode, images: List<ImagePayload> = e
 /** The thread as the turns a prompt carries: Ryder's messages, Claude's answers, and what became of each proposal. */
 fun List<BeadChatItem>.turns(): List<DraftTurn> = mapNotNull { item ->
     when (item) {
+        is BeadChatItem.Connection -> null
         is BeadChatItem.Mine -> DraftTurn(true, if (item.mode == ChatMode.ASK) "(asking) ${item.prompt}" else "(asking for changes) ${item.prompt}", item.images)
         is BeadChatItem.Answer -> DraftTurn(false, item.text)
         is BeadChatItem.Proposal -> DraftTurn(

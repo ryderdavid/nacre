@@ -217,6 +217,7 @@ private fun BeadChatCard(
                                 Text("Add to thread", Modifier.padding(start = 6.dp))
                             }
                         }
+                        is BeadChatItem.Connection -> ConnectionNote(item)
                         is BeadChatItem.Proposal -> ProposalCard(
                             item, issue,
                             onApply = { sel -> vm.applyProposal(i, sel) },

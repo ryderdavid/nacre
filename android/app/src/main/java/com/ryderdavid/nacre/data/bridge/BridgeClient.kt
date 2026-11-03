@@ -106,10 +106,13 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     private val streamHttp = http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
 
     /**
-     * Assistant turns notice a dead connection: nacred pings every 15 s, so a
-     * silent minute means the link is gone and the turn should be reattached.
+     * Assistant turns notice a dead connection: nacred pings every 15 s, so
+     * 40 s of silence (two pings missed) means the link is gone and the turn
+     * should be reattached. Over Tailscale a network change can leave the
+     * socket open but silent rather than closing it, so this is how such a
+     * drop is noticed at all.
      */
-    private val assistHttp = http.newBuilder().readTimeout(60, TimeUnit.SECONDS).build()
+    private val assistHttp = http.newBuilder().readTimeout(ASSIST_SILENCE_S, TimeUnit.SECONDS).build()
 
     @Serializable private data class Repos(val repos: List<Repo>)
     @Serializable data class Board(val repo: Repo, val issues: List<Issue>)
@@ -336,10 +339,23 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t ?: streamError(response))
+                close(assistFailure(t, response))
             }
         })
         awaitClose { source.cancel() }
+    }
+
+    /**
+     * Why a turn's stream stopped, always as an [IOException] so the reattach
+     * logic sees it. Something in between that answered with a page instead
+     * of events (a captive portal while the phone joins a network) is a drop,
+     * not a reason to end the conversation.
+     */
+    private fun assistFailure(t: Throwable?, response: Response?): Throwable = when {
+        t == null -> streamError(response)
+        t is IOException -> t
+        response != null && !response.isSuccessful -> streamError(response)
+        else -> IOException("The connection to the computer was interrupted (${t.message ?: t.javaClass.simpleName})", t)
     }
 
     /** A streaming POST that answered with an error instead of events. */
@@ -419,6 +435,8 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }
 
     companion object {
+        /** Seconds of silence on a turn's stream before it counts as dropped. */
+        const val ASSIST_SILENCE_S = 40L
         val JSON = "application/json; charset=utf-8".toMediaType()
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = false; coerceInputValues = true }
         private fun enc(id: String) = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20")
