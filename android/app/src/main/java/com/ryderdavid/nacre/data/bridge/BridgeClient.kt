@@ -120,6 +120,9 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     @Serializable data class RunDetail(val run: Run, val events: List<RunEvent> = emptyList())
     @Serializable private data class Reason(val reason: String? = null)
     @Serializable private data class Text(val text: String)
+    @Serializable private class Empty
+    @Serializable private data class SignInCode(val code: String)
+    @Serializable data class ClaudeSignIn(val token: Boolean = false, val url: String = "", @SerialName("host_name") val hostName: String = "")
     @Serializable private data class NewComment(val text: String, @SerialName("from_claude") val fromClaude: Boolean = false)
     @Serializable private data class Dep(val issue_id: String, val depends_on_id: String, val type: String)
     @Serializable private data class FollowUp(val message: String, val mode: String? = null)
@@ -127,6 +130,12 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     @Serializable private data class ErrorBody(val error: String = "", val detail: String = "")
 
     suspend fun health(): Health = get("/v1/health")
+    /** Whether claude here runs with the long-lived token the app signed it in with. */
+    suspend fun claudeSignIn(): ClaudeSignIn = get("/v1/claude/signin")
+    /** Starts signing this computer's Claude in; the answer's url is the page to open. */
+    suspend fun startClaudeSignIn(): ClaudeSignIn = send("POST", "/v1/claude/signin", Empty())
+    /** Passes the code the sign-in page showed; nacred keeps the token. */
+    suspend fun finishClaudeSignIn(code: String): ClaudeSignIn = send("POST", "/v1/claude/signin/code", SignInCode(code))
     suspend fun daemonUpdate(): DaemonUpdate = updateCall(false)
     suspend fun startDaemonUpdate(): DaemonUpdate = updateCall(true)
 
@@ -181,6 +190,8 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun create(repo: String, body: CreateIssue): Issue = send<CreateIssue, One>("POST", "/v1/repos/$repo/issues", body).issue
     suspend fun update(repo: String, id: String, body: UpdateIssue): Issue = send<UpdateIssue, One>("PATCH", "/v1/repos/$repo/issues/${enc(id)}", body).issue
     suspend fun close(repo: String, id: String, reason: String? = null): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/close", Reason(reason)).issue
+    suspend fun signOff(repo: String, id: String, approve: Boolean, note: String): Issue =
+        send<SignOff, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/signoff", SignOff(approve, note)).issue
     suspend fun reopen(repo: String, id: String): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/reopen", Reason()).issue
     suspend fun comment(repo: String, id: String, text: String, fromClaude: Boolean = false): List<Comment> =
         send<NewComment, Comments>("POST", "/v1/repos/$repo/issues/${enc(id)}/comments", NewComment(text, fromClaude)).comments
@@ -221,6 +232,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         val unlink: List<List<String>> = emptyList(),
         @SerialName("accept_dependencies") val acceptDependencies: List<List<String>> = emptyList(),
     )
+    @Serializable private data class SignOff(val approve: Boolean, val note: String = "")
     @Serializable private data class Limits(@SerialName("budget_usd") val budgetUsd: Double = 0.0, @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0)
 
     suspend fun rounds(): List<Round> = get<Rounds>("/v1/rounds").rounds

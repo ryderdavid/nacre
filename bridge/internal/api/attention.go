@@ -20,6 +20,17 @@ const (
 	AttentionBeadStuck = "bead_stuck"
 	// AttentionBeadUnclosed: a round finished a bead's work but couldn't close it.
 	AttentionBeadUnclosed = "bead_unclosed"
+	// AttentionBeadSignoff: a bead whose work is built and merged, with only
+	// Ryder's own check left before it closes.
+	AttentionBeadSignoff = "bead_signoff"
+)
+
+// A bead whose only remaining work is Ryder checking it carries the
+// SignoffLabel, and SignoffKey in its metadata says what to check. Signing
+// off closes it; anything else is ordinary open work.
+const (
+	SignoffLabel = "signoff"
+	SignoffKey   = "signoff"
 )
 
 // FoundMarker is posted in a reply to a `Found:` comment once it is answered

@@ -276,6 +276,56 @@ func (s *Server) closeIssue(w http.ResponseWriter, r *http.Request) {
 	s.respondIssue(w, r, path, id, http.StatusOK)
 }
 
+// signOff answers a bead left only for Ryder's check. Approving closes it;
+// otherwise what isn't right goes on the bead as a comment and the bead is
+// ordinary open work again. Either way the sign-off marker comes off.
+func (s *Server) signOff(w http.ResponseWriter, r *http.Request) {
+	path, ok := s.repoPath(w, r)
+	if !ok {
+		return
+	}
+	id, ok := issueID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Approve bool   `json:"approve"`
+		Note    string `json:"note"`
+	}
+	if err := decode(r, &req, false); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+		return
+	}
+	note := strings.TrimSpace(req.Note)
+	if !req.Approve && note == "" {
+		writeError(w, http.StatusBadRequest, "say what isn't right", "")
+		return
+	}
+	clear := bd.UpdateParams{RemoveLabels: []string{api.SignoffLabel}, UnsetMetadata: []string{api.SignoffKey}}
+	if req.Approve {
+		reason := "Signed off"
+		if note != "" {
+			reason += ": " + note
+		}
+		if err := s.BD.Close(r.Context(), path, id, reason); err != nil {
+			s.fail(w, err)
+			return
+		}
+		_ = s.BD.Update(r.Context(), path, id, clear)
+	} else {
+		if err := s.BD.AddComment(r.Context(), path, id, "Not signed off: "+note); err != nil {
+			s.fail(w, err)
+			return
+		}
+		if err := s.BD.Update(r.Context(), path, id, clear); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	s.changed(r.PathValue("repo"))
+	s.respondIssue(w, r, path, id, http.StatusOK)
+}
+
 func (s *Server) reopenIssue(w http.ResponseWriter, r *http.Request) {
 	path, ok := s.repoPath(w, r)
 	if !ok {

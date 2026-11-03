@@ -38,7 +38,7 @@ class MacBackend(
 
     /** On the Mac an answer can come from the code too: the call may read the repository, never write. */
     override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String =
-        json<AskReply>(repoKey, Prompts.ask(ctx, history, question, readsRepo = true), ClaudeService.askSchema, Prompts.ADVISOR, readRepo = true)
+        json<AskReply>(repoKey, Prompts.ask(ctx, history, question, readsRepo = true), ClaudeService.askSchema, Prompts.ADVISOR)
             .answer.ifBlank { throw ClaudeException("The Mac answered without an answer. Try again.") }
 
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
@@ -51,10 +51,10 @@ class MacBackend(
 
     override fun session(board: AssistantBoard): AssistantSession = MacSession(repo, settings, board)
 
-    /** One structured call, decoded with the same serializers as the API path. */
+    /** One structured call, decoded with the same serializers as the API path; it may read the repository, never write. */
     private suspend inline fun <reified T> json(
         repoKey: String, prompt: String, schema: Map<String, Any>,
-        system: String = Prompts.EDITOR, readRepo: Boolean = false,
+        system: String = Prompts.EDITOR, readRepo: Boolean = true,
     ): T {
         val s = settings()
         val out = translate {
@@ -126,7 +126,8 @@ class MacSession(
         val single = board.runKey
         if (single != null) {
             runKey = single
-            req = base.copy(system = Prompts.macAssistant(board.system(), board.tools))
+            // One board's chat runs in its repository and can read the code there too.
+            req = base.copy(system = Prompts.macAssistant(board.system(), board.tools), readRepo = true)
             start = { repo.claudeStream(runKey, it) }
         } else {
             // Across boards: one call on one computer reads every board it holds.
@@ -225,14 +226,22 @@ class MacSession(
                 sink.thinking(event.text)
             }
             // StructuredOutput is how claude -p hands back the schema answer, shown below as the reply.
-            "tool_use" -> if (event.tool != STRUCTURED_OUTPUT) sink.aside(event.toolId.ifBlank { event.seq.toString() }, BD_TOOL, event.text)
+            "tool_use" -> if (event.tool != STRUCTURED_OUTPUT) sink.aside(event.toolId.ifBlank { event.seq.toString() }, step(event.tool, event.text), event.text)
             "tool_result" -> sink.asideDone(event.toolId, event.text, event.isError == true)
         }
     }
 
     companion object {
-        /** The name shown for a step the Mac ran itself. */
+        /** The names shown for a step the Mac ran itself: reading beads, code or history. */
         const val BD_TOOL = "bd"
+        const val CODE_TOOL = "code"
+        const val GIT_TOOL = "git"
+
+        fun step(tool: String, text: String): String = when {
+            tool == "Read" || tool == "Grep" || tool == "Glob" -> CODE_TOOL
+            text.trimStart().startsWith("git") -> GIT_TOOL
+            else -> BD_TOOL
+        }
 
         private const val STRUCTURED_OUTPUT = "StructuredOutput"
     }

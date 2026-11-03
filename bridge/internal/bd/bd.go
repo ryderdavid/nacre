@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,6 +307,9 @@ type UpdateParams struct {
 	// AddLabels adds labels, keeping the rest.
 	AddLabels []string
 	Parent    *string
+	// SetMetadata sets metadata keys; UnsetMetadata removes them.
+	SetMetadata   map[string]string
+	UnsetMetadata []string
 }
 
 // Empty reports whether no field is set.
@@ -340,6 +344,17 @@ func (p UpdateParams) flags() []string {
 	str("--parent", p.Parent)
 	for _, l := range p.AddLabels {
 		f = append(f, "--add-label="+l)
+	}
+	keys := make([]string, 0, len(p.SetMetadata))
+	for k := range p.SetMetadata {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		f = append(f, "--set-metadata="+k+"="+p.SetMetadata[k])
+	}
+	for _, k := range p.UnsetMetadata {
+		f = append(f, "--unset-metadata="+k)
 	}
 	return f
 }

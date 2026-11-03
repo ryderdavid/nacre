@@ -165,6 +165,10 @@ func serve(cfg *config.Config, listenFlag string) error {
 		Logger: logger,
 	}
 	defer live.Close()
+	// Claude's own long-lived token, when the app has signed this computer in.
+	if err := claude.UseTokenFile(cfg.ClaudeTokenPath()); err != nil {
+		logger.Printf("claude token: %v", err)
+	}
 	manager, err := runs.New(runs.Options{
 		Dir: cfg.RunsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, MaxConcurrent: cfg.MaxConcurrentRuns,
 		AdoptIdleAfter: cfg.AdoptIdleAfter(),
@@ -192,7 +196,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	registry.AdoptedRuns = manager.AdoptedCount
 	go registry.Rescan() // warm the repo list
 
-	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath}
+	assistant := &assist.Runner{ClaudePath: cfg.ClaudePath, Host: cfg.Host().Name}
 	changes, err := specflow.New(specflow.Options{
 		Dir: cfg.ChangesDir(), Beads: client, Headless: assistant,
 		RunEpic: func(ctx context.Context, path, epic string) (string, error) {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -362,13 +363,13 @@ func (m *Manager) refreshIntents(ctx context.Context, r *record) error {
 func (m *Manager) current(r *record) error {
 	inv, e := collect(r.Repo)
 	if e != nil {
-		return e
+		return unverified{e}
 	}
 	fresh := clone(r)
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
 	if e := m.refreshIntents(ctx, fresh); e != nil {
-		return fmt.Errorf("Cannot verify current seed intent: %w", e)
+		return unverified{fmt.Errorf("Cannot verify current seed intent: %w", e)}
 	}
 	if intentRevision(inv, r.Change.Artifacts, fresh.Seed, fresh.ExtraSeeds) != r.Change.Revision {
 		return fmt.Errorf("The proposal or project context changed after review. Revise and review this change before continuing.")
@@ -407,6 +408,24 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 		}
 		return env, nil
 	}
+	// A change marked stale while it still matches the review it was approved
+	// at (a check that couldn't read, an edit since undone) is ready again.
+	if !busy && r.Change.Phase == "stale" && r.Change.ApprovedRevision != "" && r.Change.ApprovedRevision == r.Change.Revision && m.approvedCurrent(ctx, r) == nil {
+		r.Change.Phase, r.Change.Error, r.Change.StaleReason = "ready", "", ""
+		history(r, "ready", "The change matches its approved review again.")
+		m.mu.Lock()
+		live := m.records[r.Change.ID]
+		var err error
+		if !m.busy[repo] && live != nil && live.Change.Revision == r.Change.Revision && live.Change.Phase == "stale" {
+			err = m.saveLocked(r)
+		} else {
+			r = clone(live)
+		}
+		m.mu.Unlock()
+		if err != nil {
+			return Envelope{}, err
+		}
+	}
 	if !busy && r.Change.Revision != "" && (r.Change.Phase == "ready" || r.Change.Phase == "awaiting_approval" || r.Change.Phase == "covered") {
 		currentErr := m.current(r)
 		edited := ""
@@ -418,7 +437,7 @@ func (m *Manager) Get(ctx context.Context, repo, id string) (Envelope, error) {
 				}
 			}
 		}
-		if err := currentErr; err != nil {
+		if err := currentErr; err != nil && !isUnverified(err) {
 			r.Change.Phase = "stale"
 			r.Change.Error = err.Error()
 			r.Change.StaleReason = m.staleReason(ctx, r, edited)
@@ -536,7 +555,9 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 				}
 			}
 		}
-		if err := currentErr; err != nil {
+		if err := currentErr; isUnverified(err) {
+			return Envelope{}, err
+		} else if err != nil {
 			r.Change.Phase = "stale"
 			r.Change.Error = err.Error()
 			r.Change.StaleReason = m.staleReason(ctx, r, edited)
@@ -706,7 +727,9 @@ func (m *Manager) Contract(ctx context.Context, repo, id string) (*Contract, err
 	if (busy && !r.RunAfterApproval) || r.Change.Phase != "ready" || r.Change.ApprovedRevision == "" || r.Change.ApprovedRevision != r.Change.Revision {
 		return nil, fmt.Errorf("%w: the linked proposal must be reviewed, approved, and synchronized before implementation", ErrConflict)
 	}
-	if e = m.current(r); e != nil {
+	if e = m.current(r); isUnverified(e) {
+		return nil, e
+	} else if e != nil {
 		return nil, fmt.Errorf("%w: this change needs a new review before its sections can run. %s", ErrConflict, m.staleReason(ctx, r, ""))
 	}
 	for _, s := range r.Change.Sections {
@@ -720,12 +743,41 @@ func (m *Manager) Contract(ctx context.Context, repo, id string) (*Contract, err
 	return nil, fmt.Errorf("%w: this bead is retired or not mapped to a current specification task section", ErrConflict)
 }
 
+// unverified is a check that couldn't read what it checks, such as a bd call
+// that failed or timed out. It says nothing about whether the change still
+// matches its review, so it never marks a change stale; trying again can pass.
+type unverified struct{ err error }
+
+func (u unverified) Error() string {
+	return "Couldn't check the change against its beads just now (" + u.err.Error() + "). Try again."
+}
+func (u unverified) Unwrap() error { return u.err }
+
+func isUnverified(err error) bool {
+	var u unverified
+	return errors.As(err, &u)
+}
+
+// approvedCurrent is nil when the change and every section still match the
+// review it was approved at.
+func (m *Manager) approvedCurrent(ctx context.Context, r *record) error {
+	if e := m.current(r); e != nil {
+		return e
+	}
+	for _, s := range r.Change.Sections {
+		if e := m.sectionCurrent(ctx, r, s); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
 // sectionCurrent checks the generated contract fields, while allowing ordinary
 // execution status, assignee, priority and progress-note updates.
 func (m *Manager) sectionCurrent(ctx context.Context, r *record, s Section) error {
 	current, e := m.getIssue(ctx, r.Repo, s.BeadID)
 	if e != nil {
-		return e
+		return unverified{e}
 	}
 	expected, known := r.Generated[s.ID]
 	if !known || !fieldsEqual(current, expected) || issueParent(current) != r.Change.EpicID || !contains(current.Labels, workflowLabel(r)) || !contains(current.Labels, sectionLabel(s)) {

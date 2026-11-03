@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Repo and run ids are only unique on one computer, so the app addresses them as
@@ -94,16 +96,26 @@ data class Issue(
     @SerialName("external_ref") val externalRef: String = "",
     /** Set by the bridge when bd shows the bead claimed but no run on that computer is working it. */
     @SerialName("active_elsewhere") val activeElsewhere: ActiveElsewhere? = null,
+    val metadata: JsonObject? = null,
 ) {
     val isClosed get() = status == "closed"
+
+    /** Built and merged, with only Ryder's own check left before it closes. */
+    val awaitsSignoff get() = !isClosed && SIGNOFF in labels
+
+    /** What to check before signing off; blank when the round didn't say. */
+    val signoffCheck get() = (metadata?.get(SIGNOFF) as? JsonPrimitive)?.contentOrNull.orEmpty()
     val isEpic get() = type == "epic"
 
     /** Ids this bead waits on (outgoing `blocks` edges). */
     val blockerIds get() = dependencies.filter { it.type == "blocks" && it.dependsOnId != id }.map { it.dependsOnId }
 
     /** Open owner decisions and anything flagged with bd's `human` label. */
-    val needsYou get() = !isClosed && ("human" in labels || type == "decision")
+    val needsYou get() = !isClosed && ("human" in labels || type == "decision" || SIGNOFF in labels)
 }
+
+/** The label and metadata key nacred puts on a bead left for Ryder's sign-off. */
+const val SIGNOFF = "signoff"
 
 /**
  * A bead someone holds in bd while no run on the bridge's computer works on it: another agent

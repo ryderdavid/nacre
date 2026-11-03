@@ -36,6 +36,8 @@ type unreadableBoard struct {
 type linkedBoard struct {
 	Dir  string
 	Name string
+	// Path is the repository the link points at.
+	Path string
 }
 
 // assistBoardsStream runs one board-assistant turn across several boards on
@@ -82,11 +84,13 @@ func (s *Server) assistBoardsStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dirs := make([]string, len(linked))
+	repos := make([]string, len(linked))
 	for i, b := range linked {
-		dirs[i] = b.Dir
+		dirs[i], repos[i] = b.Dir, b.Path
 	}
-	// Board reads only: never the files of whatever directory this runs in.
-	h.AllowedTools, h.ReadRepo, h.ReadSource = claude.BoardReadTools(dirs), false, false
+	// Each board's beads and its repository, read-only; nothing else on this computer.
+	h.AllowedTools, h.ReadRepo, h.ReadSource = claude.BoardReadTools(dirs), true, false
+	h.AddDirs = repos
 	h.System = strings.TrimRight(h.System, "\n") + "\n\n" + boardsSection(linked, unreadable)
 	if req.NeedsYou && s.Attention != nil {
 		h.Prompt += attention.Context(s.Attention.Items(r.Context()))
@@ -161,7 +165,7 @@ func (s *Server) linkBoards(dir string, boards []assistBoard) ([]linkedBoard, []
 			}
 			byTarget[path], taken[link] = link, true
 		}
-		linked = append(linked, linkedBoard{Dir: link, Name: name})
+		linked = append(linked, linkedBoard{Dir: link, Name: name, Path: path})
 	}
 	return linked, unreadable, nil
 }
@@ -211,9 +215,10 @@ func boardsSection(linked []linkedBoard, unreadable []unreadableBoard) string {
 	b.WriteString(linked[0].Dir)
 	b.WriteString(" ready --json`. Plain `bd` without `-C` reads no board. Only these commands work: ")
 	b.WriteString("`" + strings.Join(claude.BdReadCommandNames(), "`, `") + "`.")
+	b.WriteString(" Each board's code is readable too: its repository is at the path listed, for the Read, Grep and Glob tools, and `git -C <directory> log|diff|show|status|branch` reads its history.")
 	b.WriteString(" Name a board in a proposal by its board name, not its directory.\n\n")
 	for _, l := range linked {
-		fmt.Fprintf(&b, "- `%s`: %s\n", l.Dir, l.Name)
+		fmt.Fprintf(&b, "- `%s`: %s, repository at %s\n", l.Dir, l.Name, l.Path)
 	}
 	if len(unreadable) > 0 {
 		b.WriteString("\nThese boards were asked for but can't be read on this computer. Tell Ryder they weren't read; never answer as if you had covered them:\n\n")

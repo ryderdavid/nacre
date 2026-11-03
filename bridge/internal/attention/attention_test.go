@@ -479,3 +479,23 @@ func TestABlockedChangeWithAGuideSaysWhatToDoNext(t *testing.T) {
 		t.Fatalf("item=%+v", it)
 	}
 }
+
+func TestABeadLeftForYourCheckAsksYouToSignOff(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t,
+		map[string]any{"id": "N-1", "title": "Placeholder", "status": "open", "issue_type": "task", "labels": []string{"signoff"}, "metadata": map[string]any{"signoff": "Check the spinner on a device."}},
+		map[string]any{"id": "N-2", "title": "Ordinary", "status": "open", "issue_type": "task"},
+		map[string]any{"id": "N-3", "title": "Done", "status": "closed", "issue_type": "task", "labels": []string{"signoff"}},
+	)
+	items := f.b.Items(context.Background())
+	if len(items) != 1 || items[0].Kind != api.AttentionBeadSignoff || items[0].BeadID != "N-1" {
+		t.Fatalf("%+v", items)
+	}
+	it := items[0]
+	if !strings.Contains(it.Why, "only your check is left: Check the spinner on a device.") {
+		t.Errorf("why: %q", it.Why)
+	}
+	if len(it.Options) == 0 || it.Options[0].Label != "Sign off" || it.Options[0].Path != "/v1/repos/r1/issues/N-1/signoff" {
+		t.Errorf("options: %+v", it.Options)
+	}
+}

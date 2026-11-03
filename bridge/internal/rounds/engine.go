@@ -123,6 +123,17 @@ func (r *round) note(bead, text string) {
 	r.async(func(ctx context.Context) { _ = r.m.opts.Beads.AddComment(ctx, repo, bead, text) })
 }
 
+// askSignoff marks a bead whose work is done as waiting only on Ryder's
+// check, so the board and Needs you can tell it from work that stopped.
+func (r *round) askSignoff(bead, check string) {
+	repo := r.meta.RepoPath
+	r.async(func(ctx context.Context) {
+		_ = r.m.opts.Beads.Update(ctx, repo, bead, bd.UpdateParams{
+			AddLabels: []string{api.SignoffLabel}, SetMetadata: map[string]string{api.SignoffKey: check},
+		})
+	})
+}
+
 // advance moves the round forward as far as it can without waiting. It
 // returns false once the round is finished and its loop can end.
 func (r *round) advance() bool {
@@ -206,10 +217,8 @@ func (r *round) limitsHit() bool {
 	switch {
 	case r.remaining() < minTurnBudget:
 		reason = fmt.Sprintf("The round has spent $%.2f of its $%.2f budget. Raise the budget to carry on.", r.meta.SpentUSD, r.meta.BudgetUSD)
-	case r.meta.StartedAt != "" && r.meta.TimeLimitMinutes > 0:
-		if t, err := time.Parse(time.RFC3339, r.meta.StartedAt); err == nil && time.Since(t) > time.Duration(r.meta.TimeLimitMinutes)*time.Minute {
-			reason = fmt.Sprintf("The round has run for its %d-minute time limit. Raise the limit to carry on.", r.meta.TimeLimitMinutes)
-		}
+	case r.meta.TimeLimitMinutes > 0 && r.workTime(time.Now()) > time.Duration(r.meta.TimeLimitMinutes)*time.Minute:
+		reason = fmt.Sprintf("The round has worked for its %d-minute time limit. Raise the limit to carry on.", r.meta.TimeLimitMinutes)
 	}
 	if reason == "" {
 		return false
@@ -733,6 +742,9 @@ func (m *Manager) SetLimits(id string, budgetUSD float64, minutes int) (api.Roun
 	}
 	if minutes > 0 {
 		r.meta.TimeLimitMinutes = minutes
+	}
+	if r.meta.State == api.RoundPaused && r.meta.Stop != nil && r.meta.Stop.Kind == api.StopLimits {
+		r.moreTime(minutes)
 	}
 	r.event("note", "", fmt.Sprintf("Limits set to $%.2f and %d minutes", r.meta.BudgetUSD, r.meta.TimeLimitMinutes))
 	if r.meta.State == api.RoundPaused && r.meta.Stop != nil && r.meta.Stop.Kind == api.StopLimits {

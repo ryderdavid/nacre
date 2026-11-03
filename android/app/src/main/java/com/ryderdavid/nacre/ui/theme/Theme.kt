@@ -65,6 +65,8 @@ data class NacreColors(
     val blocked: Color,
     val later: Color,
     val done: Color,
+    /** Waiting only on Ryder's sign-off. */
+    val check: Color,
     val needsYou: Color,
     val needsYouContainer: Color,
     val priority: List<Color>,
@@ -84,6 +86,7 @@ data class NacreColors(
         Lane.DOING -> doing
         Lane.BLOCKED -> blocked
         Lane.LATER -> later
+        Lane.CHECK -> check
         Lane.DONE -> done
     }
 
@@ -108,6 +111,7 @@ private fun nacreColors(scheme: ColorScheme, dark: Boolean): NacreColors {
         blocked = h(0xFFC2571A, 0xFFF0A160),
         later = scheme.outline,
         done = scheme.onSurfaceVariant,
+        check = scheme.tertiary,
         needsYou = h(0xFFB5560F, 0xFFF0A160),
         needsYouContainer = h(0xFFFBEADB, 0xFF3A2616),
         priority = listOf(

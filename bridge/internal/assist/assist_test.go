@@ -3,6 +3,7 @@ package assist
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,5 +122,16 @@ func TestAvailable(t *testing.T) {
 		if got := (&Runner{ClaudePath: p}).Available(); got != want {
 			t.Errorf("Available(%q) = %v", p, got)
 		}
+	}
+}
+
+func TestALapsedSignInSaysWhereToSignIn(t *testing.T) {
+	r := &Runner{Host: "RCobean-GMWN73D2T5"}
+	err := r.signInError(errors.New("claude: Failed to authenticate: OAuth session expired and could not be refreshed"))
+	if err == nil || !strings.Contains(err.Error(), "signed out on RCobean-GMWN73D2T5") || !strings.Contains(err.Error(), "Sign in to Claude") {
+		t.Fatalf("got %v", err)
+	}
+	if other := errors.New("claude took too long and was stopped"); r.signInError(other) != other {
+		t.Fatal("other errors should pass through")
 	}
 }

@@ -38,6 +38,8 @@ type Runner struct {
 	active     atomic.Int64
 	ClaudePath string
 	Timeout    time.Duration
+	// Host names this computer in errors a person has to fix here.
+	Host string
 
 	turnsMu sync.Mutex
 	turns   map[string]*Turn
@@ -70,7 +72,7 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 
 	cmd := exec.CommandContext(ctx, r.ClaudePath, h.Args()...)
 	cmd.Dir = cwd
-	cmd.Env = claude.ChildEnv()
+	cmd.Env = claude.RunEnv()
 	cmd.Stdin = nil
 	// Own process group, so the whole tree dies with the context.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -139,9 +141,9 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 
 	switch {
 	case result != nil && result.IsError:
-		return out, fmt.Errorf("claude: %s", claude.OneLine(result.Text, 400))
+		return out, r.signInError(fmt.Errorf("claude: %s", claude.OneLine(result.Text, 400)))
 	case result == nil:
-		return out, exitError(ctx, waitErr, tail)
+		return out, r.signInError(exitError(ctx, waitErr, tail))
 	}
 	if result.SessionID != "" {
 		out.SessionID = result.SessionID
@@ -152,6 +154,27 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 		return out, errors.New("claude answered without the structured output this request asked for")
 	}
 	return out, nil
+}
+
+// signedOut matches what Claude Code says when its sign-in has lapsed.
+var signedOut = []string{"Failed to authenticate", "OAuth session expired", "Invalid API key", "Please run /login", "not logged in"}
+
+// signInError turns a lapsed sign-in into what to do about it, on which
+// computer; other errors pass through.
+func (r *Runner) signInError(err error) error {
+	if err == nil {
+		return nil
+	}
+	for _, s := range signedOut {
+		if strings.Contains(err.Error(), s) {
+			host := r.Host
+			if host == "" {
+				host = "this computer"
+			}
+			return fmt.Errorf("Claude is signed out on %s. Sign it in from the app with Sign in to Claude, then try again.", host)
+		}
+	}
+	return err
 }
 
 // exitError explains a claude process that produced no result.

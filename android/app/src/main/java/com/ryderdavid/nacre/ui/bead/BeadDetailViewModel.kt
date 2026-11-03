@@ -134,6 +134,11 @@ class BeadDetailViewModel(
 
     fun close(reason: String?) = act("Closing") { repo.close(repoKey, beadId, reason?.ifBlank { null }) }
 
+    /** Signs off a bead left for Ryder's check, or sends it back with what isn't right. */
+    fun signOff(approve: Boolean, note: String) = act(if (approve) "Signing off" else "Sending back") {
+        repo.signOff(repoKey, beadId, approve, note.trim())
+    }
+
     fun toggleNeedsYou() = act("Updating") {
         val cur = issue.value ?: return@act
         val labels = if ("human" in cur.labels) cur.labels - "human" else cur.labels + "human"

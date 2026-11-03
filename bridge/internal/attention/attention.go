@@ -118,7 +118,7 @@ func group(kind string) int {
 	case api.AttentionRoundQuestion, api.AttentionBeadDecision, api.AttentionBeadParked, api.AttentionReviewBlocked,
 		api.AttentionWorkflowInterrupted, api.AttentionFoundWork:
 		return 0
-	case api.AttentionProposalReady, api.AttentionApprovalStale:
+	case api.AttentionProposalReady, api.AttentionApprovalStale, api.AttentionBeadSignoff:
 		return 1
 	}
 	return 2
@@ -160,14 +160,15 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 }
 
 type bead struct {
-	ID          string   `json:"id"`
-	Description string   `json:"description"`
-	Title       string   `json:"title"`
-	Status      string   `json:"status"`
-	Type        string   `json:"issue_type"`
-	Labels      []string `json:"labels"`
-	Parent      string   `json:"parent"`
-	UpdatedAt   string   `json:"updated_at"`
+	ID          string         `json:"id"`
+	Description string         `json:"description"`
+	Title       string         `json:"title"`
+	Status      string         `json:"status"`
+	Type        string         `json:"issue_type"`
+	Labels      []string       `json:"labels"`
+	Metadata    map[string]any `json:"metadata"`
+	Parent      string         `json:"parent"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 func parseBeads(raw []api.Issue) map[string]bead {
@@ -208,6 +209,10 @@ func action(label, method, path string, body map[string]any) api.AttentionOption
 func beadItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
 	var out []api.AttentionItem
 	for _, b := range beads {
+		if b.Status != "closed" && has(b.Labels, api.SignoffLabel) {
+			out = append(out, signoffItem(ref, b))
+			continue
+		}
 		if b.Status == "closed" || (!has(b.Labels, "human") && b.Type != "decision") {
 			continue
 		}
@@ -222,6 +227,25 @@ func beadItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
 		})
 	}
 	return out
+}
+
+// signoffItem asks Ryder for the one check left on a finished bead.
+func signoffItem(ref repos.Ref, b bead) api.AttentionItem {
+	check, _ := b.Metadata[api.SignoffKey].(string)
+	why := b.ID + " is built and merged; only your check is left"
+	if check = strings.TrimSpace(check); check != "" {
+		why += ": " + check
+	} else {
+		why += "."
+	}
+	return api.AttentionItem{
+		ID: digest(api.AttentionBeadSignoff, ref.ID, b.ID, b.Status), Kind: api.AttentionBeadSignoff,
+		Repo: ref.ID, RepoName: ref.Name, BeadID: b.ID, Title: b.Title, Why: why, CreatedAt: b.UpdatedAt,
+		Options: []api.AttentionOption{
+			action("Sign off", "POST", "/v1/repos/"+ref.ID+"/issues/"+b.ID+"/signoff", map[string]any{"approve": true}),
+			open("Open bead", "bead", ref.ID, b.ID),
+		},
+	}
 }
 
 func changeItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string]bead) []api.AttentionItem {

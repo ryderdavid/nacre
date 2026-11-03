@@ -241,6 +241,7 @@ still a 409).
 | PATCH | `/v1/repos/{repo}/issues/{id}` | UpdateIssue | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/close` | `{"reason":"…","force":false}` (body and both fields optional; `force` defaults to `false`; `true` closes even while dependencies are open) | `{"issue":Issue}` |
 | POST | `/v1/repos/{repo}/issues/{id}/reopen` | – | `{"issue":Issue}` |
+| POST | `/v1/repos/{repo}/issues/{id}/signoff` | `{"approve", "note"?}` | `{"issue":Issue}`; answers a bead left for Ryder's sign-off (below). `approve: true` closes it ("Signed off", plus the note); `approve: false` needs a `note`, which goes on the bead as "Not signed off: …", and the bead stays open as ordinary work. Either way the `signoff` label and metadata come off. 400 for `approve: false` without a note |
 | POST | `/v1/repos/{repo}/issues/{id}/comments` | `{"text":"…","from_claude":false}` | `{"comments":[Comment]}` (full list after add). `from_claude` saves an answer from the app's chat about the bead as a comment by `Claude` |
 | POST | `/v1/repos/{repo}/deps` | `{"issue_id","depends_on_id","type":"blocks"}` | `{"ok":true}` — `type` ∈ blocks, tracks, related, parent-child, discovered-from, until, caused-by, validates, relates-to, supersedes (default blocks) |
 | DELETE | `/v1/repos/{repo}/deps?issue_id=&depends_on_id=` | – | `{"ok":true}` |
@@ -722,6 +723,7 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `found_work` | an unanswered `Found:` comment on a spec section bead that has finished in a round (any end state); or an open `found-amend` bead not carried by a revision under way | comment: Answer (opens `found_something`), Dismiss (action), open bead; `found-amend` bead: Revise now (action with every such bead of the change; `disabled` while the change has active work; `why` states how many landed sections a revision reopens), Make it a follow-on change (opens `new_effort`), open bead |
 | `change_archivable` | approved change whose every current section has `landed` evidence, every section bead is closed, and no `found:<change-id>` bead is open | Finish: archive and merge (`POST /v1/repos/{repo}/epics/{epic}/finish`); open change |
 | `epic_finishable` | an open epic, not a change's, with at least one bead under it and all of them closed | Finish epic (`POST /v1/repos/{repo}/epics/{epic}/finish`); open epic |
+| `bead_signoff` | an open bead carries the `signoff` label: a round built, verified and merged its work and left only Ryder's own check (metadata `signoff` says what to check; a round sets both when it leaves a bead with a `human_check`) | Sign off (`POST /v1/repos/{repo}/issues/{id}/signoff` with `approve: true`); Open bead |
 | `bead_unclosed` | a round finished the bead's work but closing it failed (`close_error` is set), and the bead is still open | Close anyway (`POST /v1/repos/{repo}/issues/{id}/close` with `force: true`); Open bead |
 | `bead_stuck` | in a repository with `nacre.yaml`, a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
 
@@ -743,7 +745,7 @@ on the computer that has the repository, without any client connected.
 | POST | `/v1/rounds/{round}/answers/recommended` | – | `Round`; answers every open question with its recommendation; 409 while one has none or nothing is open |
 | POST | `/v1/rounds/{round}/plan` | `{"unlink":[["NAC-2","NAC-1"]], "accept_dependencies":[["NAC-2","NAC-1"]]}` | `Round`; unlink only before the bead starts |
 | POST | `/v1/rounds/{round}/limits` | `{"budget_usd","time_limit_minutes"}` | `Round`; a round stopped by a limit resumes |
-| POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
+| POST | `/v1/rounds/{round}/choose` | `{"choice", "budget_usd", "time_limit_minutes"}` | `Round`; carries out one of `stop.choices`. `budget_usd` is the extra budget for `retry-with-budget` and the new budget for `raise-limits`; `raise-limits` with no `time_limit_minutes` on a round out of time adds its limit again. 409 when the round isn't stopped, the choice isn't offered, or `continue` is chosen while nothing has changed since the failure |
 | POST | `/v1/rounds/{round}/land` | – | `Round`; 409 unless `ready_to_land` |
 | POST | `/v1/rounds/{round}/cancel` | – | `Round` (branches are kept) |
 | POST | `/v1/rounds/{round}/resume` | – | `Round`; the `continue` choice: 409 unless `paused`, at a limit, or when nothing has changed since the failure |
@@ -822,6 +824,8 @@ is verified; the round reports it as `auto_land`.
   "budget_usd": 25, "spent_usd": 3.1, "overhead_usd": 0.04, // overhead: diagnoses, part of spent "time_limit_minutes": 240, "mode": "auto", "model": "",
   "run_ids": ["r_…"],               // every run the round started
   "created_at": "…", "started_at": "…", "updated_at": "…", "ended_at": "",
+  "paused_at": "…", "paused_seconds": 600, // paused since, and paused before that; the time limit counts
+                                    // only time worked, started_at to now less time paused
   "final_commit": "", "version": "0.3.3 -> 0.4.0", "artifacts": ["…/rounds/<id>/artifacts/app-release.apk"],
   "landed_commit": "", "tag": "v0.4.0", "pushed": false, "auto_land": false, "error": ""
 }
@@ -910,3 +914,19 @@ Status fields: `available`, `id`, `host_id`, `phase`, `message`, `active`, `curr
 The standard macOS LaunchAgent installation is required. The helper is a separate LaunchAgent, uses the existing local gh authentication, resolves the stable tag to a commit, downloads bounded source, builds with `-buildvcs=false`, and verifies the candidate's declared version/commit/update protocol. It preserves the old binary, replaces atomically, restarts the daemon and checks authenticated health against exact version, commit and host ID. Failed verification attempts restoration and separately reports whether the old daemon verified. Source staging is removed; status and `previous-nacred` remain in the `updates` data directory. The operation is bounded; stale or unreadable state never implies success and requires local inspection.
 
 No published release is an explicit failure; main is never a substitute. The updater does not publish releases, force-stop active work, update Android, alter Git checkouts, change pairing configuration, or automatically queue a retry for busy/offline hosts.
+
+## Signing Claude in from the phone
+
+Claude Code's everyday sign-in lapses on a computer nacred drives, and renewing it means going to that computer.
+Instead the app signs the computer in with `claude setup-token`, which issues a token that lasts a year. nacred keeps
+it in `claude-token` beside its config (mode 0600) and passes it as `CLAUDE_CODE_OAUTH_TOKEN` to every claude it
+starts: chats, guides, proposals and rounds. Codex never gets it.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/v1/claude/signin` | – | `{"token":bool,"host_name":"…"}`: whether claude runs with nacred's token |
+| POST | `/v1/claude/signin` | `{}` | `{"url":"https://claude.com/…"}`: the sign-in page to open on the phone. Starts `claude setup-token` under script(1) with no browser; a sign-in not finished in 15 minutes ends |
+| POST | `/v1/claude/signin/code` | `{"code":"…"}` | `{"token":true}` once nacred has the token. A wrong code answers 400 and ends the sign-in; start again |
+
+A call that fails because claude is signed out says `Claude is signed out on <host name>. Sign it in from the app with
+Sign in to Claude, then try again.`, and the app offers Sign in to Claude beside it.

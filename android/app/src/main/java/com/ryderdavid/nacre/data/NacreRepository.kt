@@ -266,6 +266,16 @@ class NacreRepository(
 
     fun hostName(hostId: String) = paired.value[hostId]?.host?.name.orEmpty()
 
+    suspend fun claudeSignIn(hostId: String) = pairedFor(hostId).client.claudeSignIn()
+    suspend fun startClaudeSignIn(hostId: String) = pairedFor(hostId).client.startClaudeSignIn().url
+    suspend fun finishClaudeSignIn(hostId: String, code: String) = pairedFor(hostId).client.finishClaudeSignIn(code)
+
+    /** The paired computer an error about [hostName] means: the only one, or the one by that name. */
+    fun hostCalled(hostName: String): String? = paired.value.values.let { all ->
+        all.singleOrNull()?.host?.id
+            ?: all.firstOrNull { p -> p.host.name.equals(hostName, true) || (connections.value[p.host.id] as? Connection.Online)?.health?.hostName.equals(hostName, true) }?.host?.id
+    }
+
     fun notify(text: String, undo: (suspend () -> Unit)? = null) {
         _notices.tryEmit(Notice(text, undo))
     }
@@ -524,6 +534,8 @@ class NacreRepository(
         clientFor(key).create(Keys.id(key), body).also { patchLocal(key, it) }
 
     suspend fun close(key: String, id: String, reason: String?): Issue = clientFor(key).close(Keys.id(key), id, reason).also { patchLocal(key, it) }
+    suspend fun signOff(key: String, id: String, approve: Boolean, note: String): Issue =
+        clientFor(key).signOff(Keys.id(key), id, approve, note).also { patchLocal(key, it) }
     suspend fun reopen(key: String, id: String): Issue = clientFor(key).reopen(Keys.id(key), id).also { patchLocal(key, it) }
     suspend fun detail(key: String, id: String) = clientFor(key).detail(Keys.id(key), id).also { patchLocal(key, it.issue) }
     suspend fun comment(key: String, id: String, text: String, fromClaude: Boolean = false) = clientFor(key).comment(Keys.id(key), id, text, fromClaude)

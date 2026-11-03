@@ -38,6 +38,8 @@ type Headless struct {
 	// ReadSource permits source inspection without a shell or repository commands.
 	// It takes precedence over ReadRepo and AllowedTools.
 	ReadSource bool
+	// AddDirs are more directories the call may read, besides its own.
+	AddDirs []string
 }
 
 // RepoReadTools are what a ReadRepo call may use besides AllowedTools.
@@ -72,14 +74,20 @@ func BdReadCommandNames() []string { return append([]string{}, bdReadCommands...
 // `bd -C <dir> <command>`; only the named directories are allowed, so the call
 // can read exactly the boards it was given and nothing else.
 func BoardReadTools(dirs []string) []string {
-	out := make([]string, 0, len(dirs)*len(bdReadCommands))
+	out := make([]string, 0, len(dirs)*(len(bdReadCommands)+len(gitReadCommands)))
 	for _, d := range dirs {
 		for _, c := range bdReadCommands {
 			out = append(out, "Bash(bd -C "+d+" "+c+":*)")
 		}
+		for _, c := range gitReadCommands {
+			out = append(out, "Bash(git -C "+d+" "+c+":*)")
+		}
 	}
 	return out
 }
+
+// gitReadCommands are the git subcommands a call may run on a board's repository.
+var gitReadCommands = []string{"log", "diff", "show", "status", "branch"}
 
 // bdWriteCommands are refused outright, in case a permission pattern above
 // ever matches more broadly than intended.
@@ -125,6 +133,9 @@ func (h Headless) Args() []string {
 		args = append(args, h.AllowedTools...)
 	} else {
 		args = append(args, "--tools", "")
+	}
+	for _, d := range h.AddDirs {
+		args = append(args, "--add-dir", d)
 	}
 	if h.Model != "" {
 		args = append(args, "--model", h.Model)

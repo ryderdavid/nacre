@@ -474,6 +474,7 @@ func (r *round) closeBeads(head string) {
 		id, check := b.ID, b.HumanCheck
 		if check != "" {
 			r.note(id, fmt.Sprintf("Built and verified in round %s at %s. Left for you to verify: %s", round, short(head), check))
+			r.askSignoff(id, check)
 			continue
 		}
 		reason := fmt.Sprintf("Done in round %s at %s; gates and build pass", round, short(head))

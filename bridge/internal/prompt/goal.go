@@ -62,5 +62,8 @@ func BuildGoal(beads []GoalBead, options GoalOptions, round bool) string {
 		}
 	}
 	s.WriteString("Verify each criterion with evidence; keep working and reworking until it holds. If a criterion needs unavailable access or human verification, report the blocker and leave the goal incomplete. A successful tool call or a summary alone is not acceptance.\n")
+	// A long session gets summarized, and a summary can drop work that was
+	// done; the bead and the branch keep it.
+	s.WriteString("If the conversation has been summarized, re-read the bead (bd show) and the branch's commits (git log against its base) before deciding what is left; trust them over the summary. Finish by listing each criterion with the commit or check that meets it.\n")
 	return s.String()
 }

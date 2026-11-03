@@ -113,12 +113,13 @@ func TestAssistAcrossBoardsReadsEachBoardAndReportsTheRest(t *testing.T) {
 		t.Errorf("ran in %q, want %q", lines[0], dir)
 	}
 	args := string(raw)
-	for _, want := range []string{"Bash(bd -C nacre list:*)", "Bash(bd -C home-lab show:*)", "`home-lab`: Home Lab", "Elsewhere: not found", "Tell Ryder they weren't read"} {
+	// Each board's beads and code are readable; writes never are.
+	for _, want := range []string{"Bash(bd -C nacre list:*)", "Bash(bd -C home-lab show:*)", "Bash(git -C nacre log:*)", "--add-dir", "Read,Grep,Glob", "`home-lab`: Home Lab, repository at", "Elsewhere: not found", "Tell Ryder they weren't read"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("claude call lacks %q:\n%s", want, args)
 		}
 	}
-	for _, bad := range []string{"Bash(bd list:*)", "Read,Grep", "\nRead\n"} {
+	for _, bad := range []string{"Bash(bd list:*)", "Edit", "Write"} {
 		if strings.Contains(args, bad) {
 			t.Errorf("claude call grants %q", bad)
 		}

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ type fakeBead struct {
 	After                   []string // blocks dependencies
 	Comments                []string
 	CloseReason             string
+	Metadata                map[string]string
 }
 
 // fakeBeads is an in-memory bd.
@@ -108,6 +110,12 @@ func (f *fakeBeads) Update(_ context.Context, _, id string, p bd.UpdateParams) e
 	b.Labels = append(b.Labels, p.AddLabels...)
 	for _, l := range p.RemoveLabels {
 		b.Labels = remove(b.Labels, l)
+	}
+	for k, v := range p.SetMetadata {
+		if b.Metadata == nil {
+			b.Metadata = map[string]string{}
+		}
+		b.Metadata[k] = v
 	}
 	return nil
 }
@@ -490,6 +498,10 @@ func TestRoundEndToEnd(t *testing.T) {
 	}
 	if b := beads.bead("T-D"); b.Status == "closed" || !strings.Contains(strings.Join(b.Comments, "\n"), "Left for you to verify") {
 		t.Errorf("T-D (human) = %s, comments %v", b.Status, b.Comments)
+	}
+	// ...and it says so on the bead: only Ryder's sign-off is left.
+	if b := beads.bead("T-D"); !slices.Contains(b.Labels, api.SignoffLabel) || b.Metadata[api.SignoffKey] == "" {
+		t.Errorf("T-D isn't marked for sign-off: labels %v, metadata %v", b.Labels, b.Metadata)
 	}
 	// Some run was an integration turn for the conflict.
 	sawIntegration := false

@@ -112,7 +112,8 @@ func (m *Manager) command(agent string, t claude.Turn) agentCommand {
 		}
 		return agentCommand{name: "codex", path: path, args: ct.Args(), env: t.Env, parse: (&codex.Parser{}).ParseLine, timed: true, stopSig: syscall.SIGINT}
 	}
-	return agentCommand{name: "claude", path: m.opts.ClaudePath, args: t.Args(), env: t.Env, parse: claude.ParseLine, stderrJSON: true}
+	env := append(append([]string{}, t.Env...), claude.AuthEnv()...)
+	return agentCommand{name: "claude", path: m.opts.ClaudePath, args: t.Args(), env: env, parse: claude.ParseLine, stderrJSON: true}
 }
 
 func (m *Manager) runProcess(r *run, ac agentCommand, cwd string) error {

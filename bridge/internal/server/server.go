@@ -63,6 +63,10 @@ type Server struct {
 	// nil when adopt_sessions is off, which makes the route a no-op.
 	Sessions SessionHinter
 
+	// signIn is the Claude sign-in the app is part way through.
+	signInMu sync.Mutex
+	signIn   *claude.SignIn
+
 	verMu     sync.Mutex
 	verAt     time.Time
 	bdVer     string
@@ -90,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /v1/repos/{repo}/issues/{id}", s.updateIssue)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/close", s.closeIssue)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/reopen", s.reopenIssue)
+	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/signoff", s.signOff)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/comments", s.addComment)
 	mux.HandleFunc("POST /v1/repos/{repo}/deps", s.addDep)
 	mux.HandleFunc("DELETE /v1/repos/{repo}/deps", s.removeDep)
@@ -104,6 +109,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
 	mux.HandleFunc("POST /v1/claude/stream", s.assistBoardsStream)
+	mux.HandleFunc("GET /v1/claude/signin", s.claudeSignInState)
+	mux.HandleFunc("POST /v1/claude/signin", s.startClaudeSignIn)
+	mux.HandleFunc("POST /v1/claude/signin/code", s.finishClaudeSignIn)
 	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
 	mux.HandleFunc("POST /v1/assist/{turn}/cancel", s.cancelAssist)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)

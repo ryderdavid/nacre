@@ -257,7 +257,7 @@ fun WideBoard(
                     shape = RoundedCornerShape(24.dp),
                     color = if (hovered) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceContainer,
                     border = if (hovered) BorderStroke(2.dp, columnColor(col.key)) else null,
-                    modifier = Modifier.width(colWidth).fillMaxHeight().then(if (col.key == Lane.PROPOSED.key) Modifier else Modifier.dropTarget(drag, col.key)),
+                    modifier = Modifier.width(colWidth).fillMaxHeight().then(if (col.key == Lane.PROPOSED.key || col.key == Lane.CHECK.key) Modifier else Modifier.dropTarget(drag, col.key)),
                 ) {
                     Column {
                         ColumnHeader(col, groupBy)
@@ -350,7 +350,7 @@ fun CompactBoard(
             exit = slideOutVertically { it } + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            LaneDock(ui.columns.filter { it.key != Lane.PROPOSED.key }, drag, groupBy)
+            LaneDock(ui.columns.filter { it.key != Lane.PROPOSED.key && it.key != Lane.CHECK.key }, drag, groupBy)
         }
     }
 }

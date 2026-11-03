@@ -239,6 +239,7 @@ func (m *Manager) load(dir string) (*round, error) {
 	}
 	r := m.newRound(meta, dir)
 	r.events, r.nextSeq = readEvents(dir)
+	r.backfillPauses()
 	if meta.Active() {
 		cfgDir := meta.Workspace
 		if _, err := os.Stat(cfgDir); err != nil {
@@ -613,6 +614,7 @@ func (r *round) setCfg(cfg *repoconfig.Config) {
 // ---- persistence and notification (callers hold r.mu) ----
 
 func (r *round) saveLocked() {
+	r.trackPause(time.Now())
 	r.meta.UpdatedAt = stamp()
 	r.ver++
 	b, _ := json.MarshalIndent(r.meta, "", "  ")

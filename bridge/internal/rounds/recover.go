@@ -630,6 +630,7 @@ func (m *Manager) Choose(id, choice string, budgetUSD float64, minutes int) (api
 		if minutes > 0 {
 			r.meta.TimeLimitMinutes = minutes
 		}
+		r.moreTime(minutes)
 		r.resumeFromStop(fmt.Sprintf("Limits raised to $%.2f and %d minutes; carrying on", r.meta.BudgetUSD, r.meta.TimeLimitMinutes))
 	case api.ChoiceRetryWithBudget:
 		if budgetUSD > 0 && r.meta.SpentUSD+budgetUSD > r.meta.BudgetUSD {
