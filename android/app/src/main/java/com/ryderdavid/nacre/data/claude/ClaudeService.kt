@@ -21,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Duration
 
 class ClaudeException(message: String) : Exception(message)
@@ -116,15 +118,20 @@ class ClaudeService {
     }
 
     /** Ask Claude to improve a bead; returns a field-level proposal the user reviews. */
-    suspend fun refine(s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList()): RefineProposal = withContext(Dispatchers.IO) {
-        val text = structured(s, Prompts.EDITOR, Prompts.refine(ctx, instruction, history), refineSchema, maxTokens = 16000)
-        json.decodeFromString<RefineProposal>(text)
+    suspend fun refine(
+        s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList(),
+        images: ChatTurnImages = ChatTurnImages.NONE,
+    ): RefineProposal = withContext(Dispatchers.IO) {
+        json.decodeFromString<RefineProposal>(structured(s, refineParams(s, ctx, instruction, history, images)))
     }
 
     /** Answer a question about a bead without proposing any change to it. */
-    suspend fun ask(s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String): String = withContext(Dispatchers.IO) {
-        val text = structured(s, Prompts.ADVISOR, Prompts.ask(ctx, history, question, readsRepo = false), askSchema, maxTokens = 8000)
-        json.decodeFromString<AskReply>(text).answer.ifBlank { throw ClaudeException("Claude returned no answer") }
+    suspend fun ask(
+        s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String,
+        images: ChatTurnImages = ChatTurnImages.NONE,
+    ): String = withContext(Dispatchers.IO) {
+        json.decodeFromString<AskReply>(structured(s, askParams(s, ctx, history, question, images)))
+            .answer.ifBlank { throw ClaudeException("Claude returned no answer") }
     }
 
     /** Expand a rough note into a complete new bead. */
@@ -142,16 +149,10 @@ class ClaudeService {
         json.decodeFromString<BeadDraft>(text)
     }
 
-    private fun structured(s: AppSettings, system: String, prompt: String, schema: Map<String, Any>, maxTokens: Long): String {
-        val params = baseParams(s, system, maxTokens)
-            .outputConfig(
-                OutputConfig.builder()
-                    .effort(effortOf(s.claudeEffort))
-                    .format(JsonOutputFormat.builder().schema(schemaOf(schema)).build())
-                    .build()
-            )
-            .addUserMessage(prompt)
-            .build()
+    private fun structured(s: AppSettings, system: String, prompt: String, schema: Map<String, Any>, maxTokens: Long): String =
+        structured(s, structuredParams(s, system, prompt, schema, maxTokens))
+
+    private fun structured(s: AppSettings, params: MessageCreateParams): String {
         val msg = call { client(s.anthropicKey).messages().create(params) }
         checkStop(msg)
         return msg.content().mapNotNull { b -> b.text().map { it.text() }.orElse(null) }.joinToString("")
@@ -159,6 +160,44 @@ class ClaudeService {
     }
 
     companion object {
+        /** The Refine request for one bead chat message: its images, labelled, before the prompt. */
+        internal fun refineParams(
+            s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages,
+        ): MessageCreateParams = structuredParams(
+            s, Prompts.EDITOR, Prompts.refine(ctx, instruction, history, images.current, images.request.marks),
+            refineSchema, maxTokens = 16000, images.request.images,
+        )
+
+        /** The Ask request for one bead chat message, shaped as [refineParams]. */
+        internal fun askParams(
+            s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages,
+        ): MessageCreateParams = structuredParams(
+            s, Prompts.ADVISOR, Prompts.ask(ctx, history, question, readsRepo = false, images.current, images.request.marks),
+            askSchema, maxTokens = 8000, images.request.images,
+        )
+
+        /**
+         * One structured-output request whose single user message is [prompt].
+         * With [images] it is each image's `Image N: <name>` label and image
+         * block, in order, then the prompt; without, exactly the text message
+         * it always was.
+         */
+        internal fun structuredParams(
+            s: AppSettings, system: String, prompt: String, schema: Map<String, Any>, maxTokens: Long,
+            images: List<ImagePayload> = emptyList(),
+        ): MessageCreateParams = baseParams(s, system, maxTokens)
+            .outputConfig(
+                OutputConfig.builder()
+                    .effort(effortOf(s.claudeEffort))
+                    .format(JsonOutputFormat.builder().schema(schemaOf(schema)).build())
+                    .build()
+            )
+            .apply {
+                if (images.isEmpty()) addUserMessage(prompt)
+                else addUserMessageOfBlockParams(labelledImageBlocks(images) + textBlock(prompt))
+            }
+            .build()
+
         internal val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
 
         /** Refusal fallbacks for models that support the server-side "default" mode. */
@@ -207,9 +246,18 @@ class ClaudeService {
         } catch (e: RateLimitException) {
             throw ClaudeException("Rate limited by the Claude API. Try again in a moment.")
         } catch (e: AnthropicServiceException) {
+            if (e.statusCode() == 413) throw ClaudeException("The request was too large for the Claude API: ${reasonOf(e).take(200)}")
             throw ClaudeException("Claude API error ${e.statusCode()}: ${e.message?.take(200)}")
         } catch (e: AnthropicIoException) {
             throw ClaudeException("Couldn't reach the Claude API. Check your connection.")
+        }
+
+        /** What the API said went wrong: its error message when the body has one, else the exception's. */
+        internal fun reasonOf(e: AnthropicServiceException): String {
+            val message = runCatching {
+                json.parseToJsonElement(e.body().toJsonString()).jsonObject["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+            }.getOrNull()
+            return message?.takeIf { it.isNotBlank() } ?: e.message.orEmpty()
         }
 
         private fun nullable(type: String, description: String) =

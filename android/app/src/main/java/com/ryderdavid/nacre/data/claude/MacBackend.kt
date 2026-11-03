@@ -33,11 +33,15 @@ class MacBackend(
 ) : ClaudeBackend {
     override val runner = ClaudeRunner.MAC
 
-    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal =
+    override suspend fun refine(
+        repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages,
+    ): RefineProposal =
         json(repoKey, Prompts.refine(ctx, instruction, history), ClaudeService.refineSchema)
 
     /** On the Mac an answer can come from the code too: the call may read the repository, never write. */
-    override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String =
+    override suspend fun ask(
+        repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages,
+    ): String =
         json<AskReply>(repoKey, Prompts.ask(ctx, history, question, readsRepo = true), ClaudeService.askSchema, Prompts.ADVISOR)
             .answer.ifBlank { throw ClaudeException("The Mac answered without an answer. Try again.") }
 
