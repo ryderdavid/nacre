@@ -89,8 +89,8 @@ interface AssistantSession {
 }
 
 sealed interface TurnInput {
-    /** Something the user typed. */
-    data class Say(val text: String) : TurnInput
+    /** Something the user typed, with the images attached to it. */
+    data class Say(val text: String, val images: List<ImagePayload> = emptyList()) : TurnInput
 
     /** What came of the calls the previous turn asked for. */
     data class Answers(val answers: List<ToolAnswer>) : TurnInput

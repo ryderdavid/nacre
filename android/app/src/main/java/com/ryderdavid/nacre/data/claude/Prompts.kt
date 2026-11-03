@@ -17,11 +17,21 @@ object Prompts {
     const val ADVISOR =
         "You are an expert engineering lead answering questions about one bead (issue) in the bd issue tracker. You explain, assess and advise; you never change the bead. You are direct and specific, and you say so when the bead, its comments or the code don't settle a question."
 
-    fun refine(ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList()): String = buildString {
+    /** How many earlier turns a bead chat prompt carries. */
+    const val HISTORY_TURNS = 24
+
+    /**
+     * [images] are the ones attached to [instruction]; [marks] says what each
+     * image of the conversation became in this request (see [resolveImages]).
+     */
+    fun refine(
+        ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList(),
+        images: List<ChatImage> = emptyList(), marks: Map<String, ImageMark> = emptyMap(),
+    ): String = buildString {
         appendLine("Improve this bead from the \"${ctx.repoName}\" beads (bd) issue tracker according to the request below.")
         appendLine()
-        conversation(history, "Earlier in this conversation about the bead (questions and answers may bear on the request):")
-        appendLine("<request>${instruction.ifBlank { REFINE_DEFAULT }}</request>")
+        conversation(history, "Earlier in this conversation about the bead (questions and answers may bear on the request):", marks)
+        appendLine("<request>${withMarkers(instruction.ifBlank { REFINE_DEFAULT }, images, marks)}</request>")
         appendLine()
         appendLine(ctx.render())
         appendLine()
@@ -30,25 +40,32 @@ object Prompts {
 
     /**
      * A question about a bead, answered in prose. [readsRepo] when the answer may
-     * come from reading the repository too, as it does on the Mac.
+     * come from reading the repository too, as it does on the Mac. [images] and
+     * [marks] as for [refine].
      */
-    fun ask(ctx: BeadContext, history: List<DraftTurn>, question: String, readsRepo: Boolean): String = buildString {
+    fun ask(
+        ctx: BeadContext, history: List<DraftTurn>, question: String, readsRepo: Boolean,
+        images: List<ChatImage> = emptyList(), marks: Map<String, ImageMark> = emptyMap(),
+    ): String = buildString {
         appendLine("Ryder is asking about this bead from the \"${ctx.repoName}\" beads (bd) issue tracker.")
         appendLine()
         appendLine(ctx.render())
         appendLine()
-        conversation(history, "Earlier in this conversation:")
-        appendLine("<question>$question</question>")
+        conversation(history, "Earlier in this conversation:", marks)
+        appendLine("<question>${withMarkers(question, images, marks)}</question>")
         appendLine()
         if (readsRepo) appendLine("You are in the repository the bead belongs to and may read its code, git history and other beads (read-only bd commands) when the question needs them. Look before you answer a question about the code; don't guess.")
         appendLine("Answer the question in `answer`: short, scannable markdown for a phone screen, with ids, paths and names as they appear. Don't propose edits to the bead unless asked what you would change; Ryder switches to Refine mode to make changes.")
     }
 
-    private fun StringBuilder.conversation(history: List<DraftTurn>, intro: String) {
+    private fun StringBuilder.conversation(history: List<DraftTurn>, intro: String, marks: Map<String, ImageMark>) {
         if (history.isEmpty()) return
         appendLine(intro)
         appendLine("<conversation>")
-        history.takeLast(24).forEach { appendLine(if (it.fromUser) "<ryder>${it.text}</ryder>" else "<you>${it.text}</you>") }
+        history.takeLast(HISTORY_TURNS).forEach {
+            val text = withMarkers(it.text, it.images, marks)
+            appendLine(if (it.fromUser) "<ryder>$text</ryder>" else "<you>$text</you>")
+        }
         appendLine("</conversation>")
         appendLine()
     }

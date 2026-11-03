@@ -13,7 +13,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BeadChatsTest {
-    private val file = File.createTempFile("bead-chats", ".json").also { it.delete(); it.deleteOnExit() }
+    private val file = File(java.nio.file.Files.createTempDirectory("bead-chats").toFile(), "bead-chats.json")
     private fun chats() = BeadChats(file, CoroutineScope(Dispatchers.Unconfined), Dispatchers.Unconfined)
     private val key = BeadChats.key("mac~nacre", "NAC-1")
 
