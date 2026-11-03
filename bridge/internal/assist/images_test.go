@@ -123,7 +123,9 @@ func TestImageDirectoryRemovedOnEveryEnding(t *testing.T) {
 	}{
 		{name: "error", tail: "cat <<'EOF'\n" + failed + "\nEOF", wantErr: "boom"},
 		{name: "exit", tail: "exit 3", wantErr: "status 3"},
-		{name: "timeout", tail: "sleep 30", timeout: 300 * time.Millisecond, wantErr: "too long"},
+		// The timeout must leave the fake claude time to start and record what
+		// was staged even when the whole suite is loading the machine.
+		{name: "timeout", tail: "sleep 30", timeout: 3 * time.Second, wantErr: "too long"},
 		{name: "cancel", tail: "sleep 30", cancel: true, wantErr: "canceled"},
 	}
 	for _, c := range cases {
