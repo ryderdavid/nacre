@@ -415,6 +415,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total, openspec}`: `openspec` says the repository's OpenSpec setup is valid (New effort, intake and the Proposals lane apply); the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A bridge without specification workflows answers an empty list. |
+| POST | `/v1/repos/{repo}/changes/{change}/draft/dismiss` | – | ChangeSummary: hides the change's failed draft ([Drafts](#drafts)). Idempotent. |
 
 Actions are `develop`, `revise`, `approve`, `refresh`, `resume` and `adopt`. `develop` may carry
 `intake: {verdict, change_name?}`, the New effort verdict it was confirmed with; the change keeps it
@@ -451,7 +452,7 @@ adopted as it stands. An adopted change carries
 
 `change` contains `id`, `seed_id`, `epic_id`, `change_name`, `phase`, `revision`, `approved_revision`,
 `summary`, `route`, `rationale`, `references`, `artifacts`, `findings`, `sections`, `retired_sections`,
-`history`, `evidence`, `cost_usd`, `updated_at`, an optional `error`, and while the phase is `stale`
+`history`, `evidence`, `cost_usd`, `updated_at`, `created_at` (below), an optional `error`, and while the phase is `stale`
 a `stale_reason` naming what broke the approval: the files that changed since review ("AGENTS.md
 changed", "Active change X changed", "Accepted spec Y changed", "tasks.md was edited after approval…"),
 "Seed bead N changed", "Section bead N was edited…", or a generic reason when the record has no
@@ -539,12 +540,52 @@ answered comment answered. Spec round agents are told to stay in their section a
 work as a `Found:` comment on their bead instead of doing it or creating beads.
 
 `ChangeSummary` is `{id, change_name, phase, revision?, approved_revision?, epic_id?, seed_ids,
-sections, error?, stale_reason?, pending_found?, active?, updated_at}`; `active` names the round or
+sections, error?, stale_reason?, pending_found?, active?, updated_at, created_at?, started_at?, draft?}`
+(the last three are described in [Drafts](#drafts)); `active` names the round or
 run implementing the change. `seed_ids` lists the original seed first, then any later seeds that
 amended the change. Each section is `{id, title, bead_id?, evidence}`, `evidence` one of `none`,
 `in_round` (a round that hasn't landed or been cancelled is working on it), `verified` (a passing run
 of the current approved revision) or `landed`, folded from the evidence entries above. Evidence is
 cached per change revision and recomputed when a round in the repository moves.
+
+#### Drafts
+These fields tell a proposal that doesn't exist yet from an existing change being revised (both are
+`drafting`), so the Proposals lane can show one placeholder per change in place of its seeds' cards.
+- `created_at` (on the change and its summary): when the proposal first existed. nacred sets it once,
+  the first time the author's artifacts pass strict OpenSpec validation or a covered disposition is
+  recorded; an adopted change has it from adoption. It is never cleared, so later revisions are never
+  drafts. Records carry a format version. When nacred loads a record saved by an older nacred (no
+  format version and no `created_at`), it sets `created_at` to the record's first history entry, or
+  to the load time when there is none, and saves it with the current version. This happens once:
+  loading again changes nothing, and a record written by this version is never backfilled. An
+  existing change, even one mid-revision at upgrade, is therefore never reported as a draft. If that
+  save fails, the record still counts as created in memory and is saved on its next write.
+- `started_at`: when the change record was started, the time of its first history entry (or
+  `created_at` when it has no history). It is derived, not stored, and never changes afterwards:
+  creating the proposal or any later save moves `updated_at` but not `started_at`. Within each rank
+  group the lane sorts by it, newest first.
+- `draft: {kind, message?}`: present only while `created_at` is empty and the change is in a planning
+  phase. `kind` is `pending` while the phase is `drafting`, and `failed` when drafting stopped in
+  `needs_attention` or `interrupted`: an author error, the cost cap, invalid output, a restart or
+  shutdown. There is no separate cancelled kind. A failed draft's `message` is the change's `error`,
+  and the change keeps its phase and `resume`. A failed draft stays reported, across refreshes,
+  restarts and clients, until it is dismissed; once `created_at` is set there is no `draft`.
+- `POST /v1/repos/{repo}/changes/{change}/draft/dismiss` (`{change}` is the change `id`) records
+  `draft_dismissed`, which hides the failed draft, appends a `draft_dismissed` history entry and
+  sends a `repo` event. It answers the change's summary. It is idempotent: dismissing again, or
+  dismissing a pending or created change, changes nothing and answers the current summary. An
+  unknown change is 409, a bridge without specification workflows 503. After dismissal the change
+  is reported like any other `needs_attention` or `interrupted` change.
+- `resume` returns a failed draft to `drafting` with `created_at` still empty, so it is pending again.
+  `develop` on a bead whose draft failed develops it again (on any other existing change it answers
+  the current envelope), and an accepted `develop` clears `draft_dismissed`.
+- No new phase, event type or cancel action exists for drafts. The develop response carries the
+  change `id`, and the existing `event: change` phase transitions (see [SSE](#sse)) carry
+  `change_id`; they remain the signal to refresh the changes summary. A client that gets an event
+  for a change it hasn't listed refreshes the summary instead of guessing. Lost events are harmless:
+  the next summary rebuilds every draft.
+- An older bridge sends no `created_at`, `started_at` or `draft`, and has no dismiss route (404). A
+  client then shows no placeholders and sorts by `updated_at`, as before.
 
 Workflow journals live in the bridge data directory's `changes/` folder. Back this up with Beads
 and OpenSpec files: stable `specflow:` and `spec-section:` labels are recovery identities, not a
