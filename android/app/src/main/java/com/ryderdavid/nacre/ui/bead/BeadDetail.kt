@@ -96,6 +96,7 @@ import com.ryderdavid.nacre.ui.common.Dot
 import com.ryderdavid.nacre.ui.common.LoadingState
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.NeedsYouTag
+import com.ryderdavid.nacre.ui.common.SignoffTag
 import com.ryderdavid.nacre.ui.common.PriorityPill
 import com.ryderdavid.nacre.ui.common.SectionHeader
 import com.ryderdavid.nacre.ui.common.TypeLabel
@@ -285,6 +286,9 @@ fun BeadDetail(
                         )
                     }
                 } else null,
+                signoff = if (i.awaitsSignoff) {
+                    { SignoffCard(i.signoffCheck, busy, onSignOff = vm::signOff) }
+                } else null,
                 epicHeader = boardChanges?.changes?.firstOrNull { it.epicId == i.id }?.let { c ->
                     { EpicChangeHeader(c, changeState.data?.change, ix, onOpenChange = { showChange = true }, onOpenBead = onOpenBead) }
                 },
@@ -385,6 +389,7 @@ private fun DetailBody(
     changeCard: @Composable () -> Unit,
     epicHeader: (@Composable () -> Unit)? = null,
     epicCompletion: (@Composable () -> Unit)? = null,
+    signoff: (@Composable () -> Unit)? = null,
 ) {
     val lane = ix.workflowLane(i, changes)
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp), modifier = Modifier.fillMaxSize().imePadding()) {
@@ -392,7 +397,7 @@ private fun DetailBody(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Dot(Nacre.colors.lane(lane), 10)
                 Text(lane.title, style = MaterialTheme.typography.labelLarge, color = Nacre.colors.lane(lane))
-                if (i.needsYou) NeedsYouTag()
+                if (i.awaitsSignoff) SignoffTag() else if (i.needsYou) NeedsYouTag()
             }
             Spacer(Modifier.height(8.dp))
             Text(
@@ -416,6 +421,8 @@ private fun DetailBody(
             }
         }
 
+        // Only Ryder's check is left: that leads, above everything else.
+        if (signoff != null) item { signoff() }
         // A spec epic leads with its change, above everything else about the bead.
         if (epicHeader != null) item { epicHeader() }
         if (epicCompletion != null) item { epicCompletion() }

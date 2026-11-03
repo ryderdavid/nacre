@@ -532,7 +532,7 @@ type Round struct {
 	PausedAt      string `json:"paused_at,omitempty"`
 	PausedSeconds int64  `json:"paused_seconds,omitempty"`
 	UpdatedAt     string `json:"updated_at"`
-	EndedAt   string `json:"ended_at,omitempty"`
+	EndedAt       string `json:"ended_at,omitempty"`
 
 	// FinalCommit, Version and Artifacts describe the verified result.
 	FinalCommit string   `json:"final_commit,omitempty"`

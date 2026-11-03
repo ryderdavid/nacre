@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /v1/repos/{repo}/issues/{id}", s.updateIssue)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/close", s.closeIssue)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/reopen", s.reopenIssue)
+	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/signoff", s.signOff)
 	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/comments", s.addComment)
 	mux.HandleFunc("POST /v1/repos/{repo}/deps", s.addDep)
 	mux.HandleFunc("DELETE /v1/repos/{repo}/deps", s.removeDep)

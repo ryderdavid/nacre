@@ -33,7 +33,7 @@ data class AttentionItem(
     /** Questions and decisions first, then approvals, then landing and archive. */
     val group get() = when (kind) {
         ROUND_QUESTION, BEAD_DECISION, BEAD_PARKED, REVIEW_BLOCKED, WORKFLOW_INTERRUPTED, FOUND_WORK -> 0
-        PROPOSAL_READY, APPROVAL_STALE -> 1
+        PROPOSAL_READY, APPROVAL_STALE, BEAD_SIGNOFF -> 1
         else -> 2
     }
 
@@ -51,6 +51,7 @@ data class AttentionItem(
         const val EPIC_FINISHABLE = "epic_finishable"
         const val BEAD_STUCK = "bead_stuck"
         const val BEAD_UNCLOSED = "bead_unclosed"
+        const val BEAD_SIGNOFF = "bead_signoff"
     }
 }
 

@@ -51,6 +51,7 @@ import com.ryderdavid.nacre.data.model.elsewhere
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.LabelChip
 import com.ryderdavid.nacre.ui.common.NeedsYouTag
+import com.ryderdavid.nacre.ui.common.SignoffTag
 import com.ryderdavid.nacre.ui.common.PriorityPill
 import com.ryderdavid.nacre.ui.common.TypeLabel
 import com.ryderdavid.nacre.ui.common.relativeTime
@@ -96,7 +97,7 @@ fun BeadCard(
                 }
                 if (issue.needsYou) {
                     Spacer(Modifier.height(6.dp))
-                    NeedsYouTag()
+                    if (issue.awaitsSignoff) SignoffTag() else NeedsYouTag()
                 }
                 if (elsewhere != null) {
                     Spacer(Modifier.height(6.dp))

@@ -185,6 +185,8 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun create(repo: String, body: CreateIssue): Issue = send<CreateIssue, One>("POST", "/v1/repos/$repo/issues", body).issue
     suspend fun update(repo: String, id: String, body: UpdateIssue): Issue = send<UpdateIssue, One>("PATCH", "/v1/repos/$repo/issues/${enc(id)}", body).issue
     suspend fun close(repo: String, id: String, reason: String? = null): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/close", Reason(reason)).issue
+    suspend fun signOff(repo: String, id: String, approve: Boolean, note: String): Issue =
+        send<SignOff, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/signoff", SignOff(approve, note)).issue
     suspend fun reopen(repo: String, id: String): Issue = send<Reason, One>("POST", "/v1/repos/$repo/issues/${enc(id)}/reopen", Reason()).issue
     suspend fun comment(repo: String, id: String, text: String, fromClaude: Boolean = false): List<Comment> =
         send<NewComment, Comments>("POST", "/v1/repos/$repo/issues/${enc(id)}/comments", NewComment(text, fromClaude)).comments
@@ -225,6 +227,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         val unlink: List<List<String>> = emptyList(),
         @SerialName("accept_dependencies") val acceptDependencies: List<List<String>> = emptyList(),
     )
+    @Serializable private data class SignOff(val approve: Boolean, val note: String = "")
     @Serializable private data class Limits(@SerialName("budget_usd") val budgetUsd: Double = 0.0, @SerialName("time_limit_minutes") val timeLimitMinutes: Int = 0)
 
     suspend fun rounds(): List<Round> = get<Rounds>("/v1/rounds").rounds

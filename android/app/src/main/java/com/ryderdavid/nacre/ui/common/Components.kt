@@ -103,6 +103,14 @@ fun NeedsYouTag(modifier: Modifier = Modifier) {
     }
 }
 
+/** A bead whose work is done, waiting only on Ryder's check: not a stoppage. */
+@Composable
+fun SignoffTag(modifier: Modifier = Modifier) {
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer, shape = RoundedCornerShape(6.dp), modifier = modifier) {
+        Text("Check and sign off", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+    }
+}
+
 @Composable
 fun Dot(color: Color, size: Int = 8) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(color))

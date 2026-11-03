@@ -123,6 +123,17 @@ func (r *round) note(bead, text string) {
 	r.async(func(ctx context.Context) { _ = r.m.opts.Beads.AddComment(ctx, repo, bead, text) })
 }
 
+// askSignoff marks a bead whose work is done as waiting only on Ryder's
+// check, so the board and Needs you can tell it from work that stopped.
+func (r *round) askSignoff(bead, check string) {
+	repo := r.meta.RepoPath
+	r.async(func(ctx context.Context) {
+		_ = r.m.opts.Beads.Update(ctx, repo, bead, bd.UpdateParams{
+			AddLabels: []string{api.SignoffLabel}, SetMetadata: map[string]string{api.SignoffKey: check},
+		})
+	})
+}
+
 // advance moves the round forward as far as it can without waiting. It
 // returns false once the round is finished and its loop can end.
 func (r *round) advance() bool {
