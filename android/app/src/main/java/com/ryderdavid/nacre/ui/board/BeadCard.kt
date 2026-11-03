@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +70,8 @@ fun BeadCard(
     /** The board's changes, for the spec chip; null on older bridges. */
     changes: ChangesList? = null,
 ) {
-    val chip = specChip(issue, changes)
+    val toCheck = remember(index) { index.issues.filter { it.awaitsSignoff }.mapTo(HashSet()) { it.id } }
+    val chip = specChip(issue, changes, toCheck)
     val blockers = if (!issue.isClosed) index.openBlockers(issue) else emptyList()
     val crumb = index.breadcrumb(issue)
     val elsewhere = issue.elsewhere(liveRun = running)
@@ -121,7 +123,7 @@ fun BeadCard(
                 }
                 if (chip != null && chip.strip.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    SectionStrip(chip.strip)
+                    SectionStrip(chip.strip, toCheck = toCheck)
                 } else if (issue.isEpic) {
                     val kids = index.descendants(issue.id)
                     if (kids.isNotEmpty()) {

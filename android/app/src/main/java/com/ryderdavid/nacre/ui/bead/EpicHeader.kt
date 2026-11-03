@@ -43,7 +43,7 @@ fun EpicChangeHeader(summary: ChangeSummary, change: SpecChange?, ix: BoardIndex
                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = MonoFamily), color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (summary.phase == "stale") Text(staleText(summary.staleReason), style = MaterialTheme.typography.bodyMedium)
-            SectionStrip(summary.sections)
+            SectionStrip(summary.sections, toCheck = summary.sections.mapNotNullTo(HashSet()) { s -> s.beadId.takeIf { ix.byId[it]?.awaitsSignoff == true } })
             Text(
                 "${summary.landed} of ${summary.sections.size} merged · ${summary.verified} verified",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,

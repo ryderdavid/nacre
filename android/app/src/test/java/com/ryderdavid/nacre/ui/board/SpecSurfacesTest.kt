@@ -23,6 +23,13 @@ class SpecSurfacesTest {
     )
     private fun issue(id: String, status: String = "open", labels: List<String> = emptyList()) = Issue(id = id, status = status, labels = labels)
 
+    @Test fun anEpicWhoseSectionsWaitOnSignOffSaysHowManyToCheck() {
+        val chip = specChip(issue("E"), changes, toCheck = setOf("S2"))!!
+        assertEquals("1 to check", chip.text)
+        assertEquals(ChipTone.CHECK, chip.tone)
+        assertEquals("Ready to implement", specChip(issue("E"), changes, toCheck = setOf("X"))!!.text, "only its own sections count")
+    }
+
     @Test fun oneSpecChipPerCard() {
         assertEquals(SpecChip("Ready to implement", ChipTone.SPEC, changes.changes[0].sections), specChip(issue("E"), changes))
         assertEquals(ChipTone.NEEDS_YOU, specChip(issue("N"), changes)!!.tone)
