@@ -71,7 +71,12 @@ class SingleBoard(private val tools: BoardTools) : BoardRouter {
 sealed interface ChatItem {
     val key: String
 
-    data class User(val text: String, override val key: String = UUID.randomUUID().toString()) : ChatItem
+    /** A message Ryder sent; its [images] stay in memory with the conversation and go with [BoardAssistant.clear]. */
+    data class User(
+        val text: String,
+        val images: List<ImagePayload> = emptyList(),
+        override val key: String = UUID.randomUUID().toString(),
+    ) : ChatItem
     data class Assistant(val text: String, val streaming: Boolean, override val key: String = UUID.randomUUID().toString()) : ChatItem
     data class Thinking(val text: String, val streaming: Boolean, override val key: String = UUID.randomUUID().toString()) : ChatItem
     data class ToolCall(
@@ -177,8 +182,15 @@ class BoardAssistant(
         }
     }
 
-    fun send(text: String) {
-        if (text.isBlank() || _busy.value) return
+    /**
+     * Sends [text] with [images], which may be the whole message. Returns false,
+     * sending nothing, while a turn is running, when there's nothing to send, or
+     * when the images can't go in this conversation (across boards, or past the
+     * Mac conversation's image budget); the caller then keeps its draft.
+     */
+    fun send(text: String, images: List<ImagePayload> = emptyList()): Boolean {
+        if ((text.isBlank() && images.isEmpty()) || _busy.value) return false
+        if (images.isNotEmpty() && (everyBoard || imageLimit(images.size, images.byteCount()) != null)) return false
         val said = text.trim()
         val idle = idleResetMs
         if (idle != null && _items.value.isNotEmpty() && now() - lastActive >= idle) {
@@ -188,8 +200,9 @@ class BoardAssistant(
         lastActive = now()
         onStarted()
         _busy.value = true
-        _items.update { it + ChatItem.User(said) }
-        job = scope.launch { converse(TurnInput.Say(said)) }
+        _items.update { it + ChatItem.User(said, images) }
+        job = scope.launch { converse(TurnInput.Say(said, images)) }
+        return true
     }
 
     /** Asks again after a failure that [ChatItem.Error.canRetry] says is worth retrying. */
@@ -218,6 +231,13 @@ class BoardAssistant(
         approvals.keys.toList().forEach { decide(it, true) }
     }
 
+    /**
+     * Why a message with [count] images of [bytes] decoded bytes can't be sent
+     * in this conversation now (the Mac assistant's conversation budget), or null.
+     */
+    fun imageLimit(count: Int, bytes: Long): String? = session?.imageLimit(count, bytes)
+
+    /** Ends the conversation. Its messages, and the images held with them, are dropped. */
     fun clear() {
         stop()
         retryInput = null

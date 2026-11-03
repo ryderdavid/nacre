@@ -64,6 +64,8 @@ func (s *Server) assistBoardsStream(w http.ResponseWriter, r *http.Request) {
 		bad = "boards required"
 	case len(req.Boards) > maxAssistBoards:
 		bad = "too many boards"
+	case len(req.Images) > 0:
+		bad = "images are not accepted by the assistant across boards"
 	}
 	if bad != "" {
 		writeError(w, http.StatusBadRequest, bad, "")

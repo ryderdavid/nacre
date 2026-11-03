@@ -65,7 +65,16 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.claude.BeadChatItem
+import com.ryderdavid.nacre.data.claude.ChatImage
 import com.ryderdavid.nacre.data.claude.ChatMode
+import com.ryderdavid.nacre.data.claude.ComposerGate
+import com.ryderdavid.nacre.data.claude.ImagePayload
+import com.ryderdavid.nacre.data.claude.ImageSupport
+import com.ryderdavid.nacre.data.claude.composerGate
+import com.ryderdavid.nacre.ui.common.AttachImageButton
+import com.ryderdavid.nacre.ui.common.ComposerReason
+import com.ryderdavid.nacre.ui.common.PendingImageRow
+import com.ryderdavid.nacre.ui.common.SentImages
 import com.ryderdavid.nacre.data.claude.RefineProposal
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.ui.common.AiIcon
@@ -132,9 +141,15 @@ fun BeadChatContent(
     val thinking by vm.chatThinking.collectAsState()
     val failure by vm.chatFailure.collectAsState()
     val mode by vm.chatMode.collectAsState()
-    val stack = com.ryderdavid.nacre.ui.common.LocalContainer.current.chatStack
+    val container = com.ryderdavid.nacre.ui.common.LocalContainer.current
+    val stack = container.chatStack
     val text = com.ryderdavid.nacre.ui.assistant.chatDraft(context)
     fun setText(value: String) = stack.updateView(context) { it.copy(draft = value) }
+    val pending = com.ryderdavid.nacre.ui.common.pendingImages(context)
+    val supportFlow = remember(vm.repoKey) { container.imageSupport.of(vm.repoKey) }
+    val support by supportFlow.collectAsState(ImageSupport.YES)
+    val gate = composerGate(text.isNotBlank(), pending, support, ready = claudeReady, busy = thinking, blankSends = mode == ChatMode.REFINE)
+    val attach = com.ryderdavid.nacre.ui.common.rememberImageAttacher(context, gate.remaining)
     val look = look(mode, issue.id)
     val list = com.ryderdavid.nacre.ui.assistant.rememberChatList(context)
     var firstComposition by remember { mutableStateOf(true) }
@@ -147,11 +162,10 @@ fun BeadChatContent(
         firstComposition = false
     }
 
+    // The pending images go with whatever is sent; on failure the draft and images stay.
     fun send(message: String) {
-        if (!claudeReady || thinking) return
-        if (message.isBlank() && mode == ChatMode.ASK) return
-        vm.sendChat(message, mode)
-        setText("")
+        if (!claudeReady || thinking || gate.sendReason != null) return
+        if (vm.sendChat(message, mode, pending)) stack.updateView(context) { it.copy(draft = "", images = emptyList()) }
     }
 
         Column(Modifier.fillMaxSize().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding()) {
@@ -182,7 +196,7 @@ fun BeadChatContent(
             ) {
                 itemsIndexed(items) { i, item ->
                     when (item) {
-                        is BeadChatItem.Mine -> MyMessage(item)
+                        is BeadChatItem.Mine -> MyMessage(item, vm::chatImage)
                         is BeadChatItem.Answer -> MarkdownText(item.text, Modifier.fillMaxWidth())
                         is BeadChatItem.Proposal -> ProposalCard(
                             item, issue,
@@ -234,13 +248,15 @@ fun BeadChatContent(
                 modifier = Modifier.padding(top = 8.dp),
             ) {
                 items(if (mode == ChatMode.ASK) ASK_SUGGESTIONS else REFINE_SUGGESTIONS) { s ->
-                    SuggestionChip(onClick = { send(s) }, label = { Text(s) })
+                    SuggestionChip(onClick = { send(s) }, label = { Text(s) }, enabled = gate.sendReason == null)
                 }
             }
 
             Composer(
                 text = text, onText = ::setText, mode = mode, look = look, busy = thinking,
                 onMode = vm::setChatMode, onSend = { send(text) },
+                pending = pending, gate = gate, onAttach = attach,
+                onRemove = { stack.removePending(context, it) },
             )
         }
 }
@@ -254,6 +270,10 @@ private fun Composer(
     busy: Boolean,
     onMode: (ChatMode) -> Unit,
     onSend: () -> Unit,
+    pending: List<ImagePayload>,
+    gate: ComposerGate,
+    onAttach: () -> Unit,
+    onRemove: (String) -> Unit,
 ) {
     val edge by animateColorAsState(
         if (mode == ChatMode.REFINE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
@@ -266,6 +286,7 @@ private fun Composer(
             border = BorderStroke(1.dp, edge),
         ) {
             Column(Modifier.padding(start = 4.dp, end = 8.dp, top = 2.dp, bottom = 8.dp)) {
+                PendingImageRow(pending, onRemove, Modifier.padding(top = 8.dp))
                 TextField(
                     value = text, onValueChange = onText,
                     placeholder = { Text(look.placeholder) },
@@ -287,7 +308,8 @@ private fun Composer(
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    val canSend = !busy && (mode == ChatMode.REFINE || text.isNotBlank())
+                    AttachImageButton(gate, onAttach)
+                    val canSend = gate.canSend
                     if (mode == ChatMode.REFINE) FilledIconButton(onClick = onSend, enabled = canSend) {
                         Icon(Icons.AutoMirrored.Rounded.Send, "Ask Claude for changes")
                     } else FilledTonalIconButton(onClick = onSend, enabled = canSend) {
@@ -296,6 +318,7 @@ private fun Composer(
                 }
             }
         }
+        ComposerReason(gate, Modifier.padding(start = 12.dp, top = 6.dp))
         Row(Modifier.padding(start = 12.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(look.hintIcon, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
@@ -305,7 +328,7 @@ private fun Composer(
 }
 
 @Composable
-private fun MyMessage(item: BeadChatItem.Mine) {
+private fun MyMessage(item: BeadChatItem.Mine, image: (ChatImage) -> ByteArray?) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(look(item.mode, "").icon, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -313,7 +336,9 @@ private fun MyMessage(item: BeadChatItem.Mine) {
             Text(if (item.mode == ChatMode.ASK) "Ask" else "Refine", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.size(4.dp))
-        Surface(
+        SentImages(item.images, image, Modifier.widthIn(max = 320.dp).padding(bottom = 4.dp))
+        // An images-only Ask has no text to show; an empty Refine still means "make it agent-ready".
+        if (item.text.isNotBlank() || item.images.isEmpty() || item.mode == ChatMode.REFINE) Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
             shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp),
             modifier = Modifier.widthIn(max = 320.dp),

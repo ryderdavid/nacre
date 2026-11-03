@@ -1,10 +1,14 @@
 package com.ryderdavid.nacre.data.claude
 
 import com.anthropic.helpers.MessageAccumulator
+import com.anthropic.models.messages.Base64ImageSource
 import com.anthropic.models.messages.ContentBlockParam
+import com.anthropic.models.messages.ImageBlockParam
+import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
 import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
+import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolResultBlockParam
@@ -18,6 +22,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.Base64
 
 /** Runs the Claude features against the Claude API with the key on this phone. */
 class ApiBackend(
@@ -26,11 +31,13 @@ class ApiBackend(
 ) : ClaudeBackend {
     override val runner = ClaudeRunner.API
 
-    override suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal =
-        service.refine(settings(), ctx, instruction, history)
+    override suspend fun refine(
+        repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages,
+    ): RefineProposal = service.refine(settings(), ctx, instruction, history, images)
 
-    override suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String =
-        service.ask(settings(), ctx, history, question)
+    override suspend fun ask(
+        repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages,
+    ): String = service.ask(settings(), ctx, history, question, images)
 
     override suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft =
         service.draft(settings(), repoName, rough, parentTitle, existingTitles)
@@ -53,36 +60,84 @@ class ApiSession(
     private val settings: suspend () -> AppSettings,
     private val board: AssistantBoard,
 ) : AssistantSession {
-    private val history = mutableListOf<MessageParam>()
+    /**
+     * Ryder's messages are kept as what he said and the images he attached, so
+     * each request can choose again which images fit its budget; everything
+     * else is kept as the parameters it was sent as.
+     */
+    private sealed interface Entry {
+        class Said(val text: String, val images: List<ImagePayload>) : Entry
+        class Sent(val param: MessageParam) : Entry
+    }
+
+    private val history = mutableListOf<Entry>()
     private val tools: List<ToolUnion> by lazy { board.tools.map { ToolUnion.ofTool(it.toTool()) } }
 
     override fun reset() {
         history.clear()
     }
 
-    override suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult {
+    /** Adds [input] to the conversation, closing any tool calls a cancelled turn left unanswered. */
+    internal fun record(input: TurnInput) {
         when (input) {
             // A turn cancelled while its tools were running leaves calls nobody
             // answered, and the API rejects the conversation from then on unless
             // every tool_use has a tool_result. Close them before saying more.
             is TurnInput.Say -> {
-                answerDanglingToolUse(history)?.let { history += it }
-                history += MessageParam.builder().role(MessageParam.Role.USER).content(input.text).build()
+                answerDanglingToolUse(messages())?.let { history += Entry.Sent(it) }
+                history += Entry.Said(input.text, input.images)
             }
-            is TurnInput.Answers -> history += toolResults(
-                input.answers.map { it.id },
-                input.answers.associate { it.id to (it.content to it.isError) },
+            is TurnInput.Answers -> history += Entry.Sent(
+                toolResults(
+                    input.answers.map { it.id },
+                    input.answers.associate { it.id to (it.content to it.isError) },
+                )
             )
         }
+    }
 
-        val s = settings()
-        val client = service.client(s.anthropicKey)
-        val params = ClaudeService.baseParams(s, board.system(), 64000)
+    /**
+     * The conversation as Messages API parameters. Each of Ryder's messages
+     * holds its own images before its text, as many as fit the request budget
+     * (newest first); the rest are noted in the text instead. A message
+     * without images is the plain text message it always was.
+     */
+    internal fun messages(): List<MessageParam> {
+        val said = history.filterIsInstance<Entry.Said>()
+        val bytes = said.flatMap { it.images }.associate { it.image.id to it.bytes }
+        val chosen = selectImages(said.map { e -> e.images.map { it.image } }) { bytes[it.id] }
+        return history.map { e ->
+            when (e) {
+                is Entry.Sent -> e.param
+                is Entry.Said -> userMessage(e, chosen)
+            }
+        }
+    }
+
+    private fun userMessage(e: Entry.Said, chosen: RequestImages): MessageParam {
+        val b = MessageParam.builder().role(MessageParam.Role.USER)
+        if (e.images.isEmpty()) return b.content(e.text).build()
+        val sent = chosen.images.associateBy { it.image.id }
+        val text = withNotes(e.text, e.images.map { it.image }, chosen.marks)
+        val blocks = e.images.mapNotNull { sent[it.image.id]?.let(::imageBlock) } +
+            listOfNotNull(text.takeIf { it.isNotBlank() }?.let(::textBlock))
+        return b.contentOfBlockParams(blocks).build()
+    }
+
+    internal fun params(s: AppSettings, system: String): MessageCreateParams =
+        ClaudeService.baseParams(s, system, 64000)
             .thinking(ThinkingConfigAdaptive.builder().display(ThinkingConfigAdaptive.Display.SUMMARIZED).build())
             .outputConfig(OutputConfig.builder().effort(ClaudeService.effortOf(s.claudeEffort)).build())
             .tools(tools)
-            .messages(history.toList())
+            .messages(messages())
             .build()
+
+    override suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult {
+        record(input)
+
+        val s = settings()
+        val client = service.client(s.anthropicKey)
+        val params = params(s, board.system())
 
         val acc = MessageAccumulator.create()
         withContext(Dispatchers.IO) {
@@ -101,7 +156,7 @@ class ApiSession(
             }
         }
         val msg = acc.message()
-        history += msg.toParam()
+        history += Entry.Sent(msg.toParam())
 
         val stop = when (msg.stopReason().orElse(null)) {
             StopReason.TOOL_USE -> TurnStop.CALLS
@@ -119,6 +174,24 @@ class ApiSession(
         return TurnResult(calls, stop)
     }
 }
+
+internal fun textBlock(text: String): ContentBlockParam = ContentBlockParam.ofText(TextBlockParam.builder().text(text).build())
+
+/** An image as a base64 image block with its media type. */
+internal fun imageBlock(p: ImagePayload): ContentBlockParam = ContentBlockParam.ofImage(
+    ImageBlockParam.builder()
+        .source(
+            Base64ImageSource.builder()
+                .mediaType(Base64ImageSource.MediaType.of(p.image.mimeType))
+                .data(Base64.getEncoder().encodeToString(p.bytes))
+                .build()
+        )
+        .build()
+)
+
+/** Each of [images] as its `Image N: <name>` label and its image block, numbered 1..N in order. */
+internal fun labelledImageBlocks(images: List<ImagePayload>): List<ContentBlockParam> =
+    images.flatMapIndexed { i, p -> listOf(textBlock("Image ${i + 1}: ${p.image.fileName}"), imageBlock(p)) }
 
 /** The Messages API definition of a tool from the shared catalogue. */
 internal fun ToolSpec.toTool(): Tool = Tool.builder()

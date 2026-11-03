@@ -26,7 +26,13 @@ enum class ChatMode { ASK, REFINE }
 @Serializable
 sealed class BeadChatItem {
     @Serializable @SerialName("mine")
-    data class Mine(val text: String, val mode: ChatMode, val about: String = "") : BeadChatItem() {
+    data class Mine(
+        val text: String,
+        val mode: ChatMode,
+        val about: String = "",
+        /** References only; the bytes are files in the chat attachment directory. */
+        val images: List<ChatImage> = emptyList(),
+    ) : BeadChatItem() {
         /** What Claude is sent: the question being discussed, then the message. */
         val prompt get() = if (about.isBlank()) text else "$about\n\n$text"
     }
@@ -50,11 +56,15 @@ private data class StoredThread(val key: String, val items: List<BeadChatItem>, 
 @Serializable
 private data class StoredChats(val mode: ChatMode = ChatMode.REFINE, val threads: List<StoredThread> = emptyList())
 
+private val StoredThread.imageIds get() = items.flatMap { (it as? BeadChatItem.Mine)?.images.orEmpty() }.map { it.id }
+
 /**
  * Every bead's chat with Claude, kept on disk until Ryder starts a new
  * conversation, and the mode he used last. Replies are awaited on the app's
  * scope, so one still lands in its thread if the sheet or the bead is closed
- * while Claude is thinking.
+ * while Claude is thinking. Images attached to messages are saved as files in
+ * [attachments]; the threads hold only references, and the files go when
+ * their thread does.
  */
 class BeadChats(
     private val file: File,
@@ -62,6 +72,7 @@ class BeadChats(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val onStarted: (String) -> Unit = {},
     private val onActivity: (String) -> Unit = {},
+    private val attachments: ChatAttachments = ChatAttachments(File(file.parentFile, "chat-attachments")),
 ) {
     private val state = MutableStateFlow(read())
     private val busy = MutableStateFlow<Set<String>>(emptySet())
@@ -69,6 +80,15 @@ class BeadChats(
     private val writing = Mutex()
     private val requests = mutableMapOf<String, Any>()
     private val jobs = mutableMapOf<String, Job>()
+
+    init {
+        // Finishes any deletion a previous run didn't get to, and drops files a failed save left behind.
+        scope.launch(io) {
+            synchronized(this@BeadChats) {
+                runCatching { attachments.sweep(state.value.threads.flatMap { it.imageIds }.toSet()) }
+            }
+        }
+    }
 
     val mode: Flow<ChatMode> = state.map { it.mode }.distinctUntilChanged()
 
@@ -88,15 +108,31 @@ class BeadChats(
         jobs.remove(key)?.cancel()
         busy.update { it - key }
         failures.update { it - key }
-        change { s -> s.copy(threads = s.threads.filter { it.key != key }) }
+        val removed = state.value.threads.filter { it.key == key }.flatMap { it.imageIds }
+        change({ removed }) { s -> s.copy(threads = s.threads.filter { it.key != key }) }
     }
+
+    /** The bytes of an attached image, or null when its file is missing or unreadable. */
+    fun image(image: ChatImage): ByteArray? = attachments.read(image)
+
+    /** The images a request in [key]'s thread carries, given the history it is sent with and [current]'s images. */
+    fun requestImages(history: List<DraftTurn>, current: List<ChatImage>): RequestImages =
+        resolveImages(history, current, ::image)
 
     /**
      * Add Ryder's [message] and the reply [answer] produces once it arrives. A
      * failure leaves the message in the thread and offers to send it again.
+     *
+     * [images] are the bytes of [message]'s images, saved before the message
+     * is recorded. If saving fails, the files already written are removed,
+     * nothing is recorded or sent, and [ChatAttachmentException] says why.
      */
-    @Synchronized fun send(key: String, message: BeadChatItem.Mine, retrying: Boolean, answer: suspend (history: List<BeadChatItem>) -> BeadChatItem) {
+    @Synchronized fun send(
+        key: String, message: BeadChatItem.Mine, retrying: Boolean, images: List<ImagePayload> = emptyList(),
+        answer: suspend (history: List<BeadChatItem>) -> BeadChatItem,
+    ) {
         if (key in busy.value) return
+        attachments.save(images)
         val request = Any()
         requests[key] = request
         val history = current(key)
@@ -145,23 +181,37 @@ class BeadChats(
         }
     }
 
-    private fun edit(key: String, change: (List<BeadChatItem>) -> List<BeadChatItem>) = change { s ->
-        val old = s.threads.firstOrNull { it.key == key }
-        val thread = StoredThread(key, change(old?.items.orEmpty()), System.currentTimeMillis())
-        // Most recently used first; old threads drop off rather than growing the file forever.
-        s.copy(threads = (listOf(thread) + s.threads.filter { it.key != key }).take(MAX_THREADS))
+    private fun edit(key: String, change: (List<BeadChatItem>) -> List<BeadChatItem>) {
+        var dropped: List<String> = emptyList()
+        this.change({ dropped }) { s ->
+            val old = s.threads.firstOrNull { it.key == key }
+            val thread = StoredThread(key, change(old?.items.orEmpty()), System.currentTimeMillis())
+            // Most recently used first; old threads drop off rather than growing the file forever.
+            val all = listOf(thread) + s.threads.filter { it.key != key }
+            dropped = all.drop(MAX_THREADS).flatMap { it.imageIds }
+            s.copy(threads = all.take(MAX_THREADS))
+        }
     }
 
-    private fun change(block: (StoredChats) -> StoredChats) {
+    private fun change(block: (StoredChats) -> StoredChats) = change({ emptyList() }, block)
+
+    /**
+     * Applies [block] and saves. The attachment files [removed] names belong to
+     * threads [block] dropped; they are deleted only once the file no longer
+     * refers to them, and a load sweeps up any that a failed save left.
+     */
+    private fun change(removed: () -> List<String>, block: (StoredChats) -> StoredChats) {
         state.update(block)
+        val ids = removed()
         scope.launch(io) {
-            writing.withLock {
+            val saved = writing.withLock {
                 runCatching {
                     val tmp = File(file.path + ".tmp")
                     tmp.writeText(ClaudeService.json.encodeToString(StoredChats.serializer(), state.value))
-                    tmp.renameTo(file)
-                }
+                    if (!tmp.renameTo(file)) error("couldn't replace ${file.name}")
+                }.isSuccess
             }
+            if (saved) runCatching { attachments.delete(ids) }
         }
     }
 
@@ -175,10 +225,21 @@ class BeadChats(
     }
 }
 
+/**
+ * Ryder's message for a bead's thread: [text] in [mode] with references to
+ * [images]. Null when there is nothing to send: an Ask needs text or an image,
+ * while an empty Refine means "make it agent-ready".
+ */
+fun beadChatMessage(text: String, mode: ChatMode, images: List<ImagePayload> = emptyList()): BeadChatItem.Mine? {
+    val message = text.trim()
+    if (message.isEmpty() && images.isEmpty() && mode == ChatMode.ASK) return null
+    return BeadChatItem.Mine(message, mode, images = images.map { it.image })
+}
+
 /** The thread as the turns a prompt carries: Ryder's messages, Claude's answers, and what became of each proposal. */
 fun List<BeadChatItem>.turns(): List<DraftTurn> = mapNotNull { item ->
     when (item) {
-        is BeadChatItem.Mine -> DraftTurn(true, if (item.mode == ChatMode.ASK) "(asking) ${item.prompt}" else "(asking for changes) ${item.prompt}")
+        is BeadChatItem.Mine -> DraftTurn(true, if (item.mode == ChatMode.ASK) "(asking) ${item.prompt}" else "(asking for changes) ${item.prompt}", item.images)
         is BeadChatItem.Answer -> DraftTurn(false, item.text)
         is BeadChatItem.Proposal -> DraftTurn(
             false,

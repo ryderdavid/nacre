@@ -43,10 +43,16 @@ class AppContainer(app: Application) {
     )
     val notifier = RunNotifier(app, repository, settings, scope)
 
+    /** Whether a chat can take images on the chosen backend and its target computer; kept current. */
+    val imageSupport = com.ryderdavid.nacre.data.claude.ChatImageSupport(settings.settings, repository.hosts)
+
     val chatStack = ChatStack(onRemoved = ::resetChat)
 
     /** Each bead's chat with Claude, held on the bead's own screen beside its thread. */
-    val beadChats = BeadChats(java.io.File(app.filesDir, "bead-chats.json"), scope)
+    val beadChats = BeadChats(
+        java.io.File(app.filesDir, "bead-chats.json"), scope,
+        attachments = com.ryderdavid.nacre.data.claude.ChatAttachments(java.io.File(app.filesDir, "chat-attachments")),
+    )
 
     fun chatLabel(context: ChatContext): String = when (context) {
         ChatContext.Multi -> "multi"

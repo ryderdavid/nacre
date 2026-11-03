@@ -384,6 +384,9 @@ object Features {
 
     /** Beads can be run with the OpenAI Codex CLI, installed and signed in on the computer. */
     const val CODEX = "codex"
+
+    /** The per-repo Claude turn endpoints accept images. */
+    const val CHAT_IMAGES = "chat_images"
 }
 
 // ---- request bodies ----
@@ -461,6 +464,20 @@ data class AssistRequest(
     @SerialName("needs_you") val needsYou: Boolean = false,
     /** The boards a turn across boards reads (POST /v1/claude/stream only). */
     val boards: List<AssistBoardRef> = emptyList(),
+    /**
+     * Images for the turn, numbered 1..N in this order to match the
+     * `[image N: name]` markers in [prompt] (the per-repo turn endpoints only).
+     * Left out of the body when empty, so a text-only request is unchanged.
+     */
+    val images: List<AssistImage> = emptyList(),
+)
+
+/** One image of an [AssistRequest]: its media type, file name and base64 bytes. */
+@Serializable
+data class AssistImage(
+    @SerialName("media_type") val mediaType: String,
+    val name: String,
+    val data: String,
 )
 
 /** One board a turn across boards reads: its repo id on that computer, and its name in the app. */

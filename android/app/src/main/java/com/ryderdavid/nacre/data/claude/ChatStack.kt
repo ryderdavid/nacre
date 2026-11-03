@@ -11,7 +11,16 @@ sealed interface ChatContext {
 }
 
 data class ChatPresentation(val selected: ChatContext? = null, val collapsed: Boolean = false)
-data class ChatViewState(val draft: String = "", val firstVisibleIndex: Int = 0, val firstVisibleOffset: Int = 0)
+/**
+ * What a chat's composer and list hold while the chat is away: the draft, the
+ * images pending with it (in memory only), and the scroll position.
+ */
+data class ChatViewState(
+    val draft: String = "",
+    val firstVisibleIndex: Int = 0,
+    val firstVisibleOffset: Int = 0,
+    val images: List<ImagePayload> = emptyList(),
+)
 
 data class ActiveChat(val context: ChatContext, val label: String, val lastActivity: Long)
 data class ChatSlot(val context: ChatContext, val label: String, val isNew: Boolean)
@@ -48,6 +57,9 @@ class ChatStack(
         if (!contains(context) && presentationState.value.values.none { it.selected == context }) return
         viewState.value = viewState.value + (context to change(view(context)))
     }
+    /** Removes the pending image [id] from [context]'s next message. */
+    fun removePending(context: ChatContext, id: String) = updateView(context) { it.copy(images = it.images.without(id)) }
+
     private fun clearView(context: ChatContext) {
         viewState.value = viewState.value - context
         presentationState.value = presentationState.value.filterValues { it.selected != context }

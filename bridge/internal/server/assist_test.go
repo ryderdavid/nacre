@@ -341,7 +341,7 @@ func TestHealthReportsClaudeFeature(t *testing.T) {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	feats, _ := body["features"].([]any)
-	if len(feats) != 1 || feats[0] != "claude" {
+	if len(feats) != 2 || feats[0] != "claude" || feats[1] != "chat_images" {
 		t.Fatalf("features = %v", body["features"])
 	}
 	// A computer without a usable claude binary offers nothing.
