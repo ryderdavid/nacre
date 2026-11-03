@@ -70,6 +70,7 @@ import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.Column
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
+import com.ryderdavid.nacre.data.board.LaneItem
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.ui.common.Dot
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -148,7 +149,7 @@ private fun CardList(
     elsewhere: List<Column> = emptyList(),
     onReveal: (Column) -> Unit = {},
 ) {
-    if (col.issues.isEmpty()) {
+    if (col.items.isEmpty()) {
         Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Rounded.Inbox, null, tint = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(6.dp))
@@ -163,7 +164,13 @@ private fun CardList(
         return
     }
     LazyColumn(modifier, contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(col.issues, key = { it.id }) { issue ->
+        items(col.items, key = { it.key }) { item ->
+            if (item is LaneItem.DraftPlaceholder) {
+                // No details, nothing to open and no drag: the proposal doesn't exist yet.
+                DraftPlaceholderCard(item, Modifier.animateItem())
+                return@items
+            }
+            val issue = (item as LaneItem.Card).issue
             val isDragged = drag.dragging?.id == issue.id
             Column(Modifier.animateItem()) {
                 BeadCard(
@@ -175,8 +182,8 @@ private fun CardList(
                     modifier = Modifier
                         .alpha(if (isDragged) 0.3f else 1f)
                         // Proposals move by approval, not by dragging.
-                        .then(if (col.key == Lane.PROPOSED.key) Modifier else Modifier.dragSource(drag, issue, col.key))
-                        .clickable { onOpen(issue) },
+                        .then(if (item.draggable) Modifier.dragSource(drag, issue, col.key) else Modifier)
+                        .then(if (item.clickable) Modifier.clickable { onOpen(issue) } else Modifier),
                 )
                 // A proposal judged already covered is usually closed; offer that right on the card.
                 if (col.key == Lane.PROPOSED.key && index.proposalOf(issue, ui.snapshot.changes)?.phase == "covered") {
