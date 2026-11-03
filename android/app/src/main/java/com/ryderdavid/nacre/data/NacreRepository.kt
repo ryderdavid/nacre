@@ -14,6 +14,7 @@ import com.ryderdavid.nacre.data.model.EpicFinish
 import com.ryderdavid.nacre.data.model.AttentionOption
 import com.ryderdavid.nacre.data.model.ChangeEvent
 import com.ryderdavid.nacre.data.model.ChangesList
+import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.FoundRequest
 import com.ryderdavid.nacre.data.model.FoundResult
 import com.ryderdavid.nacre.data.model.IntakeDraft
@@ -414,6 +415,10 @@ class NacreRepository(
             env.change?.takeIf { it.isWorking }?.let { c -> working.update { it + Keys.of(Keys.host(key), c.id) } }
             refreshBoard(key, quiet = true); refreshAttention(Keys.host(key))
         }
+
+    /** Dismisses a change's failed draft, then refreshes the board. A failure throws and changes nothing locally. */
+    suspend fun dismissDraft(key: String, changeId: String): ChangeSummary =
+        clientFor(key).dismissDraft(Keys.id(key), changeId).also { refreshBoard(key, quiet = true); refreshAttention(Keys.host(key)) }
 
     /** The board's changes as last loaded; null when its computer doesn't report them. */
     fun changes(key: String): ChangesList? = boards[key]?.value?.data?.changes

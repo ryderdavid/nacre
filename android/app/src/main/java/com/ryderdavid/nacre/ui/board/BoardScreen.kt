@@ -40,6 +40,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -108,6 +110,11 @@ fun BoardScreen(
     var rootBounds by remember { mutableStateOf(Rect.Zero) }
 
     val drag = rememberDragController { issue, key -> vm.move(issue, key) }
+    val draftsBusy by vm.draftsBusy.collectAsState()
+    val drafts = DraftHandlers(busy = draftsBusy, onResume = vm::resumeDraft, onDismiss = vm::dismissDraft)
+    val snackbar = remember { SnackbarHostState() }
+    // Why a Dismiss or Resume on a failed draft didn't go through; the placeholder stays as it was.
+    LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(it, withDismissAction = true) } }
     val ui = state.data
     val repo = ui?.snapshot?.repo
 
@@ -160,6 +167,7 @@ fun BoardScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (!drag.isDragging && pane == null && (chat?.selected == null || chat.collapsed)) Column(
                 horizontalAlignment = Alignment.End,
@@ -221,10 +229,10 @@ fun BoardScreen(
                                 }
                                 if (boardWide) WideBoard(
                                     ui, groupBy, selectedId = pane, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null },
-                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
+                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) }, drafts = drafts,
                                 ) else CompactBoard(
                                     ui, groupBy, drag = drag, scrollToLane = scrollTo, onScrolled = { scrollTo = null }, query = filter.query,
-                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) },
+                                    onOpen = open, onShowMoreDone = { vm.showAllDone.value = true }, onClose = { vm.move(it, Lane.DONE.key) }, drafts = drafts,
                                 )
                             }
                         }

@@ -57,8 +57,17 @@ sealed interface LaneItem {
         override val clickable get() = true
     }
 
-    /** One per change being drafted, keyed by change ID; [seedIds] are the seeds whose cards it hides. */
-    data class DraftPlaceholder(val changeId: String, val draft: ChangeDraft, val seedIds: List<String>) : LaneItem {
+    /**
+     * One per change being drafted, keyed by change ID; [seedIds] are the seeds whose cards it hides.
+     * A failed draft offers Dismiss, and Resume when the change offers it ([resumable]), sent through
+     * [resumeBead], the seed it stands in for.
+     */
+    data class DraftPlaceholder(
+        val changeId: String, val draft: ChangeDraft, val seedIds: List<String>,
+        val resumable: Boolean = false, val resumeBead: String = seedIds.firstOrNull().orEmpty(),
+    ) : LaneItem {
+        val failed get() = draft.failed
+        val dismissable get() = draft.failed
         override val key get() = "draft:$changeId"
         override val title: String? get() = null
         override val changeName: String? get() = null
@@ -229,7 +238,9 @@ class BoardIndex(val issues: List<Issue>) {
             .mapNotNull { (issue, change) ->
                 when {
                     change == null || !change.shownAsDraft -> LaneItem.Card(issue, draggable = false)
-                    placed.add(change.id) -> LaneItem.DraftPlaceholder(change.id, change.draft!!, change.seedIds)
+                    placed.add(change.id) -> change.draft!!.let { d ->
+                        LaneItem.DraftPlaceholder(change.id, d, change.seedIds, resumable = d.failed && change.offersResume, resumeBead = issue.id)
+                    }
                     else -> null
                 }
             }
