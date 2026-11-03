@@ -201,7 +201,7 @@ func (m *Manager) startAdoption(ctx context.Context, repo, id string, a Action) 
 	}
 	r := &record{Repo: repo, Seed: seed, Inventory: inv, Baseline: clone(inv.Digests), Stage: "adopt", Generated: map[string]generated{}, Planned: map[string]generated{},
 		Change: Change{ID: newID(), SeedID: id, ChangeName: name, Route: adoptedRoute, Phase: "drafting", References: []string{}, Artifacts: []Artifact{}, Findings: []Finding{}, Sections: []Section{}, RetiredSections: []RetiredSection{}, History: []History{}, Evidence: []Evidence{},
-			Adoption: &Adoption{At: stamp(), RecordedReview: a.RecordedReview}}}
+			Adoption: &Adoption{At: stamp(), RecordedReview: a.RecordedReview}, CreatedAt: stamp()}}
 	how := "with one independent review"
 	if a.RecordedReview {
 		how = "with its recorded review.md standing in for a new review"

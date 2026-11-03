@@ -115,7 +115,12 @@ type Change struct {
 	CostUSD    float64 `json:"cost_usd"`
 	// Guide is the plain summary and recommended next step while the change
 	// waits on the owner; absent until written for its current state.
-	Guide     *Guide `json:"guide,omitempty"`
+	Guide *Guide `json:"guide,omitempty"`
+	// CreatedAt is when the proposal first existed: its authored artifacts
+	// first passed strict validation, a covered disposition was recorded, or
+	// the change was adopted. Set once and never cleared, so a later
+	// revision is never reported as a draft.
+	CreatedAt string `json:"created_at,omitempty"`
 	UpdatedAt string `json:"updated_at"`
 }
 type Beads interface {
