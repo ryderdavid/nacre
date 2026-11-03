@@ -74,6 +74,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.ryderdavid.nacre.data.claude.BOARDS_STEP
 import com.ryderdavid.nacre.data.claude.CONNECTION_STEP
 import com.ryderdavid.nacre.data.claude.ChatItem
+import com.ryderdavid.nacre.data.claude.ImageSupport
+import com.ryderdavid.nacre.data.claude.attachOffered
+import com.ryderdavid.nacre.data.claude.composerGate
+import com.ryderdavid.nacre.ui.common.AttachImageButton
+import com.ryderdavid.nacre.ui.common.ComposerReason
+import com.ryderdavid.nacre.ui.common.PendingImageRow
+import com.ryderdavid.nacre.ui.common.SentImages
+import com.ryderdavid.nacre.ui.common.pendingImages
+import com.ryderdavid.nacre.ui.common.rememberImageAttacher
 import com.ryderdavid.nacre.data.claude.ChatItem.ToolCall.State as S
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.LocalContainer
@@ -143,6 +152,18 @@ fun AssistantPane(
     val input = chatDraft(chatContext)
     fun setInput(text: String) = container.chatStack.updateView(chatContext) { it.copy(draft = text) }
     val list = rememberChatList(chatContext)
+    // Images go only to the assistant for one board; across boards there is no attach action.
+    val attachable = attachOffered(chatContext)
+    val pending = if (attachable) pendingImages(chatContext) else emptyList()
+    val supportFlow = remember(target) { container.imageSupport.of((target as? AssistantTarget.Board)?.repoKey) }
+    val support by supportFlow.collectAsState(ImageSupport.YES)
+    val gate = composerGate(
+        input.isNotBlank(), pending, support,
+        // The Mac conversation's own image budget; asked again as the conversation moves on.
+        limit = assistant::imageLimit,
+        ready = prefs?.claudeConfigured == true, busy = busy,
+    )
+    val attach = rememberImageAttacher(chatContext, gate.remaining)
     var signInHost by remember { mutableStateOf<String?>(null) }
     signInHost?.let { ClaudeSignInDialog(it, onDismiss = { signInHost = null }) }
     var firstComposition by remember { mutableStateOf(true) }
@@ -176,9 +197,16 @@ fun AssistantPane(
         },
         bottomBar = {
             Surface(color = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface) {
-                Row(Modifier.fillMaxWidth().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-                    val canSend = !busy && input.isNotBlank() && prefs?.claudeConfigured == true
-                    val send = { assistant.send(input); setInput("") }
+                Column(Modifier.fillMaxWidth().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding().padding(12.dp)) {
+                PendingImageRow(pending, { container.chatStack.removePending(chatContext, it) }, Modifier.padding(bottom = 8.dp))
+                if (attachable) ComposerReason(gate, Modifier.padding(start = 12.dp, bottom = 6.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    val canSend = gate.canSend
+                    val send = {
+                        // Kept on a refusal, so nothing typed or attached is lost.
+                        if (assistant.send(input, pending)) container.chatStack.updateView(chatContext) { it.copy(draft = "", images = emptyList()) }
+                    }
+                    if (attachable) AttachImageButton(gate, attach)
                     OutlinedTextField(
                         value = input,
                         onValueChange = ::setInput,
@@ -194,6 +222,7 @@ fun AssistantPane(
                         enabled = canSend,
                         modifier = Modifier.size(52.dp),
                     ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+                }
                 }
             }
         },
@@ -217,7 +246,7 @@ fun AssistantPane(
             ) {
                 items(items, key = { it.key }) { item ->
                     when (item) {
-                        is ChatItem.User -> UserBubble(item.text)
+                        is ChatItem.User -> UserBubble(item)
                         is ChatItem.Assistant -> MarkdownText(item.text.ifEmpty { "…" }, Modifier.fillMaxWidth())
                         is ChatItem.Thinking -> ThinkingRow(item)
                         is ChatItem.ToolCall -> ToolRow(
@@ -277,9 +306,13 @@ private fun EmptyAssistant(everyBoard: Boolean, modifier: Modifier, onAsk: (Stri
 }
 
 @Composable
-private fun UserBubble(text: String) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp), modifier = Modifier.widthIn(max = 520.dp)) {
+private fun UserBubble(item: ChatItem.User) {
+    val text = item.text
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        // Held in memory with the message; nothing is read from or written to storage.
+        val bytes = remember(item.images) { item.images.associate { it.image.id to it.bytes } }
+        SentImages(item.images.map { it.image }, { bytes[it.id] }, Modifier.widthIn(max = 520.dp).padding(bottom = 4.dp))
+        if (text.isNotBlank() || item.images.isEmpty()) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp), modifier = Modifier.widthIn(max = 520.dp)) {
             Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
         }
     }

@@ -14,6 +14,10 @@ import com.ryderdavid.nacre.data.claude.BeadChats
 import com.ryderdavid.nacre.data.claude.BeadContext
 import com.ryderdavid.nacre.data.claude.ChatMode
 import com.ryderdavid.nacre.data.claude.ChatTurnImages
+import com.ryderdavid.nacre.data.claude.ChatAttachmentException
+import com.ryderdavid.nacre.data.claude.ChatImage
+import com.ryderdavid.nacre.data.claude.ImagePayload
+import com.ryderdavid.nacre.data.claude.beadChatMessage
 import com.ryderdavid.nacre.data.claude.turns
 import com.ryderdavid.nacre.data.claude.ChildDraft
 import com.ryderdavid.nacre.data.claude.ClaudeBackends
@@ -192,26 +196,35 @@ class BeadDetailViewModel(
      * gets a proposal that waits in the thread for Ryder to apply. An empty
      * Refine message means "make it agent-ready".
      */
-    fun sendChat(text: String, mode: ChatMode) {
-        val message = text.trim()
-        if (message.isEmpty() && mode == ChatMode.ASK) return
-        send(BeadChatItem.Mine(message, mode), retrying = false)
+    fun sendChat(text: String, mode: ChatMode, images: List<ImagePayload> = emptyList()): Boolean {
+        val message = beadChatMessage(text, mode, images) ?: return false
+        return try {
+            send(message, retrying = false, images)
+            true
+        } catch (e: ChatAttachmentException) {
+            // Nothing was sent or kept; the composer keeps the draft and its images.
+            repo.notify(e.message ?: "Couldn't save the attached images")
+            false
+        }
     }
 
     /** Asks about [about] (a round question and its answers) in the bead's thread. */
     fun askAbout(about: String, text: String) {
         val message = text.trim()
         if (message.isEmpty()) return
-        send(BeadChatItem.Mine(message, ChatMode.ASK, about), retrying = false)
+        runCatching { send(BeadChatItem.Mine(message, ChatMode.ASK, about), retrying = false) }
     }
 
     fun retryChat() {
-        chatFailure.value?.let { send(it.retry, retrying = true) }
+        chatFailure.value?.let { runCatching { send(it.retry, retrying = true) } }
     }
 
-    private fun send(message: BeadChatItem.Mine, retrying: Boolean) {
-        val cur = issue.value ?: return
-        val ix = index.value ?: return
+    /** The bytes of an image saved with this bead's chat, or null when its file is missing or unreadable. */
+    fun chatImage(image: ChatImage): ByteArray? = chats.image(image)
+
+    private fun send(message: BeadChatItem.Mine, retrying: Boolean, images: List<ImagePayload> = emptyList()) {
+        val cur = issue.value ?: throw ChatAttachmentException("The bead isn't loaded yet")
+        val ix = index.value ?: throw ChatAttachmentException("The board isn't loaded yet")
         val parent = ix.byId[cur.parent]
         val ctx = BeadContext(
             repoName = repo.repo(repoKey)?.name ?: repoKey,
@@ -223,7 +236,7 @@ class BeadDetailViewModel(
             childTitles = ix.childrenOf(cur.id).map { "${it.id} ${it.title}" },
             comments = comments.value.map { "${it.author.ifBlank { "someone" }}: ${it.text}" },
         )
-        chats.send(chatKey, message, retrying) { history ->
+        chats.send(chatKey, message, retrying, images) { history ->
             val backend = backends.of(settings.current())
             val turns = history.turns()
             val images = if (message.images.isEmpty() && turns.none { it.images.isNotEmpty() }) ChatTurnImages.NONE
