@@ -30,11 +30,11 @@ import (
 // stdin and the staged directories it saw into out, then runs tail. Images
 // are staged under base.
 type imageServer struct {
-	ts       *httptest.Server
-	repo     string
-	base     string
-	out      string
-	runner   *assist.Runner
+	ts     *httptest.Server
+	repo   string
+	base   string
+	out    string
+	runner *assist.Runner
 }
 
 func newImageServer(t *testing.T, tail string) *imageServer {
