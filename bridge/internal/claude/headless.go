@@ -40,6 +40,10 @@ type Headless struct {
 	ReadSource bool
 	// AddDirs are more directories the call may read, besides its own.
 	AddDirs []string
+	// Images are sent with the prompt. When there are any, the prompt is not
+	// a positional argument: the call reads one stream-json user message from
+	// stdin (see [UserMessage]) holding the images and then the prompt.
+	Images []Image
 }
 
 // RepoReadTools are what a ReadRepo call may use besides AllowedTools.
@@ -98,19 +102,29 @@ var bdWriteCommands = []string{
 }
 
 // Args returns the argv (without the binary) for the call.
+//
+// A call with images has no positional prompt and adds --input-format
+// stream-json, so the prompt is sent once, on stdin; every other flag is the
+// same as for the call without images.
 func (h Headless) Args() []string {
-	prompt := h.Prompt
-	// The prompt is a positional argument; keep a leading "-" from being
-	// parsed as a flag.
-	if strings.HasPrefix(prompt, "-") {
-		prompt = " " + prompt
+	var args []string
+	if len(h.Images) > 0 {
+		args = []string{"-p", "--input-format", "stream-json"}
+	} else {
+		prompt := h.Prompt
+		// The prompt is a positional argument; keep a leading "-" from being
+		// parsed as a flag.
+		if strings.HasPrefix(prompt, "-") {
+			prompt = " " + prompt
+		}
+		args = []string{"-p", prompt}
 	}
-	args := []string{"-p", prompt,
+	args = append(args,
 		// One predictable sandbox on every computer, and no permission
 		// prompt can ever block a call that has nobody to answer it.
 		"--safe-mode", "--permission-prompts", "none",
 		"--output-format", "stream-json", "--verbose",
-	}
+	)
 	if h.System != "" {
 		args = append(args, "--system-prompt", h.System)
 	}

@@ -253,9 +253,16 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// decode reads a JSON body into v. An empty body is allowed when optional.
+// decode reads a JSON body of at most maxBody into v. An empty body is
+// allowed when optional.
 func decode(r *http.Request, v any, optional bool) error {
-	data, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxBody))
+	return decodeLimit(r, v, optional, maxBody)
+}
+
+// decodeLimit is decode with its own size limit. Over the limit the error is
+// an *http.MaxBytesError.
+func decodeLimit(r *http.Request, v any, optional bool, limit int64) error {
+	data, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, limit))
 	if err != nil {
 		return err
 	}
@@ -371,6 +378,8 @@ func (s *Server) features(cx codex.Status) []string {
 		// Refine, Draft and the board assistant can run here on this
 		// computer's Claude subscription.
 		f = append(f, api.FeatureClaude)
+		// Bead chat and single-board assistant turns can carry images.
+		f = append(f, api.FeatureChatImages)
 	}
 	if cx.Available() {
 		// Beads can be run with the Codex CLI here.

@@ -11,9 +11,12 @@ user's own subscription login.
 - Content type: `application/json; charset=utf-8` both ways. Field names are snake_case.
 - Errors: non-2xx with body `{"error": "human readable message", "detail": "optional stderr/tail"}`.
   400 bad input, 401 auth, 404 unknown repo/issue/run, 409 conflict (e.g. follow-up while running),
-  502 `bd`/`claude` failed, 500 anything else. (bd rejecting a value, e.g. an unknown status or
+  413 a turn body over 32 MiB (see [Images](#images)), 502 `bd`/`claude` failed, 500 anything else. (bd rejecting a value, e.g. an unknown status or
   type, is reported as 400 with bd's message.) Unknown routes and wrong methods are JSON 404s.
 - Timestamps: RFC 3339 UTC strings.
+- Body size: request bodies are limited to 1 MiB (a larger one is rejected with 400 `invalid JSON
+  body`), except `POST /v1/repos/{repo}/claude/json` and `POST /v1/repos/{repo}/claude/stream`, which
+  accept up to 32 MiB so a turn can carry images and answer 413 above that.
 
 ## Types
 
@@ -233,7 +236,7 @@ still a 409).
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.6.0","commit":"<sha>","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
+| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), and `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -650,7 +653,8 @@ existing shared goal session and can finish and land through the round controls.
 
 ### AssistRequest
 `{"prompt" (required), "system", "schema": {…}, "model": "", "effort": "low|medium|high|xhigh|max",
-"session_id": "", "bd_reads": false, "read_repo": false, "keep": false, "needs_you": false}`
+"session_id": "", "bd_reads": false, "read_repo": false, "keep": false, "needs_you": false,
+"images": [{"media_type", "name", "data"}]}`
 
 Runs one `claude -p` in the repo on **this computer's Claude subscription**, which is how the app's
 Refine, Draft and board-assistant features work without an API key on the phone. The app owns the
@@ -671,6 +675,50 @@ why per item) to the prompt, for the board assistant on this backend, which can'
 
 `output` is the answer validated against `schema` (the CLI's `structured_output`); `text` is the raw
 final message. A failure is a 502 with `{"error"}` carrying Claude's own wording.
+
+#### Images
+
+`images` is optional and accepted only by `POST /v1/repos/{repo}/claude/json` and
+`POST /v1/repos/{repo}/claude/stream` (bead chat Ask and Refine, and the board assistant for one
+board). `POST /v1/claude/stream`, the assistant across boards, answers 400 to a request with
+images, and keeps the 1 MiB body limit. A request without `images` is handled exactly as before:
+the same `claude -p <prompt>` command line and an empty stdin.
+
+- **Shape.** One ordered array for the whole request. Each entry is `media_type` (`image/jpeg`,
+  `image/png`, `image/gif` or `image/webp`), `name` (the file name shown to Claude, at most 255
+  bytes, no line breaks) and `data` (the image, standard padded base64).
+- **Order and markers.** The array is numbered 1..N oldest turn first, the current message last.
+  Claude receives each entry as a text block `Image N: <name>` followed by its image block, all
+  before the prompt. The app writes `[image N: <name>]` into `prompt` at the turn each image
+  belongs to, so Claude can tie each image to its turn; nacred does not check or add markers.
+- **Limits.** Every image is validated before anything is written or started: the media type is one
+  of the four, the base64 decodes, the bytes start with that type's signature, each image is at
+  most 3 MiB decoded, and the request has at most 20 images and 15 MiB of decoded image data. (The
+  app keeps each image to 3 MB and a request to 15 MB, which fits.) The request body is limited to
+  32 MiB.
+- **Errors.** A failed check is a 400 whose `error` names the image (`image 2 (shot.png): bytes are
+  not a jpeg image`) or the limit (`too many images: 21, at most 20`). A body over 32 MiB is a 413
+  (`request body is larger than 32 MiB; …`). Neither starts a process or writes a file.
+- **Delivery.** nacred stages the images in a private per-turn directory under the OS temp directory
+  (`nacred-turn-*`, mode 0700, files 0600) and runs `claude -p` without a positional prompt and
+  with `--input-format stream-json`; every other flag is unchanged, including `--json-schema`,
+  `--resume` and `--no-session-persistence`. It writes one stream-json user message to stdin, the
+  labelled image blocks followed by the prompt text, and closes stdin. The prompt is sent once.
+- **Temp-file lifetime.** The turn's directory is removed when the turn ends, however it ends: an
+  answer, an error, a cancel, the 8-minute timeout, or (for `/claude/json`) the client going away.
+  A `/claude/stream` turn keeps running when its client disconnects, as above, and its directory is
+  removed when it finishes. At startup nacred removes any `nacred-turn-*` directories a crash left.
+  nacred keeps no other copy of the images.
+- **Kept sessions hold their images.** A turn with `keep: false` (bead chat) runs with
+  `--no-session-persistence`, so no session transcript holds its images after the turn. A turn with
+  `keep: true` (the single-board assistant, which resumes with `session_id`) is saved by Claude Code
+  so it can be resumed, and Claude Code writes its turns, image blocks included, into that session's
+  transcript in its own session storage on the Mac. Those images stay there until Claude Code's own
+  cleanup removes the session. Clearing the assistant in the app starts a new session but does not
+  delete the old transcript, and nacred does not delete it.
+- **Older bridges.** A nacred without `chat_images` in `features` ignores `images` (it decodes the
+  request without that field, and rejects a body over 1 MiB), so the app enables image attachments
+  only on computers that list `chat_images`; text chat works with any version.
 
 ### SSE
 `/v1/repos/{repo}/claude/stream`: first `event: turn` with `{"turn_id"}`, then `id: <seq>` +

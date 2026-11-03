@@ -9,6 +9,7 @@ package assist
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,9 @@ type Runner struct {
 	Timeout    time.Duration
 	// Host names this computer in errors a person has to fix here.
 	Host string
+	// TempDir is where a turn's images are staged; empty means the OS's
+	// temp directory.
+	TempDir string
 
 	turnsMu sync.Mutex
 	turns   map[string]*Turn
@@ -70,10 +74,32 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Images go to claude as one stream-json user message on stdin, read
+	// from files staged for this turn only. The deferred cleanup runs on
+	// every way the turn ends: an answer, an error, a cancel, a timeout or
+	// the client going away (which cancels ctx).
+	var stdin io.Reader
+	if len(h.Images) > 0 {
+		dir, staged, err := r.stage(h.Images)
+		if dir != "" {
+			defer os.RemoveAll(dir)
+		}
+		if err != nil {
+			return Outcome{}, err
+		}
+		msg, err := claude.UserMessage(h.Prompt, staged)
+		if err != nil {
+			return Outcome{}, err
+		}
+		stdin = bytes.NewReader(msg)
+	}
+
 	cmd := exec.CommandContext(ctx, r.ClaudePath, h.Args()...)
 	cmd.Dir = cwd
 	cmd.Env = claude.RunEnv()
-	cmd.Stdin = nil
+	// With no images stdin stays empty, as it always has; with images exec
+	// copies the message in and then closes stdin.
+	cmd.Stdin = stdin
 	// Own process group, so the whole tree dies with the context.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
