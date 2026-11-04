@@ -236,7 +236,11 @@ func (m *Manager) applyAdoption(ctx context.Context, r *record) error {
 				marked = append(marked, Section{ID: match[1]})
 			}
 		}
-		body, parsed, e := prepareSections(artifacts[i].Content, nil, nil, nil, marked...)
+		known, listErr := m.boardLookup(ctx, r.Repo)
+		body, parsed, e := prepareSections(artifacts[i].Content, nil, nil, nil, known, marked...)
+		if le := listErr(); le != nil {
+			return le
+		}
 		if e != nil {
 			return fmt.Errorf("tasks.md: %v", e)
 		}

@@ -19,6 +19,8 @@ import com.ryderdavid.nacre.data.model.FoundRequest
 import com.ryderdavid.nacre.data.model.FoundResult
 import com.ryderdavid.nacre.data.model.IntakeDraft
 import com.ryderdavid.nacre.data.model.IntakeVerdict
+import com.ryderdavid.nacre.data.model.RepoConfigDraft
+import com.ryderdavid.nacre.data.model.SavedRepoConfig
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.DaemonUpdate
@@ -435,6 +437,13 @@ class NacreRepository(
 
     /** Intake's verdict on a New effort draft (one bounded call on [key]'s computer). */
     suspend fun intake(key: String, draft: IntakeDraft): IntakeVerdict = clientFor(key).intake(Keys.id(key), draft)
+
+    /** Has [key]'s computer draft a nacre.yaml for it (one bounded Claude call). */
+    suspend fun draftRepoConfig(key: String): RepoConfigDraft = clientFor(key).draftRepoConfig(Keys.id(key))
+
+    /** Saves and commits an approved nacre.yaml, then reloads the repository so its gates show. */
+    suspend fun saveRepoConfig(key: String, yaml: String): SavedRepoConfig =
+        clientFor(key).saveRepoConfig(Keys.id(key), yaml).also { refreshRepos(); refreshBoard(key, quiet = true) }
 
     /** Answers found work on a promoted change. */
     suspend fun found(key: String, changeId: String, req: FoundRequest): FoundResult =

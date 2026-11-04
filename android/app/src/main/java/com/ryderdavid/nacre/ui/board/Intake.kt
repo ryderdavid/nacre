@@ -33,7 +33,7 @@ fun EffortRoute.headline() = when (this) {
 /** The confirming button: says it spends when it develops a proposal. */
 fun EffortRoute.confirmLabel() = when (this) {
     EffortRoute.Bead -> "Create bead"
-    EffortRoute.NewChange, is EffortRoute.Amend -> "Create and develop · up to \$5"
+    EffortRoute.NewChange, is EffortRoute.Amend -> "Create and develop"
     EffortRoute.Covered -> "Create as a bead anyway"
 }
 

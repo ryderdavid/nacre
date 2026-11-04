@@ -32,11 +32,11 @@ fun blockingFinding(change: SpecChange) = change.findings.firstOrNull {
 fun reviseAction(change: SpecChange, feedback: String): ChangeNextAction {
     val blocked = blockingFinding(change)?.summary
     return if (feedback.isBlank()) ChangeNextAction(
-        "revise", "Try again (up to \$5)",
+        "revise", "Finish the draft",
         if (blocked != null) "Still blocked on: $blocked. Without your feedback Claude will likely argue the same point; say how to decide it above."
         else "Drafts and reviews the change again from scratch. Add feedback above to steer it.",
     ) else ChangeNextAction(
-        "revise", "Revise with your feedback (up to \$5)",
+        "revise", "Revise with your feedback",
         "Drafts the change again following your feedback, then a fresh reviewer checks it.",
     )
 }
@@ -93,10 +93,10 @@ fun guideChoices(change: SpecChange): Pair<com.ryderdavid.nacre.data.model.Guide
     val recommended = when {
         change.phase == "covered" -> com.ryderdavid.nacre.data.model.GuideOption("close", "Close it as covered", why = "Existing work already does this.")
         next == null || next.action !in setOf("approve", "revise", "resume") -> com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise", why = "Draft and review the change again.")
-        else -> com.ryderdavid.nacre.data.model.GuideOption(next.action, next.label.substringBefore(" (up to"), why = next.detail)
+        else -> com.ryderdavid.nacre.data.model.GuideOption(next.action, next.label, why = next.detail)
     }
     val others = buildList {
-        if (recommended.action != "revise") add(com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise with your feedback", why = "Drafts and reviews it again, up to \$5."))
+        if (recommended.action != "revise") add(com.ryderdavid.nacre.data.model.GuideOption("revise", "Revise with your feedback", why = "Drafts and reviews it again with what you write."))
         if (recommended.action != "close") add(shelve)
     }
     return recommended to others
@@ -105,7 +105,12 @@ fun guideChoices(change: SpecChange): Pair<com.ryderdavid.nacre.data.model.Guide
 /** What the main button says for a step. */
 fun guideButton(option: com.ryderdavid.nacre.data.model.GuideOption, seedId: String) = when (option.action) {
     "approve" -> "Approve and run"
-    "revise" -> "Revise · up to \$5"
+    // Revise carries one decision he picked, his own words, or neither: the author just finishes.
+    "revise" -> when {
+        option.feedback.isNotBlank() -> "Go with this"
+        option.label == "Your decision" -> "Send to the author"
+        else -> "Finish the draft"
+    }
     "resume" -> "Continue"
     "close" -> "Shelve $seedId"
     else -> option.label

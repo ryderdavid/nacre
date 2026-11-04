@@ -1,6 +1,7 @@
 package specflow
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -15,9 +16,76 @@ type sectionDependency struct {
 	DependsOn []string `json:"depends_on"`
 }
 
+// beadRefPattern finds tokens shaped like bead IDs ("dta-7ou.1", "NAC-axe");
+// only the ones the repository's board actually has count as references.
+var beadRefPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+(?:\.[0-9]+)*`)
+var tableSeparatorPattern = regexp.MustCompile(`^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$`)
+
+// tableRows returns a body's Markdown table data rows, without header and
+// separator rows.
+func tableRows(lines []string) []string {
+	var rows []string
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if !strings.HasPrefix(t, "|") || tableSeparatorPattern.MatchString(t) {
+			continue
+		}
+		if i+1 < len(lines) && tableSeparatorPattern.MatchString(strings.TrimSpace(lines[i+1])) {
+			continue
+		}
+		rows = append(rows, t)
+	}
+	return rows
+}
+
+func citesBead(row string, known func(string) bool) bool {
+	if known == nil {
+		return false
+	}
+	for _, id := range beadRefPattern.FindAllString(row, -1) {
+		if known(id) {
+			return true
+		}
+	}
+	return false
+}
+
+// sectionKind says what a level-two section of tasks.md holds. Work is a
+// checkbox list or a task table and becomes one generated bead. A reference
+// section is a table whose every row cites a bead that already exists, the
+// convention of repositories where Beads alone tracks task state; it stays
+// in tasks.md but generates nothing, since its work is already tracked.
+func sectionKind(lines []string, known func(string) bool) (work, reference bool) {
+	for _, l := range lines {
+		if checkboxPattern.MatchString(l) {
+			return true, false
+		}
+	}
+	rows := tableRows(lines)
+	if len(rows) == 0 {
+		return false, false
+	}
+	for _, row := range rows {
+		if !citesBead(row, known) {
+			return true, false
+		}
+	}
+	return false, true
+}
+
+type taskBlock struct {
+	marker string
+	title  string
+	line   string
+	body   []string
+}
+
 // prepareSections treats tasks.md as authoritative: every checkbox belongs to
 // exactly one level-two section and is retained in its generated bead body.
-func prepareSections(text string, previous []Section, retired []RetiredSection, deps []sectionDependency, historical ...Section) (string, []Section, error) {
+// known reports whether a bead ID exists on the repository's board; it lets
+// reference sections (tables of existing beads) stand without generating
+// beads of their own.
+func prepareSections(text string, previous []Section, retired []RetiredSection, deps []sectionDependency, known func(string) bool, historical ...Section) (string, []Section, error) {
 	old := map[string]Section{}
 	required := map[string]bool{}
 	for _, s := range historical {
@@ -40,17 +108,9 @@ func prepareSections(text string, previous []Section, retired []RetiredSection, 
 		}
 		retiredByID[r.ID] = r.Reason
 	}
-	var output []string
-	var sections []Section
-	seen := map[string]bool{}
-	remap := map[string]string{}
+	var preamble []string
+	var blocks []*taskBlock
 	pending := ""
-	index := -1
-	flush := func() {
-		if index >= 0 {
-			sections[index].Body = strings.TrimSpace(sections[index].Body)
-		}
-	}
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.Contains(line, "nacre-section:") {
@@ -62,39 +122,12 @@ func prepareSections(text string, previous []Section, retired []RetiredSection, 
 			continue
 		}
 		if strings.HasPrefix(line, "## ") {
-			flush()
 			title := strings.TrimSpace(strings.TrimPrefix(line, "## "))
 			if title == "" {
 				return "", nil, fmt.Errorf("empty task section heading")
 			}
-			id := pending
+			blocks = append(blocks, &taskBlock{marker: pending, title: title, line: line})
 			pending = ""
-			original := id
-			if id == "" {
-				id = newID()
-			} else if _, known := old[id]; !known {
-				id = newID()
-			}
-			if original != "" {
-				if _, dup := remap[original]; dup {
-					return "", nil, fmt.Errorf("duplicate task section marker %s", original)
-				}
-				remap[original] = id
-			}
-			if seen[id] {
-				return "", nil, fmt.Errorf("duplicate section %s", id)
-			}
-			seen[id] = true
-			if _, retired := retiredByID[id]; retired {
-				return "", nil, fmt.Errorf("section %s cannot be both active and retired", id)
-			}
-			s := Section{ID: id, Title: title, DependsOn: []string{}}
-			if prior, ok := old[id]; ok {
-				s.BeadID = prior.BeadID
-			}
-			sections = append(sections, s)
-			index = len(sections) - 1
-			output = append(output, "<!-- nacre-section: "+id+" -->", line)
 			continue
 		}
 		if pending != "" {
@@ -103,31 +136,71 @@ func prepareSections(text string, previous []Section, retired []RetiredSection, 
 			}
 			return "", nil, fmt.Errorf("task marker must immediately precede a level-two heading")
 		}
-		if checkboxPattern.MatchString(line) && index < 0 {
-			return "", nil, fmt.Errorf("every task checkbox must belong to a level-two section")
+		if len(blocks) == 0 {
+			if checkboxPattern.MatchString(line) {
+				return "", nil, fmt.Errorf("every task checkbox must belong to a level-two section")
+			}
+			preamble = append(preamble, line)
+			continue
 		}
-		if index >= 0 {
-			sections[index].Body += line + "\n"
-		}
-		output = append(output, line)
+		b := blocks[len(blocks)-1]
+		b.body = append(b.body, line)
 	}
 	if pending != "" {
 		return "", nil, fmt.Errorf("task marker is missing its heading")
 	}
-	flush()
-	if len(sections) == 0 || len(sections) > 40 {
-		return "", nil, fmt.Errorf("tasks.md needs between one and forty sections")
-	}
-	for _, s := range sections {
-		checks := 0
-		for _, l := range strings.Split(s.Body, "\n") {
-			if checkboxPattern.MatchString(l) {
-				checks++
+	output := append([]string{}, preamble...)
+	var sections []Section
+	seen := map[string]bool{}
+	remap := map[string]string{}
+	for _, b := range blocks {
+		work, reference := sectionKind(b.body, known)
+		if !work && !reference {
+			return "", nil, fmt.Errorf("section %q has no tasks: list its work as checkboxes or table rows, or make it a table whose every row cites an existing bead", b.title)
+		}
+		if reference {
+			if _, was := old[b.marker]; was && b.marker != "" {
+				if _, gone := retiredByID[b.marker]; !gone {
+					return "", nil, fmt.Errorf("section %q was tracked work (%s) and can only become a reference table if it is retired with a reason", b.title, b.marker)
+				}
 			}
+			output = append(output, b.line)
+			output = append(output, b.body...)
+			continue
 		}
-		if checks == 0 {
-			return "", nil, fmt.Errorf("section %q needs at least one task checkbox", s.Title)
+		id := b.marker
+		original := id
+		if id == "" {
+			id = newID()
+		} else if _, known := old[id]; !known {
+			id = newID()
 		}
+		if original != "" {
+			if _, dup := remap[original]; dup {
+				return "", nil, fmt.Errorf("duplicate task section marker %s", original)
+			}
+			remap[original] = id
+		}
+		if seen[id] {
+			return "", nil, fmt.Errorf("duplicate section %s", id)
+		}
+		seen[id] = true
+		if _, retired := retiredByID[id]; retired {
+			return "", nil, fmt.Errorf("section %s cannot be both active and retired", id)
+		}
+		s := Section{ID: id, Title: b.title, DependsOn: []string{}, Body: strings.TrimSpace(strings.Join(b.body, "\n"))}
+		if prior, ok := old[id]; ok {
+			s.BeadID = prior.BeadID
+		}
+		sections = append(sections, s)
+		output = append(output, "<!-- nacre-section: "+id+" -->", b.line)
+		output = append(output, b.body...)
+	}
+	if len(sections) == 0 {
+		return "", nil, fmt.Errorf("tasks.md needs at least one section of new work (checkboxes or a task table); reference tables of existing beads generate no work")
+	}
+	if len(sections) > 40 {
+		return "", nil, fmt.Errorf("tasks.md needs between one and forty sections")
 	}
 	for id := range required {
 		if !seen[id] {
@@ -212,4 +285,28 @@ func prepareSections(text string, previous []Section, retired []RetiredSection, 
 		}
 	}
 	return strings.TrimSpace(strings.Join(output, "\n")) + "\n", sections, nil
+}
+
+// boardLookup reports whether a bead ID exists in the repository, listing the
+// board only the first time it is asked. err holds a listing failure, which
+// callers report instead of a misleading "no tasks".
+func (m *Manager) boardLookup(ctx context.Context, repo string) (known func(string) bool, err func() error) {
+	var ids map[string]bool
+	var listErr error
+	known = func(id string) bool {
+		if ids == nil && listErr == nil {
+			ids = map[string]bool{}
+			all, e := m.opts.Beads.List(ctx, repo)
+			if e != nil {
+				listErr = fmt.Errorf("cannot check bead references in tasks.md: %w", e)
+			}
+			for _, raw := range all {
+				if is, e := parseIssue(raw); e == nil && is.ID != "" {
+					ids[is.ID] = true
+				}
+			}
+		}
+		return ids[id]
+	}
+	return known, func() error { return listErr }
 }

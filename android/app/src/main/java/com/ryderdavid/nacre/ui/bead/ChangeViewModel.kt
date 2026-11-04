@@ -71,9 +71,17 @@ class ChangeViewModel(
 
     fun act(action: String) = send(action, null)
 
-    /** Runs the step Ryder chose on the change screen; revise sends what the decision box holds. */
+    /**
+     * Runs the step Ryder chose on the change screen. A revise sends the decision the option
+     * stands for, if any, followed by whatever he wrote himself; nothing is sent in his name
+     * that he didn't pick or type.
+     */
     fun perform(option: com.ryderdavid.nacre.data.model.GuideOption) {
-        if (option.action == "close") shelve(option.label) else act(option.action)
+        when (option.action) {
+            "close" -> shelve(option.label)
+            "revise" -> send("revise", null, listOf(option.feedback, feedback.value).map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n\n"))
+            else -> act(option.action)
+        }
     }
 
     /** Shelving closes the bead the change grew from; nothing has been built. */
@@ -121,15 +129,16 @@ class ChangeViewModel(
         }
     }
 
-    private fun send(action: String, request: ChangeAction?) {
+    private fun send(action: String, request: ChangeAction?, decision: String? = null) {
         if (sending.value) return
         sending.value = true
         val revision = state.value.data?.change?.revision.orEmpty()
         val submitted = feedback.value
+        val sent = decision ?: submitted
         viewModelScope.launch {
             requests.withLock {
                 try {
-                    val envelope = repository.changeAction(repoKey, beadId, request ?: ChangeAction(action, revision, submitted.trim(), run = action == "approve"))
+                    val envelope = repository.changeAction(repoKey, beadId, request ?: ChangeAction(action, revision, sent.trim(), run = action == "approve"))
                     loadDraft(envelope)
                     actionFailure = null
                     state.value = Loadable(envelope)

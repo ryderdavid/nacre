@@ -796,6 +796,8 @@ on the computer that has the repository, without any client connected.
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/v1/repos/{repo}/rounds` | `{"beads":["NAC-1",…] \| "epic":"NAC-9", "target", "budget_usd", "time_limit_minutes", "land_when_ready", "finish", "goal"}` | `Round` (201); 409 with a reason when the repo has no `nacre.yaml`, a bead is closed or missing, a bead is in another active round, or the beads belong to different epics |
+| POST | `/v1/repos/{repo}/config/draft` | – | `{"yaml","notes","problem","cost_usd"}`: Claude reads the repository (read-only, up to $1.50) and drafts a `nacre.yaml`, given this computer's branch, remotes, JDKs, SDKs, tools and other repositories' files as examples; `problem` says why nacred can't use the draft as written. 409 when the repo already has one |
+| POST | `/v1/repos/{repo}/config` | `{"yaml"}` | `{"branch","commit"}`: writes the approved file and commits it alone on the checkout's branch, so round worktrees have it. 400 when it doesn't parse, 409 when the repo already has one (never overwrites), 502 when written but not committed |
 | POST | `/v1/repos/{repo}/epics/{id}/finish` | – | `{"round": Round}` (201): a round that finishes the epic; or `{"closed": true}` (200) when its work is already on the landing target and it has no change to archive. 409 while beads under it are open or a round still works on its branch |
 | GET | `/v1/rounds[?repo={repo}&active=1]` | – | `{"rounds":[Round]}` newest first |
 | GET | `/v1/rounds/{round}` | – | `{"round":Round,"events":[RoundEvent]}` |

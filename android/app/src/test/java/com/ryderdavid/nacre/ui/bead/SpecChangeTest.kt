@@ -172,9 +172,9 @@ class SpecChangeTest {
             com.ryderdavid.nacre.data.model.ChangeFinding("c", "high", "In-place replacement vs updatedAt", disposition = "unresolved"),
         ))
         val retry = changeNextAction(blocked)!!
-        assertEquals("Try again (up to \$5)", retry.label)
+        assertEquals("Finish the draft", retry.label)
         assertTrue("In-place replacement vs updatedAt" in retry.detail, retry.detail)
-        assertEquals("Revise with your feedback (up to \$5)", changeNextAction(blocked, "Replace in place")?.label)
+        assertEquals("Revise with your feedback", changeNextAction(blocked, "Replace in place")?.label)
         assertTrue("from scratch" in changeNextAction(blocked.copy(findings = emptyList()))!!.detail)
     }
     @Test fun aChangeWaitingOnRyderLeadsWithOneStepAndItsAlternatives() {
@@ -194,6 +194,10 @@ class SpecChangeTest {
         assertEquals(listOf("Try again"), guideChoices(written).second.map { it.label })
         assertEquals("Keeps a slot", guideSummary(written).first)
         assertEquals("Approve and run", guideButton(com.ryderdavid.nacre.data.model.GuideOption("approve", "Approve"), "NAC-1"))
+        // No prices on buttons; a revise names what it carries, never "Revise" for the author's own fixes.
+        assertEquals("Go with this", guideButton(pick, "NAC-1"))
+        assertEquals("Finish the draft", guideButton(com.ryderdavid.nacre.data.model.GuideOption("revise", "Finish the draft"), "NAC-1"))
+        assertEquals("Send to the author", guideButton(com.ryderdavid.nacre.data.model.GuideOption("revise", "Your decision"), "NAC-1"))
         assertEquals("approve", guideChoices(approved.copy(phase = "awaiting_approval", approvedRevision = "")).first.action)
         assertTrue("Card jumps" in changeContext(blocked))
     }

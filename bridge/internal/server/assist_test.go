@@ -71,7 +71,14 @@ func assistServer(t *testing.T, transcript string) (ts *httptest.Server, repoID 
 // assistServerScript serves one repo with script as the claude binary.
 func assistServerScript(t *testing.T, script string) (ts *httptest.Server, repoID string) {
 	t.Helper()
-	repoDir := t.TempDir()
+	ts, repoID, _ = assistServerIn(t, script)
+	return ts, repoID
+}
+
+// assistServerIn is assistServerScript that also returns the repo's directory.
+func assistServerIn(t *testing.T, script string) (ts *httptest.Server, repoID, repoDir string) {
+	t.Helper()
+	repoDir = t.TempDir()
 	bin := filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -91,7 +98,7 @@ func assistServerScript(t *testing.T, script string) (ts *httptest.Server, repoI
 	}
 	ts = httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
-	return ts, discovery.RepoID(repoDir)
+	return ts, discovery.RepoID(repoDir), repoDir
 }
 
 func post(t *testing.T, url, body string) (*http.Response, map[string]any) {

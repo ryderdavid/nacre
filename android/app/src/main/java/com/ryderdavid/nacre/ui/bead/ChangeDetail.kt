@@ -47,6 +47,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -140,14 +141,20 @@ fun ChangeDetail(
     val choices = change?.takeIf { guided }?.let(::guideChoices)
     // The step he picked, by label; none is the recommendation. "" is his own decision from the chat.
     var picked by rememberSaveable(change?.id, change?.guide?.recommended) { mutableStateOf<String?>(null) }
-    val own = com.ryderdavid.nacre.data.model.GuideOption("revise", "Your decision", why = "Drafts and reviews the change again with what you wrote, up to \$5.")
+    val own = com.ryderdavid.nacre.data.model.GuideOption("revise", "Your decision", why = "Drafts and reviews the change again with what you wrote.")
     val chosen = choices?.let { (rec, others) -> if (picked == "") own else others.firstOrNull { it.label == picked } ?: rec }
     var showDetails by rememberSaveable(change?.id) { mutableStateOf(false) }
     val prefs by com.ryderdavid.nacre.ui.common.LocalContainer.current.settings.settings.collectAsState(initial = null)
-    // The recommended revise arrives with its feedback written; it fills an empty box once.
-    LaunchedEffect(change?.guide?.recommended, draftReady) {
-        val rec = choices?.first
-        if (draftReady && picked == null && rec?.action == "revise" && rec.feedback.isNotBlank() && feedback.isBlank()) vm.setFeedback(rec.feedback)
+    // Approving runs the epic, which needs the repository's gates: set them up first, then go on.
+    val changeRepos = com.ryderdavid.nacre.ui.common.LocalContainer.current.repository
+    var gatesThen by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val withGates: (String?, () -> Unit) -> Unit = { action, go ->
+        if ((action == "approve" || action == "run") && com.ryderdavid.nacre.ui.rounds.needsGateSetup(changeRepos.repo(vm.repoKey))) gatesThen = go else go()
+    }
+    gatesThen?.let { go ->
+        changeRepos.repo(vm.repoKey)?.let { r ->
+            com.ryderdavid.nacre.ui.rounds.GatesSetupSheet(r, onDismiss = { gatesThen = null }, onSaved = { gatesThen = null; go() })
+        }
     }
     // Poll until the computer has written the guide.
     LaunchedEffect(guided, change?.guide == null) {
@@ -182,13 +189,13 @@ fun ChangeDetail(
                             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                                 Text(
-                                    action?.detail ?: "A bounded author and independent reviewer cycle runs on your computer, up to $5 per attempt. You review the result before implementation.",
+                                    action?.detail ?: "Claude drafts the change and an independent reviewer checks it on your computer until it holds up. You review the result before implementation.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Button(
                                     onClick = {
                                         when (action?.action) {
-                                            "run" -> vm.runEpic { onOpenRound(it.key) }
+                                            "run" -> withGates("run") { vm.runEpic { onOpenRound(it.key) } }
                                             "epic" -> onOpenBead(change.epicId)
                                             "review" -> {
                                                 val round = change.activeRoundId.ifBlank { change.evidence.lastOrNull { it.roundId.isNotBlank() }?.roundId.orEmpty() }
@@ -196,7 +203,7 @@ fun ChangeDetail(
                                                 else change.evidence.lastOrNull { it.runId.isNotBlank() }?.let { onOpenRun(Keys.of(Keys.host(vm.repoKey), it.runId)) }
                                             }
                                             "refresh" -> scope.launch { vm.refresh(clearActionError = true) }
-                                            else -> vm.act(action?.action ?: "develop")
+                                            else -> withGates(action?.action) { vm.act(action?.action ?: "develop") }
                                         }
                                     },
                                     enabled = if (action?.action in setOf("review", "epic")) !sending else canAct && draftReady,
@@ -248,7 +255,7 @@ fun ChangeDetail(
                                     GuideDecision(
                                         chosen, recommended = chosen == choices.first, seedId = change.seedId,
                                         feedback = feedback, onFeedback = vm::setFeedback,
-                                        enabled = canAct && draftReady, sending = sending, onGo = { vm.perform(chosen) },
+                                        enabled = canAct && draftReady, sending = sending, onGo = { withGates(chosen.action) { vm.perform(chosen) } },
                                     )
                                 })
                             }
@@ -256,7 +263,6 @@ fun ChangeDetail(
                                 AdaptivePair(wide, {
                                     GuideOptions((listOf(choices.first) + choices.second).filter { it != chosen }, choices.first) { o ->
                                         picked = if (o == choices.first) null else o.label
-                                        if (o.action == "revise") vm.setFeedback(o.feedback)
                                     }
                                 }, {
                                     ChangeChat(change, vm.repoKey, prefs?.claudeConfigured == true, busy = !canAct, startOpen = wide) { text ->
@@ -357,7 +363,7 @@ fun ChangeDetail(
                         OutlinedTextField(
                             value = feedback, onValueChange = vm::setFeedback, enabled = draftReady,
                             label = { Text(if (change == null) "Goals or constraints" else "What should change?") },
-                            supportingText = { Text(if (change?.activeRoundId?.isNotBlank() == true) "Saved on this device. Finish the active implementation round before revising the proposal." else "Saved on this device when you leave. Revision cycles use up to $5 per attempt.") },
+                            supportingText = { Text(if (change?.activeRoundId?.isNotBlank() == true) "Saved on this device. Finish the active implementation round before revising the proposal." else "Saved on this device when you leave.") },
                             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), minLines = 3,
                         )
                     }
@@ -388,7 +394,7 @@ private fun AdoptableCard(written: AdoptableChange, enabled: Boolean, onAdopt: (
                 }
                 Text(
                     if (recorded) "No AI cost. You still approve before anything changes in Beads."
-                    else "One independent review of the files as written, up to $5. You approve before anything changes in Beads.",
+                    else "One independent review of the files as written. You approve before anything changes in Beads.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FilledTonalButton(onClick = { onAdopt(recorded) }, enabled = enabled) { Text("Adopt as written") }

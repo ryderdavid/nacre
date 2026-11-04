@@ -174,6 +174,11 @@ fun BeadDetail(
     // Unlinked beads develop a proposal from the overflow menu and Refine, not a card.
     val developable = issue != null && !issue!!.hasSpecWorkflow && boardChange == null && changeState.data?.change == null && changeState.data?.available == true
     var chooseComputer by rememberSaveable { mutableStateOf(false) }
+    // Starting work in a repository without nacre.yaml sets up its gates first, then goes on.
+    var gatesFor by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    val withGates: (String, () -> Unit) -> Unit = { key, go ->
+        if (com.ryderdavid.nacre.ui.rounds.needsGateSetup(container.repository.repo(key))) gatesFor = key to go else go()
+    }
     var showLabels by remember { mutableStateOf(false) }
     var showAssignee by remember { mutableStateOf(false) }
     var showDepPicker by remember { mutableStateOf(false) }
@@ -236,7 +241,7 @@ fun BeadDetail(
                             if (activeRound != null) onOpenRound(activeRound.key)
                             else if (!busy) {
                                 if (targets.size > 1) chooseComputer = true
-                                else vm.startWork(targets.singleOrNull()?.repo?.key ?: repoKey) { onOpenRound(it.key) }
+                                else (targets.singleOrNull()?.repo?.key ?: repoKey).let { k -> withGates(k) { vm.startWork(k) { onOpenRound(it.key) } } }
                             }
                         },
                         icon = { Icon(Icons.Rounded.PlayArrow, null) },
@@ -282,7 +287,7 @@ fun BeadDetail(
                             i, ix, isChange = boardChanges?.changes?.any { it.epicId == i.id } == true, busy = busy,
                             activeRound = rounds.firstOrNull { r -> r.isActive && (r.epic == i.id || r.finishEpic == i.id || r.beads.any { b -> ix.byId[b.id]?.parent == i.id }) },
                             onOpenRound = onOpenRound,
-                            onRunEpic = { vm.workEpic { round -> onOpenRound(round.key) } },
+                            onRunEpic = { withGates(repoKey) { vm.workEpic { round -> onOpenRound(round.key) } } },
                             onFinish = { vm.finishEpic { round -> round?.let { onOpenRound(it.key) } } },
                         )
                     }
@@ -351,7 +356,12 @@ fun BeadDetail(
             onOpenRound = { showChange = false; onOpenRound(it) },
         )
         if (chooseComputer) StartWorkDialog(targets, busy, onDismiss = { chooseComputer = false }) { target ->
-            vm.startWork(target) { round -> chooseComputer = false; onOpenRound(round.key) }
+            withGates(target) { vm.startWork(target) { round -> chooseComputer = false; onOpenRound(round.key) } }
+        }
+        gatesFor?.let { (key, go) ->
+            container.repository.repo(key)?.let { r ->
+                com.ryderdavid.nacre.ui.rounds.GatesSetupSheet(r, onDismiss = { gatesFor = null }, onSaved = { gatesFor = null; go() })
+            }
         }
         if (showRun) prefs?.let { p ->
             var initial by remember { mutableStateOf<String?>(null) }

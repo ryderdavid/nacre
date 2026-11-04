@@ -46,7 +46,7 @@ class SpecSurfacesTest {
     @Test fun intakeRouting() {
         val amend = IntakeVerdict("amend", changeName = "rounds", rationale = "Changes retry.", activeChanges = listOf("rounds", "chat"))
         assertEquals(EffortRoute.Amend("rounds"), EffortRoute.of(amend))
-        assertEquals("Create and develop · up to \$5", EffortRoute.of(amend).confirmLabel())
+        assertEquals("Create and develop", EffortRoute.of(amend).confirmLabel())
         assertEquals("Intake: amend rounds, because Changes retry.", EffortRoute.of(amend).feedback(amend))
         assertEquals("Intake: a new change, chosen by Ryder over intake's verdict", EffortRoute.NewChange.feedback(amend))
         assertEquals("amend", EffortRoute.Amend("rounds").hint()!!.verdict)

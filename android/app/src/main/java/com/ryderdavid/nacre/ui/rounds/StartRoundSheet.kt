@@ -100,7 +100,7 @@ fun boardScopeLabel(index: BoardIndex, f: BoardFilter?): String? {
 fun roundUnavailable(repo: Repo?): String? = when {
     repo == null -> "This board isn't loaded yet."
     repo.gatesError.isNotBlank() -> "Its nacre.yaml can't be used: ${repo.gatesError}"
-    repo.gates.isEmpty() -> "${repo.name} needs a nacre.yaml first: it names the tests and build that decide when work is done."
+    repo.gates.isEmpty() -> "${repo.name} needs a nacre.yaml first: it names the tests and build that decide when work is done. Set up gates drafts one for you to check."
     else -> null
 }
 
@@ -128,6 +128,8 @@ fun StartRoundSheet(
     val shown = scopedCandidates(candidates, index, boardFilter, query, keepScope)
     val hiddenPicks = picked.count { id -> shown.none { it.id == id } }
     val budgetValid = budget.isBlank() || budget.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true
+    var settingUpGates by rememberSaveable { mutableStateOf(false) }
+    if (settingUpGates && repo != null) GatesSetupSheet(repo, onDismiss = { settingUpGates = false }, onSaved = { settingUpGates = false })
 
     HandleDismissSheet(onDismiss = onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).navigationBarsPadding().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -138,6 +140,9 @@ fun StartRoundSheet(
             )
             if (unavailable != null) {
                 Text(unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                if (needsGateSetup(repo)) Button(onClick = { settingUpGates = true }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                    Text("Set up gates")
+                }
             } else {
                 Text("Gates: ${repo!!.gates.joinToString(", ")}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (candidates.isEmpty()) Text("No ordinary open work is available. Specification work starts from its Change card.", style = MaterialTheme.typography.bodyMedium)

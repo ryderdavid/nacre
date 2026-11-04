@@ -498,7 +498,7 @@ func TestReviewBlocksBoundedLoopAndMalformedAssessment(t *testing.T) {
 					if malformed {
 						r.Assessments = r.Assessments[:4]
 					} else {
-						r.Findings = []Finding{{"B1", "blocker", "Conflicts with goal", "Required recovery is absent", "unresolved"}}
+						r.Findings = []Finding{{ID: "B1", Severity: "blocker", Summary: "Conflicts with goal", Detail: "Required recovery is absent", Disposition: "unresolved"}}
 					}
 					return r, 0.1, nil
 				}
@@ -509,7 +509,7 @@ func TestReviewBlocksBoundedLoopAndMalformedAssessment(t *testing.T) {
 			if c.Phase != "needs_attention" || b.creates != 0 {
 				t.Fatalf("%+v", c)
 			}
-			want := 6
+			want := 2 * MaxPasses
 			if malformed {
 				want = 2
 			}
@@ -527,7 +527,7 @@ func TestIndependentReviewRepairsThenRecordsDispositions(t *testing.T) {
 	model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
 		if n == 2 {
 			r := goodReview(modelContext(h))
-			r.Findings = []Finding{{"B1", "high", "Missing restoration", "Add recovery verification", "unresolved"}}
+			r.Findings = []Finding{{ID: "B1", Severity: "high", Summary: "Missing restoration", Detail: "Add recovery verification", Disposition: "unresolved"}}
 			return r, 0.2, nil
 		}
 		return normalModel(ctx, h, n)
@@ -715,13 +715,13 @@ func TestTaskSectionsRejectDisappearingWorkDuplicateMarkersAndCycles(t *testing.
 	old := []Section{{ID: "sfknown001", Title: "One", BeadID: "NAC-2", Body: "- [ ] one"}}
 	cases := []string{"## Renamed without marker\n- [ ] same task", "<!-- nacre-section: sfknown001 -->\n## One\n- [ ] one\n<!-- nacre-section: sfknown001 -->\n## Two\n- [ ] two", "- [ ] outside\n## One\n- [ ] one"}
 	for _, body := range cases {
-		if _, _, e := prepareSections(body, old, nil, nil); e == nil {
+		if _, _, e := prepareSections(body, old, nil, nil, nil); e == nil {
 			t.Fatalf("invalid sections accepted: %s", body)
 		}
 	}
 	body := "<!-- nacre-section: sfknown001 -->\n## Renamed\n- [ ] one\n<!-- nacre-section: sfknown002 -->\n## Other\n- [ ] two"
 	deps := []sectionDependency{{"sfknown001", []string{"sfknown002"}}, {"sfknown002", []string{"sfknown001"}}}
-	if _, _, e := prepareSections(body, old, nil, deps); e == nil {
+	if _, _, e := prepareSections(body, old, nil, deps, nil); e == nil {
 		t.Fatal("cycle accepted")
 	}
 }
@@ -840,7 +840,7 @@ func TestPendingPreparedWriteRecoveryRetainsMarkersAndRetirements(t *testing.T) 
 	r.PendingPrepared = true
 	r.PendingAuthor = &authorResult{Route: r.Change.Route, ChangeName: r.Change.ChangeName, Summary: r.Change.Summary, Rationale: r.Change.Rationale, References: r.Change.References, Artifacts: clone(r.Change.Artifacts), Retired: []RetiredSection{{ID: "alreadyremoved", Reason: "Previously handled"}}}
 	before := r.Change.Sections[0].ID
-	if e := m.applyAuthor(r); e != nil {
+	if e := m.applyAuthor(context.Background(), r); e != nil {
 		t.Fatal(e)
 	}
 	if r.Change.Sections[0].ID != before {
@@ -940,10 +940,11 @@ func TestReviewerRetryBound(t *testing.T) {
 	}
 	m := newManager(t, opts)
 	c := act(t, m, repo, "NAC-1", Action{Action: "develop"})
-	for i := 0; i < 4; i++ {
+	for i := 0; i < MaxPasses+1; i++ {
 		c = act(t, m, repo, "NAC-1", Action{Action: "resume"})
 	}
-	if model.count() != 4 || c.Phase != "needs_attention" {
+	// One author call, then MaxPasses reviewer attempts and no more.
+	if model.count() != 1+MaxPasses || c.Phase != "needs_attention" {
 		t.Fatalf("review attempts exceeded action bound: %d %+v", model.count(), c)
 	}
 }
@@ -1210,5 +1211,51 @@ func TestABeadReadThatFailsNeverMakesAnApprovedChangeStale(t *testing.T) {
 	}
 	if _, e := m.Contract(context.Background(), repo, id); e != nil {
 		t.Fatalf("its sections can't run: %v", e)
+	}
+}
+
+// The author fixes what it can on its own: a medium finding is drafted away
+// before the owner sees the change, while a finding that needs the owner
+// stops at once, with its choices, instead of being guessed at.
+func TestReviewFixesOwnFindingsAndStopsOnlyForOwnerDecisions(t *testing.T) {
+	for _, owner := range []bool{false, true} {
+		t.Run(fmt.Sprint(owner), func(t *testing.T) {
+			repo, _, model, opts := fixture(t)
+			var mu sync.Mutex
+			reviews := 0
+			model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
+				if h.System == reviewerSystem {
+					mu.Lock()
+					reviews++
+					first := reviews == 1
+					mu.Unlock()
+					r := goodReview(modelContext(h))
+					f := Finding{ID: "M1", Severity: "medium", Summary: "Lock behavior unspecified", Detail: "Close the viewer on lock", Disposition: "resolved"}
+					if first {
+						f.Disposition = "unresolved"
+					}
+					if owner {
+						f.Disposition, f.NeedsOwner, f.Choices = "unresolved", true, []string{"Close on lock", "Keep it open"}
+					}
+					r.Findings = []Finding{f}
+					return r, 0.1, nil
+				}
+				return normalModel(ctx, h, n)
+			}
+			m := newManager(t, opts)
+			c := act(t, m, repo, "NAC-1", Action{Action: "develop"})
+			mu.Lock()
+			got := reviews
+			mu.Unlock()
+			if c.Phase != "awaiting_approval" {
+				t.Fatalf("phase %s: %s", c.Phase, c.Error)
+			}
+			if want := map[bool]int{false: 2, true: 1}[owner]; got != want {
+				t.Fatalf("reviews=%d want %d", got, want)
+			}
+			if owner && (len(c.Findings) != 1 || !c.Findings[0].NeedsOwner || len(c.Findings[0].Choices) != 2) {
+				t.Fatalf("owner question lost: %+v", c.Findings)
+			}
+		})
 	}
 }

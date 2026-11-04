@@ -35,7 +35,7 @@ interface BoardTools {
     suspend fun developProposal(id: String, feedback: String?): String = "Proposals aren't available on this board."
     suspend fun foundSomething(foundIn: String, note: String, answer: String): String = "Specification changes aren't available on this board."
     /** A line for the approval card of a spending call: its limit and what it is compared with. */
-    suspend fun proposalNote(id: String?): String = "Up to \$5 per proposal action"
+    suspend fun proposalNote(id: String?): String = ""
 }
 
 /**
@@ -458,7 +458,7 @@ class BoardAssistant(
 
             When Ryder asks what to work on next or what needs him, start from needs_you (or the Needs you list in this prompt): mention what waits on him before suggesting new work.
 
-            Specification proposals: offer develop_proposal, or create_bead with then_develop, only for features or epics whose intent changes behavior an accepted spec or active change covers, or when Ryder asks. Never for chores, small fixes, or beads already linked to a change. Both spend up to ${'$'}5 and always ask Ryder, even when he has turned on auto-apply. If Ryder declines one for a bead, don't offer it again for that bead in this conversation. When work is found while a change is implemented, use found_something: how_order unless it changes what done means.
+            Specification proposals: offer develop_proposal, or create_bead with then_develop, only for features or epics whose intent changes behavior an accepted spec or active change covers, or when Ryder asks. Never for chores, small fixes, or beads already linked to a change. Both run Claude on the computer and always ask Ryder, even when he has turned on auto-apply. If Ryder declines one for a bead, don't offer it again for that bead in this conversation. When work is found while a change is implemented, use found_something: how_order unless it changes what done means.
 
             Answer in short, scannable markdown suited to a phone screen. $refer
         """.trimIndent()

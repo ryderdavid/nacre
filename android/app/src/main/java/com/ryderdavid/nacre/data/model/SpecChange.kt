@@ -60,6 +60,9 @@ data class ChangeArtifact(val path: String, val content: String)
 data class ChangeFinding(
     val id: String, val severity: String, val summary: String,
     val detail: String = "", val disposition: String = "",
+    /** Only Ryder can settle it; everything else the author fixes on its own. */
+    @SerialName("needs_owner") val needsOwner: Boolean = false,
+    val choices: List<String> = emptyList(),
 )
 
 @Serializable
@@ -291,3 +294,16 @@ data class ChangeGuide(
 /** One next step: approve, revise (with [feedback] as Ryder's guidance), resume, or close (shelve the bead). */
 @Serializable
 data class GuideOption(val action: String, val label: String, val feedback: String = "", val why: String = "")
+
+/** A nacre.yaml drafted on the computer for Ryder to review; [problem] is why nacred can't use it as written. */
+@Serializable
+data class RepoConfigDraft(
+    val yaml: String,
+    val notes: String = "",
+    val problem: String = "",
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
+)
+
+/** Where an approved nacre.yaml was committed. */
+@Serializable
+data class SavedRepoConfig(val branch: String = "", val commit: String = "")

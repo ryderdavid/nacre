@@ -108,9 +108,11 @@ fun GuideDecision(
                 }
                 Text(option.label, style = MaterialTheme.typography.titleMedium)
             }
+            // The decision this option stands for is shown as the option's, never typed into his box.
+            if (option.action == "revise" && option.feedback.isNotBlank()) Text(option.feedback, style = MaterialTheme.typography.bodyMedium)
             if (option.action == "revise") OutlinedTextField(
                 value = feedback, onValueChange = onFeedback, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-                label = { Text("Your decisions, sent as feedback") }, placeholder = { Text("Leave empty to try again as it is") },
+                label = { Text("Anything to add (optional)") },
                 minLines = 2, maxLines = 8,
             )
             if (option.why.isNotBlank()) Text(option.why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

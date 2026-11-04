@@ -11,6 +11,8 @@ import com.ryderdavid.nacre.data.model.FoundRequest
 import com.ryderdavid.nacre.data.model.FoundResult
 import com.ryderdavid.nacre.data.model.IntakeDraft
 import com.ryderdavid.nacre.data.model.IntakeVerdict
+import com.ryderdavid.nacre.data.model.RepoConfigDraft
+import com.ryderdavid.nacre.data.model.SavedRepoConfig
 import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.DaemonUpdate
@@ -114,6 +116,9 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
      */
     private val assistHttp = http.newBuilder().readTimeout(ASSIST_SILENCE_S, TimeUnit.SECONDS).build()
 
+    /** One bounded Claude call that answers only when it finishes, such as drafting nacre.yaml. */
+    private val slowHttp = http.newBuilder().readTimeout(5, TimeUnit.MINUTES).build()
+
     @Serializable private data class Repos(val repos: List<Repo>)
     @Serializable data class Board(val repo: Repo, val issues: List<Issue>)
     @Serializable data class Detail(val issue: Issue, val comments: List<Comment> = emptyList())
@@ -180,6 +185,15 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         send("POST", "/v1/repos/$repo/changes/${enc(change)}/draft/dismiss", Reason())
 
     suspend fun intake(repo: String, draft: IntakeDraft): IntakeVerdict = send("POST", "/v1/repos/$repo/intake", draft)
+
+    @Serializable private data class ConfigBody(val yaml: String)
+
+    /** Has Claude on the computer draft a nacre.yaml; it reads the repository, so it can take minutes. */
+    suspend fun draftRepoConfig(repo: String): RepoConfigDraft =
+        call(Request.Builder().url(url("/v1/repos/$repo/config/draft")).post("{}".toRequestBody(JSON)).build(), slowHttp)
+
+    /** Writes and commits an approved nacre.yaml; never overwrites one. */
+    suspend fun saveRepoConfig(repo: String, yaml: String): SavedRepoConfig = send("POST", "/v1/repos/$repo/config", ConfigBody(yaml))
 
     suspend fun found(repo: String, change: String, req: FoundRequest): FoundResult =
         send("POST", "/v1/repos/$repo/changes/${enc(change)}/found", req)
@@ -383,8 +397,8 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         return call(Request.Builder().url(url(path)).method(method, rb).build())
     }
 
-    private suspend inline fun <reified T> call(req: Request): T {
-        val body = withContext(Dispatchers.IO) { http.newCall(req).await().use { resp -> resp.checked() } }
+    private suspend inline fun <reified T> call(req: Request, client: OkHttpClient = http): T {
+        val body = withContext(Dispatchers.IO) { client.newCall(req).await().use { resp -> resp.checked() } }
         return json.decodeFromString(body)
     }
 

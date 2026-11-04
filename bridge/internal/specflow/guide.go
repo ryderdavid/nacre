@@ -34,11 +34,13 @@ type GuideOption struct {
 
 const guideSystem = "You help a busy owner decide the next step on an OpenSpec change that has stopped and is waiting on them. " +
 	"Write short, plain sentences without jargon or file paths. summary: one or two sentences on what the change does for the user of the app. " +
-	"status: one sentence on how it went: reviews, cost so far, and why it stopped. blocking: each unresolved blocker or high finding, and a medium one when few remain, " +
-	"as one plain sentence each; empty when nothing blocks. recommended: the single best next step. For revise, write feedback as the concrete decisions the author " +
-	"should make, resolving every blocking point, in at most three sentences the owner can accept as is. why: one sentence on why this step. " +
-	"options: two to four real alternatives, each with why saying what it costs or leads to. A different decision on a blocking point is a revise option with its own feedback. " +
-	"Use only the allowed actions. Labels are verb-first, sentence case, at most six words, and never mention cost."
+	"status: one sentence on how it went: the review passes and why it stopped. blocking: each finding that needs the owner, then any unresolved blocker or high finding, " +
+	"as one plain sentence each; empty when nothing blocks. recommended: the single best next step. why: one sentence on why this step. " +
+	"The author fixes on its own everything that doesn't need the owner, so never write feedback for such findings and never phrase the author's work as the owner's decisions. " +
+	"Feedback is only ever one owner decision: for a finding marked as needing the owner, each of its choices is a revise option whose feedback is that choice, " +
+	"the best one recommended. When findings the author can fix are still open and none need the owner, recommend revise labelled \"Finish the draft\" with empty feedback. " +
+	"options: two to four real alternatives, each with why saying what it leads to. " +
+	"Use only the allowed actions. Labels are verb-first, sentence case, at most six words. Never mention money in labels or why."
 
 var guideSchema = map[string]any{
 	"type":                 "object",
@@ -163,7 +165,7 @@ func guidePrompt(r *record, allowed []string) string {
 	c := r.Change
 	var s strings.Builder
 	fmt.Fprintf(&s, "Bead %s: %s\n%s\n\n", r.Seed.ID, r.Seed.Title, r.Seed.Description)
-	fmt.Fprintf(&s, "Change %s (route %s), phase %s, $%.2f spent so far.\nSummary: %s\n", c.ChangeName, c.Route, c.Phase, c.CostUSD, c.Summary)
+	fmt.Fprintf(&s, "Change %s (route %s), phase %s.\nSummary: %s\n", c.ChangeName, c.Route, c.Phase, c.Summary)
 	if c.Error != "" {
 		fmt.Fprintf(&s, "Why it stopped: %s\n", c.Error)
 	}
@@ -172,7 +174,11 @@ func guidePrompt(r *record, allowed []string) string {
 	}
 	s.WriteString("\nReview findings:\n")
 	for _, f := range c.Findings {
-		fmt.Fprintf(&s, "- [%s, %s] %s: %s\n", f.Severity, f.Disposition, f.Summary, f.Detail)
+		who := "author can fix"
+		if f.NeedsOwner {
+			who = "needs the owner; choices: " + strings.Join(f.Choices, " | ")
+		}
+		fmt.Fprintf(&s, "- [%s, %s, %s] %s: %s\n", f.Severity, f.Disposition, who, f.Summary, f.Detail)
 	}
 	s.WriteString("\nRecent history:\n")
 	h := c.History
@@ -183,7 +189,7 @@ func guidePrompt(r *record, allowed []string) string {
 		fmt.Fprintf(&s, "- %s: %s\n", e.Kind, e.Text)
 	}
 	fmt.Fprintf(&s, "\nAllowed actions: %s.\n", strings.Join(allowed, ", "))
-	s.WriteString("approve: approve the reviewed revision and run its work. revise: draft and review the change again with the feedback, up to $5. " +
+	s.WriteString("approve: approve the reviewed revision and run its work. revise: draft and review the change again, with the owner's decision as feedback when there is one. " +
 		"resume: continue the saved workflow without starting over. close: shelve the bead; nothing has been built.\n")
 	return s.String()
 }

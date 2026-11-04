@@ -105,6 +105,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/repos/{repo}/intake", s.intake)
 	mux.HandleFunc("POST /v1/repos/{repo}/changes/{change}/found", s.found)
 	mux.HandleFunc("POST /v1/repos/{repo}/changes/{change}/draft/dismiss", s.dismissDraft)
+	mux.HandleFunc("POST /v1/repos/{repo}/config/draft", s.draftRepoConfig)
+	mux.HandleFunc("POST /v1/repos/{repo}/config", s.saveRepoConfig)
 	mux.HandleFunc("GET /v1/attention", s.listAttention)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
 	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)

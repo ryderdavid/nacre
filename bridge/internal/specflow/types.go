@@ -53,6 +53,12 @@ type Finding struct {
 	Summary     string `json:"summary"`
 	Detail      string `json:"detail"`
 	Disposition string `json:"disposition"`
+	// NeedsOwner marks a finding only Ryder can settle: product direction,
+	// scope, or a trade-off with no clearly better answer. Everything else
+	// is the author's to fix without asking.
+	NeedsOwner bool `json:"needs_owner,omitempty"`
+	// Choices are the concrete ways to settle a NeedsOwner finding, best first.
+	Choices []string `json:"choices,omitempty"`
 }
 type Section struct {
 	ID        string   `json:"id"`
@@ -161,9 +167,13 @@ type Options struct {
 }
 
 // MaxActionCostUSD is what one proposal action (drafting and its reviews) may
-// spend in all: only a guard against a runaway, not a budget for the work.
-const MaxActionCostUSD = claude.RunawayUSD
-const MaxPasses = 3
+// spend in all: only a guard against a runaway, not a budget for the work. A
+// pass usually costs about $2, so ordinary drafting stays well below it.
+const MaxActionCostUSD = 30.0
+
+// MaxPasses bounds author/reviewer passes in one action. The author keeps
+// fixing the reviewer's findings until none it can settle are left.
+const MaxPasses = 5
 const OperationTimeout = 30 * time.Minute
 
 // Contract is immutable, exact-revision input for an implementation round.

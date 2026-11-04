@@ -124,7 +124,7 @@ class RepoBoardTools(
 
     override suspend fun proposalNote(id: String?): String {
         val inventory = id?.let { runCatching { repo.change(repoKey, it).inventory }.getOrNull() }
-        return "Up to \$5 per proposal action" + (inventory?.let { " · compared with ${it.acceptedSpecs} accepted specs and ${it.activeChanges} active changes" } ?: "")
+        return inventory?.let { "Compared with ${it.acceptedSpecs} accepted specs and ${it.activeChanges} active changes" }.orEmpty()
     }
 
     override suspend fun foundSomething(foundIn: String, note: String, answer: String): String {
