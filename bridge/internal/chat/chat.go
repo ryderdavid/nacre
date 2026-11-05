@@ -48,7 +48,8 @@ const (
 	KindSystem     = "system"
 )
 
-// Routes an assistant event came from. Until routing lands every turn is full.
+// Routes an assistant event came from: a light turn (the router's quick
+// answer) or the full harness.
 const (
 	RouteFull  = "full"
 	RouteLight = "light"
@@ -183,6 +184,8 @@ type Manager struct {
 	chats map[string]*chatState
 	// active counts running turns, for the update maintenance reservation.
 	active int
+	// rejected are chat models the CLI refused; routing stops using them.
+	rejected map[string]bool
 }
 
 // Options configure a Manager.
@@ -204,6 +207,12 @@ type Options struct {
 	// PermissionTimeout is how long a permission request waits for the
 	// phone; zero is PermissionTimeout (15 minutes).
 	PermissionTimeout time.Duration
+	// RouterModel and LightModel are chat.router_model and
+	// chat.light_model. Claude chat messages are routed only when both are
+	// set.
+	RouterModel, LightModel string
+	// RouterTimeout bounds a routing call; zero is RouterTimeout (15s).
+	RouterTimeout time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }

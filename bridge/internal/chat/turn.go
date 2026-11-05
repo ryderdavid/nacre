@@ -46,6 +46,9 @@ type turn struct {
 	mu     sync.Mutex
 	// stopped is set when the turn was cancelled on purpose.
 	stopped bool
+	// cost is what the turn's router, light and full parts spent (guarded
+	// by the manager's lock).
+	cost float64
 }
 
 func (t *turn) stop() {
@@ -129,6 +132,16 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		cc := *req.Context
 		ctxCopy = &cc
 	}
+	plan := turnPlan{note: note, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
+	if c.rec.Agent == AgentClaude && m.routingOnLocked() {
+		// The router sees the history before this message, never files.
+		plan.routed = true
+		plan.router = RouterInput{
+			Text: req.Text, Note: note, NewEffort: c.rec.NewEffort,
+			History: routerHistory(c.events),
+		}
+		plan.lightModel = m.opts.LightModel
+	}
 	m.appendLocked(c, Event{Kind: KindUser, TurnID: req.TurnID, Text: req.Text, Context: ctxCopy})
 	c.rec.LastContext = ctxCopy
 	c.rec.TurnIDs = append(c.rec.TurnIDs, req.TurnID)
@@ -138,28 +151,38 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	c.rec.TurnID = req.TurnID
 	c.rec.State, c.rec.Reason = StateRunning, ""
 
-	spec := claude.Chat{
-		Briefing:     Briefing(BriefingInput{Host: m.opts.HostName, NacredURL: m.opts.NacredURL, Phone: c.rec.Phone}),
-		MaxBudgetUSD: Remaining(c.rec.CostUSD),
-		AddDirs:      append([]string{}, c.rec.AddDirs...),
-	}
-	if c.rec.SessionStarted {
-		spec.Resume = c.rec.SessionID
-	} else {
-		spec.SessionID = c.rec.SessionID
+	plan.spec = claude.Chat{
+		Briefing: Briefing(BriefingInput{Host: m.opts.HostName, NacredURL: m.opts.NacredURL, Phone: c.rec.Phone}),
+		AddDirs:  append([]string{}, c.rec.AddDirs...),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), TurnTimeout)
 	t := &turn{id: req.TurnID, cancel: cancel}
 	c.turn = t
-	// Counted before the turn starts, so an update can't slip in between.
+	// Counted before the turn starts, router included, so an update can't
+	// slip in between.
 	m.active++
 	m.touchLocked(c)
 	res := SendResult{TurnID: req.TurnID, Started: true, Chat: c.rec}
 	cwd, env := c.rec.Cwd, claude.ChatEnv(m.opts.NacredURL)
 	m.mu.Unlock()
 
-	go m.run(ctx, c, t, cwd, env, spec, note, req.Text)
+	go m.run(ctx, c, t, cwd, env, plan)
 	return res, nil
+}
+
+// turnPlan is what one message's turn runs.
+type turnPlan struct {
+	// spec is the full turn's argv without its session or budget, which
+	// are set as each part starts.
+	spec claude.Chat
+	note string
+	text string
+	// reminder is the one-line "On screen: same as before" note.
+	reminder string
+	// routed asks the router first.
+	routed     bool
+	router     RouterInput
+	lightModel string
 }
 
 // Remaining is what is left of a chat's runaway ceiling after spent.
@@ -198,10 +221,12 @@ func (m *Manager) emit(c *chatState, ev Event) {
 	m.appendLocked(c, ev)
 }
 
-// run is one turn's agent process, from start to the turn_end event.
-func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note, text string) {
+// run is one turn, from the router call to the turn_end event: the router,
+// then a light turn that may hand off to a full one, or a full turn alone.
+// Stop cancels ctx, and with it whichever part is running.
+func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, env []string, p turnPlan) {
 	defer t.cancel()
-	result, runErr := m.exec(ctx, c, t, cwd, env, spec, note, text)
+	result, runErr := m.parts(ctx, c, t, cwd, env, p)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -211,12 +236,6 @@ func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, en
 		m.closePendingLocked(c, StoppedReason, ByStop)
 	} else {
 		m.closePendingLocked(c, TurnOverReason, ByTurnEnd)
-	}
-	if result != nil {
-		c.rec.CostUSD += result.CostUSD
-		if result.SessionID != "" && result.SessionID == c.rec.SessionID {
-			c.rec.SessionStarted = true
-		}
 	}
 	endText := "Turn finished"
 	isErr := false
@@ -234,9 +253,7 @@ func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, en
 	if isErr {
 		end.IsError = api.Bool(true)
 	}
-	if result != nil {
-		end.CostUSD = result.CostUSD
-	}
+	end.CostUSD = t.cost
 	m.appendLocked(c, end)
 	if c.rec.CostUSD >= claude.ChatRunawayUSD-0.005 {
 		c.rec.State, c.rec.Reason = StateLimitReached, LimitReason
@@ -246,13 +263,129 @@ func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, en
 	m.touchLocked(c)
 }
 
-// exec runs the claude process for one turn and returns its result line,
-// or an error when it ended without one.
-func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note, text string) (*claude.Result, error) {
+// errLimitMidTurn ends a turn whose earlier parts spent the chat's ceiling.
+var errLimitMidTurn = errors.New(LimitReason)
+
+// parts runs the router, the light turn and the full turn as the plan and
+// the router's answer say, and returns the last part's result.
+func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, env []string, p turnPlan) (*claude.Result, error) {
+	route := RouteFull
+	if p.routed {
+		d := m.route(ctx, p.router, m.remaining(c))
+		m.addCost(c, t, d.Cost)
+		if d.Rejected {
+			m.modelRejected(m.opts.RouterModel, "router")
+		}
+		if d.Route == RouteLight {
+			route = RouteLight
+		}
+	}
+	if t.wasStopped() {
+		return nil, nil
+	}
+	if route == RouteLight {
+		spec := m.sessionSpec(c, p.spec)
+		if spec.MaxBudgetUSD < 0.005 {
+			return nil, errLimitMidTurn
+		}
+		spec.Model, spec.PermissionMode = p.lightModel, "plan"
+		lt := &light{}
+		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note+"\n\n"+LightAddendum, p.text, RouteLight, lt)
+		if res != nil {
+			m.addCost(c, t, res.CostUSD)
+		}
+		if t.wasStopped() {
+			return nil, nil
+		}
+		rejected := res != nil && res.IsError && claude.ModelRejected(res.Text)
+		if rejected {
+			m.modelRejected(p.lightModel, "light")
+		}
+		if lt.reason == "" && !rejected {
+			return res, err
+		}
+		if lt.reason != "" {
+			m.emit(c, Event{
+				Kind: KindHandoff, TurnID: t.id, Reason: lt.reason,
+				Text: "Handed to the full harness: " + claude.OneLine(lt.reason, 300),
+			})
+		}
+		// The full turn carries on in the same session: the light turn
+		// already holds Ryder's message, so it gets the continuation note.
+		if m.sessionHeld(c) {
+			full := m.sessionSpec(c, p.spec)
+			if full.MaxBudgetUSD < 0.005 {
+				return nil, errLimitMidTurn
+			}
+			res, err := m.exec(ctx, c, t, cwd, env, full, ContinuationNote, p.reminder, RouteFull, nil)
+			if res != nil {
+				m.addCost(c, t, res.CostUSD)
+			}
+			return res, err
+		}
+	}
+	full := m.sessionSpec(c, p.spec)
+	if full.MaxBudgetUSD < 0.005 {
+		return nil, errLimitMidTurn
+	}
+	res, err := m.exec(ctx, c, t, cwd, env, full, p.note, p.text, RouteFull, nil)
+	if res != nil {
+		m.addCost(c, t, res.CostUSD)
+	}
+	return res, err
+}
+
+// sessionSpec is spec for the next part of the chat's turn: the session
+// started or resumed, and what is left of the ceiling as its budget.
+func (m *Manager) sessionSpec(c *chatState, spec claude.Chat) claude.Chat {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	spec.AddDirs = append([]string{}, spec.AddDirs...)
+	if c.rec.SessionStarted {
+		spec.Resume, spec.SessionID = c.rec.SessionID, ""
+	} else {
+		spec.SessionID, spec.Resume = c.rec.SessionID, ""
+	}
+	spec.MaxBudgetUSD = Remaining(c.rec.CostUSD)
+	return spec
+}
+
+func (m *Manager) sessionHeld(c *chatState) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return c.rec.SessionStarted
+}
+
+func (m *Manager) remaining(c *chatState) float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return Remaining(c.rec.CostUSD)
+}
+
+// addCost adds a part's spending to the chat and the turn.
+func (m *Manager) addCost(c *chatState, t *turn, usd float64) {
+	if usd <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c.rec.CostUSD += usd
+	t.cost += usd
+	m.touchLocked(c)
+}
+
+// exec runs one claude process of the turn and returns its result line, or
+// an error when it ended without one. A light turn (lt set) hands off, by
+// setting lt.reason, on a final handoff line, a host permission request or
+// an ExitPlanMode call; the last two are refused and the process stopped.
+func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note, text, route string, lt *light) (*claude.Result, error) {
 	msg, err := claude.ChatUserMessage(note, text)
 	if err != nil {
 		return nil, err
 	}
+	// The light process can be stopped on its own, for a handoff.
+	ctx, stopProcess := context.WithCancel(ctx)
+	defer stopProcess()
 	cmd := exec.CommandContext(ctx, m.opts.ClaudePath, spec.Args()...)
 	cmd.Dir = cwd
 	cmd.Env = env
@@ -303,12 +436,37 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 		wg     sync.WaitGroup
 		mu     sync.Mutex
 	)
+	// handOff refuses a light turn's request and stops the process: an
+	// interrupt first, so the CLI still prints its result and cost, then a
+	// kill if it doesn't.
+	handOff := func(req claude.ControlRequest, reason string) {
+		lt.reason, lt.stopped = reason, true
+		write(claude.DenyControl(req.RequestID, HandoffMessage))
+		write(claude.InterruptControl("nacre_handoff_" + req.RequestID))
+		time.AfterFunc(interruptGrace, stopProcess)
+	}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		scan(stdout, func(line []byte) {
 			if req, ok := claude.ParseControlRequest(line); ok {
-				m.control(c, t, req, write)
+				switch {
+				case lt == nil:
+					m.control(c, t, req, write)
+				case req.Subtype != "can_use_tool":
+					write(claude.UnsupportedControl(req.RequestID, req.Subtype))
+				case lt.stopped || t.wasStopped():
+					write(claude.DenyControl(req.RequestID, HandoffMessage))
+				case req.ToolName == "ExitPlanMode":
+					reason := planText(req.Input)
+					if reason == "" {
+						reason = "the quick answer wants to leave plan mode and act"
+					}
+					handOff(req, reason)
+				default:
+					// No card: the full harness asks again if it needs to.
+					handOff(req, "the quick answer needs a step it can't take alone: "+PermissionSummary(req))
+				}
 				return
 			}
 			p, perr := claude.ParseLine(line)
@@ -318,17 +476,43 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 			if p.Init != nil && p.Init.SessionID != "" {
 				m.sessionStarted(c, p.Init.SessionID)
 			}
-			for _, ev := range p.Events {
-				if ev.Kind == api.KindResult {
-					continue // the turn_end event closes the turn
-				}
-				m.emit(c, fromRunEvent(ev, t.id))
-			}
 			if p.Result != nil {
+				if p.Result.SessionID != "" {
+					m.sessionStarted(c, p.Result.SessionID)
+				}
 				mu.Lock()
 				result = p.Result
 				mu.Unlock()
 				closeStdin()
+			}
+			if lt != nil && lt.stopped {
+				return // what the refused light turn says after the handoff
+			}
+			for _, ev := range p.Events {
+				if ev.Kind == api.KindResult {
+					continue // the turn_end event closes the turn
+				}
+				out := fromRunEvent(ev, t.id, route)
+				if lt != nil {
+					if ev.Kind == api.KindToolUse && ev.Tool == "ExitPlanMode" {
+						lt.plan = planText(ev.Input)
+					}
+					if ev.Kind == api.KindText {
+						rest, reason, found := splitHandoff(ev.Text)
+						if found {
+							lt.reason = reason
+							out.Text = rest
+						} else if strings.TrimSpace(ev.Text) != "" {
+							// Only a final line hands off; more text after
+							// it means the answer went on.
+							lt.reason = ""
+						}
+						if strings.TrimSpace(out.Text) == "" {
+							continue
+						}
+					}
+				}
+				m.emit(c, out)
 			}
 		})
 	}()
@@ -351,10 +535,14 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 	waitErr := cmd.Wait()
 	mu.Lock()
 	defer mu.Unlock()
+	if lt != nil && lt.reason == "" && lt.plan != "" && (result == nil || !result.IsError) {
+		// ExitPlanMode was called but never reached the host.
+		lt.reason = lt.plan
+	}
 	if result != nil {
 		return result, nil
 	}
-	if t.wasStopped() {
+	if t.wasStopped() || (lt != nil && lt.stopped) {
 		return nil, nil
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -384,15 +572,15 @@ func (m *Manager) sessionStarted(c *chatState, sid string) {
 	}
 }
 
-// fromRunEvent turns a transcript event into a chat event of the full route.
-func fromRunEvent(ev api.RunEvent, turnID string) Event {
+// fromRunEvent turns a transcript event into a chat event of the route.
+func fromRunEvent(ev api.RunEvent, turnID, route string) Event {
 	out := Event{
 		Kind: ev.Kind, TurnID: turnID, Text: ev.Text, Tool: ev.Tool, ToolID: ev.ToolID,
 		Input: ev.Input, IsError: ev.IsError,
 	}
 	switch ev.Kind {
 	case api.KindText, api.KindThinking, api.KindToolUse, api.KindToolResult:
-		out.Route = RouteFull
+		out.Route = route
 	}
 	return out
 }

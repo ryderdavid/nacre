@@ -12,6 +12,22 @@
 // Under the fake's directory it writes argv (one per line), stdin (the user
 // message), pid, answer (the control_response line), ran (only when the step
 // was allowed) and exit (once it finishes normally).
+//
+// Chat routing adds two more kinds of call, told apart by their argv:
+//
+//   - A routing call (--json-schema) answers with the route named in the file
+//     "router" (light, full, error, malformed, slow or rejected; default full),
+//     costing "router_cost" (default 0.01).
+//   - A light turn (--permission-mode plan) replays testdata/<name>.jsonl, the
+//     name read from the file "light" (default light_plain). Each stdin line
+//     of the recording after the first is a point where the fake reads one
+//     line from its stdin, as the CLI waited for the host there.
+//
+// A full turn replays testdata/<name>.jsonl the same way when the file "full"
+// names a recording, and otherwise the host prompt as above.
+//
+// Every call also writes call<N>.kind (router, light or full), call<N>.argv
+// (a JSON array) and call<N>.stdin (every line it read), N counting from 0.
 package fakeclaude
 
 import (
@@ -24,6 +40,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -129,9 +146,41 @@ func withSession(raw json.RawMessage, sid string) []byte {
 	return out
 }
 
+func has(args []string, flag, value string) bool {
+	for i, a := range args {
+		if a == flag && (value == "" || (i+1 < len(args) && args[i+1] == value)) {
+			return true
+		}
+	}
+	return false
+}
+
+func setting(dir, name, def string) string {
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return def
+	}
+	if s := strings.TrimSpace(string(data)); s != "" {
+		return s
+	}
+	return def
+}
+
 func run(dir, fixtures string, args []string, stdin io.Reader, stdout io.Writer) error {
 	write := func(name, content string) { _ = os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644) }
-	write("argv", strings.Join(args, "\n")+"\n")
+	kinds, _ := filepath.Glob(filepath.Join(dir, "call*.kind"))
+	n := len(kinds)
+	call := func(name string) string { return fmt.Sprintf("call%d.%s", n, name) }
+	kind := "full"
+	switch {
+	case has(args, "--json-schema", ""):
+		kind = "router"
+	case has(args, "--permission-mode", "plan"):
+		kind = "light"
+	}
+	argvJSON, _ := json.Marshal(args)
+	write(call("argv"), string(argvJSON))
+	write(call("kind"), kind)
 	write("pid", strconv.Itoa(os.Getpid()))
 	sid := ""
 	for i := 0; i+1 < len(args); i++ {
@@ -139,6 +188,16 @@ func run(dir, fixtures string, args []string, stdin io.Reader, stdout io.Writer)
 			sid = args[i+1]
 		}
 	}
+	switch kind {
+	case "router":
+		return router(dir, stdout)
+	case "light":
+		return replay(dir, filepath.Join(fixtures, setting(dir, "light", "light_plain")+".jsonl"), sid, call("stdin"), stdin, stdout)
+	}
+	if name := setting(dir, "full", ""); name != "" {
+		return replay(dir, filepath.Join(fixtures, name+".jsonl"), sid, call("stdin"), stdin, stdout)
+	}
+	write("argv", strings.Join(args, "\n")+"\n")
 	deny, err := load(filepath.Join(fixtures, "host_prompt_deny.jsonl"))
 	if err != nil {
 		return err
@@ -230,5 +289,99 @@ func run(dir, fixtures string, args []string, stdin io.Reader, stdout io.Writer)
 	// Like the CLI, wait for the host to close stdin.
 	_, _ = io.Copy(io.Discard, in)
 	write("exit", "ok")
+	return nil
+}
+
+// router answers a routing call as the "router" file says.
+func router(dir string, stdout io.Writer) error {
+	cost := setting(dir, "router_cost", "0.01")
+	result := func(isErr bool, text, structured string) {
+		fmt.Fprintf(stdout, `{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-00000000r0u7","model":"claude-haiku-5-5"}`+"\n")
+		line := fmt.Sprintf(`{"type":"result","subtype":"success","is_error":%t,"result":%q,"total_cost_usd":%s`, isErr, text, cost)
+		if structured != "" {
+			line += `,"structured_output":` + structured
+		}
+		fmt.Fprintln(stdout, line+"}")
+	}
+	switch mode := setting(dir, "router", "full"); mode {
+	case "light", "full":
+		result(false, "", `{"route":"`+mode+`","reason":"fake router chose `+mode+`"}`)
+	case "malformed":
+		result(false, "", `{"route":"maybe","reason":"unsure"}`)
+	case "rejected":
+		cost = "0"
+		result(true, "There's an issue with the selected model (claude-nope). It may not exist or you may not have access to it. Run --model to pick a different model.", "")
+	case "slow":
+		time.Sleep(time.Minute)
+	case "error":
+		fmt.Fprintln(os.Stderr, "router exploded")
+		os.Exit(1)
+	default:
+		return fmt.Errorf("unknown router mode %q", mode)
+	}
+	return nil
+}
+
+// replay plays a recording: its stdout lines in order, and at each recorded
+// stdin line after the first, one line read from stdin. A recorded answer to
+// a control request takes the id of the request the host actually sent.
+func replay(dir, path, sid, stdinFile string, stdin io.Reader, stdout io.Writer) error {
+	recs, err := load(path)
+	if err != nil {
+		return err
+	}
+	in := bufio.NewReader(stdin)
+	var got []string
+	save := func() { _ = os.WriteFile(filepath.Join(dir, stdinFile), []byte(strings.Join(got, "")), 0o644) }
+	out := bufio.NewWriter(stdout)
+	lastHostReq := ""
+	firstIn := true
+	for _, r := range recs {
+		if r.Dir == "stdin" {
+			line, err := in.ReadString('\n')
+			if err != nil {
+				save()
+				return fmt.Errorf("stdin closed before the recording's next input: %w", err)
+			}
+			got = append(got, line)
+			save()
+			if firstIn {
+				firstIn = false
+				continue
+			}
+			var m struct {
+				Type      string `json:"type"`
+				RequestID string `json:"request_id"`
+			}
+			if json.Unmarshal([]byte(line), &m) == nil && m.Type == "control_request" {
+				lastHostReq = m.RequestID
+			}
+			continue
+		}
+		line := []byte(r.Line)
+		if lineType(r.Line) == "control_response" && lastHostReq != "" {
+			var m map[string]any
+			_ = json.Unmarshal(r.Line, &m)
+			if resp, ok := m["response"].(map[string]any); ok {
+				resp["request_id"] = lastHostReq
+			}
+			line, _ = json.Marshal(m)
+		}
+		out.Write(withSession(line, sid))
+		out.WriteByte('\n')
+		out.Flush()
+	}
+	// Like the CLI, wait for the host to close stdin, keeping what it sent.
+	for {
+		line, err := in.ReadString('\n')
+		if line != "" {
+			got = append(got, line)
+			save()
+		}
+		if err != nil {
+			break
+		}
+	}
+	_ = os.WriteFile(filepath.Join(dir, "exit"), []byte("ok"), 0o644)
 	return nil
 }

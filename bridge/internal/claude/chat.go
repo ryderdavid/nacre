@@ -34,6 +34,12 @@ type Chat struct {
 	MaxBudgetUSD float64
 	// AddDirs are the other boards on this computer.
 	AddDirs []string
+	// Model is set only for a light turn (the chat's light model); a full
+	// turn uses the owner's own default model.
+	Model string
+	// PermissionMode is "plan" for a light turn; empty is "auto", the full
+	// harness.
+	PermissionMode string
 }
 
 // Args returns the argv (without the binary) for the turn.
@@ -42,7 +48,7 @@ func (c Chat) Args() []string {
 		"-p",
 		"--input-format", "stream-json",
 		"--output-format", "stream-json", "--verbose",
-		"--permission-mode", "auto",
+		"--permission-mode", cmpOr(c.PermissionMode, "auto"),
 		"--permission-prompts", "host",
 		// Without it the CLI answers host prompts itself (a denial) rather
 		// than sending can_use_tool control requests on stdout; recorded in
@@ -56,10 +62,43 @@ func (c Chat) Args() []string {
 		args = append(args, "--session-id", c.SessionID)
 	}
 	args = append(args, budgetArgs(c.MaxBudgetUSD, ChatRunawayUSD)...)
+	if c.Model != "" {
+		args = append(args, "--model", c.Model)
+	}
 	for _, d := range c.AddDirs {
 		args = append(args, "--add-dir", d)
 	}
 	return args
+}
+
+func cmpOr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+// InterruptControl asks the CLI to stop its turn at once. It answers with a
+// control_response and then its result line (subtype error_during_execution),
+// which still carries the turn's total_cost_usd; recorded in
+// internal/chat/testdata/light_exit_plan.jsonl.
+func InterruptControl(requestID string) []byte {
+	out, _ := json.Marshal(map[string]any{
+		"type": "control_request", "request_id": requestID,
+		"request": map[string]any{"subtype": "interrupt"},
+	})
+	return append(out, '\n')
+}
+
+// ModelRejected reports whether a failed call's text says the CLI rejected
+// the --model it was given. Claude Code answers an unknown or unavailable
+// model with an api_error result: "There's an issue with the selected model
+// (<name>). It may not exist or you may not have access to it."
+func ModelRejected(text string) bool {
+	t := strings.ToLower(text)
+	return strings.Contains(t, "issue with the selected model") ||
+		strings.Contains(t, "may not exist or you may not have access") ||
+		strings.Contains(t, "unrecognized_model") || strings.Contains(t, "model_not_found")
 }
 
 // ChatEnv is the environment of a Chat turn: nacred's own environment
@@ -86,7 +125,7 @@ func ChatEnv(nacredURL string) []string {
 
 // ChatUserMessage is the stream-json user message for one chat message: the
 // "On screen" note, then the text, as separate text blocks. It ends with a
-// newline.
+// newline. An empty text (a handoff's continuation) sends the note alone.
 func ChatUserMessage(note, text string) ([]byte, error) {
 	content := []map[string]any{}
 	if strings.TrimSpace(note) != "" {
