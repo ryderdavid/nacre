@@ -157,16 +157,26 @@ fun pendingImages(context: ChatContext): List<ImagePayload> {
  * ready ones to the pending images and names any it skipped in a snackbar.
  */
 @Composable
-fun rememberImageAttacher(context: ChatContext, remaining: Int): () -> Unit {
+fun rememberImageAttacher(context: ChatContext, remaining: Int): () -> Unit = rememberImageAttacher(context.viewKey, remaining)
+
+/**
+ * Opens the system photo picker (`PickMultipleVisualMedia(ImageOnly)`) for the
+ * message whose composer state is kept under [viewKey] in the chat stack, up to
+ * [remaining] images. What was picked is prepared off the main thread (a long
+ * edge of at most 1568 px and at most 3 MB, re-encoded when needed); the ready
+ * images join the pending ones and any skipped file is named in a snackbar.
+ */
+@Composable
+fun rememberImageAttacher(viewKey: String, remaining: Int): () -> Unit {
     val container = LocalContainer.current
     val resolver = LocalContext.current.contentResolver
     val scope = rememberCoroutineScope()
-    val chat by rememberUpdatedState(context)
+    val key by rememberUpdatedState(viewKey)
     val onPicked: (List<Uri>) -> Unit = { uris ->
         if (uris.isNotEmpty()) scope.launch {
             val prepared = withContext(Dispatchers.IO) { uris.map { prepareImage(resolver, it) } }
             val ready = prepared.filterIsInstance<PreparedImage.Ready>().map { it.payload }
-            if (ready.isNotEmpty()) container.chatStack.updateView(chat.viewKey) { it.copy(images = it.images.plusPicked(ready)) }
+            if (ready.isNotEmpty()) container.chatStack.updateView(key) { it.copy(images = it.images.plusPicked(ready)) }
             prepared.filterIsInstance<PreparedImage.Skipped>().takeIf { it.isNotEmpty() }?.let { skipped ->
                 container.repository.notify(skipped.joinToString("\n") { it.reason })
             }
@@ -240,7 +250,7 @@ fun SentImages(images: List<ChatImage>, load: (ChatImage) -> ByteArray?, modifie
 
 /** One thumbnail, decoded small off the main thread; "Image unavailable" when its bytes are missing or unreadable. */
 @Composable
-fun ImageThumb(image: ChatImage, bytes: () -> ByteArray?, size: Dp) {
+fun ImageThumb(image: ChatImage, bytes: suspend () -> ByteArray?, size: Dp) {
     val px = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
     val bitmap by produceState<Result<ImageBitmap>?>(null, image.id) {
         value = withContext(Dispatchers.IO) {
@@ -257,7 +267,7 @@ fun ImageThumb(image: ChatImage, bytes: () -> ByteArray?, size: Dp) {
                 androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        "Image unavailable", style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
+                        com.ryderdavid.nacre.data.chat.IMAGE_UNAVAILABLE, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -272,4 +282,21 @@ private fun decodeThumb(bytes: ByteArray, px: Int): ImageBitmap? {
     if (bounds.outWidth <= 0) return null
     val opts = BitmapFactory.Options().apply { inSampleSize = ImagePrep.sampleSize(bounds.outWidth, bounds.outHeight, px.coerceAtLeast(1)) }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+}
+
+/**
+ * A sent Chat message's images, fetched from nacred (`GET /v1/chats/{id}/images/{image}`) for
+ * thumbnails; one that can't be fetched shows "Image unavailable".
+ */
+@Composable
+fun ChatSentImages(chatKey: String, images: List<com.ryderdavid.nacre.data.model.ChatImageRef>, modifier: Modifier = Modifier) {
+    if (images.isEmpty()) return
+    val thumbs = LocalContainer.current.chats.thumbs
+    androidx.compose.foundation.layout.FlowRow(
+        modifier, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End), verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        images.forEach { ref ->
+            ImageThumb(ChatImage(ref.id, ref.mediaType, ref.name.ifBlank { ref.id }), { thumbs.bytes(chatKey, ref) }, 96.dp)
+        }
+    }
 }

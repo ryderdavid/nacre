@@ -158,7 +158,7 @@ fun ConversationScreen(
                 items(state.items, key = { it.key }) { item ->
                     Box(Modifier.padding(horizontal = 16.dp)) {
                         Column {
-                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) }, onContinue = onContinue)
+                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) }, onContinue = onContinue, chatKey = key)
                             if (onOpenBead != null && startRepo != null && item is ChatItem.Assistant) {
                                 val mentioned = beadMentions(item.text, knownBeads)
                                 if (mentioned.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -189,10 +189,11 @@ fun ConversationScreen(
                 about = aboutChip(send.label),
                 running = state.turnRunning,
                 canSend = state.canSend,
-                onSend = { text ->
+                chat = state.chat ?: record,
+                onSend = {
                     // The context is read at the moment Send is pressed.
                     val at = contextForChat(hub.screens.atSend(), Keys.host(key), container.repository.groups.value, container.repository::hostName)
-                    conv.send(text, at.context)
+                    conv.sendDraft(at.context)
                 },
                 onStop = conv::stop,
             )
@@ -211,14 +212,34 @@ private fun StatusLine(text: String, error: Boolean = false, onDismiss: (() -> U
     }
 }
 
+/**
+ * The composer: the About chip, the pending images as removable thumbnails, Attach image, the
+ * message field and Send (or Stop while a turn runs). The draft and the pending images live with
+ * the chat in its view state, so they follow it between the pane, the sheet and the tab, and stay
+ * until nacred accepts the message.
+ */
 @Composable
-private fun Composer(chatKey: String, about: String, running: Boolean, canSend: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun Composer(
+    chatKey: String,
+    about: String,
+    running: Boolean,
+    canSend: Boolean,
+    chat: com.ryderdavid.nacre.data.model.ChatRecord?,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+) {
     val stack = LocalContainer.current.chats.stack
-    // The draft lives with the chat, so it follows it between the pane, the sheet and the tab.
-    val text = com.ryderdavid.nacre.ui.assistant.chatDraft(chatKey)
+    val views by stack.views.collectAsState()
+    val view = views[chatKey]
+    val text = view?.draft.orEmpty()
+    val pending = view?.images.orEmpty()
+    val gate = com.ryderdavid.nacre.data.chat.chatComposerGate(text, pending, chat, canSend)
+    val attach = com.ryderdavid.nacre.ui.common.rememberImageAttacher(chatKey, gate.remaining)
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         AssistChip(onClick = {}, label = { Text(about, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+        com.ryderdavid.nacre.ui.common.PendingImageRow(pending, onRemove = { id -> stack.removePending(chatKey, id) }, Modifier.padding(vertical = 4.dp))
         Row(verticalAlignment = Alignment.Bottom) {
+            com.ryderdavid.nacre.ui.common.AttachImageButton(gate, attach)
             OutlinedTextField(
                 value = text,
                 onValueChange = { v -> stack.updateView(chatKey) { it.copy(draft = v) } },
@@ -230,33 +251,34 @@ private fun Composer(chatKey: String, about: String, running: Boolean, canSend: 
                 FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 8.dp)) { Icon(Icons.Rounded.Stop, "Stop") }
             } else {
                 FilledIconButton(
-                    onClick = {
-                        val t = text.trim()
-                        if (t.isNotEmpty()) {
-                            onSend(t)
-                            stack.updateView(chatKey) { it.copy(draft = "") }
-                        }
-                    },
-                    enabled = canSend && text.isNotBlank(),
+                    onClick = onSend,
+                    enabled = gate.canSend,
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
             }
         }
+        com.ryderdavid.nacre.ui.common.ComposerReason(gate, Modifier.padding(start = 8.dp, top = 2.dp))
     }
 }
 
 @Composable
-internal fun ChatItemView(item: ChatItem, onAnswer: (String, Boolean, String?) -> Unit, onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = {}) {
+internal fun ChatItemView(
+    item: ChatItem,
+    onAnswer: (String, Boolean, String?) -> Unit,
+    onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = {},
+    chatKey: String = "",
+) {
     when (item) {
-        is ChatItem.User -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Column(
+        is ChatItem.User -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            if (item.images.isNotEmpty()) com.ryderdavid.nacre.ui.common.ChatSentImages(chatKey, item.images, Modifier.padding(bottom = 4.dp))
+            if (item.text.isNotBlank()) Column(
                 Modifier.widthIn(max = 520.dp)
                     .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp))
                     .padding(12.dp),
             ) {
                 Text(item.text, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 item.about?.let { Text(aboutChip(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer) }
-            }
+            } else item.about?.let { Text(aboutChip(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         is ChatItem.Assistant -> MarkdownText(item.text, Modifier.fillMaxWidth())
         is ChatItem.ToolStep -> ToolStepView(item)

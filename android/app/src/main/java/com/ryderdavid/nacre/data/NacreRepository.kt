@@ -624,6 +624,8 @@ class NacreRepository(
 
     override suspend fun cancelChat(key: String) = clientFor(key).cancelChat(Keys.id(key))
 
+    override suspend fun chatImage(key: String, image: String): ByteArray = clientFor(key).chatImage(Keys.id(key), image)
+
     override suspend fun deleteChat(key: String) {
         clientFor(key).deleteChat(Keys.id(key))
         forgetChat(key)

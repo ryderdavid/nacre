@@ -23,4 +23,6 @@ interface ChatLink {
     suspend fun cancelChat(key: String)
     suspend fun deleteChat(key: String)
     suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): PermissionOutcome
+    /** The bytes of the stored image [image] a message of chat [key] sent, for its thumbnail. */
+    suspend fun chatImage(key: String, image: String): ByteArray
 }

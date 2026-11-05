@@ -58,6 +58,11 @@ internal class FakeChatLink(
         PermissionOutcome(ev(0, ChatWire.PERMISSION_ANSWER, req = req, allowed = allow, by = "phone", reason = if (allow) "" else note.orEmpty()), conflict = false)
     }
     var cancelled = 0
+    /** Stored images by id; a missing one fails like a 404. */
+    val images = mutableMapOf<String, ByteArray>()
+    var imageFetches = 0
+    /** Thrown instead of answering a send, e.g. nacred's 400, 409 or 413. */
+    var refuse: Exception? = null
 
     override suspend fun refreshChats() = listing
     val created = mutableListOf<Pair<String, CreateChat>>()
@@ -72,6 +77,7 @@ internal class FakeChatLink(
     }
     override suspend fun sendChat(key: String, body: SendChatMessage): ChatSendResult {
         sent += body
+        refuse?.let { throw it }
         if (sendFailures > 0) {
             sendFailures--
             throw IOException("response lost")
@@ -83,6 +89,10 @@ internal class FakeChatLink(
     override suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): PermissionOutcome {
         answers += Triple(request, allow, note)
         return answer(request, allow, note)
+    }
+    override suspend fun chatImage(key: String, image: String): ByteArray {
+        imageFetches++
+        return images[image] ?: throw com.ryderdavid.nacre.data.bridge.BridgeException("unknown image", code = 404)
     }
 }
 
