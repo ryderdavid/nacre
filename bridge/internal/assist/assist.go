@@ -162,8 +162,32 @@ func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit fu
 			mu.Unlock()
 		})
 	}()
+	// A child forked while the group is being killed can miss the signal
+	// (seen on macOS), and it keeps the pipes open, so the turn would hang
+	// until it exits. Once ctx ends, keep killing the group until the pipes
+	// drain. The leader is not reaped until Wait, so its pid (the group id)
+	// cannot be reused meanwhile.
+	drained := make(chan struct{})
+	go func() {
+		select {
+		case <-drained:
+			return
+		case <-ctx.Done():
+		}
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		}
+	}()
 	// Both pipes must be drained before Wait, which closes them.
 	wg.Wait()
+	close(drained)
 	waitErr := cmd.Wait()
 
 	switch {
