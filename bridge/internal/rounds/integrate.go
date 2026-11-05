@@ -489,11 +489,12 @@ func (r *round) closeBeads(head string) {
 type closing struct{ id, reason string }
 
 // closeAll closes finished beads one after another, retrying transient
-// failures, then tries the ones that failed once more: a bead that waits on
-// another bead of the same batch closes once that one has. A close that
-// still fails (the bead waits on a bead left open, say) is recorded on the
-// round's bead and logged, so Needs you can offer to close it, instead of the
-// bead silently staying open.
+// failures, then keeps retrying the ones that failed for as long as a pass
+// closes something: bd refuses to close a bead while one it waits on is open,
+// so a chain of beads in the batch closes one link per pass, in any order. A
+// close that still fails (the bead waits on a bead left open, say) is
+// recorded on the round's bead and logged, so Needs you can offer to close
+// it, instead of the bead silently staying open.
 func (r *round) closeAll(batch []closing) {
 	if len(batch) == 0 {
 		return
@@ -504,21 +505,24 @@ func (r *round) closeAll(batch []closing) {
 	}
 	r.goOp("close-batch:"+batch[0].id, func(ctx context.Context) func() {
 		failed := map[string]error{}
-		for pass := 0; pass < 2; pass++ {
-			for _, c := range batch {
-				if _, done := failed[c.id]; pass == 1 && !done {
-					continue
-				}
+		pending := batch
+		// Each pass closes at least one bead or stops, so this ends after at
+		// most len(batch) passes.
+		for len(pending) > 0 && ctx.Err() == nil {
+			var still []closing
+			for _, c := range pending {
 				_, err := retry(ctx, func() error { return r.m.opts.Beads.Close(ctx, repo, c.id, c.reason) })
 				if err != nil {
 					failed[c.id] = err
+					still = append(still, c)
 				} else {
 					delete(failed, c.id)
 				}
 			}
-			if len(failed) == 0 {
+			if len(still) == len(pending) {
 				break
 			}
+			pending = still
 		}
 		r.m.repoChanged(repoID)
 		return func() {
