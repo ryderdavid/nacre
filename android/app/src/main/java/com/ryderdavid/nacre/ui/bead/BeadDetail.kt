@@ -355,10 +355,10 @@ fun BeadDetail(
             onOutOfScope = { showFound = false; foundPrefill = it },
         )
         foundPrefill?.let { p ->
-            com.ryderdavid.nacre.ui.board.NewBeadSheet(
+            com.ryderdavid.nacre.ui.board.NewEffortEntry(
                 repoKey, container.repository.repo(repoKey)?.name.orEmpty(), ix, defaultParent = null,
-                onDismiss = { foundPrefill = null }, onCreated = { foundPrefill = null },
-                effort = boardChanges?.openspec == true, prefill = p,
+                openspec = boardChanges?.openspec == true,
+                onDismiss = { foundPrefill = null }, onCreated = { foundPrefill = null }, prefill = p,
             )
         }
         if (showChange) ChangeDetail(

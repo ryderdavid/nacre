@@ -130,12 +130,18 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 			c.rec.Title = t
 		}
 	}
+	// A New effort chat's first message carries the drafting prompt before
+	// its note; later messages don't.
+	turnNote := note
+	if firstMessage && c.rec.NewEffort {
+		turnNote = DraftingPrompt(strings.TrimPrefix(c.rec.Title, "New effort · ")) + "\n\n" + note
+	}
 	var ctxCopy *Context
 	if req.Context != nil {
 		cc := *req.Context
 		ctxCopy = &cc
 	}
-	plan := turnPlan{note: note, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
+	plan := turnPlan{note: turnNote, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
 	plan.codex = c.rec.Agent == AgentCodex
 	if c.rec.Agent == AgentClaude && m.routingOnLocked() {
 		// The router sees the history before this message, never files.
@@ -506,6 +512,14 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					continue // the turn_end event closes the turn
 				}
 				out := fromRunEvent(ev, t.id, route)
+				var drafts []Event
+				if ev.Kind == api.KindText {
+					rest, found := ExtractDrafts(out.Text)
+					if len(found) > 0 {
+						out.Text, ev.Text = rest, rest
+						drafts = draftEvents(found, t.id, route)
+					}
+				}
 				if lt != nil {
 					if ev.Kind == api.KindToolUse && ev.Tool == "ExitPlanMode" {
 						lt.plan = planText(ev.Input)
@@ -520,12 +534,14 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 							// it means the answer went on.
 							lt.reason = ""
 						}
-						if strings.TrimSpace(out.Text) == "" {
-							continue
-						}
 					}
 				}
-				m.emit(c, out)
+				if ev.Kind != api.KindText || strings.TrimSpace(out.Text) != "" {
+					m.emit(c, out)
+				}
+				for _, d := range drafts {
+					m.emit(c, d)
+				}
 			}
 		})
 	}()

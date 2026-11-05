@@ -12,7 +12,6 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.BoardSnapshot
 import com.ryderdavid.nacre.data.model.*
 import com.ryderdavid.nacre.ui.bead.FoundSomethingSheet
-import com.ryderdavid.nacre.ui.board.NewBeadSheet
 import com.ryderdavid.nacre.ui.common.MessageState
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 
@@ -78,9 +77,9 @@ private fun FoundFromNeedsYou(key: String, t: AttentionTarget, vm: ReposViewMode
 private fun EffortFromNeedsYou(key: String, prefill: NewEffortPrefill, vm: ReposViewModel, onDone: () -> Unit) {
     val snapshot by produceState<BoardSnapshot?>(null, key) { value = runCatching { vm.board(key) }.getOrNull() }
     val s = snapshot ?: return
-    NewBeadSheet(
-        key, s.repo.name, s.index, defaultParent = null, onDismiss = onDone, onCreated = { onDone() },
-        effort = s.changes?.openspec == true, prefill = prefill,
+    com.ryderdavid.nacre.ui.board.NewEffortEntry(
+        key, s.repo.name, s.index, defaultParent = null, openspec = s.changes?.openspec == true,
+        onDismiss = onDone, onCreated = { onDone() }, prefill = prefill,
     )
 }
 

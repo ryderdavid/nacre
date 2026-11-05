@@ -60,7 +60,11 @@ internal class FakeChatLink(
     var cancelled = 0
 
     override suspend fun refreshChats() = listing
-    override suspend fun createChat(hostId: String, body: CreateChat) = ChatRecord("new", hostId = hostId)
+    val created = mutableListOf<Pair<String, CreateChat>>()
+    override suspend fun createChat(hostId: String, body: CreateChat): ChatRecord {
+        created += hostId to body
+        return ChatRecord("new", repo = body.repo, newEffort = body.newEffort, hostId = hostId)
+    }
     override suspend fun chatDetail(key: String) = detail(key)
     override fun chatStream(key: String, after: Long): Flow<ChatStreamMessage> {
         opened += key to after

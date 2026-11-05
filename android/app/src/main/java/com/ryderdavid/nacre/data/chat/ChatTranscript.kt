@@ -50,6 +50,8 @@ sealed interface ChatItem {
     data class Handoff(override val key: String, val text: String) : ChatItem
     data class Permission(override val key: String, val card: PermissionCard) : ChatItem
     data class Note(override val key: String, val text: String, val error: Boolean) : ChatItem
+    /** A New effort draft; only the newest ([latest]) is shown, as a Draft card with Continue. */
+    data class Draft(override val key: String, val draft: com.ryderdavid.nacre.data.model.ChatDraft, val latest: Boolean = true) : ChatItem
 }
 
 /** The handoff line, as the conversation shows it. */
@@ -81,6 +83,8 @@ class ChatTranscript {
     private val items = mutableListOf<ChatItem>()
     private val tools = mutableMapOf<String, Int>()
     private val cards = mutableMapOf<String, Int>()
+    /** Where the newest draft sits in [items]. */
+    private var draftAt: Int? = null
 
     /** The newest seq taken; what a reattach asks to resume after. */
     var lastSeq: Long = 0
@@ -90,6 +94,9 @@ class ChatTranscript {
     val seqs = mutableListOf<Long>()
 
     val shown: List<ChatItem> get() = items.toList()
+
+    /** The newest draft the agent wrote, for the Draft card. */
+    val newestDraft: com.ryderdavid.nacre.data.model.ChatDraft? get() = draftAt?.let { (items[it] as ChatItem.Draft).draft }
 
     val cardsById: Map<String, PermissionCard>
         get() = cards.mapValues { (_, i) -> (items[i] as ChatItem.Permission).card }
@@ -136,7 +143,12 @@ class ChatTranscript {
             ChatWire.ERROR -> items += ChatItem.Note(key, ev.text.ifBlank { "Something went wrong on the computer." }, error = true)
             ChatWire.TRUNCATED -> items += ChatItem.Note(key, ev.text.ifBlank { "Earlier messages were trimmed." }, error = false)
             ChatWire.SYSTEM -> if (ev.text.isNotBlank()) items += ChatItem.Note(key, ev.text, error = false)
-            else -> Unit // thinking, result, turn_end and draft cards aren't shown here
+            ChatWire.DRAFT -> ev.draft?.takeIf { it.title.isNotBlank() }?.let { d ->
+                draftAt?.let { i -> items[i] = (items[i] as ChatItem.Draft).copy(latest = false) }
+                draftAt = items.size
+                items += ChatItem.Draft(key, d)
+            }
+            else -> Unit // thinking, result and turn_end aren't shown here
         }
         return true
     }
