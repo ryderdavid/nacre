@@ -29,6 +29,9 @@ type SendRequest struct {
 	TurnID  string   `json:"turn_id"`
 	Text    string   `json:"text"`
 	Context *Context `json:"context"`
+	// Images are the message's images, validated and decoded by the
+	// server; they arrive as the body's images array.
+	Images []claude.Image `json:"-"`
 }
 
 // SendResult is the turn a message started, or the one a resend names.
@@ -73,8 +76,8 @@ func (t *turn) wasStopped() bool {
 // Send starts a turn with the message, detached from the caller. A turn id
 // the chat already knows returns that turn and starts nothing.
 func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
-	if strings.TrimSpace(req.Text) == "" {
-		return SendResult{}, errors.New("text required")
+	if strings.TrimSpace(req.Text) == "" && len(req.Images) == 0 {
+		return SendResult{}, errors.New("text or images required")
 	}
 	if len(req.Text) > maxText {
 		return SendResult{}, errors.New("text too long")
@@ -114,6 +117,16 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	case c.rec.Agent != AgentClaude && c.rec.Agent != AgentCodex:
 		m.mu.Unlock()
 		return SendResult{}, fmt.Errorf("%s chats can't run on this computer", c.rec.Agent)
+	case overImageBudget(c.rec, req.Images):
+		m.mu.Unlock()
+		return SendResult{}, ErrImageLimit
+	}
+	// The images are stored before the turn starts, and the user event
+	// names them.
+	refs, err := m.storeImagesLocked(id, req.Images)
+	if err != nil {
+		m.mu.Unlock()
+		return SendResult{}, err
 	}
 
 	note := Note(req.Context, c.rec.LastContext, m.opts.HostName, m.opts.RepoPath)
@@ -136,17 +149,24 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		ctxCopy = &cc
 	}
 	plan := turnPlan{note: note, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
+	// Only this message's images are sent: the resumed session holds the
+	// earlier ones.
+	plan.images = m.stagedImages(id, refs)
 	plan.codex = c.rec.Agent == AgentCodex
 	if c.rec.Agent == AgentClaude && m.routingOnLocked() {
 		// The router sees the history before this message, never files.
 		plan.routed = true
 		plan.router = RouterInput{
-			Text: req.Text, Note: note, NewEffort: c.rec.NewEffort,
+			Text: req.Text, Note: note, Images: len(refs), NewEffort: c.rec.NewEffort,
 			History: routerHistory(c.events),
 		}
 		plan.lightModel = m.opts.LightModel
 	}
-	m.appendLocked(c, Event{Kind: KindUser, TurnID: req.TurnID, Text: req.Text, Context: ctxCopy})
+	m.appendLocked(c, Event{Kind: KindUser, TurnID: req.TurnID, Text: req.Text, Context: ctxCopy, Images: refs})
+	for _, r := range refs {
+		c.rec.ImageCount++
+		c.rec.ImageBytes += int64(r.Bytes)
+	}
 	c.rec.LastContext = ctxCopy
 	c.rec.TurnIDs = append(c.rec.TurnIDs, req.TurnID)
 	if len(c.rec.TurnIDs) > maxTurnIDs {
@@ -184,6 +204,8 @@ type turnPlan struct {
 	spec claude.Chat
 	note string
 	text string
+	// images are this message's stored images, in order.
+	images []claude.StagedImage
 	// reminder is the one-line "On screen: same as before" note.
 	reminder string
 	// codex runs the message through codex app-server.
@@ -303,7 +325,7 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 		}
 		spec.Model, spec.PermissionMode = p.lightModel, "plan"
 		lt := &light{}
-		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note+"\n\n"+LightAddendum, p.text, RouteLight, lt)
+		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note+"\n\n"+LightAddendum, p.images, p.text, RouteLight, lt)
 		if res != nil {
 			m.addCost(c, t, res.CostUSD)
 		}
@@ -330,7 +352,7 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 			if full.MaxBudgetUSD < 0.005 {
 				return nil, errLimitMidTurn
 			}
-			res, err := m.exec(ctx, c, t, cwd, env, full, ContinuationNote, p.reminder, RouteFull, nil)
+			res, err := m.exec(ctx, c, t, cwd, env, full, ContinuationNote, nil, p.reminder, RouteFull, nil)
 			if res != nil {
 				m.addCost(c, t, res.CostUSD)
 			}
@@ -341,7 +363,7 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 	if full.MaxBudgetUSD < 0.005 {
 		return nil, errLimitMidTurn
 	}
-	res, err := m.exec(ctx, c, t, cwd, env, full, p.note, p.text, RouteFull, nil)
+	res, err := m.exec(ctx, c, t, cwd, env, full, p.note, p.images, p.text, RouteFull, nil)
 	if res != nil {
 		m.addCost(c, t, res.CostUSD)
 	}
@@ -391,8 +413,8 @@ func (m *Manager) addCost(c *chatState, t *turn, usd float64) {
 // an error when it ended without one. A light turn (lt set) hands off, by
 // setting lt.reason, on a final handoff line, a host permission request or
 // an ExitPlanMode call; the last two are refused and the process stopped.
-func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note, text, route string, lt *light) (*claude.Result, error) {
-	msg, err := claude.ChatUserMessage(note, text)
+func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note string, images []claude.StagedImage, text, route string, lt *light) (*claude.Result, error) {
+	msg, err := claude.ChatUserMessage(note, images, text)
 	if err != nil {
 		return nil, err
 	}

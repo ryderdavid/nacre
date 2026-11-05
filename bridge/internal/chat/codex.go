@@ -143,7 +143,12 @@ func (m *Manager) codexTurn(ctx context.Context, c *chatState, t *turn, cwd stri
 	if threadID == "" {
 		return nil, errors.New("codex app-server started no thread")
 	}
-	res, err = srv.Call(ctx, "turn/start", thread.TurnStartParams(threadID, p.note, p.text, nil))
+	// A local image input for each of this message's stored images.
+	paths := make([]string, 0, len(p.images))
+	for _, img := range p.images {
+		paths = append(paths, img.Path)
+	}
+	res, err = srv.Call(ctx, "turn/start", thread.TurnStartParams(threadID, p.note, p.text, paths))
 	if err != nil {
 		return m.codexEnded(ctx, t, err)
 	}
