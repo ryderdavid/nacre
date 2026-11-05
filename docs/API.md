@@ -11,12 +11,13 @@ user's own subscription login.
 - Content type: `application/json; charset=utf-8` both ways. Field names are snake_case.
 - Errors: non-2xx with body `{"error": "human readable message", "detail": "optional stderr/tail"}`.
   400 bad input, 401 auth, 404 unknown repo/issue/run, 409 conflict (e.g. follow-up while running),
-  413 a turn body over 32 MiB (see [Images](#images)), 502 `bd`/`claude` failed, 500 anything else. (bd rejecting a value, e.g. an unknown status or
+  413 a turn or chat message body over 32 MiB (see [Images](#images) and [Chat](#chat-v1chats)), 502 `bd`/`claude` failed, 500 anything else. (bd rejecting a value, e.g. an unknown status or
   type, is reported as 400 with bd's message.) Unknown routes and wrong methods are JSON 404s.
 - Timestamps: RFC 3339 UTC strings.
 - Body size: request bodies are limited to 1 MiB (a larger one is rejected with 400 `invalid JSON
   body`), except `POST /v1/repos/{repo}/claude/json` and `POST /v1/repos/{repo}/claude/stream`, which
-  accept up to 32 MiB so a turn can carry images and answer 413 above that.
+  accept up to 32 MiB so a turn can carry images and answer 413 above that, and so does
+  `POST /v1/chats/{id}/messages` (see [Chat](#chat-v1chats)).
 
 ## Types
 
@@ -236,7 +237,7 @@ still a 409).
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.6.0","commit":"<sha>","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), `assist_turn_ids` when the streamed turn endpoints take the app's own `turn_id` (see [SSE](#sse)), and `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence |
+| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), `assist_turn_ids` when the streamed turn endpoints take the app's own `turn_id` (see [SSE](#sse)), `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence, `agent_chat` when [Chat](#chat-v1chats) can run here (otherwise `agent_chat_unavailable` says why, naming the Claude Code version it needs), and `agent_chat_codex` when Chat can run on Codex here (otherwise `agent_chat_codex_unavailable` says why) |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -261,6 +262,7 @@ still a 409).
 | POST | `/v1/runs/{run}/live` | `{"message":"…"}` | `Run` with the send in `peer_messages`; **409** unless the run is a live adopted session with `can_send_live`, or if the send fails. See [Live sends](#live-sends) |
 | GET | `/v1/events` | – | SSE: global `run`, `repo` and `change` notifications |
 | POST | `/v1/sessions` | Claude Code hook payload | `{"accepted":bool,"reason"?}` (202): a hook telling nacred about a session so the adoption poll runs now. See [Session hints](#session-hints) |
+| GET, POST, DELETE | `/v1/chats…` | see [Chat](#chat-v1chats) | the app's Chat: records, messages, SSE, images, cancel and permission answers |
 | GET | `/v1/attention` | – | `{"items":[AttentionItem]}`: Needs you for every repository on this computer (below) |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
@@ -787,6 +789,363 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 | `bead_stuck` | in a repository with `nacre.yaml`, a non-epic bead `in_progress` for 24 hours with no active run (adopted sessions included) and in no active round | Work until done (`POST /v1/repos/{repo}/rounds` with the bead and `land_when_ready`); Back to Ready (`PATCH` the bead to `open`); open bead |
 
 A repository whose beads can't be read contributes no items; its board shows the error.
+
+## Chat (`/v1/chats`)
+
+Chat is the app's one agentic conversation: a full Claude Code (or Codex) session on this computer,
+running with the owner's own setup, which Ryder talks to from the phone. Every chat is a record on
+nacred with an event log, so it survives the app closing, connection drops and nacred restarts. The
+app holds no other AI chat. nacred still serves the assist endpoints (`/v1/repos/{repo}/claude/*`,
+`/v1/claude/stream`, `/v1/assist/*`) for older apps.
+
+All chat routes use the owner's bearer token like every other route. With Chat not set up on the
+computer, they answer 503 "Chat isn't available on this computer."
+
+### Chat routes
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/v1/chats` | – | `{"chats":[ChatRecord]}`, most recently updated first |
+| POST | `/v1/chats` | `{"agent","repo","context","new_effort"?}` | `{"chat":ChatRecord}` (201). `agent` is `claude` (default) or `codex`; `repo` is a repository key on this computer, or `null` for all boards. There is no model field. **400** `unknown repo` for a key that isn't on this computer, or `unknown agent`. **409** with the reason when that agent can't serve Chat here (the same reason as `agent_chat_unavailable` / `agent_chat_codex_unavailable` in health) |
+| GET | `/v1/chats/{id}` | – | `{"chat":ChatRecord,"events":[ChatEvent]}`: the record and the newest 500 events |
+| GET | `/v1/chats/{id}/stream[?after=seq]` | – | SSE (below). `Last-Event-ID` is honoured and wins over `after` |
+| POST | `/v1/chats/{id}/messages` | ChatMessage | `{"turn_id","started":bool,"chat":ChatRecord}` (202). Starts a turn detached from the request. Read with a 32 MiB limit (**413** above it). **400** for no text and no images, text over 100,000 bytes, an invalid `turn_id`, or an image failing validation. **409** while another turn runs, when the chat is `limit_reached`, or when the images would pass the chat's image limit |
+| GET | `/v1/chats/{id}/images/{image}` | – | the stored image bytes with their `Content-Type`, for thumbnails (`Cache-Control: private, max-age=86400, immutable`). 404 `unknown image` |
+| POST | `/v1/chats/{id}/cancel` | – | 204. Stops the running turn, whichever part (router, light or full) is running, and denies every pending permission request |
+| POST | `/v1/chats/{id}/permissions/{req}` | `{"allow":bool,"note"?}` | `{"permission":ChatEvent,"chat":ChatRecord}`: the `permission_answer` event. **409** "This request was already answered." once it is decided, with the recorded `permission_answer` when there is one. **403** "Answer from a paired device" when the request comes from this computer itself. 404 for an unknown request. 400 without `allow` |
+| DELETE | `/v1/chats/{id}` | – | 204. Deletes nacred's record, log and stored images |
+
+Unknown chats are 404 `unknown chat`. Chat ids look like `ch_` followed by 24 hex digits.
+
+### ChatRecord
+
+Stored as `chats/<id>.json` (mode 0600) under nacred's state directory.
+
+| Field | Meaning |
+|---|---|
+| `id` | `ch_…` |
+| `agent` | `claude` or `codex` |
+| `repo` | the repository key the chat started in, or `null` for all boards |
+| `host_id`, `host_name` | the computer the chat runs on |
+| `cwd` | the working directory, fixed at creation: the repository's checkout, or `chats/work` under nacred's state directory for all boards |
+| `add_dirs` | every other board's checkout on this computer, given to Claude as `--add-dir` and to Codex as writable roots |
+| `title` | the first message trimmed to 80 characters; before that "New chat · <board>" or "New chat · all boards"; a New effort chat keeps "New effort · <board>" |
+| `new_effort` | `true` for a New effort chat (below) |
+| `created_at`, `updated_at` | RFC 3339 |
+| `session_id` | the agent's own session: the Claude session UUID, or the Codex thread id once `thread/start` has given one |
+| `session_started` | the agent has the session, so the next turn resumes it |
+| `last_context` | the context of the last message sent |
+| `cost_usd` | what the chat has spent (router, light and full calls). Claude only; absent for Codex |
+| `image_count`, `image_bytes` | images sent so far, and their decoded bytes |
+| `state` | `idle`, `running`, `waiting_permission`, `interrupted` or `limit_reached` |
+| `reason` | why the chat is `interrupted` or `limit_reached` |
+| `turn_id` | the running turn, or the last one |
+| `last_seq` | the newest event's `seq` |
+| `phone` | the Tailscale device of the phone that created the chat (for Taildrop); empty when unknown |
+
+States:
+
+- `idle`: ready for a message.
+- `running`: a turn runs.
+- `waiting_permission`: a turn waits for an answer to a permission request.
+- `interrupted`: nacred restarted during a turn. A `system` event says so, pending requests are
+  closed as denied by restart, and the next message resumes the same agent session.
+- `limit_reached`: the chat has spent its $50 runaway ceiling (below). Messages are refused.
+
+If the agent process exits without a result, the turn ends with an `error` event and the chat
+returns to `idle`. nacred keeps the 200 most recently updated chats; trimming a chat removes its
+record, log and images. Delete does the same. Claude Code's and Codex's own transcripts of the
+session stay on the Mac, as for any session there.
+
+### ChatEvent
+
+The log is `chats/<id>.events.jsonl`. Every event has `seq` (increasing), `ts`, `kind` and the
+`turn_id` it belongs to. Events are appended to the log before they are published. The log keeps the
+newest 5,000 events; older ones are dropped behind one `truncated` marker.
+
+| `kind` | Fields |
+|---|---|
+| `user` | `text`, `context` (the screen it was sent from), `images` (`[{"id","name","media_type","bytes"}]`, in order) |
+| `text`, `thinking`, `tool_use`, `tool_result` | the transcript, as in RunEvent (`text`, `tool`, `tool_id`, `input`, `is_error`), plus **`route`**: `light` or `full`, the part of the turn that produced it |
+| `handoff` | a light turn handed the message to the full harness: `text` "Handed to the full harness: <reason>", `reason` |
+| `draft` | a New effort draft: `draft` `{"title","type"?,"description"?,"design"?,"acceptance"?}`, `text` its title, `route` |
+| `permission` | a request waiting for the phone: `request_id`, `tool`, `text` (one line: the command, the file path, or "MCP tool <name> on <server>"), `reason` (the classifier's reason, when given), `input` |
+| `permission_answer` | how it was decided: `request_id`, `allowed`, `by` (`phone`, `timeout`, `stop`, `restart` or `turn_end`), `text`/`reason` (the deny message the agent saw) |
+| `system` | a note from nacred, for example the interruption by a restart |
+| `error` | a failure, including "The draft couldn't be read: <reason>" |
+| `turn_end` | the turn finished: `text` "Turn finished", "Stopped" or "Turn ended with an error" (with `is_error`), `cost_usd` (what this turn spent, Claude only) |
+| `truncated` | older events were dropped |
+
+The app shows the handoff line and Draft cards, never which model answered. `route` is there so tests
+and the API can see it.
+
+### ChatMessage and the per-message context
+
+```json
+{
+  "turn_id": "t_7f3a…",
+  "text": "why did this stop?",
+  "context": {
+    "screen": "round", "repo": "mac~5b0877e4c7cf", "round_id": "r-12",
+    "selection": "NAC-3", "pane": "integration log",
+    "summary": "Round r-12 · paused · stop reason: …"
+  },
+  "images": [{"media_type": "image/png", "name": "screen.png", "data": "<base64>"}]
+}
+```
+
+- **`turn_id`** is chosen by the client (4–80 characters of `A-Z a-z 0-9 _ -`). A message with a
+  `turn_id` the chat already knows starts nothing and returns that turn with `started: false`, so a
+  resend after a lost response never starts a second turn. Without one nacred makes one up.
+- **`context`** is what was on the phone's screen when Send was pressed:
+  - `screen`: `boards`, `inbox`, `activity`, `board`, `bead`, `change`, `round` or `run`
+  - `repo`: the repository key on the chat's computer (same repo group). When the screen's
+    repository has no checkout there, `repo` is its key elsewhere and **`elsewhere`** names the
+    computer that has it.
+  - `bead_id`, `change_id`, `round_id`, `run_id`: what the screen shows
+  - `selection`: the selected item, for example the bead open in a board's right pane
+  - `pane`: the open pane or tab, for example `proposal.md`, findings or the integration log
+  - `summary`: up to 4 KB of what the screen shows (titles, status, labels, the change's phase and
+    revision, the round's state, stop reason and choices, the run's state and last error)
+
+  From a docked pane or a sheet, the context is the screen beside or under it. From the Chat tab it
+  is the screen last shown before Chat, or all boards.
+- **The "On screen" note.** nacred puts a note before every user message it gives the agent:
+  - When the context differs from the previous message's, the full note: the screen and what it
+    names (with "\"This\" means what is named here."), the repository with its local checkout path,
+    the ids, `Selected:`, `Open pane:` and the summary.
+  - Otherwise one line: `On screen: same as before (<label>)`, where the label is what the app's
+    About chip shows (a bead id, `round r-12 · NAC-3`, `all boards`).
+  - Boards, Inbox and Activity say the message is about all boards on this computer.
+  - An `elsewhere` repository is named as being on that other computer, with no checkout here, so
+    work in it needs a chat there. The app also shows "This chat runs on <A>. <repo> is on <B>." with
+    New chat on <B>, and sending is still allowed.
+
+### SSE (`/v1/chats/{id}/stream`)
+
+Sends every event after `after` (or `Last-Event-ID`) as an `event` message whose SSE `id` is its
+`seq`, then follows new events while the chat is `running` or `waiting_permission`. Once the chat is
+neither and every event has been sent, one `state` message carries the ChatRecord and the stream
+ends. A chat deleted meanwhile ends the stream with an `error` message. Keep-alive comments are sent
+as for other streams. The app reattaches after a drop with `after=<last seq>` and the `followTurn`
+backoff, so it misses no events and shows none twice; the turn keeps running on the computer while
+nobody is connected.
+
+### Full turns
+
+A full Claude turn runs the official `claude` CLI in the chat's `cwd`:
+
+```
+claude -p --input-format stream-json --output-format stream-json --verbose \
+  --permission-mode auto --permission-prompts host --permission-prompt-tool stdio \
+  --append-system-prompt <briefing> \
+  (--session-id <uuid> | --resume <uuid>) --max-budget-usd <50 − cost_usd> \
+  --add-dir <board>…
+```
+
+- `--session-id` on the chat's first turn, `--resume` with the same id afterwards.
+- No `--safe-mode`, `--no-session-persistence`, `--tools`, `--model`, `--system-prompt`,
+  `--setting-sources`, `--strict-mcp-config` or `--mcp-config`. The briefing is appended, so the
+  owner's MCP servers, CLAUDE.md files, skills and hooks load as they do at the terminal.
+- The child inherits nacred's environment, including the owner's `HOME`; nacred sets no
+  `CLAUDE_CONFIG_DIR`. It sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` so the added boards'
+  CLAUDE.md files load, and `NACRED_URL` (below).
+- The message goes to stdin as one stream-json user message: the "On screen" note, then the images,
+  then the text. Stdin stays open for the turn, so nacred can answer host permission prompts on the
+  control channel.
+- The CLI's credentials never leave the computer, and the app never calls the Claude or OpenAI API
+  for Chat.
+
+### Routing: light and full (Claude chats)
+
+Before each message in a Claude chat, nacred asks a small routing model whether a quick answer is
+enough. Ryder never picks a model, and the app offers no model choice.
+
+- **The router call** is one headless call with `--model <chat.router_model>` (default `haiku`),
+  `--safe-mode --permission-prompts none --no-session-persistence`, no tools, and a `--json-schema`
+  of `{"route": "light" | "full", "reason"}`. It is capped at $0.10 and 15 seconds.
+- **What the router sees**: the message text, its "On screen" note, the number of attached images
+  (not the images), whether the chat is a New effort chat, and the last six user and assistant
+  messages trimmed to 2 KB. It sees no files, tools or session.
+- **`light`** is for a plain question that only needs reading and answering. **`full`** is for
+  anything that changes files, beads, changes or rounds, runs builds or tests, or sends things. An
+  error, a timeout, the cost cap or a malformed answer means `full`.
+- **A light turn** is the same argv in the same `cwd` and the same session (`--session-id` or
+  `--resume` as usual), with `--model <chat.light_model>` (default `sonnet`) and
+  `--permission-mode plan` instead of `auto`. Its note gets an addendum: answer if reading is enough,
+  otherwise end with exactly `NACRE_HANDOFF: <reason>` as the last line.
+- **The handoff.** A light turn hands off when its final text ends with the `NACRE_HANDOFF:` line,
+  when it raises any host permission request, or when it calls **`ExitPlanMode`** (it wants to act;
+  its plan text becomes the reason). For a permission request or `ExitPlanMode`, nacred refuses it
+  with "Handing this to the full harness" and stops the light process; no card reaches the phone.
+  nacred then strips the handoff line, records a `handoff` event, and starts a full turn with
+  `--resume` on the same session whose input is "Continue with the full harness. Carry out Ryder's
+  last message above." followed by the one-line "On screen: same as before" note. The `turn_id` and
+  the stream continue unchanged; Ryder doesn't resend, and nothing said so far is lost.
+- **Costs**: router, light and full calls all add to `cost_usd`, and each starts with the remaining
+  budget as its limit.
+- **Not routed**: Codex chats, and messages after the CLI has rejected the router or the light model
+  (nacred then goes straight to full and logs it once). `chat.router_model` and `chat.light_model`
+  are set in nacred's config under `chat`.
+
+### Permission requests
+
+When the auto classifier won't allow a step on its own in a full turn, Claude Code asks the host.
+(Codex asks for command and file-change approvals the same way.) nacred records a `permission` event
+and the chat moves to `waiting_permission`. The app shows it as an Allow/Deny card, and when the app
+is in the background it posts one "Chat needs your OK" notification per request.
+
+- **Answering**: `POST /v1/chats/{id}/permissions/{req}` with `{"allow": true}`, or
+  `{"allow": false, "note": "use the debug build"}`. Allow lets the step run; Deny refuses it, and
+  the note becomes the deny message (without one: "Ryder denied this step from the phone"). The turn
+  continues either way.
+- **Idempotent**: once a request is decided, another answer gets 409 with the recorded outcome, so
+  every device can show it.
+- **15-minute deny**: a request with no answer for 15 minutes is denied with "No answer from the
+  phone within 15 minutes" (`by: timeout`), and the turn continues.
+- **Stop and restart**: cancel denies pending requests (`by: stop`) and ends the turn. A restart
+  closes them as denied by restart (`by: restart`). A turn that ends otherwise closes them with
+  `by: turn_end`.
+- **Only a paired device answers**: an answer from this computer's own addresses (loopback, the
+  address in `NACRED_URL`, or any of its interfaces, such as its Tailscale address) gets **403**
+  "Answer from a paired device" and the request stays pending. A session on the Mac therefore can't
+  approve its own step, including through `NACRED_URL` with the owner's token.
+
+### Chat uses nacred like any session on the Mac
+
+The agent reaches nacred through the `nacred` command (which uses nacred's config and token) or the
+API at `NACRED_URL` with the token from `nacred token`, exactly like any Claude Code session on the
+Mac. There are no chat tokens and no guarded-endpoint table. Developing and approving proposals,
+starting rounds, landing, finishing an epic and raising limits get **no extra card before
+spending**. What bounds them is:
+
+- the auto classifier and its host permission prompts
+- the chat's $50 runaway ceiling
+- nacred's existing limits: specflow's per-action limit and each round's own budget
+
+### Images
+
+- **Field**: `images` on `POST /v1/chats/{id}/messages`, an ordered `[{"media_type","name","data"}]`
+  array with `data` in base64. A message may be images only.
+- **Body**: that endpoint reads up to 32 MiB (`maxTurnBody`) and answers **413** "request body is
+  larger than 32 MiB; send fewer or smaller images" above it. Every other endpoint keeps its own
+  limit.
+- **Per message**: at most **5** images. Each must be `image/jpeg`, `image/png`, `image/gif` or
+  `image/webp`, decode from base64, have bytes whose signature matches the media type, and be at
+  most 3 MB decoded. A failure answers **400** naming the image or the limit (for example "too many
+  images: 6, at most 5 per chat message") before anything is written or any turn starts. The
+  per-repo turn endpoints keep their limit of 20 images for older apps.
+- **Per chat**: a message that would take the chat past **20 images or 15 MB** decoded answers
+  **409** "This chat has reached its image limit. Start a new chat to send more images." and starts
+  no turn. The app checks the same limit first: it keeps the pending images and disables Send with
+  that reason.
+- **Storage**: accepted images are written to `chats/<id>/images/<image-id>.<ext>` (directory 0700,
+  files 0600) before the turn starts, and the `user` event names them. `<image-id>.<ext>` is the
+  `{image}` of `GET /v1/chats/{id}/images/{image}`. They are deleted with the chat and when it is
+  trimmed. Claude Code's and Codex's transcripts keep their own copies on the Mac until their own
+  cleanup. The app shows "Image unavailable" for a thumbnail it can't fetch.
+- **Delivery**: only the current message's images are sent; the resumed session holds earlier ones.
+  Claude gets an `Image N: <name>` text block followed by the image block for each image, before
+  the message text. Codex gets a local image input pointing at the stored file. The router sees only
+  the count.
+
+### New effort and the `nacre-draft` block
+
+- `POST /v1/chats` with `"new_effort": true` (and a `repo`) creates a chat titled
+  "New effort · <board>". nacred puts a drafting prompt before its first message only: talk the effort
+  through with Ryder, change nothing, and present the draft as a fenced `nacre-draft` block.
+- A draft block is a fenced code block whose info string is `nacre-draft`, holding JSON:
+
+  ````
+  ```nacre-draft
+  {"title": "…", "type": "feature", "description": "…", "design": "…", "acceptance": "…"}
+  ```
+  ````
+
+  `title` is required; `type` is task, bug, feature, chore or epic; `design` and `acceptance` are
+  optional.
+- nacred parses every `nacre-draft` block in any chat's assistant text into a `draft` event and
+  strips the block from the shown text. A block that doesn't parse or has no title records an
+  `error` event "The draft couldn't be read: <reason>", and the conversation continues.
+- The app shows the newest draft as a Draft card. Continue opens the New effort sheet at its intake
+  step with that draft (and any relation the prefill carried), and intake runs as usual. In a
+  repository without OpenSpec, the create action is New bead and opens the bead form directly; a
+  draft continues into that form.
+
+### Budget: the $50 ceiling
+
+- Each Claude chat has a **$50** runaway ceiling across its router, light and full calls. Every
+  call starts with `--max-budget-usd` set to $50 minus `cost_usd` (a chat that has spent $12 runs
+  its next full turn with `--max-budget-usd 38.00`).
+- At or above $50 the chat becomes `limit_reached`, and sending answers **409** "This chat reached
+  its runaway limit. Start a new chat to keep going." New then starts a chat that carries the old
+  chat's title as a note.
+- No money is shown on the app's buttons or cards.
+
+### Codex chats
+
+A chat with `"agent": "codex"` runs `codex app-server` (JSON-RPC over stdio) for each turn:
+`thread/start` on the first turn (the chat's `cwd`, the `workspace-write` sandbox with every board on
+the computer as a writable root, network access on, approval policy `on-request`, and the briefing as
+developer instructions), `thread/resume` with the stored thread id afterwards, then `turn/start` with
+the "On screen" note, the text and any images.
+
+- **No classifier**: the sandbox decides what runs without asking; anything beyond it is an approval
+  request, which becomes the same `permission` event, answered from the same endpoint with the same
+  rules and 15-minute timeout.
+- **No routing**: Codex messages are never routed; there are no light turns or handoffs.
+- **No USD limit**: Codex reports no cost, so `cost_usd` stays absent and the $50 ceiling doesn't
+  apply. The ChatGPT plan's own usage limits apply. The app's New chat sheet says Codex has no
+  classifier or USD limit.
+- Codex children get the same `NACRED_URL` as Claude children.
+
+### The briefing and its environment
+
+Every chat's agent gets the Nacre briefing: Claude through `--append-system-prompt`, Codex as
+developer instructions. It is fixed text in nacred, pinned by Go tests, and covers:
+
+- `bd` (starting with `bd prime`) and OpenSpec changes with `openspec validate <change> --strict`
+- the "On screen" note, and that "this" means what it names
+- the `nacred` command and the API at `NACRED_URL`, pointing at this document: Needs you first
+  (`GET /v1/attention`) when asked what to work on; develop proposals only for behaviour changes, not
+  chores, small fixes or beads already linked to a change; rounds; found work (ask which of the
+  three answers applies before recording it); and sign-off
+- **working in a checkout**: repository checkouts are shared with nacred, which lands rounds, commits
+  `nacre.yaml` and finishes epics there. The agent makes code changes on a branch or in a git
+  worktree (`git worktree add`), never on the checkout's current branch, and before ending a turn
+  that edited a checkout it commits the edits or tells Ryder exactly which files are left
+  uncommitted. Work that should go through a round is started as a round.
+- the `nacre-draft` block
+- Taildrop: sending an APK or other file with `tailscale file cp <file> <phone>:`. The phone's
+  device is resolved from the creating request's peer address with `tailscale whois`; if that fails,
+  the briefing says the device is unknown and to ask Ryder.
+
+**Environment.** Every chat child (Claude or Codex) gets `NACRED_URL=http://<address>`, where
+`<address>` is nacred's own listen address from `config.ResolveListen`: the address the server bound
+and the one the `nacred` command uses. On a normal install that is the Mac's Tailscale address and
+port, not 127.0.0.1 (which is used only when Tailscale is down), so API calls from a chat reach
+nacred even when nothing listens on loopback.
+
+### Concurrency and maintenance
+
+Each chat runs at most one turn at a time, router and handoff included; chats on the same computer
+may run at once. A running turn, including its routing call, counts as an active assistant call, so
+an update request is refused as busy until it ends. Chat turns don't take a `max_concurrent_runs`
+slot, and commands a chat runs are not gate slots. A turn is cut off after 6 hours.
+
+### Features and older bridges
+
+- **`agent_chat`** is in health's `features` when Chat can run here: Claude Code is installed and
+  supports `--permission-prompts host` (Claude Code 2.1.318 or later), so steps the classifier won't
+  allow are asked on the phone. Otherwise `agent_chat_unavailable` says why, naming the Claude Code
+  version Chat needs, and `POST /v1/chats` for Claude answers 409 with that reason.
+- **`agent_chat_codex`** is listed when Codex can serve chats: `codex.Check` passes (installed and
+  signed in) and `codex app-server` starts. Otherwise `agent_chat_codex_unavailable` says why, the
+  app disables Codex in the New chat sheet with that reason, and Claude stays available.
+- **Older bridges.** For a computer without `agent_chat`, the app's Chat shows "Update nacred on
+  <computer> to use Chat" for it, its other tabs are unchanged, and New effort opens its sheet
+  without a draft step (intake still runs on what Ryder types). nacred keeps the assist endpoints
+  for older apps, which never call `/v1/chats`.
 
 ## Rounds
 A round carries several beads in one repository from a pre-flight review to one commit that passes
