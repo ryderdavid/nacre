@@ -743,8 +743,8 @@ private fun RoundEffortSheet(repoKey: String, prefill: com.ryderdavid.nacre.data
     val container = LocalContainer.current
     val snapshot by produceState<com.ryderdavid.nacre.data.BoardSnapshot?>(null, repoKey) { value = runCatching { container.repository.awaitBoard(repoKey) }.getOrNull() }
     val s = snapshot ?: return
-    com.ryderdavid.nacre.ui.board.NewBeadSheet(
-        repoKey, s.repo.name, s.index, defaultParent = null, onDismiss = onDone, onCreated = { onDone() },
-        effort = s.changes?.openspec == true, prefill = prefill,
+    com.ryderdavid.nacre.ui.board.NewEffortEntry(
+        repoKey, s.repo.name, s.index, defaultParent = null, openspec = s.changes?.openspec == true,
+        onDismiss = onDone, onCreated = { onDone() }, prefill = prefill,
     )
 }
