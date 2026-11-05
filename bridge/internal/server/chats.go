@@ -73,8 +73,10 @@ func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case chat.AgentCodex:
-		writeError(w, http.StatusConflict, "Codex chats aren't available on this computer yet.", "")
-		return
+		if reason := s.codexChatStatus(r.Context()); reason != "" {
+			writeError(w, http.StatusConflict, reason, "")
+			return
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "unknown agent", "")
 		return

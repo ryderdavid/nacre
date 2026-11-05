@@ -21,6 +21,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
+	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
@@ -50,17 +51,21 @@ cat > /dev/null
 }
 
 // chatServer serves one repo with chats whose turns run bin.
-func chatServer(t *testing.T, bin string) (s *Server, repoID string) {
+func chatServer(t *testing.T, bin string, opts ...func(*chat.Options)) (s *Server, repoID string) {
 	t.Helper()
 	repoDir := t.TempDir()
 	registry := repos.New(func() []string { return []string{repoDir} }, bd.New("/nonexistent", ""))
-	chats, err := chat.New(chat.Options{
+	o := chat.Options{
 		Dir: t.TempDir(), ClaudePath: bin, NacredURL: "http://127.0.0.1:1", HostName: "Mac-Studio",
 		RepoPath: registry.Path,
 		Boards:   func() []string { return []string{repoDir} },
 		Whois:    func(string) (string, error) { return "", fmt.Errorf("no tailscale") },
 		Logger:   log.New(io.Discard, "", 0),
-	})
+	}
+	for _, f := range opts {
+		f(&o)
+	}
+	chats, err := chat.New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +81,11 @@ func chatServer(t *testing.T, bin string) (s *Server, repoID string) {
 			return claude.ChatSupport{OK: true, Version: claude.ChatMinVersion}
 		},
 		LocalAddrs: func() []net.IP { return nil },
+		// No Codex unless a test gives one, so health never starts the
+		// real CLI.
+		CodexCheck: func(context.Context) codex.Status {
+			return codex.Status{Reason: "Codex CLI isn't installed on this computer"}
+		},
 	}
 	return s, discovery.RepoID(repoDir)
 }

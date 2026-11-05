@@ -108,9 +108,12 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		}
 		m.mu.Unlock()
 		return SendResult{}, ErrLimit
-	case c.rec.Agent != AgentClaude:
+	case c.rec.Agent == AgentCodex && m.opts.CodexPath == "":
 		m.mu.Unlock()
-		return SendResult{}, fmt.Errorf("%s chats can't run on this computer yet", c.rec.Agent)
+		return SendResult{}, ErrCodexUnavailable
+	case c.rec.Agent != AgentClaude && c.rec.Agent != AgentCodex:
+		m.mu.Unlock()
+		return SendResult{}, fmt.Errorf("%s chats can't run on this computer", c.rec.Agent)
 	}
 
 	note := Note(req.Context, c.rec.LastContext, m.opts.HostName, m.opts.RepoPath)
@@ -139,6 +142,7 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		ctxCopy = &cc
 	}
 	plan := turnPlan{note: turnNote, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
+	plan.codex = c.rec.Agent == AgentCodex
 	if c.rec.Agent == AgentClaude && m.routingOnLocked() {
 		// The router sees the history before this message, never files.
 		plan.routed = true
@@ -170,6 +174,9 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	m.touchLocked(c)
 	res := SendResult{TurnID: req.TurnID, Started: true, Chat: c.rec}
 	cwd, env := c.rec.Cwd, claude.ChatEnv(m.opts.NacredURL)
+	if c.rec.Agent == AgentCodex {
+		env = CodexEnv(m.opts.NacredURL)
+	}
 	m.mu.Unlock()
 
 	go m.run(ctx, c, t, cwd, env, plan)
@@ -185,6 +192,8 @@ type turnPlan struct {
 	text string
 	// reminder is the one-line "On screen: same as before" note.
 	reminder string
+	// codex runs the message through codex app-server.
+	codex bool
 	// routed asks the router first.
 	routed     bool
 	router     RouterInput
@@ -275,6 +284,10 @@ var errLimitMidTurn = errors.New(LimitReason)
 // parts runs the router, the light turn and the full turn as the plan and
 // the router's answer say, and returns the last part's result.
 func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, env []string, p turnPlan) (*claude.Result, error) {
+	if p.codex {
+		// Codex chats are never routed, and report no cost.
+		return m.codexTurn(ctx, c, t, cwd, env, p)
+	}
 	route := RouteFull
 	if p.routed {
 		d := m.route(ctx, p.router, m.remaining(c))

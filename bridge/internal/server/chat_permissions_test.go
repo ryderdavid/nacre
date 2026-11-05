@@ -17,6 +17,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
 	"github.com/ryderdavid/nacre/bridge/internal/chat/fakeclaude"
+	"github.com/ryderdavid/nacre/bridge/internal/chat/fakecodex"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
@@ -24,6 +25,7 @@ import (
 
 func TestMain(m *testing.M) {
 	fakeclaude.RunIfFake()
+	fakecodex.RunIfFake()
 	os.Exit(m.Run())
 }
 
@@ -252,7 +254,7 @@ func TestAgentChatFollowsCLISupport(t *testing.T) {
 	bin, _ := chatClaude(t, "")
 	s, _ := chatServer(t, bin)
 	has := func() bool {
-		for _, f := range s.features(codex.Status{}, s.chatSupport(context.Background())) {
+		for _, f := range s.features(codex.Status{}, s.chatSupport(context.Background()), "") {
 			if f == "agent_chat" {
 				return true
 			}
@@ -266,7 +268,7 @@ func TestAgentChatFollowsCLISupport(t *testing.T) {
 	old := claude.ChatSupportFromHelp("2.0.1", "  --permission-mode <mode>  ...\n")
 	s2, _ := chatServer(t, bin)
 	s2.ChatCheck = func(context.Context) claude.ChatSupport { return old }
-	for _, f := range s2.features(codex.Status{}, s2.chatSupport(context.Background())) {
+	for _, f := range s2.features(codex.Status{}, s2.chatSupport(context.Background()), "") {
 		if f == "agent_chat" {
 			t.Fatal("agent_chat advertised although the CLI lacks host prompts")
 		}
@@ -302,7 +304,7 @@ func TestAgentChatFollowsCLISupport(t *testing.T) {
 	// Without Chat set up nothing is advertised.
 	s3, _ := chatServer(t, bin)
 	s3.Chats = nil
-	for _, f := range s3.features(codex.Status{}, claude.ChatSupport{OK: true}) {
+	for _, f := range s3.features(codex.Status{}, claude.ChatSupport{OK: true}, "") {
 		if f == "agent_chat" {
 			t.Fatal("agent_chat advertised without Chat")
 		}

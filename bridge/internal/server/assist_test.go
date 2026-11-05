@@ -409,7 +409,7 @@ func TestHealthReportsClaudeFeature(t *testing.T) {
 	}
 	// A computer without a usable claude binary offers nothing.
 	s := &Server{Config: &config.Config{Token: "tok"}, Assist: &assist.Runner{ClaudePath: "/nonexistent/claude"}}
-	if f := s.features(codex.Status{Reason: "not installed"}, claude.ChatSupport{}); len(f) != 0 {
+	if f := s.features(codex.Status{Reason: "not installed"}, claude.ChatSupport{}, "not installed"); len(f) != 0 {
 		t.Fatalf("features = %v", f)
 	}
 }

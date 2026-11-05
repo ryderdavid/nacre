@@ -77,6 +77,9 @@ var (
 	ErrBusy = errors.New("A turn is already running in this chat. Wait for it to finish or stop it.")
 	// ErrLimit is a message sent to a chat that has reached its ceiling.
 	ErrLimit = errors.New(LimitReason)
+	// ErrCodexUnavailable is a message to a Codex chat on a computer
+	// without the Codex CLI.
+	ErrCodexUnavailable = errors.New("Codex chats can't run on this computer")
 )
 
 // Context is what was on the phone's screen when a message was sent.
@@ -114,7 +117,8 @@ type Record struct {
 	NewEffort bool     `json:"new_effort,omitempty"`
 	CreatedAt string   `json:"created_at"`
 	UpdatedAt string   `json:"updated_at"`
-	// SessionID is the agent's session: the Claude session UUID.
+	// SessionID is the agent's session: the Claude session UUID, or the
+	// Codex thread id once thread/start has given one.
 	SessionID string `json:"session_id,omitempty"`
 	// SessionStarted is set once the agent has the session, so later turns
 	// resume it rather than start it again.
@@ -195,6 +199,8 @@ type Options struct {
 	// Dir is the chats directory under nacred's state directory.
 	Dir        string
 	ClaudePath string
+	// CodexPath is the Codex CLI, whose app-server runs Codex chats.
+	CodexPath string
 	// NacredURL is http://<address nacred listens on>, given to every turn.
 	NacredURL string
 	// HostID and HostName name this computer.
@@ -372,6 +378,10 @@ func (m *Manager) Create(req CreateRequest) (Record, error) {
 		ID: newID("ch_"), Agent: req.Agent, Repo: repo, HostID: m.opts.HostID, HostName: m.opts.HostName,
 		Cwd: cwd, AddDirs: dirs, Title: title, NewEffort: req.NewEffort,
 		CreatedAt: now, UpdatedAt: now, SessionID: newUUID(), State: StateIdle, Phone: phone,
+	}
+	if rec.Agent == AgentCodex {
+		// The thread id comes from thread/start on the first message.
+		rec.SessionID = ""
 	}
 	if rec.AddDirs == nil {
 		rec.AddDirs = []string{}
