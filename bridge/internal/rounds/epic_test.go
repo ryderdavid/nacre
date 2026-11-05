@@ -400,6 +400,46 @@ func TestDependentBeadsInOneRoundBothClose(t *testing.T) {
 	}
 }
 
+// A chain of beads deeper than two closes in full even when the round lists
+// it backwards, as an epic round lists NAC-x.10 before NAC-x.8.
+func TestChainedBeadsInOneRoundAllClose(t *testing.T) {
+	beads := newFakeBeads(
+		&fakeBead{ID: "T-D", Title: "Fourth", Type: "task", After: []string{"T-C"}},
+		&fakeBead{ID: "T-C", Title: "Third", Type: "task", After: []string{"T-B"}},
+		&fakeBead{ID: "T-B", Title: "Second", Type: "task", After: []string{"T-A"}},
+		&fakeBead{ID: "T-A", Title: "First", Type: "task"},
+	)
+	h := newHarness(t, beads, emptyPlan)
+	r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{"T-D", "T-C", "T-B", "T-A"}, LandWhenReady: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
+	ids := []string{"T-A", "T-B", "T-C", "T-D"}
+	allClosed := func() bool {
+		for _, id := range ids {
+			if beads.bead(id).Status != "closed" {
+				return false
+			}
+		}
+		return true
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !allClosed() {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !allClosed() {
+		got, _, _ := h.m.Get(r.ID)
+		t.Fatalf("not all closed; round beads=%+v", got.Beads)
+	}
+	got, _, _ := h.m.Get(r.ID)
+	for _, b := range got.Beads {
+		if b.CloseError != "" {
+			t.Errorf("%s close error %q", b.ID, b.CloseError)
+		}
+	}
+}
+
 func TestRunEpicAutomaticallyFinishesAfterLanding(t *testing.T) {
 	for _, spec := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordinary", true: "specification"}[spec], func(t *testing.T) {
