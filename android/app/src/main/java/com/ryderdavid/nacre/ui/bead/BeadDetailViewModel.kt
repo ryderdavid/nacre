@@ -9,36 +9,20 @@ import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.board.BoardIndex
-import com.ryderdavid.nacre.data.claude.BeadChatItem
-import com.ryderdavid.nacre.data.claude.BeadChats
-import com.ryderdavid.nacre.data.claude.BeadContext
-import com.ryderdavid.nacre.data.claude.ChatMode
-import com.ryderdavid.nacre.data.claude.ChatTurnImages
-import com.ryderdavid.nacre.data.claude.ChatAttachmentException
-import com.ryderdavid.nacre.data.claude.ChatImage
-import com.ryderdavid.nacre.data.claude.ImagePayload
-import com.ryderdavid.nacre.data.claude.beadChatMessage
-import com.ryderdavid.nacre.data.claude.turns
-import com.ryderdavid.nacre.data.claude.ChildDraft
-import com.ryderdavid.nacre.data.claude.ClaudeBackends
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.Comment
-import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.RunRequest
 import com.ryderdavid.nacre.data.model.UpdateIssue
-import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** One computer a bead can be sent to; [health] is what it last reported, null while unreachable. */
 data class RunTarget(val repo: Repo, val online: Boolean, val health: Health? = null) {
@@ -49,14 +33,9 @@ data class RunTarget(val repo: Repo, val online: Boolean, val health: Health? = 
     }
 }
 
-/** Which parts of a refine proposal the user kept. */
-data class RefineSelection(val fields: Set<String>, val children: Set<Int>)
-
 class BeadDetailViewModel(
     private val repo: NacreRepository,
-    private val backends: ClaudeBackends,
     private val settings: SettingsStore,
-    private val chats: BeadChats,
     val repoKey: String,
     val beadId: String,
 ) : ViewModel() {
@@ -97,12 +76,6 @@ class BeadDetailViewModel(
 
     val comments = MutableStateFlow<List<Comment>>(emptyList())
     val busy = MutableStateFlow(false)
-
-    private val chatKey = BeadChats.key(repoKey, beadId)
-    val chat = chats.items(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, chats.current(chatKey))
-    val chatThinking = chats.thinking(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    val chatFailure = chats.failure(chatKey).stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val chatMode = chats.mode.stateIn(viewModelScope, SharingStarted.Eagerly, ChatMode.REFINE)
 
     init {
         load()
@@ -154,11 +127,6 @@ class BeadDetailViewModel(
 
     fun addComment(text: String) = act("Commenting") { comments.value = repo.comment(repoKey, beadId, text) }
 
-    /** Saves an answer from the chat about this bead to its thread, as Claude's. */
-    fun addToThread(text: String) = act("Adding to the thread") { comments.value = repo.comment(repoKey, beadId, text, fromClaude = true) }
-
-    /** Ends the chat about this bead; the thread is untouched. */
-    fun clearChat() = chats.clear(chatKey)
     fun addBlocker(id: String) = act("Adding dependency") { repo.addDep(repoKey, beadId, id) }
     fun removeBlocker(id: String) = act("Removing dependency") { repo.removeDep(repoKey, beadId, id) }
 
@@ -185,101 +153,5 @@ class BeadDetailViewModel(
         val run = repo.startRun(targetKey, beadId, req)
         repo.groupOf(targetKey)?.let { settings.setRunHost(it.id, Keys.host(targetKey)) }
         onStarted(run)
-    }
-
-    // ---- Claude: ask and refine, in one thread per bead ----
-
-    fun setChatMode(mode: ChatMode) = chats.setMode(mode)
-
-    /**
-     * Send [text] in [mode]. Ask gets an answer and can change nothing; Refine
-     * gets a proposal that waits in the thread for Ryder to apply. An empty
-     * Refine message means "make it agent-ready".
-     */
-    fun sendChat(text: String, mode: ChatMode, images: List<ImagePayload> = emptyList()): Boolean {
-        val message = beadChatMessage(text, mode, images) ?: return false
-        return try {
-            send(message, retrying = false, images)
-            true
-        } catch (e: ChatAttachmentException) {
-            // Nothing was sent or kept; the composer keeps the draft and its images.
-            repo.notify(e.message ?: "Couldn't save the attached images")
-            false
-        }
-    }
-
-    /** Asks about [about] (a round question and its answers) in the bead's thread. */
-    fun askAbout(about: String, text: String) {
-        val message = text.trim()
-        if (message.isEmpty()) return
-        runCatching { send(BeadChatItem.Mine(message, ChatMode.ASK, about), retrying = false) }
-    }
-
-    fun retryChat() {
-        chatFailure.value?.let { runCatching { send(it.retry, retrying = true) } }
-    }
-
-    /** The bytes of an image saved with this bead's chat, or null when its file is missing or unreadable. */
-    fun chatImage(image: ChatImage): ByteArray? = chats.image(image)
-
-    private fun send(message: BeadChatItem.Mine, retrying: Boolean, images: List<ImagePayload> = emptyList()) {
-        val cur = issue.value ?: throw ChatAttachmentException("The bead isn't loaded yet")
-        val ix = index.value ?: throw ChatAttachmentException("The board isn't loaded yet")
-        val parent = ix.byId[cur.parent]
-        val ctx = BeadContext(
-            repoName = repo.repo(repoKey)?.name ?: repoKey,
-            id = cur.id, title = cur.title, type = cur.type, priority = cur.priority, status = cur.status,
-            labels = cur.labels, description = cur.description, design = cur.design,
-            acceptance = cur.acceptance, notes = cur.notes,
-            parentTitle = parent?.let { "${it.id} ${it.title}" },
-            siblingTitles = parent?.let { p -> ix.childrenOf(p.id).filter { it.id != cur.id }.map { "${it.id} ${it.title}" } }.orEmpty(),
-            childTitles = ix.childrenOf(cur.id).map { "${it.id} ${it.title}" },
-            comments = comments.value.map { "${it.author.ifBlank { "someone" }}: ${it.text}" },
-        )
-        chats.send(chatKey, message, retrying, images) { history ->
-            val backend = backends.of(settings.current())
-            val turns = history.turns()
-            val images = if (message.images.isEmpty() && turns.none { it.images.isNotEmpty() }) ChatTurnImages.NONE
-            else ChatTurnImages(message.images, withContext(Dispatchers.IO) { chats.requestImages(turns, message.images) })
-            when (message.mode) {
-                ChatMode.ASK -> BeadChatItem.Answer(backend.ask(repoKey, ctx, turns, message.prompt, images))
-                ChatMode.REFINE -> BeadChatItem.Proposal(backend.refine(repoKey, ctx, message.prompt, turns, images))
-            }
-        }
-    }
-
-    /** Switches the Claude features to this phone's API key, after the Mac let us down. */
-    fun useApiKey() = viewModelScope.launch {
-        settings.update { it.copy(claudeRunner = AppSettings.RUNNER_API) }
-    }
-
-    fun discardProposal(at: Int) {
-        val item = chat.value.getOrNull(at) as? BeadChatItem.Proposal ?: return
-        chats.set(chatKey, at, item.copy(outcome = BeadChatItem.Outcome.DISCARDED))
-    }
-
-    fun applyProposal(at: Int, sel: RefineSelection) = act("Applying changes") {
-        val item = chat.value.getOrNull(at) as? BeadChatItem.Proposal ?: return@act
-        val p = item.proposal
-        fun <T> pick(key: String, v: T?) = if (key in sel.fields) v else null
-        val update = UpdateIssue(
-            title = pick("title", p.title), description = pick("description", p.description),
-            design = pick("design", p.design), acceptance = pick("acceptance_criteria", p.acceptance_criteria),
-            notes = pick("notes", p.notes), priority = pick("priority", p.priority),
-            type = pick("issue_type", p.issue_type), labels = pick("labels", p.labels),
-        )
-        if (update != UpdateIssue()) repo.update(repoKey, beadId, update)
-        p.children.filterIndexed { i, _ -> i in sel.children }.forEach { c: ChildDraft ->
-            repo.create(
-                repoKey,
-                CreateIssue(
-                    title = c.title, description = c.description.ifBlank { null }, type = c.issue_type,
-                    priority = c.priority.coerceIn(0, 4), parent = beadId, acceptance = c.acceptance_criteria.ifBlank { null },
-                ),
-            )
-        }
-        val n = sel.fields.size + sel.children.size
-        repo.notify("Applied $n change${if (n == 1) "" else "s"} from Claude")
-        chats.set(chatKey, at, item.copy(outcome = BeadChatItem.Outcome.APPLIED, applied = n))
     }
 }

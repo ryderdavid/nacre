@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Button
@@ -45,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.ryderdavid.nacre.data.claude.BeadChatItem
 import com.ryderdavid.nacre.data.model.AttentionItem
 import com.ryderdavid.nacre.data.model.AttentionOption
 import com.ryderdavid.nacre.data.model.AttentionQuestion
@@ -64,7 +63,7 @@ import kotlinx.serialization.json.buildJsonObject
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RoundQuestionsCard(item: AttentionItem, busy: Boolean, showComputer: Boolean, claudeReady: Boolean, onOption: (AttentionOption) -> Unit) {
+fun RoundQuestionsCard(item: AttentionItem, busy: Boolean, showComputer: Boolean, onOption: (AttentionOption) -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -91,7 +90,7 @@ fun RoundQuestionsCard(item: AttentionItem, busy: Boolean, showComputer: Boolean
             if (item.why.isNotBlank()) Text(item.why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             item.questions.forEachIndexed { i, q ->
                 HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                QuestionBlock(i + 1, q, item, busy, claudeReady, onOption)
+                QuestionBlock(i + 1, q, item, busy, onOption)
             }
             HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -105,7 +104,7 @@ fun RoundQuestionsCard(item: AttentionItem, busy: Boolean, showComputer: Boolean
 }
 
 @Composable
-private fun QuestionBlock(n: Int, q: AttentionQuestion, item: AttentionItem, busy: Boolean, claudeReady: Boolean, onOption: (AttentionOption) -> Unit) {
+private fun QuestionBlock(n: Int, q: AttentionQuestion, item: AttentionItem, busy: Boolean, onOption: (AttentionOption) -> Unit) {
     var open by rememberSaveable(item.roundId, q.id) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("$n. ${q.text}", style = MaterialTheme.typography.bodyLarge)
@@ -117,13 +116,13 @@ private fun QuestionBlock(n: Int, q: AttentionQuestion, item: AttentionItem, bus
             )
         }
         TextButton(onClick = { open = !open }) {
-            Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(18.dp))
+            Icon(Icons.Rounded.EditNote, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text(if (open) "Hide chat" else "Ask Claude")
+            Text(if (open) "Hide" else "Answer in your own words")
             Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
         }
         AnimatedVisibility(open) {
-            if (item.beadId.isNotBlank()) QuestionChat(item, q, busy, claudeReady, onOption)
+            QuestionChat(item, q, busy, onOption)
         }
     }
 }
@@ -147,23 +146,15 @@ private fun AnswerButton(o: AttentionOption, busy: Boolean, onClick: () -> Unit)
     }
 }
 
-/** The fold-out chat about one question; what Ryder types can be sent as his own answer. */
+/** The fold-out box for Ryder's own answer to one question; questions about it go to Chat. */
 @Composable
-private fun QuestionChat(item: AttentionItem, q: AttentionQuestion, busy: Boolean, claudeReady: Boolean, onOption: (AttentionOption) -> Unit) =
-    com.ryderdavid.nacre.ui.bead.AboutChat(
-        repoKey = item.repoKey, beadId = item.beadId, about = questionContext(q), claudeReady = claudeReady,
-        hint = "Ask why Claude recommends this, what the other answers would mean, or anything else about it.",
-        placeholder = "Ask about this question", useLabel = "Answer with what I wrote", busy = busy,
+private fun QuestionChat(item: AttentionItem, q: AttentionQuestion, busy: Boolean, onOption: (AttentionOption) -> Unit) =
+    com.ryderdavid.nacre.ui.bead.OwnAnswer(
+        key = "question:${item.roundId}:${q.id}",
+        hint = "Write your own answer. To ask why Claude recommends one, or what the others would mean, ask in Chat.",
+        placeholder = "Your answer", useLabel = "Answer with what I wrote", busy = busy,
         onUse = { onOption(ownAnswer(item.roundId, q.id, it)) },
     )
-
-/** What Claude is told about the question being discussed. */
-internal fun questionContext(q: AttentionQuestion): String = buildString {
-    append("A round asks Ryder this before work starts: ").append(q.text).append('\n')
-    append("Answers: ").append(q.options.joinToString(" | ") { if (it.recommended) "${it.label} (recommended)" else it.label })
-    if (q.reason.isNotBlank()) append("\nWhy that one is recommended: ").append(q.reason)
-    append("\nAnswer his question about it plainly and say which answer you'd pick.")
-}
 
 /** Ryder's own answer, sent the way the listed answers are. */
 internal fun ownAnswer(roundId: String, questionId: String, answer: String) = AttentionOption(

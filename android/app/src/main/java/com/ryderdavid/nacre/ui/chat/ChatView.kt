@@ -1,10 +1,8 @@
-package com.ryderdavid.nacre.ui.assistant
+package com.ryderdavid.nacre.ui.chat
 
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
-import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.data.claude.viewKey
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -24,13 +22,7 @@ fun rememberChatList(key: String): LazyListState {
 }
 
 @Composable
-fun rememberChatList(context: ChatContext): LazyListState = rememberChatList(context.viewKey)
-
-@Composable
 fun chatDraft(key: String): String {
     val views by LocalContainer.current.chatStack.views.collectAsState()
     return views[key]?.draft.orEmpty()
 }
-
-@Composable
-fun chatDraft(context: ChatContext): String = chatDraft(context.viewKey)

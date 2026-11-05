@@ -2,14 +2,11 @@ package com.ryderdavid.nacre.data.claude
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import java.io.File
-import java.io.IOException
 import java.util.UUID
 
 /**
- * An image attached to a chat message, by reference. The bytes live elsewhere:
- * for bead chats in a file under `chat-attachments/`, for the board assistant
- * in memory. Stored threads hold only this.
+ * An image attached to a Chat message, by reference; its bytes travel beside
+ * it in [ImagePayload] until the message is sent.
  */
 @Serializable
 data class ChatImage(
@@ -45,156 +42,7 @@ object ImageBudget {
     /** Each image after downscaling, decoded. */
     const val IMAGE_BYTES = 3_000_000L
 
-    /** Every image one request carries, counting earlier turns. */
+    /** Every image one chat may send, counting earlier messages. */
     const val REQUEST_IMAGES = 20
     const val REQUEST_BYTES = 15_000_000L
-}
-
-/** What a prompt says about one image at its turn. */
-sealed interface ImageMark {
-    /** Sent with the request as image [number]. */
-    data class Sent(val number: Int) : ImageMark
-
-    /** Left out to keep the request within [ImageBudget]. */
-    data object Omitted : ImageMark
-
-    /** Its saved file is missing or can't be read. */
-    data object Unavailable : ImageMark
-}
-
-/**
- * The images one request carries, as [images] numbered 1..N in that order
- * (oldest turn first, the current message last), and what each image of the
- * conversation becomes at its marker.
- */
-data class RequestImages(val images: List<ImagePayload>, val marks: Map<String, ImageMark>) {
-    companion object {
-        val NONE = RequestImages(emptyList(), emptyMap())
-    }
-}
-
-/**
- * Picks the images a request carries: [current]'s first, then earlier turns'
- * newest first, while the request stays within [ImageBudget.REQUEST_IMAGES]
- * and [ImageBudget.REQUEST_BYTES]. Only the turns a prompt shows
- * ([Prompts.HISTORY_TURNS]) are considered. [read] returns an image's bytes, or
- * null when its file is missing or unreadable.
- */
-fun resolveImages(history: List<DraftTurn>, current: List<ChatImage>, read: (ChatImage) -> ByteArray?): RequestImages {
-    val shown = history.takeLast(Prompts.HISTORY_TURNS)
-    return selectImages(shown.map { it.images } + listOf(current), read)
-}
-
-/**
- * Picks the images of [turns] (oldest first, each a message's own images) a
- * request carries: the newest turn's first, then earlier turns' newest first,
- * while the request stays within [ImageBudget.REQUEST_IMAGES] and
- * [ImageBudget.REQUEST_BYTES]. The chosen ones are numbered 1..N oldest turn
- * first. [read] returns an image's bytes, or null when they can't be had.
- */
-fun selectImages(turns: List<List<ChatImage>>, read: (ChatImage) -> ByteArray?): RequestImages {
-    if (turns.all { it.isEmpty() }) return RequestImages.NONE
-    val chosen = mutableMapOf<String, ByteArray>()
-    val marks = mutableMapOf<String, ImageMark>()
-    var bytes = 0L
-    for (image in turns.asReversed().flatten()) {
-        if (image.id in marks || image.id in chosen) continue
-        if (chosen.size >= ImageBudget.REQUEST_IMAGES) { marks[image.id] = ImageMark.Omitted; continue }
-        val data = read(image)
-        when {
-            data == null -> marks[image.id] = ImageMark.Unavailable
-            bytes + data.size > ImageBudget.REQUEST_BYTES -> marks[image.id] = ImageMark.Omitted
-            else -> { chosen[image.id] = data; bytes += data.size }
-        }
-    }
-    val images = mutableListOf<ImagePayload>()
-    for (image in turns.flatten()) {
-        val data = chosen.remove(image.id) ?: continue
-        images += ImagePayload(image, data)
-        marks[image.id] = ImageMark.Sent(images.size)
-    }
-    return RequestImages(images, marks)
-}
-
-/**
- * A bead chat message's images as one request sends them: [current] are the
- * message's own, and [request] is what [resolveImages] chose for the request
- * the message goes in, earlier turns included.
- */
-data class ChatTurnImages(val current: List<ChatImage>, val request: RequestImages) {
-    companion object {
-        val NONE = ChatTurnImages(emptyList(), RequestImages.NONE)
-    }
-}
-
-/** The note a message's text carries for each of [images] that isn't sent with it; just [text] when there are none. */
-internal fun withNotes(text: String, images: List<ChatImage>, marks: Map<String, ImageMark>): String =
-    withMarkers(text, images.filter { marks[it.id] !is ImageMark.Sent }, marks)
-
-/** [text] with a marker for each of its [images]; just [text] when there are none. */
-internal fun withMarkers(text: String, images: List<ChatImage>, marks: Map<String, ImageMark>): String {
-    if (images.isEmpty()) return text
-    val markers = images.joinToString(" ") { image ->
-        when (val m = marks[image.id]) {
-            is ImageMark.Sent -> "[image ${m.number}: ${image.fileName}]"
-            ImageMark.Unavailable -> "[image unavailable: ${image.fileName}]"
-            ImageMark.Omitted, null -> "[image omitted: ${image.fileName}]"
-        }
-    }
-    return if (text.isBlank()) markers else "$text\n$markers"
-}
-
-/** Raised when an attachment couldn't be saved; nothing was sent and nothing of the message was kept. */
-class ChatAttachmentException(message: String, cause: Throwable? = null) : IOException(message, cause)
-
-/**
- * Bead chat attachment files, one per image as `<id>.<ext>` in [dir]. Each is
- * written to a temporary file first and renamed into place, so a file under
- * its final name is always complete.
- */
-class ChatAttachments(
-    private val dir: File,
-    private val writeBytes: (File, ByteArray) -> Unit = { f, b -> f.writeBytes(b) },
-) {
-    fun file(image: ChatImage) = File(dir, "${image.id}.${image.extension}")
-
-    /** Saves every one of [images], or none of them. */
-    fun save(images: List<ImagePayload>) {
-        if (images.isEmpty()) return
-        val written = mutableListOf<File>()
-        try {
-            if (!dir.isDirectory && !dir.mkdirs()) throw IOException("couldn't create ${dir.name}")
-            for (p in images) {
-                val target = file(p.image)
-                val tmp = File(dir, "${target.name}$TMP")
-                written += tmp
-                writeBytes(tmp, p.bytes)
-                if (!tmp.renameTo(target)) throw IOException("couldn't save ${p.image.fileName}")
-                written += target
-            }
-        } catch (e: Exception) {
-            written.forEach { it.delete() }
-            throw ChatAttachmentException("Couldn't save the attached images: ${e.message ?: e::class.simpleName}", e)
-        }
-    }
-
-    /** The image's bytes, or null when its file is missing or unreadable. */
-    fun read(image: ChatImage): ByteArray? = runCatching { file(image).readBytes() }.getOrNull()
-
-    fun delete(ids: Collection<String>) {
-        if (ids.isEmpty()) return
-        val gone = ids.toSet()
-        dir.listFiles()?.forEach { if (idOf(it) in gone) it.delete() }
-    }
-
-    /** Deletes every file no thread refers to, and any temporary file left by an interrupted save. */
-    fun sweep(referenced: Set<String>) {
-        dir.listFiles()?.forEach { if (it.name.endsWith(TMP) || idOf(it) !in referenced) it.delete() }
-    }
-
-    private fun idOf(f: File) = f.name.substringBefore('.')
-
-    private companion object {
-        const val TMP = ".tmp"
-    }
 }

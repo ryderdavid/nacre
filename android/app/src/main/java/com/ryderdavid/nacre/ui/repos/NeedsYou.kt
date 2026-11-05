@@ -76,14 +76,13 @@ fun NeedsYouSection(
     onOption: (AttentionItem, AttentionOption) -> Unit,
     modifier: Modifier = Modifier,
     initiallyAll: Boolean = false,
-    claudeReady: Boolean = false,
 ) {
     if (items.isEmpty()) return
     var all by rememberSaveable { mutableStateOf(initiallyAll) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         (if (all) items else items.take(NEEDS_YOU_SHOWN)).forEach { item ->
             if (item.kind == AttentionItem.ROUND_QUESTION && item.questions.isNotEmpty()) {
-                RoundQuestionsCard(item, busy = item.id in busy, showComputer = showComputers, claudeReady = claudeReady, onOption = { onOption(item, it) })
+                RoundQuestionsCard(item, busy = item.id in busy, showComputer = showComputers, onOption = { onOption(item, it) })
             } else NeedsYouCard(item, busy = item.id in busy, showComputer = showComputers, onOption = { onOption(item, it) })
         }
         if (items.size > NEEDS_YOU_SHOWN) {

@@ -57,7 +57,7 @@ fun InboxScreen(
         ) else Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (outdated.isNotEmpty()) OutdatedNacredNote(outdated)
-            NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, initiallyAll = true, claudeReady = prefs?.claudeConfigured == true)
+            NeedsYouSection(attention, busy, showComputers = hosts.size > 1, onOption = onOption, initiallyAll = true)
         }
     }
     foundTarget?.let { (key, t) -> FoundFromNeedsYou(key, t, vm, onDismiss = { foundTarget = null }, onOutOfScope = { foundTarget = null; effort = key to it }) }

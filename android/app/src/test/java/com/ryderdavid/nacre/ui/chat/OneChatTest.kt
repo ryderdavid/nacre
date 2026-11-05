@@ -1,4 +1,4 @@
-package com.ryderdavid.nacre.ui.assistant
+package com.ryderdavid.nacre.ui.chat
 
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.chat.ChatHub

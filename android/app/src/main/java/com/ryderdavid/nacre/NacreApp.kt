@@ -1,24 +1,17 @@
 package com.ryderdavid.nacre
 
 import com.ryderdavid.nacre.data.claude.ChatStack
-import com.ryderdavid.nacre.data.claude.BeadChats
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.ryderdavid.nacre.data.NacreRepository
-import com.ryderdavid.nacre.data.claude.AllBoardsRouter
-import com.ryderdavid.nacre.data.claude.ApiBackend
-import com.ryderdavid.nacre.data.claude.BoardAssistant
-import com.ryderdavid.nacre.data.claude.ClaudeBackends
-import com.ryderdavid.nacre.data.claude.ClaudeService
-import com.ryderdavid.nacre.data.claude.MacBackend
-import com.ryderdavid.nacre.data.claude.RepoBoardTools
-import com.ryderdavid.nacre.data.claude.SingleBoard
+import com.ryderdavid.nacre.data.RetiredChats
 import com.ryderdavid.nacre.data.settings.SettingsStore
 import com.ryderdavid.nacre.notify.RunNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -35,13 +28,10 @@ class AppContainer(app: Application) {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     val repository = NacreRepository(settings, http, scope)
-    val claude = ClaudeService()
 
-    /** Refine, Draft and the assistant, on the Mac's subscription or this phone's key. */
-    val backends = ClaudeBackends(
-        api = ApiBackend(claude) { settings.current() },
-        mac = MacBackend(repository) { settings.current() },
-    )
+    /** The Claude API client for the API key in Settings (checked there; Chat never uses it). */
+    val claude = com.ryderdavid.nacre.data.claude.ClaudeService()
+
     /** The one chat in the app: its current chat id is remembered in settings. */
     val chatStack = ChatStack(persist = { key -> scope.launch { settings.setCurrentChat(key) } })
 
@@ -57,46 +47,12 @@ class AppContainer(app: Application) {
     }
     val notifier = RunNotifier(app, repository, settings, scope, chats)
 
-    /** Whether a chat can take images on the chosen backend and its target computer; kept current. */
-    val imageSupport = com.ryderdavid.nacre.data.claude.ChatImageSupport(settings.settings, repository.hosts)
-
-    /** Each bead's chat with Claude, held on the bead's own screen beside its thread. */
-    val beadChats = BeadChats(
-        java.io.File(app.filesDir, "bead-chats.json"), scope,
-        attachments = com.ryderdavid.nacre.data.claude.ChatAttachments(java.io.File(app.filesDir, "chat-attachments")),
-    )
-
     /** Each board's unfinished new-bead form, kept in memory when the form is dismissed. */
     val newBeadDrafts = com.ryderdavid.nacre.data.board.NewBeadDrafts()
 
-    /**
-     * One assistant conversation per board plus the cross-board one, kept for the life
-     * of the active chat. Repo keys
-     * are "<host>~<repo id>", so [ALL_BOARDS] can't collide.
-     */
-    private val assistants = mutableMapOf<String, BoardAssistant>()
-
-    fun assistant(repoKey: String, repoName: String): BoardAssistant = synchronized(assistants) {
-        assistants.getOrPut(repoKey) {
-            BoardAssistant(
-                backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope,
-                attention = { repository.attention.value },
-            )
-        }
-    }
-
-    /** The conversation on the boards screen, which reaches every board at once. */
-    fun orchestrator(): BoardAssistant = synchronized(assistants) {
-        assistants.getOrPut(ALL_BOARDS) {
-            BoardAssistant(
-                backends, { settings.current() }, AllBoardsRouter(repository, settings), scope,
-                attention = { repository.attention.value },
-            )
-        }
-    }
-
-    private companion object {
-        const val ALL_BOARDS = "@all-boards"
+    init {
+        // The retired bead chat's threads and images: deleted once, retried at the next launch if that fails.
+        scope.launch { withContext(Dispatchers.IO) { RetiredChats.cleanUp(app.filesDir) } }
     }
 }
 

@@ -25,9 +25,8 @@ object ComposerReasons {
 
 /**
  * Works out the composer's actions. [support] is whether the chat's target
- * takes images; [limit] is the conversation's own budget (the Mac assistant),
- * asked for a message of a given count and decoded size. [blankSends] is true
- * for Refine, where an empty message means "make it agent-ready".
+ * takes images; [limit] is the chat's own image budget, asked for a message of
+ * a given count and decoded size. [blankSends] lets an empty message send.
  */
 fun composerGate(
     hasText: Boolean,
@@ -52,17 +51,6 @@ fun composerGate(
         sendReason = sendReason,
         remaining = remaining,
     )
-}
-
-/**
- * Whether [context]'s chat offers Attach image at all: bead chats and the
- * assistant for one board do; the assistant across boards (and the all-boards
- * chat bar that opens it) doesn't, on either backend. The new-bead draft chat
- * has no chat context and no attach action.
- */
-fun attachOffered(context: ChatContext): Boolean = when (context) {
-    ChatContext.Multi -> false
-    is ChatContext.Board, is ChatContext.Bead -> true
 }
 
 /** [pending] with the image [id] removed. */

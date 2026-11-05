@@ -7,7 +7,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Where Refine, Draft and the board assistant run.
+ * Where Claude ran for the retired bead chat, Draft and board assistant; the
+ * setting is kept (agent-chat-tab leaves it in place).
  *
  * [MAC] spends Ryder's Claude subscription: the work happens in `claude -p` on
  * a paired computer, through nacred. [API] spends money per token against the
@@ -32,24 +33,15 @@ class ClaudeUnavailableException(
     val canRetry: Boolean = false,
 ) : Exception(message)
 
-/** Claude's half of the app's three Claude features. */
+/** Claude's half of Refine, Ask and Draft on this phone's API key. */
 interface ClaudeBackend {
     val runner: ClaudeRunner
 
-    /**
-     * Improve one bead; the result is reviewed field by field before anything
-     * is saved. [images] are the message's images and those its request carries.
-     */
-    suspend fun refine(
-        repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>,
-        images: ChatTurnImages = ChatTurnImages.NONE,
-    ): RefineProposal
+    /** Improve one bead; the result is reviewed field by field before anything is saved. */
+    suspend fun refine(repoKey: String, ctx: BeadContext, instruction: String, history: List<DraftTurn>): RefineProposal
 
-    /** Answer a question about one bead. Nothing is changed and nothing is proposed. [images] as for [refine]. */
-    suspend fun ask(
-        repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String,
-        images: ChatTurnImages = ChatTurnImages.NONE,
-    ): String
+    /** Answer a question about one bead. Nothing is changed and nothing is proposed. */
+    suspend fun ask(repoKey: String, ctx: BeadContext, history: List<DraftTurn>, question: String): String
 
     /** Expand a rough note into a complete new bead. */
     suspend fun draft(repoKey: String, repoName: String, rough: String, parentTitle: String?, existingTitles: List<String>): BeadDraft
@@ -59,94 +51,6 @@ interface ClaudeBackend {
         repoKey: String, repoName: String, current: BeadDraft, history: List<DraftTurn>, message: String,
         parentTitle: String?, existingTitles: List<String>,
     ): BeadDraft
-
-    /** A fresh conversation about [board]. */
-    fun session(board: AssistantBoard): AssistantSession
-}
-
-/**
- * The board a conversation is about. [runKey] is the repo key a Mac-hosted
- * session runs `claude -p` in; it is null when the conversation spans several
- * boards, and then [span] says which ones, so the Mac can read them all in one
- * call. [tools] is the catalogue this conversation offers, so a conversation
- * that covers several boards can widen it without either backend knowing how.
- */
-class AssistantBoard(
-    val runKey: String?,
-    val name: String,
-    val tools: List<ToolSpec> = BOARD_TOOLS,
-    val span: (suspend () -> BoardSpan)? = null,
-    val system: suspend () -> String,
-)
-
-/**
- * The boards a conversation across boards covers. [overview] is what
- * list_boards would answer, for a backend that can't call it.
- */
-class BoardSpan(val boards: List<SpanBoard>, val overview: String)
-
-/** One board, by the name proposals use, with its checkout on each computer as repo keys. */
-data class SpanBoard(val name: String, val keys: List<String>)
-
-/** A conversation with Claude. The session owns the history; the caller owns the UI. */
-interface AssistantSession {
-    /** Streams one turn and reports what Claude wants to do next. */
-    suspend fun turn(input: TurnInput, sink: TurnSink): TurnResult
-
-    /** Forget the conversation so the next turn starts fresh. */
-    fun reset()
-
-    /**
-     * Why a message with [count] images of [bytes] decoded bytes can't be sent
-     * in this conversation now, or null when it can. The pending images are
-     * kept and Send is disabled with the reason; text alone can still be sent.
-     */
-    fun imageLimit(count: Int, bytes: Long): String? = null
-}
-
-sealed interface TurnInput {
-    /** Something the user typed, with the images attached to it. */
-    data class Say(val text: String, val images: List<ImagePayload> = emptyList()) : TurnInput
-
-    /** What came of the calls the previous turn asked for. */
-    data class Answers(val answers: List<ToolAnswer>) : TurnInput
-}
-
-/** A call Claude wants to make. Writes are approved in the app before they run. */
-data class ToolRequest(val id: String, val name: String, val input: JsonObject?)
-
-/** The outcome of one [ToolRequest], as Claude will read it. */
-data class ToolAnswer(val id: String, val name: String, val content: String, val isError: Boolean)
-
-enum class TurnStop {
-    /** Claude is finished answering. */
-    DONE,
-
-    /** Claude asked for the calls in [TurnResult.calls]. */
-    CALLS,
-    REFUSAL,
-    TOO_LONG,
-}
-
-data class TurnResult(val calls: List<ToolRequest>, val stop: TurnStop)
-
-/** Where a turn's output goes while it is still arriving. */
-interface TurnSink {
-    /** A new block started: the next text or thinking begins a new entry. */
-    fun newBlock()
-
-    fun text(delta: String)
-    fun thinking(delta: String)
-
-    /** A step the backend took by itself — on the Mac, a read-only bd command. */
-    fun aside(id: String, name: String, summary: String)
-
-    fun asideDone(id: String, result: String, isError: Boolean)
-}
-
-/** Resolves the backend from the user's choice in Settings. */
-class ClaudeBackends(private val api: ClaudeBackend, private val mac: ClaudeBackend) {
-    fun of(s: AppSettings): ClaudeBackend = if (s.onMac) mac else api
 }
 
 /**

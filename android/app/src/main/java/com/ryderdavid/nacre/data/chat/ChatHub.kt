@@ -4,7 +4,6 @@ import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.data.claude.ImagePayload
 import com.ryderdavid.nacre.data.claude.byteCount
 import com.ryderdavid.nacre.data.claude.toAssist
-import com.ryderdavid.nacre.data.claude.TurnLostException
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.ChatDraft
 import com.ryderdavid.nacre.data.model.ChatRecord

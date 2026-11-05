@@ -1,8 +1,6 @@
 package com.ryderdavid.nacre.ui.repos
 
 import com.ryderdavid.nacre.data.bridge.BridgeClient
-import com.ryderdavid.nacre.data.claude.BeadChatItem
-import com.ryderdavid.nacre.data.claude.ChatMode
 import com.ryderdavid.nacre.data.model.AttentionList
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -25,14 +23,6 @@ class RoundQuestionsTest {
         assertEquals("Covers the visible wait.", q.reason)
     }
 
-    @Test fun chatIsToldTheQuestionAndRecommendation() {
-        val q = BridgeClient.json.decodeFromString<AttentionList>(json).items.single().questions.single()
-        val about = questionContext(q)
-        assertTrue("Which moment?" in about && "Drafting (recommended)" in about && "Covers the visible wait." in about)
-        val mine = BeadChatItem.Mine("Why not the gap?", ChatMode.ASK, about)
-        assertTrue(mine.prompt.startsWith(about) && mine.prompt.endsWith("Why not the gap?"))
-        assertEquals("plain", BeadChatItem.Mine("plain", ChatMode.ASK).prompt)
-    }
 
     @Test fun ownAnswerPostsLikeTheListedAnswers() {
         val o = ownAnswer("R9", "q1", "Both, but the gap first")

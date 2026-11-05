@@ -47,8 +47,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.data.claude.viewKey
 import com.ryderdavid.nacre.data.claude.ChatImage
 import com.ryderdavid.nacre.data.claude.ComposerGate
 import com.ryderdavid.nacre.data.claude.ImageBudget
@@ -144,21 +142,6 @@ private fun displayName(resolver: ContentResolver, uri: Uri): String = runCatchi
     }
 }.getOrNull()?.ifBlank { null } ?: uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { null } ?: "image"
 
-/** The images pending with [context]'s draft, held in the chat stack's view state. */
-@Composable
-fun pendingImages(context: ChatContext): List<ImagePayload> {
-    val views by LocalContainer.current.chatStack.views.collectAsState()
-    return views[context.viewKey]?.images.orEmpty()
-}
-
-/**
- * Opens the system photo picker (images only) for [context]'s message, up to
- * [remaining] images, prepares what was picked off the main thread, adds the
- * ready ones to the pending images and names any it skipped in a snackbar.
- */
-@Composable
-fun rememberImageAttacher(context: ChatContext, remaining: Int): () -> Unit = rememberImageAttacher(context.viewKey, remaining)
-
 /**
  * Opens the system photo picker (`PickMultipleVisualMedia(ImageOnly)`) for the
  * message whose composer state is kept under [viewKey] in the chat stack, up to
@@ -234,17 +217,6 @@ fun PendingImageRow(images: List<ImagePayload>, onRemove: (String) -> Unit, modi
                 }
             }
         }
-    }
-}
-
-/** A sent message's images; [load] returns each one's bytes, or null when they are gone. */
-@Composable
-fun SentImages(images: List<ChatImage>, load: (ChatImage) -> ByteArray?, modifier: Modifier = Modifier) {
-    if (images.isEmpty()) return
-    androidx.compose.foundation.layout.FlowRow(
-        modifier, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End), verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        images.forEach { ImageThumb(it, { load(it) }, 96.dp) }
     }
 }
 
