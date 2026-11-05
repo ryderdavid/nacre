@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -102,7 +103,7 @@ class NacreRepository(
     private val settings: SettingsStore,
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
-) {
+) : com.ryderdavid.nacre.data.chat.ChatLink {
     private class Paired(val host: Host, val client: BridgeClient)
 
     private val paired: StateFlow<Map<String, Paired>> = settings.settings
@@ -311,6 +312,9 @@ class NacreRepository(
                 connections.update { it + (id to Connection.Connecting) }
                 val health = p.client.health()
                 connections.update { it + (id to Connection.Online(health)) }
+                if (com.ryderdavid.nacre.data.chat.servesChat(health)) scope.launch {
+                    runCatching { p.client.chats() }.onSuccess { list -> chatLists.update { it + (id to list) } }
+                }
                 if (health.hostId.isNotEmpty() && health.hostId != p.host.hostId) settings.setReportedHostId(id, health.hostId)
                 backoff = 1_000L
                 p.client.events().collect { msg ->
@@ -554,6 +558,80 @@ class NacreRepository(
     suspend fun removeDep(key: String, issue: String, dependsOn: String) {
         clientFor(key).removeDep(Keys.id(key), issue, dependsOn); refreshBoard(key, quiet = true)
     }
+
+    // ---------- chats ----------
+
+    private val chatLists = MutableStateFlow<Map<String, List<com.ryderdavid.nacre.data.model.ChatRecord>>>(emptyMap())
+
+    /** Every chat on every paired computer that serves Chat, newest first, with notices for those that don't. */
+    val chats: StateFlow<com.ryderdavid.nacre.data.chat.ChatListing> = combine(hosts, chatLists) { h, l ->
+        com.ryderdavid.nacre.data.chat.mergeChatLists(h, l)
+    }.stateIn(scope, SharingStarted.Eagerly, com.ryderdavid.nacre.data.chat.ChatListing())
+
+    /** The health computer [hostId] reported; null while it isn't connected. */
+    fun health(hostId: String): Health? = (connections.value[hostId] as? Connection.Online)?.health
+
+    override suspend fun refreshChats(): com.ryderdavid.nacre.data.chat.ChatListing {
+        coroutineScope {
+            paired.value.values.filter { com.ryderdavid.nacre.data.chat.servesChat(health(it.host.id)) }.map { p ->
+                async {
+                    runCatching { p.client.chats() }.onSuccess { list -> chatLists.update { it + (p.host.id to list) } }
+                }
+            }.awaitAll()
+        }
+        return com.ryderdavid.nacre.data.chat.mergeChatLists(hosts.value, chatLists.value)
+    }
+
+    /** Puts a chat record nacred just answered with into the list. */
+    fun noteChat(hostId: String, chat: com.ryderdavid.nacre.data.model.ChatRecord) {
+        chatLists.update { m -> m + (hostId to (listOf(chat) + m[hostId].orEmpty().filterNot { it.id == chat.id })) }
+    }
+
+    private fun forgetChat(key: String) {
+        chatLists.update { m -> m + (Keys.host(key) to m[Keys.host(key)].orEmpty().filterNot { it.id == Keys.id(key) }) }
+    }
+
+    override suspend fun createChat(hostId: String, body: com.ryderdavid.nacre.data.model.CreateChat): com.ryderdavid.nacre.data.model.ChatRecord =
+        pairedFor(hostId).client.createChat(body).also { noteChat(hostId, it) }.copy(hostId = hostId, hostName = hostName(hostId))
+
+    override suspend fun chatDetail(key: String): BridgeClient.ChatDetail =
+        clientFor(key).chat(Keys.id(key)).also { noteChat(Keys.host(key), it.chat) }
+
+    override fun chatStream(key: String, after: Long): Flow<com.ryderdavid.nacre.data.bridge.ChatStreamMessage> =
+        clientFor(key).chatStream(Keys.id(key), after).onEach { msg ->
+            // Keeps the list, and the Chat tab's badge, in step with what the stream says.
+            when (msg) {
+                is com.ryderdavid.nacre.data.bridge.ChatStreamMessage.State -> noteChat(Keys.host(key), msg.chat)
+                is com.ryderdavid.nacre.data.bridge.ChatStreamMessage.Event -> when (msg.event.kind) {
+                    com.ryderdavid.nacre.data.model.ChatWire.PERMISSION -> patchChat(key) { it.copy(state = com.ryderdavid.nacre.data.model.ChatWire.WAITING_PERMISSION) }
+                    com.ryderdavid.nacre.data.model.ChatWire.PERMISSION_ANSWER ->
+                        patchChat(key) { if (it.waiting) it.copy(state = com.ryderdavid.nacre.data.model.ChatWire.RUNNING) else it }
+                    else -> Unit
+                }
+                else -> Unit
+            }
+        }
+
+    private fun patchChat(key: String, change: (com.ryderdavid.nacre.data.model.ChatRecord) -> com.ryderdavid.nacre.data.model.ChatRecord) {
+        chatLists.update { m ->
+            val list = m[Keys.host(key)] ?: return@update m
+            m + (Keys.host(key) to list.map { if (it.id == Keys.id(key)) change(it) else it })
+        }
+    }
+
+    override suspend fun sendChat(key: String, body: com.ryderdavid.nacre.data.model.SendChatMessage): com.ryderdavid.nacre.data.model.ChatSendResult =
+        clientFor(key).sendChat(Keys.id(key), body).also { r -> r.chat?.let { noteChat(Keys.host(key), it) } }
+
+    override suspend fun cancelChat(key: String) = clientFor(key).cancelChat(Keys.id(key))
+
+    override suspend fun deleteChat(key: String) {
+        clientFor(key).deleteChat(Keys.id(key))
+        forgetChat(key)
+    }
+
+    override suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): com.ryderdavid.nacre.data.model.PermissionOutcome =
+        clientFor(key).answerPermission(Keys.id(key), request, com.ryderdavid.nacre.data.model.PermissionAnswer(allow, note?.takeIf { it.isNotBlank() }))
+            .also { o -> o.chat?.let { noteChat(Keys.host(key), it) } }
 
     // ---------- runs ----------
 

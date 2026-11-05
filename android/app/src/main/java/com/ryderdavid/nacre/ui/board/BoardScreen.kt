@@ -117,6 +117,12 @@ fun BoardScreen(
     LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(it, withDismissAction = true) } }
     val ui = state.data
     val repo = ui?.snapshot?.repo
+    // Chat hears about the board, with the bead open in the right pane as the selection.
+    val boardIssues = ui?.snapshot?.index?.issues.orEmpty()
+    com.ryderdavid.nacre.ui.chat.PublishScreen(
+        com.ryderdavid.nacre.ui.ScreenOrigin.Board(repoKey, repo?.name.orEmpty()),
+        com.ryderdavid.nacre.data.chat.ScreenSummaries.board(repoKey, repo?.name.orEmpty(), boardIssues, pane?.let { id -> boardIssues.firstOrNull { it.id == id } }),
+    )
 
     Scaffold(
         topBar = {

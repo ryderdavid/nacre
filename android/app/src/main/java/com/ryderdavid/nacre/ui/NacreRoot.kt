@@ -80,6 +80,8 @@ sealed interface DeepLink {
     data class OpenRound(val roundKey: String) : DeepLink
     /** A change notification: the bead whose change view to open. */
     data class OpenChange(val repoKey: String, val beadId: String) : DeepLink
+    /** A "Chat needs your OK" notification: the chat to open, at the card for [requestId]. */
+    data class OpenChat(val chatKey: String, val requestId: String?) : DeepLink
 }
 
 @Composable
@@ -121,7 +123,11 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val tab = tabFor(shown)
     // The screen last shown before Chat: what the Chat tab is about and what New · <label> starts from.
     var origin by remember { mutableStateOf<ScreenOrigin?>(null) }
-    LaunchedEffect(shown) { origin = rememberedOrigin(origin, shown) { container.repository.repo(it)?.name } }
+    LaunchedEffect(shown) {
+        origin = rememberedOrigin(origin, shown) { container.repository.repo(it)?.name }
+        // Chat is about the screen shown, or under Chat the one last shown before it.
+        container.chats.screens.show(origin)
+    }
     val overlay = remember { ScreenOverlay() }
     val runs by container.repository.runs.collectAsState()
     // Counts agent-owned sessions too: the badge stands for what the Runs tab is showing.
@@ -130,6 +136,8 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     val activeRuns = activityBadgeCount(runs, rounds)
     // Inbox owns the attention badge; Activity retains the running-session badge.
     val needsYou = container.repository.attention.collectAsState().value.size
+    // Chats waiting for a permission answer.
+    val chatsWaiting = com.ryderdavid.nacre.data.chat.chatBadgeCount(container.repository.chats.collectAsState().value.chats)
     val snackbar = remember { SnackbarHostState() }
     var pendingPair by remember { mutableStateOf<PairRequest?>(null) }
 
@@ -149,6 +157,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
             is DeepLink.OpenRun -> nav.navigate(RunRoute(deepLink.runKey))
             is DeepLink.OpenRound -> nav.navigate(RoundRoute(deepLink.roundKey))
             is DeepLink.OpenChange -> nav.navigate(BeadRoute(deepLink.repoKey, deepLink.beadId, openChange = true))
+            is DeepLink.OpenChat -> { container.chats.openChat(deepLink.chatKey, deepLink.requestId); nav.switchTab(ChatsRoute) }
             null -> Unit
         }
         if (deepLink != null) onDeepLinkHandled()
@@ -164,6 +173,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                 val badge = when (t) {
                     Tab.INBOX -> needsYou
                     Tab.ACTIVITY -> activeRuns
+                    Tab.CHAT -> chatsWaiting
                     else -> 0
                 }
                 item(

@@ -189,6 +189,10 @@ fun ReposScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    com.ryderdavid.nacre.ui.chat.PublishScreen(
+        com.ryderdavid.nacre.ui.ScreenOrigin.AllBoards("boards"),
+        com.ryderdavid.nacre.data.chat.ScreenSummaries.allBoards("boards", groups.map { g -> "${g.home.name} on ${g.members.joinToString { it.hostName }}: ${g.home.counts.open} open, ${g.home.activeRuns} running" }),
+    )
     ChatHost(ChatContext.Multi, onOpenBead, onOpenRun) {
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),

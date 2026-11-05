@@ -47,6 +47,10 @@ fun InboxScreen(
             )
         }
     }
+    com.ryderdavid.nacre.ui.chat.PublishScreen(
+        com.ryderdavid.nacre.ui.ScreenOrigin.AllBoards("inbox"),
+        com.ryderdavid.nacre.data.chat.ScreenSummaries.allBoards("inbox", attention.map { "${it.kind}: ${it.title} (${it.repoName}) ${it.why}".trim() }),
+    )
     Scaffold(topBar = { LargeTopAppBar(title = { Text("Inbox") }) }) { pad ->
         if (attention.isEmpty() && outdated.isEmpty()) MessageState(
             Icons.Rounded.Inbox, "You're all caught up", "Decisions and work needing your attention appear here.",

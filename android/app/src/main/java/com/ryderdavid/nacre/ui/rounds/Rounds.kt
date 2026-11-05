@@ -204,6 +204,7 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
     val vm = nacreViewModel(key = "round:$roundKey") { RoundViewModel(it.repository, roundKey) }
     val round by vm.round.collectAsState()
     val events by vm.events.collectAsState()
+    round?.let { r -> if (!inPane) com.ryderdavid.nacre.ui.chat.PublishScreen(com.ryderdavid.nacre.ui.ScreenOrigin.Round(roundKey), com.ryderdavid.nacre.data.chat.ScreenSummaries.round(r)) }
     val error by vm.error.collectAsState()
     val busy by vm.busy.collectAsState()
     var menu by remember { mutableStateOf(false) }
