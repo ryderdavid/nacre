@@ -11,9 +11,10 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
-// maxTurnBody bounds the body of the two per-repo turn endpoints,
-// /v1/repos/{repo}/claude/json and /v1/repos/{repo}/claude/stream, which can
-// carry images. Every other endpoint keeps maxBody.
+// maxTurnBody bounds the body of the endpoints that can carry images: the
+// two per-repo turn endpoints, /v1/repos/{repo}/claude/json and
+// /v1/repos/{repo}/claude/stream, and POST /v1/chats/{id}/messages. Every
+// other endpoint keeps maxBody.
 const maxTurnBody = 32 << 20
 
 // Image limits for one turn request. A message has at most 5 images of at
@@ -25,6 +26,9 @@ const (
 	maxImageBytes      = 3 << 20
 	maxImagesBytes     = 15 << 20
 	maxImageNameLength = 255
+	// maxChatImages is the most images one Chat message may carry. The
+	// per-repo turn endpoints keep maxImages for older apps.
+	maxChatImages = 5
 )
 
 // chatImage is one entry of a turn request's ordered images array.
@@ -95,17 +99,27 @@ func decodeImages(in []chatImage) ([]claude.Image, string) {
 	return out, ""
 }
 
-// decodeTurn reads a turn request's body with the larger turn limit. It
-// writes the error itself: 413 with a reason over the limit, otherwise 400.
-func decodeTurn(w http.ResponseWriter, r *http.Request, v any) bool {
-	err := decodeLimit(r, v, false, maxTurnBody)
+// decodeChatImages validates one Chat message's images: at most
+// maxChatImages, then every check of decodeImages.
+func decodeChatImages(in []chatImage) ([]claude.Image, string) {
+	if len(in) > maxChatImages {
+		return nil, fmt.Sprintf("too many images: %d, at most %d per chat message", len(in), maxChatImages)
+	}
+	return decodeImages(in)
+}
+
+// decodeTurn reads a body that can carry images with its own limit (the
+// endpoints that call it pass maxTurnBody). It writes the error itself: 413
+// with a reason over the limit, otherwise 400.
+func decodeTurn(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	err := decodeLimit(r, v, false, limit)
 	var tooBig *http.MaxBytesError
 	switch {
 	case err == nil:
 		return true
 	case errors.As(err, &tooBig):
 		writeError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("request body is larger than %d MiB; send fewer or smaller images", maxTurnBody>>20), "")
+			fmt.Sprintf("request body is larger than %d MiB; send fewer or smaller images", limit>>20), "")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
 	}

@@ -112,7 +112,7 @@ func (s *Server) assistJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req assistRequest
-	if !decodeTurn(w, r, &req) {
+	if !decodeTurn(w, r, &req, maxTurnBody) {
 		return
 	}
 	h, bad := req.headless()
@@ -156,7 +156,7 @@ func (s *Server) assistStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req assistRequest
-	if !decodeTurn(w, r, &req) {
+	if !decodeTurn(w, r, &req, maxTurnBody) {
 		return
 	}
 	h, bad := req.headless()

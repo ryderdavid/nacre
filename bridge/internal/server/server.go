@@ -138,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/chats/{chat}", s.deleteChat)
 	mux.HandleFunc("GET /v1/chats/{chat}/stream", s.streamChat)
 	mux.HandleFunc("POST /v1/chats/{chat}/messages", s.sendChat)
+	mux.HandleFunc("GET /v1/chats/{chat}/images/{image}", s.chatImage)
 	mux.HandleFunc("POST /v1/chats/{chat}/cancel", s.cancelChat)
 	mux.HandleFunc("POST /v1/chats/{chat}/permissions/{req}", s.answerChatPermission)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)
