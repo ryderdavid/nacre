@@ -66,7 +66,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
-import com.ryderdavid.nacre.data.claude.ChatContext
 import com.ryderdavid.nacre.ui.assistant.boardBeadAfterTap
 import com.ryderdavid.nacre.ui.assistant.ChatHost
 import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
@@ -97,9 +96,8 @@ fun BoardScreen(
     val filter by vm.filter.collectAsState()
     val groupBy by vm.groupBy.collectAsState()
     val container = LocalContainer.current
-    val chatContext = ChatContext.Board(repoKey)
-    val presentations by container.chatStack.presentations.collectAsState()
-    val chat = presentations[chatContext]
+    val chat by container.chatStack.presentation.collectAsState()
+    val currentChat by container.chatStack.current.collectAsState()
 
     var searching by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -141,7 +139,7 @@ fun BoardScreen(
                     }
                 },
                 actions = {
-                    ChatHeaderAction(chatContext, repo?.name ?: repoKey)
+                    ChatHeaderAction()
                     IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
                         Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search beads")
                     }
@@ -175,7 +173,7 @@ fun BoardScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (!drag.isDragging && pane == null && (chat?.selected == null || chat.collapsed)) Column(
+            if (!drag.isDragging && pane == null && (currentChat == null || !chat.shown || chat.collapsed)) Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
             ) {
@@ -200,7 +198,7 @@ fun BoardScreen(
                     val canPane = isPaneWide(maxWidth)
                     LaunchedEffect(canPane) { if (!canPane) pane = null }
                     ChatHost(
-                        screenContext = chatContext, onOpenBead = onOpenChatBead, onOpenRun = onOpenRun,
+                        onOpenBead = onOpenChatBead,
                         beadPaneOpen = canPane && pane != null, onCloseBead = { pane = null },
                         beadPane = {
                             pane?.let { current ->
@@ -229,8 +227,8 @@ fun BoardScreen(
                             Box(Modifier.fillMaxSize()) {
                                 val open: (com.ryderdavid.nacre.data.model.Issue) -> Unit = { i ->
                                     if (canPane) {
-                                        pane = boardBeadAfterTap(pane, i.id, container.chatStack.presentation(chatContext))
-                                        container.chatStack.collapse(chatContext)
+                                        pane = boardBeadAfterTap(pane, i.id, container.chatStack.presentation.value)
+                                        container.chatStack.collapse()
                                     } else onOpenBead(i.id)
                                 }
                                 if (boardWide) WideBoard(

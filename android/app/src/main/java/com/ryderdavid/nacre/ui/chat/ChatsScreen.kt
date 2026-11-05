@@ -71,16 +71,21 @@ fun ChatsScreen(originLabel: String) {
     val hub = container.chats
     val current by hub.current.collectAsState()
     var newChat by remember { mutableStateOf<NewChatRequest?>(null) }
+    // Back from the conversation shows the list; the chat stays current for ✨ and the bead entry.
+    var browsing by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(current) { browsing = false }
     val key = current
-    if (key != null) {
-        ConversationScreen(key, onBack = { hub.current.value = null }, onNew = { newChat = it })
+    if (key != null && !browsing) {
+        androidx.activity.compose.BackHandler { browsing = true }
+        ConversationScreen(key, onBack = { browsing = true }, onNew = { newChat = it })
     } else {
-        ChatList(originLabel, onNew = { newChat = it })
+        ChatList(originLabel, onNew = { newChat = it }, onOpened = { browsing = false })
     }
     newChat?.let { req ->
         NewChatSheet(req, onDismiss = { newChat = null }, onCreated = { k ->
             newChat = null
             hub.openChat(k)
+            browsing = false
         })
     }
 }
@@ -90,7 +95,7 @@ data class NewChatRequest(val forceRepoKey: String? = null, val carry: String? =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatList(originLabel: String, onNew: (NewChatRequest) -> Unit) {
+private fun ChatList(originLabel: String, onNew: (NewChatRequest) -> Unit, onOpened: () -> Unit) {
     val container = LocalContainer.current
     val repo = container.repository
     val listing by repo.chats.collectAsState()
@@ -135,7 +140,7 @@ private fun ChatList(originLabel: String, onNew: (NewChatRequest) -> Unit) {
                             }
                         }
                     },
-                    modifier = Modifier.clickable { container.chats.openChat(chat.key) },
+                    modifier = Modifier.clickable { container.chats.openChat(chat.key); onOpened() },
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.data.chat
 
+import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.data.claude.TurnLostException
 import com.ryderdavid.nacre.data.friendly
 import com.ryderdavid.nacre.data.model.ChatRecord
@@ -282,24 +283,23 @@ fun watcherShouldRun(activeRuns: Int, workingChanges: Int, watchedChats: Int): B
     activeRuns > 0 || workingChanges > 0 || watchedChats > 0
 
 /**
- * Chat for the whole app: conversations by chat key, the Chat tab's current chat, the screen
- * context holder and the background watch.
+ * Chat for the whole app: conversations by chat key, the one current chat with its view state
+ * ([stack]), the screen context holder and the background watch.
  */
 class ChatHub(
     val link: ChatLink,
     private val scope: CoroutineScope,
     val notices: ChatNotices,
     inBackground: () -> Boolean,
+    /** The app-wide current chat, how it is shown, and each chat's draft and pending images. */
+    val stack: ChatStack = ChatStack(),
 ) {
     val screens = ScreenContextHolder()
     val watch = ChatWatch(link, scope, notices, inBackground)
     private val conversations = mutableMapOf<String, ChatConversation>()
 
-    /** The Chat tab's current chat, shown full screen; null shows the list. */
-    val current = MutableStateFlow<String?>(null)
-
-    /** Composer drafts by chat key, such as the note New carries from a chat at its limit. */
-    val drafts = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** The current chat: the Chat tab shows it full screen, ✨ and the bead entry open it. */
+    val current: StateFlow<String?> get() = stack.current
 
     /** A permission request a notification opened the chat at. */
     val focus = MutableStateFlow<String?>(null)
@@ -307,15 +307,22 @@ class ChatHub(
     @Synchronized fun conversation(key: String): ChatConversation =
         conversations.getOrPut(key) { ChatConversation(key, link, scope, notices) }
 
-    /** Opens [key] in the Chat tab, at the card for [requestId] when given. */
+    /** Makes [key] the current chat (the Chat tab shows it), at the card for [requestId] when given. */
     fun openChat(key: String, requestId: String? = null) {
-        current.value = key
+        stack.select(key)
         focus.value = requestId
     }
 
+    /** Sets the first message's text of a new chat, such as the note New carries from a chat at its limit. */
+    fun prefill(key: String, text: String) = stack.updateView(key) { it.copy(draft = text) }
+
+    /**
+     * Deletes the chat on its computer. Its pane or sheet closes, its draft and pending images
+     * are dropped, and it leaves the header menu and the Chat list.
+     */
     suspend fun delete(key: String) {
         link.deleteChat(key)
         synchronized(this) { conversations.remove(key)?.close() }
-        if (current.value == key) current.value = null
+        stack.deleted(key)
     }
 }

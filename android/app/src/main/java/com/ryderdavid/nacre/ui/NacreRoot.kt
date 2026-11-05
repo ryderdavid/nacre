@@ -97,12 +97,6 @@ fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: (
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
-    LaunchedEffect(container) {
-        while (true) {
-            container.chatStack.expire()
-            kotlinx.coroutines.delay(1_000)
-        }
-    }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val shown: Any? = entry?.let { e ->
@@ -187,6 +181,11 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
         // The content area ends above the bar and beside the rail: everything drawn here sits above the bar.
         Box(Modifier.fillMaxSize()) {
           CompositionLocalProvider(LocalScreenOverlay provides overlay) {
+           // One chat for the app: docked or collapsed beside every screen on wide layouts, a sheet on phones.
+           com.ryderdavid.nacre.ui.assistant.ChatHost(
+               onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
+               enabled = shellHostsChat(shown),
+           ) {
             NavHost(nav, startDestination = BoardsRoute) {
                 composable<BoardsRoute> {
                     ReposScreen(
@@ -252,6 +251,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                     ChatsScreen(chatOriginLabel(origin))
                 }
             }
+           }
           }
             overlay.content?.invoke()
             // The scaffold has already taken the bar's insets, so only the system bars still showing are padded.

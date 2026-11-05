@@ -1,5 +1,7 @@
 package com.ryderdavid.nacre.ui.assistant
 
+import com.ryderdavid.nacre.data.claude.viewKey
+
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.ui.common.signedOutOn
 import com.ryderdavid.nacre.ui.common.ClaudeSignInDialog
@@ -150,7 +152,7 @@ fun AssistantPane(
         AssistantTarget.AllBoards -> com.ryderdavid.nacre.data.claude.ChatContext.Multi
     }
     val input = chatDraft(chatContext)
-    fun setInput(text: String) = container.chatStack.updateView(chatContext) { it.copy(draft = text) }
+    fun setInput(text: String) = container.chatStack.updateView(chatContext.viewKey) { it.copy(draft = text) }
     val list = rememberChatList(chatContext)
     // Images go only to the assistant for one board; across boards there is no attach action.
     val attachable = attachOffered(chatContext)
@@ -198,13 +200,13 @@ fun AssistantPane(
         bottomBar = {
             Surface(color = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface) {
                 Column(Modifier.fillMaxWidth().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding().padding(12.dp)) {
-                PendingImageRow(pending, { container.chatStack.removePending(chatContext, it) }, Modifier.padding(bottom = 8.dp))
+                PendingImageRow(pending, { container.chatStack.removePending(chatContext.viewKey, it) }, Modifier.padding(bottom = 8.dp))
                 if (attachable) ComposerReason(gate, Modifier.padding(start = 12.dp, bottom = 6.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     val canSend = gate.canSend
                     val send = {
                         // Kept on a refusal, so nothing typed or attached is lost.
-                        if (assistant.send(input, pending)) container.chatStack.updateView(chatContext) { it.copy(draft = "", images = emptyList()) }
+                        if (assistant.send(input, pending)) container.chatStack.updateView(chatContext.viewKey) { it.copy(draft = "", images = emptyList()) }
                     }
                     if (attachable) AttachImageButton(gate, attach)
                     OutlinedTextField(

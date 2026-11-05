@@ -51,36 +51,34 @@ class AttachImagesTest {
     @Test fun pendingImagesSurviveCollapseAndPaneSwaps() {
         val stack = ChatStack()
         val shot = image("shot.png")
-        stack.select(board, bead)
-        stack.updateView(bead) { it.copy(draft = "what's wrong?", images = listOf(shot)) }
+        val chat = "h1~c1"
+        stack.open(chat)
+        stack.updateView(chat) { it.copy(draft = "what's wrong?", images = listOf(shot)) }
 
-        stack.collapse(board)
-        stack.expand(board)
-        assertEquals(listOf(shot), stack.view(bead).images, "collapsing and expanding keeps them")
+        stack.collapse()
+        stack.expand()
+        assertEquals(listOf(shot), stack.view(chat).images, "collapsing and expanding keeps them")
 
-        // Moving from the board's docked pane to the bead's own screen (the sheet) and back.
-        stack.select(bead, bead)
-        stack.close(board)
-        assertEquals(listOf(shot), stack.view(bead).images)
-        stack.select(board, bead)
-        stack.close(bead)
-        assertEquals(ChatViewState(draft = "what's wrong?", images = listOf(shot)), stack.view(bead))
-        assertTrue(stack.active.value.isEmpty(), "nothing was sent")
+        // Moving from the docked pane to the sheet (closed by a link) and back through ✨.
+        stack.followedLink(wide = false)
+        assertEquals(listOf(shot), stack.view(chat).images)
+        assertTrue(stack.openCurrent())
+        stack.close()
+        assertEquals(ChatViewState(draft = "what's wrong?", images = listOf(shot)), stack.view(chat))
     }
 
     @Test fun theLimitDisablesAttachUntilOneIsRemoved() {
         val stack = ChatStack()
-        stack.select(bead, bead)
         val five = List(5) { image("$it.png") }
-        stack.updateView(bead) { it.copy(images = five) }
-        val full = composerGate(false, stack.view(bead).images, ImageSupport.YES)
+        stack.updateView(bead.viewKey) { it.copy(images = five) }
+        val full = composerGate(false, stack.view(bead.viewKey).images, ImageSupport.YES)
         assertFalse(full.canAttach)
         assertEquals(ComposerReasons.FULL, full.attachReason)
         assertEquals(0, full.remaining)
         assertTrue(full.canSend, "five images can still be sent")
 
-        stack.removePending(bead, five[2].image.id)
-        val four = composerGate(false, stack.view(bead).images, ImageSupport.YES)
+        stack.removePending(bead.viewKey, five[2].image.id)
+        val four = composerGate(false, stack.view(bead.viewKey).images, ImageSupport.YES)
         assertTrue(four.canAttach)
         assertNull(four.attachReason)
         assertEquals(1, four.remaining)
@@ -90,12 +88,11 @@ class AttachImagesTest {
 
     @Test fun removingAPendingImageKeepsTheOthersInOrder() {
         val stack = ChatStack()
-        stack.select(bead, bead)
         val (a, b, c) = List(3) { image("$it.png") }
-        stack.updateView(bead) { it.copy(draft = "look", images = listOf(a, b, c)) }
-        stack.removePending(bead, b.image.id)
-        assertEquals(listOf(a, c), stack.view(bead).images)
-        assertEquals("look", stack.view(bead).draft)
+        stack.updateView(bead.viewKey) { it.copy(draft = "look", images = listOf(a, b, c)) }
+        stack.removePending(bead.viewKey, b.image.id)
+        assertEquals(listOf(a, c), stack.view(bead.viewKey).images)
+        assertEquals("look", stack.view(bead.viewKey).draft)
     }
 
     // ---- images-only sends ----
@@ -138,27 +135,26 @@ class AttachImagesTest {
 
     @Test fun losingImageSupportKeepsPendingImagesAndBlocksSendUntilTheyAreRemoved() = runBlocking {
         val stack = ChatStack()
-        stack.select(bead, bead)
         val shot = image("shot.png")
-        stack.updateView(bead) { it.copy(draft = "see this", images = listOf(shot)) }
+        stack.updateView(bead.viewKey) { it.copy(draft = "see this", images = listOf(shot)) }
 
         val settings = MutableStateFlow(AppSettings(claudeRunner = AppSettings.RUNNER_API, hosts = listOf(Host("h1", "hid", "Studio", "http://studio", "t"))))
         val hosts = MutableStateFlow(listOf(host(listOf(Features.CLAUDE, Features.CHAT_IMAGES))))
         val support = ChatImageSupport(settings, hosts).of(key)
-        assertTrue(composerGate(true, stack.view(bead).images, support.first()).canSend, "the API backend takes images")
+        assertTrue(composerGate(true, stack.view(bead.viewKey).images, support.first()).canSend, "the API backend takes images")
 
         // Switched to the Mac, whose nacred is older; then the Mac's features refresh the same way.
         settings.value = settings.value.copy(claudeRunner = AppSettings.RUNNER_MAC)
         hosts.value = listOf(host(listOf(Features.CLAUDE)))
-        val lost = composerGate(true, stack.view(bead).images, support.first())
+        val lost = composerGate(true, stack.view(bead.viewKey).images, support.first())
         assertFalse(lost.canSend)
         assertFalse(lost.canAttach)
         assertEquals(ImageReasons.update("Studio"), lost.sendReason)
         assertEquals(ImageReasons.update("Studio"), lost.attachReason)
-        assertEquals(listOf(shot), stack.view(bead).images, "the pending images are kept")
+        assertEquals(listOf(shot), stack.view(bead.viewKey).images, "the pending images are kept")
 
-        stack.removePending(bead, shot.image.id)
-        val text = composerGate(true, stack.view(bead).images, support.first())
+        stack.removePending(bead.viewKey, shot.image.id)
+        val text = composerGate(true, stack.view(bead.viewKey).images, support.first())
         assertTrue(text.canSend, "the text alone can be sent as today")
         assertNull(text.sendReason)
         assertFalse(text.canAttach)
@@ -171,7 +167,6 @@ class AttachImagesTest {
         val mac = MacBackend(link) { macSettings }
         val a = BoardAssistant(ClaudeBackends(mac, mac), { macSettings }, SingleBoard(Tools), scope)
         val stack = ChatStack()
-        stack.select(board, board)
 
         // 18 images sent across four messages.
         assertTrue(a.send("first", List(5) { image("a$it.png") })); a.awaitReplies(1)
@@ -179,17 +174,17 @@ class AttachImagesTest {
         assertEquals(18, link.streamed.sumOf { it.images.size })
 
         val three = List(3) { image("c$it.png") }
-        stack.updateView(board) { it.copy(draft = "and these", images = three) }
-        val gate = composerGate(true, stack.view(board).images, ImageSupport.YES, a::imageLimit)
+        stack.updateView(board.viewKey) { it.copy(draft = "and these", images = three) }
+        val gate = composerGate(true, stack.view(board.viewKey).images, ImageSupport.YES, a::imageLimit)
         assertFalse(gate.canSend)
         assertEquals(ImageReasons.CONVERSATION_LIMIT, gate.sendReason)
         assertFalse(gate.canAttach)
         assertFalse(a.send("and these", three), "the send isn't made")
         assertEquals(4, link.streamed.size)
-        assertEquals(three, stack.view(board).images, "the images stay pending")
+        assertEquals(three, stack.view(board.viewKey).images, "the images stay pending")
 
-        three.forEach { stack.removePending(board, it.image.id) }
-        assertTrue(composerGate(true, stack.view(board).images, ImageSupport.YES, a::imageLimit).canSend, "the text can go")
+        three.forEach { stack.removePending(board.viewKey, it.image.id) }
+        assertTrue(composerGate(true, stack.view(board.viewKey).images, ImageSupport.YES, a::imageLimit).canSend, "the text can go")
 
         a.clear()
         assertTrue(composerGate(true, three, ImageSupport.YES, a::imageLimit).canSend, "a cleared assistant takes images again")
