@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -62,6 +63,12 @@ type Server struct {
 	// CodexCheck reports whether beads can run with Codex here; nil checks
 	// the Codex CLI at Config.CodexPath (tests replace it).
 	CodexCheck func(ctx context.Context) codex.Status
+	// ChatCheck reports whether the installed Claude Code can serve Chat;
+	// nil checks the CLI at Config.ClaudePath (tests replace it).
+	ChatCheck func(ctx context.Context) claude.ChatSupport
+	// LocalAddrs are this computer's own addresses, whose answers to chat
+	// permission requests are refused; nil reads the network interfaces.
+	LocalAddrs func() []net.IP
 	// Sessions takes hook hints for the session watcher (POST /v1/sessions);
 	// nil when adopt_sessions is off, which makes the route a no-op.
 	Sessions SessionHinter
@@ -75,6 +82,7 @@ type Server struct {
 	bdVer     string
 	claudeVer string
 	codexSt   codex.Status
+	chatSt    claude.ChatSupport
 }
 
 // SessionHinter is the part of the session watcher POST /v1/sessions uses.
@@ -126,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/chats/{chat}/stream", s.streamChat)
 	mux.HandleFunc("POST /v1/chats/{chat}/messages", s.sendChat)
 	mux.HandleFunc("POST /v1/chats/{chat}/cancel", s.cancelChat)
+	mux.HandleFunc("POST /v1/chats/{chat}/permissions/{req}", s.answerChatPermission)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)
 	mux.HandleFunc("GET /v1/runs/{run}", s.getRun)
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)
@@ -336,6 +345,7 @@ func (s *Server) versions(ctx context.Context) (string, string) {
 			s.claudeVer = v
 		}
 		s.codexSt = s.checkCodex(ctx)
+		s.chatSt = s.checkChat(ctx)
 		s.verAt = time.Now()
 	}
 	return s.bdVer, s.claudeVer
@@ -346,6 +356,25 @@ func (s *Server) checkCodex(ctx context.Context) codex.Status {
 		return s.CodexCheck(ctx)
 	}
 	return codex.Check(ctx, s.Config.CodexPath, claude.ChildEnv())
+}
+
+func (s *Server) checkChat(ctx context.Context) claude.ChatSupport {
+	if s.ChatCheck != nil {
+		return s.ChatCheck(ctx)
+	}
+	return claude.CheckChat(ctx, s.Config.ClaudePath)
+}
+
+// chatSupport returns whether Chat can run here. A cached "not supported" is
+// rechecked at once, so updating Claude Code takes effect on the next try.
+func (s *Server) chatSupport(ctx context.Context) claude.ChatSupport {
+	s.versions(ctx)
+	s.verMu.Lock()
+	defer s.verMu.Unlock()
+	if !s.chatSt.OK {
+		s.chatSt = s.checkChat(ctx)
+	}
+	return s.chatSt
 }
 
 // codexStatus returns whether Codex runs can start here. A cached "not
@@ -366,22 +395,29 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	h := s.Config.Host()
 	bdv, cv := s.versions(r.Context())
 	cx := s.codexStatus(r.Context())
+	var cs claude.ChatSupport
+	if s.Chats != nil {
+		cs = s.chatSupport(r.Context())
+	}
 	body := map[string]any{
 		"name": version.Name, "version": version.Version, "commit": version.Commit, "hostname": ShortHostname(host),
 		"host_id": h.ID, "host_name": h.Name,
 		"bd_version": bdv, "claude_version": cv, "codex_version": cx.Version,
 		"repos": s.Repos.Count(), "active_runs": s.Runs.ActiveCount(""),
-		"features": s.features(cx),
+		"features": s.features(cx, cs),
 	}
 	if !cx.Available() {
 		body["codex_unavailable"] = cx.Reason
+	}
+	if s.Chats != nil && !cs.OK {
+		body["agent_chat_unavailable"] = cs.Reason
 	}
 	writeJSON(w, http.StatusOK, body)
 }
 
 // features lists optional capabilities, so the app can offer only what this
 // computer can actually do (and an older nacred simply reports none).
-func (s *Server) features(cx codex.Status) []string {
+func (s *Server) features(cx codex.Status, cs claude.ChatSupport) []string {
 	f := []string{}
 	if s.Updates != nil {
 		f = append(f, "daemon-update")
@@ -394,6 +430,11 @@ func (s *Server) features(cx codex.Status) []string {
 		f = append(f, api.FeatureChatImages)
 		// Streamed turns take the app's turn id, so a resend is never a second turn.
 		f = append(f, api.FeatureAssistTurnIDs)
+	}
+	if s.Chats != nil && cs.OK {
+		// Chat runs here, and steps the classifier won't allow alone are
+		// asked on the phone (host permission prompts).
+		f = append(f, api.FeatureAgentChat)
 	}
 	if cx.Available() {
 		// Beads can be run with the Codex CLI here.

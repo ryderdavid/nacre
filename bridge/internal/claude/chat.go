@@ -1,8 +1,11 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
+	"os/exec"
 	"strings"
+	"time"
 )
 
 // ChatRunawayUSD is the most one Chat conversation may spend across all its
@@ -41,6 +44,10 @@ func (c Chat) Args() []string {
 		"--output-format", "stream-json", "--verbose",
 		"--permission-mode", "auto",
 		"--permission-prompts", "host",
+		// Without it the CLI answers host prompts itself (a denial) rather
+		// than sending can_use_tool control requests on stdout; recorded in
+		// internal/chat/testdata/README.md.
+		"--permission-prompt-tool", "stdio",
 		"--append-system-prompt", c.Briefing,
 	}
 	if c.Resume != "" {
@@ -110,6 +117,9 @@ type ControlRequest struct {
 	// the CLI says.
 	Reason string
 	ToolID string
+	// Description is the CLI's one-line description of the step, when it
+	// gives one.
+	Description string
 }
 
 // ParseControlRequest reports whether line is a control_request and, if so,
@@ -125,6 +135,9 @@ func ParseControlRequest(line []byte) (ControlRequest, bool) {
 			DecisionReason json.RawMessage `json:"decision_reason"`
 			Reason         string          `json:"reason"`
 			ToolUseID      string          `json:"tool_use_id"`
+			Description    string          `json:"description"`
+			ReasonType     string          `json:"decision_reason_type"`
+			RuleSource     string          `json:"decision_reason_rule_source"`
 		} `json:"request"`
 	}
 	if json.Unmarshal(line, &m) != nil || m.Type != "control_request" || m.RequestID == "" {
@@ -144,9 +157,16 @@ func ParseControlRequest(line []byte) (ControlRequest, bool) {
 			}
 		}
 	}
+	if reason == "" && m.Request.ReasonType == "rule" {
+		reason = "A permission rule asks before this step"
+		if m.Request.RuleSource != "" {
+			reason += " (" + m.Request.RuleSource + ")"
+		}
+	}
 	return ControlRequest{
 		RequestID: m.RequestID, Subtype: m.Request.Subtype, ToolName: m.Request.ToolName,
 		Input: m.Request.Input, Reason: reason, ToolID: m.Request.ToolUseID,
+		Description: m.Request.Description,
 	}, true
 }
 
@@ -156,6 +176,19 @@ func DenyControl(requestID, message string) []byte {
 	return controlResponse(map[string]any{
 		"subtype": "success", "request_id": requestID,
 		"response": map[string]any{"behavior": "deny", "message": message},
+	})
+}
+
+// AllowControl is the control_response that lets a can_use_tool request run
+// with its input unchanged.
+func AllowControl(requestID string, input json.RawMessage) []byte {
+	in := json.RawMessage(`{}`)
+	if len(input) > 0 && input[0] == '{' && json.Valid(input) {
+		in = input
+	}
+	return controlResponse(map[string]any{
+		"subtype": "success", "request_id": requestID,
+		"response": map[string]any{"behavior": "allow", "updatedInput": in},
 	})
 }
 
@@ -171,4 +204,47 @@ func UnsupportedControl(requestID, subtype string) []byte {
 func controlResponse(resp map[string]any) []byte {
 	out, _ := json.Marshal(map[string]any{"type": "control_response", "response": resp})
 	return append(out, '\n')
+}
+
+// ChatMinVersion is the Claude Code release Chat's host permission prompts
+// were recorded from (internal/chat/testdata). Older releases may lack
+// --permission-prompts host.
+const ChatMinVersion = "2.1.318"
+
+// ChatSupport says whether this computer's Claude Code can serve Chat.
+type ChatSupport struct {
+	OK      bool
+	Version string
+	// Reason says why not, naming the Claude Code version Chat needs.
+	Reason string
+}
+
+// CheckChat reports whether the claude at path supports host permission
+// prompts (--permission-prompts host), which Chat needs so a step the
+// classifier won't allow alone can be asked on the phone.
+func CheckChat(ctx context.Context, path string) ChatSupport {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	ver, verr := Version(ctx, path)
+	if verr != nil {
+		return ChatSupport{Reason: "Claude Code isn't installed on this computer. Chat needs Claude Code " + ChatMinVersion + " or later."}
+	}
+	cmd := exec.CommandContext(ctx, path, "--help")
+	cmd.Env = ChildEnv()
+	out, _ := cmd.Output()
+	return ChatSupportFromHelp(ver, string(out))
+}
+
+// ChatSupportFromHelp decides support from `claude --help` output.
+func ChatSupportFromHelp(version, help string) ChatSupport {
+	i := strings.Index(help, "--permission-prompts")
+	if i >= 0 && strings.Contains(help[i:min(len(help), i+400)], `"host"`) {
+		return ChatSupport{OK: true, Version: version}
+	}
+	have := "an older Claude Code"
+	if version != "" {
+		have = "Claude Code " + version
+	}
+	return ChatSupport{Version: version, Reason: "Chat needs Claude Code " + ChatMinVersion +
+		" or later, which can ask the phone before a step (--permission-prompts host). This computer has " + have + "; update it with `claude update`."}
 }

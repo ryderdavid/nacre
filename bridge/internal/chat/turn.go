@@ -49,10 +49,16 @@ type turn struct {
 }
 
 func (t *turn) stop() {
+	t.markStopped()
+	t.cancel()
+}
+
+// markStopped records that the turn is being stopped on purpose, so a
+// permission request arriving now is denied at once.
+func (t *turn) markStopped() {
 	t.mu.Lock()
 	t.stopped = true
 	t.mu.Unlock()
-	t.cancel()
 }
 
 func (t *turn) wasStopped() bool {
@@ -176,6 +182,10 @@ func (m *Manager) Cancel(id string) error {
 	t := c.turn
 	m.mu.Unlock()
 	if t != nil {
+		// Pending requests are denied while the CLI still listens, then
+		// the turn ends.
+		t.markStopped()
+		m.denyAll(c, StoppedReason, ByStop)
 		t.stop()
 	}
 	return nil
@@ -197,6 +207,11 @@ func (m *Manager) run(ctx context.Context, c *chatState, t *turn, cwd string, en
 	defer m.mu.Unlock()
 	m.active--
 	c.turn = nil
+	if t.wasStopped() {
+		m.closePendingLocked(c, StoppedReason, ByStop)
+	} else {
+		m.closePendingLocked(c, TurnOverReason, ByTurnEnd)
+	}
 	if result != nil {
 		c.rec.CostUSD += result.CostUSD
 		if result.SessionID != "" && result.SessionID == c.rec.SessionID {
@@ -367,26 +382,6 @@ func (m *Manager) sessionStarted(c *chatState, sid string) {
 		c.rec.SessionStarted = true
 		m.touchLocked(c)
 	}
-}
-
-// control answers a control request from the CLI. Until Chat can ask the
-// phone, every permission request is denied at once so no turn waits.
-func (m *Manager) control(c *chatState, t *turn, req claude.ControlRequest, write func([]byte)) {
-	if req.Subtype != "can_use_tool" {
-		write(claude.UnsupportedControl(req.RequestID, req.Subtype))
-		return
-	}
-	summary := claude.ToolSummary(req.ToolName, req.Input)
-	text := req.ToolName
-	if summary != "" {
-		text += ": " + summary
-	}
-	m.emit(c, Event{
-		Kind: KindPermission, TurnID: t.id, RequestID: req.RequestID, Tool: req.ToolName,
-		Text: text, Reason: req.Reason, Allowed: api.Bool(false),
-	})
-	write(claude.DenyControl(req.RequestID, NoPhoneYet))
-	m.emit(c, Event{Kind: KindSystem, TurnID: t.id, RequestID: req.RequestID, Text: "Denied: " + NoPhoneYet})
 }
 
 // fromRunEvent turns a transcript event into a chat event of the full route.

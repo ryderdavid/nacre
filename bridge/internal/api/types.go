@@ -41,6 +41,12 @@ const FeatureChatImages = "chat_images"
 // phone that slept or changed networks to pick its answer back up.
 const FeatureAssistTurnIDs = "assist_turn_ids"
 
+// FeatureAgentChat is reported in /v1/health when Chat (/v1/chats) can run
+// here: Chat is set up and the installed Claude Code supports host
+// permission prompts, which nacred answers from the phone. When it is
+// missing, health's agent_chat_unavailable says why.
+const FeatureAgentChat = "agent_chat"
+
 // FeatureCodex is reported in /v1/health when beads can be run with the
 // OpenAI Codex CLI here: it is installed and signed in. When it is missing,
 // health's codex_unavailable says why.

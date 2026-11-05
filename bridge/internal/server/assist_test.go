@@ -16,6 +16,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
@@ -408,7 +409,7 @@ func TestHealthReportsClaudeFeature(t *testing.T) {
 	}
 	// A computer without a usable claude binary offers nothing.
 	s := &Server{Config: &config.Config{Token: "tok"}, Assist: &assist.Runner{ClaudePath: "/nonexistent/claude"}}
-	if f := s.features(codex.Status{Reason: "not installed"}); len(f) != 0 {
+	if f := s.features(codex.Status{Reason: "not installed"}, claude.ChatSupport{}); len(f) != 0 {
 		t.Fatalf("features = %v", f)
 	}
 }
