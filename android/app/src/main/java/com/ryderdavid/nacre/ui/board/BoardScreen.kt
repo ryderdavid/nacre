@@ -66,9 +66,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.board.GroupBy
 import com.ryderdavid.nacre.data.board.Lane
-import com.ryderdavid.nacre.ui.assistant.boardBeadAfterTap
-import com.ryderdavid.nacre.ui.assistant.ChatHost
-import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
+import com.ryderdavid.nacre.ui.chat.boardBeadAfterTap
+import com.ryderdavid.nacre.ui.chat.ChatHost
+import com.ryderdavid.nacre.ui.chat.ChatHeaderAction
 import com.ryderdavid.nacre.ui.common.isPaneWide
 import com.ryderdavid.nacre.ui.bead.BeadDetail
 import com.ryderdavid.nacre.ui.common.ErrorState

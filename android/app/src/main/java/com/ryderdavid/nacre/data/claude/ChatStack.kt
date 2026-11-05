@@ -5,25 +5,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The older per-screen helpers (bead chat, board assistant) are still told apart by this until
- * they are retired. It no longer decides what a screen shows: there is one current chat.
- * Identity deliberately excludes the display name.
- */
-sealed interface ChatContext {
-    data object Multi : ChatContext
-    data class Board(val repoKey: String) : ChatContext
-    data class Bead(val repoKey: String, val beadId: String) : ChatContext
-}
-
-/** The key the older helpers keep their composer state under in [ChatStack.views]. */
-val ChatContext.viewKey: String
-    get() = when (this) {
-        ChatContext.Multi -> "legacy:all"
-        is ChatContext.Board -> "legacy:board:$repoKey"
-        is ChatContext.Bead -> "legacy:bead:$repoKey:$beadId"
-    }
-
-/**
  * How the current chat is shown beside the screens, the same on every screen: [shown] is false
  * when its pane or sheet is closed, and [collapsed] leaves only the edge tab on wide layouts.
  */

@@ -3,12 +3,10 @@ package com.ryderdavid.nacre.data
 import com.ryderdavid.nacre.data.board.changeEventNeedsRefresh
 import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.MoveAction
-import com.ryderdavid.nacre.data.bridge.AssistMessage
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.bridge.RoundMessage
 import com.ryderdavid.nacre.data.bridge.StreamMessage
-import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.AttentionItem
 import com.ryderdavid.nacre.data.model.EpicFinish
 import com.ryderdavid.nacre.data.model.AttentionOption
@@ -21,7 +19,6 @@ import com.ryderdavid.nacre.data.model.IntakeDraft
 import com.ryderdavid.nacre.data.model.IntakeVerdict
 import com.ryderdavid.nacre.data.model.RepoConfigDraft
 import com.ryderdavid.nacre.data.model.SavedRepoConfig
-import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.CreateIssue
 import com.ryderdavid.nacre.data.model.DaemonUpdate
 import com.ryderdavid.nacre.data.model.ChangeAction
@@ -653,24 +650,6 @@ class NacreRepository(
      * Starts a run of [issueId] in the repo [repoKey] (which may be another computer's
      * copy of the board's repository). A 404 there means that copy lacks the bead.
      */
-    // ---------- Claude on a paired computer ----------
-
-    /** Runs one Refine or Draft call on [key]'s computer, on its Claude subscription. */
-    suspend fun claudeJson(key: String, req: AssistRequest): AssistResult = clientFor(key).claudeJson(Keys.id(key), req)
-
-    /** Runs one board-assistant turn on [key]'s computer, streamed as it goes. */
-    fun claudeStream(key: String, req: AssistRequest): Flow<AssistMessage> = clientFor(key).claudeStream(Keys.id(key), req)
-
-    /** Runs one board-assistant turn across several boards on computer [hostId]. */
-    fun claudeStreamAcross(hostId: String, req: AssistRequest): Flow<AssistMessage> =
-        (paired.value[hostId] ?: throw BridgeException("That computer is no longer paired")).client.claudeStreamAcross(req)
-
-    /** Reattaches to a turn on [key]'s computer after the connection dropped. */
-    fun claudeResume(key: String, turn: String, after: Long): Flow<AssistMessage> = clientFor(key).claudeResume(turn, after)
-
-    /** Stops a turn on [key]'s computer. */
-    suspend fun claudeCancel(key: String, turn: String) = clientFor(key).claudeCancel(turn)
-
     suspend fun startRun(repoKey: String, issueId: String, req: RunRequest): Run {
         val p = pairedFor(repoKey)
         val run = try {

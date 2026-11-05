@@ -389,16 +389,6 @@ object Features {
     /** Beads can be run with the OpenAI Codex CLI, installed and signed in on the computer. */
     const val CODEX = "codex"
 
-    /** The per-repo Claude turn endpoints accept images. */
-    const val CHAT_IMAGES = "chat_images"
-
-    /**
-     * The streamed Claude turn endpoints take the app's own `turn_id`, and a
-     * resend with the same id is the same turn; finished turns stay readable
-     * long enough for a phone that slept to pick its answer back up.
-     */
-    const val ASSIST_TURN_IDS = "assist_turn_ids"
-
     /** Chat (`/v1/chats`) can run here, with host permission prompts answered from the phone. */
     const val AGENT_CHAT = "agent_chat"
 
@@ -457,62 +447,12 @@ data class RunRequest(
     val agent: String? = null,
 )
 
-/**
- * Asks a computer to answer one prompt with `claude -p` on its own Claude
- * subscription. The app sends the prompt, the system prompt and the JSON
- * schema, so both ways of reaching Claude return the same shapes.
- */
-@Serializable
-data class AssistRequest(
-    val prompt: String,
-    val system: String = "",
-    val schema: JsonObject? = null,
-    val model: String = "",
-    val effort: String = "",
-    /** Continues an earlier assistant conversation. */
-    @SerialName("session_id") val sessionId: String = "",
-    /** Lets the call run read-only bd commands in the repository. */
-    @SerialName("bd_reads") val bdReads: Boolean = false,
-    /** Also lets the call read the repository's files and git history. */
-    @SerialName("read_repo") val readRepo: Boolean = false,
-    /** Keeps the session so the next turn can resume it. */
-    val keep: Boolean = false,
-    /** Adds the computer's Needs you list to the prompt (the board assistant on the Mac). */
-    @SerialName("needs_you") val needsYou: Boolean = false,
-    /** The boards a turn across boards reads (POST /v1/claude/stream only). */
-    val boards: List<AssistBoardRef> = emptyList(),
-    /**
-     * Images for the turn, numbered 1..N in this order to match the
-     * `[image N: name]` markers in [prompt] (the per-repo turn endpoints only).
-     * Left out of the body when empty, so a text-only request is unchanged.
-     */
-    val images: List<AssistImage> = emptyList(),
-    /**
-     * The app's own id for a streamed turn ([Features.ASSIST_TURN_IDS]), so a
-     * resend after a drop attaches to the turn already running. Left out when empty.
-     */
-    @SerialName("turn_id") val turnId: String = "",
-)
-
-/** One image of an [AssistRequest]: its media type, file name and base64 bytes. */
+/** One image of a chat message as nacred takes it: its media type, file name and base64 bytes. */
 @Serializable
 data class AssistImage(
     @SerialName("media_type") val mediaType: String,
     val name: String,
     val data: String,
-)
-
-/** One board a turn across boards reads: its repo id on that computer, and its name in the app. */
-@Serializable
-data class AssistBoardRef(val repo: String, val name: String)
-
-/** What one [AssistRequest] produced. */
-@Serializable
-data class AssistResult(
-    @SerialName("session_id") val sessionId: String = "",
-    val output: JsonObject? = null,
-    val text: String = "",
-    @SerialName("cost_usd") val costUsd: Double = 0.0,
 )
 
 /** nacred's check that a round run's work is done: committed, on its branch, passing the gates. */

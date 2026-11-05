@@ -182,7 +182,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
         Box(Modifier.fillMaxSize()) {
           CompositionLocalProvider(LocalScreenOverlay provides overlay) {
            // One chat for the app: docked or collapsed beside every screen on wide layouts, a sheet on phones.
-           com.ryderdavid.nacre.ui.assistant.ChatHost(
+           com.ryderdavid.nacre.ui.chat.ChatHost(
                onOpenBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                enabled = shellHostsChat(shown),
            ) {

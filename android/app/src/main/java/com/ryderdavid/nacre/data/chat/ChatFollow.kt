@@ -2,12 +2,6 @@ package com.ryderdavid.nacre.data.chat
 
 import com.ryderdavid.nacre.data.bridge.BridgeException
 import com.ryderdavid.nacre.data.bridge.ChatStreamMessage
-import com.ryderdavid.nacre.data.claude.ATTEMPT_MAX_MS
-import com.ryderdavid.nacre.data.claude.RECONNECT_BUDGET_MS
-import com.ryderdavid.nacre.data.claude.SLEPT_MS
-import com.ryderdavid.nacre.data.claude.TRANSIENT_HTTP
-import com.ryderdavid.nacre.data.claude.TurnLostException
-import com.ryderdavid.nacre.data.claude.reconnectDelay
 import com.ryderdavid.nacre.data.model.ChatEvent
 import com.ryderdavid.nacre.data.model.ChatRecord
 import kotlinx.coroutines.delay

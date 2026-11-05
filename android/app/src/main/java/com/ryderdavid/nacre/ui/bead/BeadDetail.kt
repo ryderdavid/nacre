@@ -137,7 +137,7 @@ fun BeadDetail(
     openChange: Boolean = false,
     onOpenChatBead: (String, String) -> Unit,
 ) {
-    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.backends, it.settings, it.beadChats, repoKey, beadId) }
+    val vm = nacreViewModel(key = "bead:$repoKey:$beadId") { BeadDetailViewModel(it.repository, it.settings, repoKey, beadId) }
     val issue by vm.issue.collectAsState()
     val index by vm.index.collectAsState()
     val comments by vm.comments.collectAsState()
@@ -169,8 +169,8 @@ fun BeadDetail(
     val boardChange = issue?.let { i -> boardChanges?.changes?.firstOrNull { c -> c.epicId == i.id || c.sections.any { it.beadId == i.id } || c.id == i.foundChange } }
     // Found something is for promoted changes: their epic, sections and found work.
     val foundChange = boardChange?.takeIf { it.epicId.isNotBlank() }
-    // Unlinked beads develop a proposal from the overflow menu and Refine, not a card.
-    val developable = issue != null && !issue!!.hasSpecWorkflow && boardChange == null && changeState.data?.change == null && changeState.data?.available == true
+    // Unlinked beads develop a proposal from the overflow menu only, not a card or a chat.
+    val developable = offersDevelop(issue, boardChange != null, changeState.data)
     var chooseComputer by rememberSaveable { mutableStateOf(false) }
     // Starting work in a repository without nacre.yaml sets up its gates first, then goes on.
     var gatesFor by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
@@ -200,7 +200,7 @@ fun BeadDetail(
 
     // The chat entry opens the one current chat: beside or over this screen, or in the board's
     // right pane slot when this detail is shown inside the board's pane.
-    val openChat = com.ryderdavid.nacre.ui.assistant.rememberChatOpener()
+    val openChat = com.ryderdavid.nacre.ui.chat.rememberChatOpener()
     run {
     Scaffold(
         containerColor = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
@@ -216,29 +216,37 @@ fun BeadDetail(
                 },
                 title = { BeadId(beadId, color = MaterialTheme.colorScheme.onSurface) },
                 actions = {
-                    com.ryderdavid.nacre.ui.assistant.ChatHeaderAction()
+                    com.ryderdavid.nacre.ui.chat.ChatHeaderAction()
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Copy id") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
-                            menu = false
-                            scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("bead id", beadId))) }
-                        })
-                        val i = issue
-                        if (i != null) {
-                            if (developable) DropdownMenuItem(
-                                text = { Text("Develop a proposal") }, leadingIcon = { Icon(AiIcon, null) },
-                                onClick = { menu = false; showChange = true },
-                            )
-                            if (foundChange != null) DropdownMenuItem(
-                                text = { Text("Found something") }, leadingIcon = { Icon(Icons.Rounded.Flag, null) },
-                                onClick = { menu = false; showFound = true },
-                            )
+                        beadMenu(issue, developable, foundChange != null).forEach { item ->
                             DropdownMenuItem(
-                                text = { Text("Run an agent manually…") }, leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
-                                onClick = { menu = false; showRun = true },
+                                text = { Text(item.label) },
+                                leadingIcon = {
+                                    Icon(
+                                        when (item) {
+                                            BeadMenuItem.CopyId -> Icons.Rounded.ContentCopy
+                                            BeadMenuItem.Develop -> AiIcon
+                                            BeadMenuItem.Found -> Icons.Rounded.Flag
+                                            BeadMenuItem.RunManually -> Icons.Rounded.Terminal
+                                            BeadMenuItem.Reopen -> Icons.Rounded.Refresh
+                                            BeadMenuItem.Close -> Icons.Rounded.TaskAlt
+                                        },
+                                        null,
+                                    )
+                                },
+                                onClick = {
+                                    menu = false
+                                    when (item) {
+                                        BeadMenuItem.CopyId -> scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("bead id", beadId))) }
+                                        BeadMenuItem.Develop -> showChange = true
+                                        BeadMenuItem.Found -> showFound = true
+                                        BeadMenuItem.RunManually -> showRun = true
+                                        BeadMenuItem.Reopen -> vm.setStatus("open")
+                                        BeadMenuItem.Close -> showClose = true
+                                    }
+                                },
                             )
-                            if (i.isClosed) DropdownMenuItem(text = { Text("Reopen") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; vm.setStatus("open") })
-                            else DropdownMenuItem(text = { Text("Close…") }, leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) }, onClick = { menu = false; showClose = true })
                         }
                     }
                 },
@@ -285,7 +293,7 @@ fun BeadDetail(
                 onRemoveBlocker = vm::removeBlocker,
                 onOpenBead = onOpenBead,
                 onOpenRun = onOpenRun,
-                composer = { ThreadComposer(vm, i, comments, prefs?.claudeConfigured == true, onComment = vm::addComment, onOpenChat = { openChat(null) }) },
+                composer = { ThreadComposer(i, onComment = vm::addComment, onOpenChat = { openChat(null) }) },
                 changeCard = {
                     val epicOf = boardChanges?.changes?.firstOrNull { it.epicId == i.id }
                     when {

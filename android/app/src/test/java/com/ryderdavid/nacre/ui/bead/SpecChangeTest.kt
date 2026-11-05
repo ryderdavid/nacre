@@ -199,7 +199,6 @@ class SpecChangeTest {
         assertEquals("Finish the draft", guideButton(com.ryderdavid.nacre.data.model.GuideOption("revise", "Finish the draft"), "NAC-1"))
         assertEquals("Send to the author", guideButton(com.ryderdavid.nacre.data.model.GuideOption("revise", "Your decision"), "NAC-1"))
         assertEquals("approve", guideChoices(approved.copy(phase = "awaiting_approval", approvedRevision = "")).first.action)
-        assertTrue("Card jumps" in changeContext(blocked))
     }
     @Test fun phasesUseTheSingleWorkflowVocabulary() {
         listOf("drafting", "reviewing", "promoting").forEach { assertEquals("Planning", changePhaseLabel(it)) }

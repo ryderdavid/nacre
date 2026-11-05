@@ -94,8 +94,8 @@ data class BeadDraft(
     val reply: String = "",
 )
 
-/** One message in a chat that Claude reads as history; a message of Ryder's may carry [images]. */
-data class DraftTurn(val fromUser: Boolean, val text: String, val images: List<ChatImage> = emptyList()) : java.io.Serializable
+/** One message in a chat that Claude reads as history. */
+data class DraftTurn(val fromUser: Boolean, val text: String) : java.io.Serializable
 
 /** Claude's answer to a question about a bead, asked in Ask mode. */
 @Serializable
@@ -120,17 +120,15 @@ class ClaudeService {
     /** Ask Claude to improve a bead; returns a field-level proposal the user reviews. */
     suspend fun refine(
         s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn> = emptyList(),
-        images: ChatTurnImages = ChatTurnImages.NONE,
     ): RefineProposal = withContext(Dispatchers.IO) {
-        json.decodeFromString<RefineProposal>(structured(s, refineParams(s, ctx, instruction, history, images)))
+        json.decodeFromString<RefineProposal>(structured(s, refineParams(s, ctx, instruction, history)))
     }
 
     /** Answer a question about a bead without proposing any change to it. */
     suspend fun ask(
         s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String,
-        images: ChatTurnImages = ChatTurnImages.NONE,
     ): String = withContext(Dispatchers.IO) {
-        json.decodeFromString<AskReply>(structured(s, askParams(s, ctx, history, question, images)))
+        json.decodeFromString<AskReply>(structured(s, askParams(s, ctx, history, question)))
             .answer.ifBlank { throw ClaudeException("Claude returned no answer") }
     }
 
@@ -160,31 +158,17 @@ class ClaudeService {
     }
 
     companion object {
-        /** The Refine request for one bead chat message: its images, labelled, before the prompt. */
-        internal fun refineParams(
-            s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn>, images: ChatTurnImages,
-        ): MessageCreateParams = structuredParams(
-            s, Prompts.EDITOR, Prompts.refine(ctx, instruction, history, images.current, images.request.marks),
-            refineSchema, maxTokens = 16000, images.request.images,
-        )
+        /** The Refine request for one bead. */
+        internal fun refineParams(s: AppSettings, ctx: BeadContext, instruction: String, history: List<DraftTurn>): MessageCreateParams =
+            structuredParams(s, Prompts.EDITOR, Prompts.refine(ctx, instruction, history), refineSchema, maxTokens = 16000)
 
-        /** The Ask request for one bead chat message, shaped as [refineParams]. */
-        internal fun askParams(
-            s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String, images: ChatTurnImages,
-        ): MessageCreateParams = structuredParams(
-            s, Prompts.ADVISOR, Prompts.ask(ctx, history, question, readsRepo = false, images.current, images.request.marks),
-            askSchema, maxTokens = 8000, images.request.images,
-        )
+        /** The Ask request for one bead, shaped as [refineParams]. */
+        internal fun askParams(s: AppSettings, ctx: BeadContext, history: List<DraftTurn>, question: String): MessageCreateParams =
+            structuredParams(s, Prompts.ADVISOR, Prompts.ask(ctx, history, question, readsRepo = false), askSchema, maxTokens = 8000)
 
-        /**
-         * One structured-output request whose single user message is [prompt].
-         * With [images] it is each image's `Image N: <name>` label and image
-         * block, in order, then the prompt; without, exactly the text message
-         * it always was.
-         */
+        /** One structured-output request whose single user message is [prompt]. */
         internal fun structuredParams(
             s: AppSettings, system: String, prompt: String, schema: Map<String, Any>, maxTokens: Long,
-            images: List<ImagePayload> = emptyList(),
         ): MessageCreateParams = baseParams(s, system, maxTokens)
             .outputConfig(
                 OutputConfig.builder()
@@ -192,10 +176,7 @@ class ClaudeService {
                     .format(JsonOutputFormat.builder().schema(schemaOf(schema)).build())
                     .build()
             )
-            .apply {
-                if (images.isEmpty()) addUserMessage(prompt)
-                else addUserMessageOfBlockParams(labelledImageBlocks(images) + textBlock(prompt))
-            }
+            .addUserMessage(prompt)
             .build()
 
         internal val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }

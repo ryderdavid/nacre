@@ -83,7 +83,7 @@ import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.settings.SettingsStore
-import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
+import com.ryderdavid.nacre.ui.chat.ChatHeaderAction
 import androidx.compose.material.icons.rounded.Settings
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState

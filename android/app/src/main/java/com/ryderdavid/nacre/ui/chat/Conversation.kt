@@ -96,7 +96,7 @@ fun ConversationScreen(
     val shown by hub.screens.current.collectAsState()
     val send = contextForChat(shown, Keys.host(key), container.repository.groups.collectAsState().value, container.repository::hostName)
     val focus by hub.focus.collectAsState()
-    val list = com.ryderdavid.nacre.ui.assistant.rememberChatList(key)
+    val list = com.ryderdavid.nacre.ui.chat.rememberChatList(key)
     // Bead links point into the chat's own repository.
     val startRepo = record?.repo?.let { Keys.of(Keys.host(key), it) }
     val knownBeads = startRepo?.let { container.repository.board(it).collectAsState().value.data?.index?.byId?.keys }.orEmpty()

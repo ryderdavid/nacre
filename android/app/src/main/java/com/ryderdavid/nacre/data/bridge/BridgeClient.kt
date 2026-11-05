@@ -1,6 +1,5 @@
 package com.ryderdavid.nacre.data.bridge
 
-import com.ryderdavid.nacre.data.model.AssistRequest
 import com.ryderdavid.nacre.data.model.EpicFinish
 import com.ryderdavid.nacre.data.model.AttentionItem
 import com.ryderdavid.nacre.data.model.AttentionList
@@ -13,7 +12,6 @@ import com.ryderdavid.nacre.data.model.IntakeDraft
 import com.ryderdavid.nacre.data.model.IntakeVerdict
 import com.ryderdavid.nacre.data.model.RepoConfigDraft
 import com.ryderdavid.nacre.data.model.SavedRepoConfig
-import com.ryderdavid.nacre.data.model.AssistResult
 import com.ryderdavid.nacre.data.model.Comment
 import com.ryderdavid.nacre.data.model.DaemonUpdate
 import com.ryderdavid.nacre.data.model.ChangeAction
@@ -86,30 +84,6 @@ sealed interface ChatStreamMessage {
     /** The chat was deleted. */
     data class Gone(val error: String) : ChatStreamMessage
 }
-
-/** Messages from a streamed `claude -p` turn on the computer. */
-sealed interface AssistMessage {
-    /** The id to reattach with if the connection drops; always first from a current nacred. */
-    data class Turn(val id: String, val unreadable: List<String> = emptyList()) : AssistMessage
-
-    /** One line of the Mac's own transcript: a thought, a bd command, its output. */
-    data class Event(val event: RunEvent) : AssistMessage
-
-    /** The finished answer. */
-    data class Done(val result: AssistResult) : AssistMessage
-
-    /** Claude or nacred gave up; [error] is already phrased for a person. */
-    data class Failed(val error: String) : AssistMessage
-}
-
-/** The boards a "turn" message says couldn't be opened, as "name: reason". */
-internal fun unreadableBoards(turn: JsonObject): List<String> =
-    (turn["unreadable"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
-        val o = e as? JsonObject ?: return@mapNotNull null
-        val name = (o["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-        val reason = (o["reason"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-        name.takeIf { it.isNotBlank() }?.let { if (reason.isBlank()) it else "$it: $reason" }
-    }
 
 /** Thin typed client for nacred. One instance per (url, token). */
 class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpClient) {
@@ -308,64 +282,6 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 close(t ?: streamError(response))
-            }
-        })
-        awaitClose { source.cancel() }
-    }
-
-    /** One Refine or Draft call on this computer's Claude subscription. */
-    suspend fun claudeJson(repo: String, req: AssistRequest): AssistResult = send("POST", "/v1/repos/$repo/claude/json", req)
-
-    /** One board-assistant turn on this computer, streamed as it runs. */
-    fun claudeStream(repo: String, req: AssistRequest): Flow<AssistMessage> {
-        val body: RequestBody = json.encodeToString(req).toRequestBody(JSON)
-        return assistSse(Request.Builder().url(url("/v1/repos/$repo/claude/stream")).post(body))
-    }
-
-    /** Runs one board-assistant turn across several of this computer's boards, streamed as it goes. */
-    fun claudeStreamAcross(req: AssistRequest): Flow<AssistMessage> {
-        val body: RequestBody = json.encodeToString(req).toRequestBody(JSON)
-        return assistSse(Request.Builder().url(url("/v1/claude/stream")).post(body))
-    }
-
-    /**
-     * Picks a turn back up after the connection dropped: the events after [after], then
-     * the rest live. The turn kept running on the computer in the meantime.
-     */
-    fun claudeResume(turn: String, after: Long): Flow<AssistMessage> =
-        assistSse(Request.Builder().url(url("/v1/assist/${enc(turn)}/stream?after=$after")))
-
-    /** Stops a turn nobody is waiting for any more. */
-    suspend fun claudeCancel(turn: String) {
-        withContext(Dispatchers.IO) {
-            http.newCall(Request.Builder().url(url("/v1/assist/${enc(turn)}/cancel")).post(ByteArray(0).toRequestBody()).build())
-                .await().close()
-        }
-    }
-
-    private fun assistSse(builder: Request.Builder): Flow<AssistMessage> = callbackFlow {
-        val request = builder.header("Accept", "text/event-stream").build()
-        val source = EventSources.createFactory(assistHttp).newEventSource(request, object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                val msg = runCatching {
-                    when (type) {
-                        "turn" -> json.decodeFromString<JsonObject>(data).let { o ->
-                            AssistMessage.Turn(o["turn_id"]!!.jsonPrimitive.content, unreadableBoards(o))
-                        }
-                        "done" -> AssistMessage.Done(json.decodeFromString<AssistResult>(data))
-                        "error" -> AssistMessage.Failed(json.decodeFromString<ErrorBody>(data).error.ifBlank { "Claude failed on the computer" })
-                        else -> AssistMessage.Event(json.decodeFromString<RunEvent>(data))
-                    }
-                }.getOrNull() ?: return
-                trySend(msg)
-            }
-
-            override fun onClosed(eventSource: EventSource) {
-                close()
-            }
-
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(assistFailure(t, response))
             }
         })
         awaitClose { source.cancel() }

@@ -1,4 +1,4 @@
-package com.ryderdavid.nacre.ui.assistant
+package com.ryderdavid.nacre.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi

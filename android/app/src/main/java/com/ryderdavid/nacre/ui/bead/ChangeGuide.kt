@@ -147,40 +147,24 @@ fun GuideOptions(options: List<GuideOption>, recommended: GuideOption?, onPick: 
     }
 }
 
-/** A fold-out chat about the change, open on a wide screen; what Ryder writes can become his decision. */
+/** A fold-out box for Ryder's own decision on the change, open on a wide screen; questions go to Chat. */
 @Composable
-fun ChangeChat(change: SpecChange, repoKey: String, claudeReady: Boolean, busy: Boolean, startOpen: Boolean, onUse: (String) -> Unit) {
+fun ChangeChat(change: SpecChange, busy: Boolean, startOpen: Boolean, onUse: (String) -> Unit) {
     var open by rememberSaveable(change.id) { mutableStateOf(startOpen) }
     Surface(shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-                Text("Ask Claude about this change", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (open) "Fold chat away" else "Open chat")
+                Text("Decide in your own words", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (open) "Fold away" else "Open")
             }
             AnimatedVisibility(open) {
-                AboutChat(
-                    repoKey = repoKey, beadId = change.seedId, about = changeContext(change), claudeReady = claudeReady,
-                    hint = "Ask what a finding means, why Claude recommends this step, or what another choice would lead to.",
-                    placeholder = "Ask about this change", useLabel = "Use what I wrote as the decision", busy = busy, onUse = onUse,
+                OwnAnswer(
+                    key = "change:${change.id}",
+                    hint = "Write the decision yourself. To ask what a finding means or what another choice would lead to, ask in Chat.",
+                    placeholder = "Your decision", useLabel = "Use what I wrote as the decision", busy = busy, onUse = onUse,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
         }
     }
-}
-
-/** What Claude is told about the change being discussed. */
-internal fun changeContext(change: SpecChange): String = buildString {
-    val (summary, status, blocking) = guideSummary(change)
-    append("Ryder is deciding the next step on the OpenSpec change ").append(change.changeName.ifBlank { change.seedId }).append(" (phase ").append(change.phase).append(").\n")
-    if (summary.isNotBlank()) append("What it does: ").append(summary).append('\n')
-    if (status.isNotBlank()) append("How it went: ").append(status).append('\n')
-    change.findings.filter { it.disposition != "resolved" && it.disposition != "rejected" }.forEach {
-        append("Open finding [").append(it.severity).append("] ").append(it.summary).append(": ").append(it.detail.take(600)).append('\n')
-    }
-    if (blocking.isNotEmpty() && change.findings.isEmpty()) append("Blocking: ").append(blocking.joinToString("; ")).append('\n')
-    val (rec, _) = guideChoices(change)
-    append("Recommended step: ").append(rec.label)
-    if (rec.feedback.isNotBlank()) append(" (feedback: ").append(rec.feedback).append(')')
-    append("\nAnswer plainly and briefly, and say which step you'd take.")
 }

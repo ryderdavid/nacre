@@ -100,7 +100,7 @@ fun ChangeCard(state: Loadable<ChangeEnvelope>, linked: Boolean, onOpen: () -> U
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (change != null || envelope?.available == true || state.error != null || linked) FilledTonalButton(onClick = onOpen) {
-                Text(if (change != null || linked) "View change" else if (state.error != null) "Check connection" else if (written != null) "Adopt or develop" else "Develop a proposal")
+                Text(if (change != null || linked) "View change" else if (state.error != null) "Check connection" else if (written != null) "Adopt the written change" else "View change")
             }
         }
     }
@@ -251,7 +251,7 @@ fun ChangeDetail(
                                         picked = if (o == choices.first) null else o.label
                                     }
                                 }, {
-                                    ChangeChat(change, vm.repoKey, prefs?.claudeConfigured == true, busy = !canAct, startOpen = wide) { text ->
+                                    ChangeChat(change, busy = !canAct, startOpen = wide) { text ->
                                         vm.setFeedback(text); picked = ""
                                     }
                                 })
