@@ -21,6 +21,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/chat"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
@@ -47,6 +48,8 @@ type Server struct {
 	BD            *bd.Client
 	Runs          *runs.Manager
 	Assist        *assist.Runner
+	// Chats are the app's Chat conversations; nil when Chat isn't set up.
+	Chats *chat.Manager
 	// Rounds is nil until nacred has started rounds.
 	Rounds  *rounds.Manager
 	Changes *specflow.Manager
@@ -116,6 +119,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/claude/signin/code", s.finishClaudeSignIn)
 	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
 	mux.HandleFunc("POST /v1/assist/{turn}/cancel", s.cancelAssist)
+	mux.HandleFunc("GET /v1/chats", s.listChats)
+	mux.HandleFunc("POST /v1/chats", s.createChat)
+	mux.HandleFunc("GET /v1/chats/{chat}", s.getChat)
+	mux.HandleFunc("DELETE /v1/chats/{chat}", s.deleteChat)
+	mux.HandleFunc("GET /v1/chats/{chat}/stream", s.streamChat)
+	mux.HandleFunc("POST /v1/chats/{chat}/messages", s.sendChat)
+	mux.HandleFunc("POST /v1/chats/{chat}/cancel", s.cancelChat)
 	mux.HandleFunc("GET /v1/runs", s.listRuns)
 	mux.HandleFunc("GET /v1/runs/{run}", s.getRun)
 	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)

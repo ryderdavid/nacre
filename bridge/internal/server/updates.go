@@ -44,7 +44,8 @@ func (s *Server) busyForUpdate() string {
 	if s.Rounds != nil && s.Rounds.Busy() {
 		return "This computer has an unfinished round or its cleanup is still running. Wait for it to finish before updating."
 	}
-	if s.Assist != nil && s.Assist.Busy() {
+	// Chat turns count as assistant calls; they hold no run slot.
+	if (s.Assist != nil && s.Assist.Busy()) || (s.Chats != nil && s.Chats.Busy()) {
 		return "An assistant turn is running. Wait for it to finish before updating."
 	}
 	if s.Changes != nil && s.Changes.Busy() {
