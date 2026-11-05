@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ func (s *Server) chatFail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "unknown chat", "")
 	case errors.Is(err, chat.ErrUnknownRepo):
 		writeError(w, http.StatusBadRequest, "unknown repo", "")
-	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrLimit):
+	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrLimit), errors.Is(err, chat.ErrImageLimit):
 		writeError(w, http.StatusConflict, err.Error(), "")
 	default:
 		writeError(w, http.StatusBadRequest, err.Error(), "")
@@ -115,22 +116,71 @@ func (s *Server) deleteChat(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// chatMessage is the body of POST /v1/chats/{id}/messages.
+type chatMessage struct {
+	TurnID  string        `json:"turn_id"`
+	Text    string        `json:"text"`
+	Context *chat.Context `json:"context"`
+	// Images is the message's ordered images, at most maxChatImages.
+	Images []chatImage `json:"images,omitempty"`
+}
+
+// sendChat starts a turn with a message. Its body may carry images, so it is
+// read with maxTurnBody (413 above it), and every image is validated (400
+// naming the image or the limit) before anything is written or started.
 func (s *Server) sendChat(w http.ResponseWriter, r *http.Request) {
 	m := s.chatsOn(w)
 	if m == nil {
 		return
 	}
-	var req chat.SendRequest
-	if err := decode(r, &req, false); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+	var body chatMessage
+	if !decodeTurn(w, r, &body, maxTurnBody) {
 		return
 	}
+	images, bad := decodeChatImages(body.Images)
+	if bad != "" {
+		writeError(w, http.StatusBadRequest, bad, "")
+		return
+	}
+	req := chat.SendRequest{TurnID: body.TurnID, Text: body.Text, Context: body.Context, Images: images}
 	res, err := m.Send(r.PathValue("chat"), req)
 	if err != nil {
 		s.chatFail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, res)
+}
+
+// chatImage serves one of a chat's stored images, for thumbnails.
+func (s *Server) chatImage(w http.ResponseWriter, r *http.Request) {
+	m := s.chatsOn(w)
+	if m == nil {
+		return
+	}
+	path, mediaType, err := m.Image(r.PathValue("chat"), r.PathValue("image"))
+	switch {
+	case errors.Is(err, chat.ErrNoImage):
+		writeError(w, http.StatusNotFound, "unknown image", "")
+		return
+	case err != nil:
+		s.chatFail(w, err)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown image", "")
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown image", "")
+		return
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, "", st.ModTime(), f)
 }
 
 func (s *Server) cancelChat(w http.ResponseWriter, r *http.Request) {

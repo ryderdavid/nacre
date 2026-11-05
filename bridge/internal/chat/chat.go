@@ -158,6 +158,8 @@ type Event struct {
 	IsError *bool           `json:"is_error,omitempty"`
 	// Context is the screen a user message was sent from.
 	Context *Context `json:"context,omitempty"`
+	// Images are the stored images a user message sent, in order.
+	Images []ImageRef `json:"images,omitempty"`
 	// RequestID, Allowed and Reason describe a permission request.
 	RequestID string `json:"request_id,omitempty"`
 	Allowed   *bool  `json:"allowed,omitempty"`

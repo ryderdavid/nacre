@@ -2,7 +2,10 @@ package claude
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -124,12 +127,26 @@ func ChatEnv(nacredURL string) []string {
 }
 
 // ChatUserMessage is the stream-json user message for one chat message: the
-// "On screen" note, then the text, as separate text blocks. It ends with a
-// newline. An empty text (a handoff's continuation) sends the note alone.
-func ChatUserMessage(note, text string) ([]byte, error) {
+// "On screen" note, then for each image in order an "Image N: <name>" text
+// block and its image block, then the text, as separate blocks. It ends with
+// a newline. An empty text (a handoff's continuation, or a message of images
+// alone) leaves the text block out.
+func ChatUserMessage(note string, images []StagedImage, text string) ([]byte, error) {
 	content := []map[string]any{}
 	if strings.TrimSpace(note) != "" {
 		content = append(content, map[string]any{"type": "text", "text": note})
+	}
+	for i, img := range images {
+		data, err := os.ReadFile(img.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read image %d: %w", i+1, err)
+		}
+		content = append(content,
+			map[string]any{"type": "text", "text": ImageLabel(i+1, img.Name)},
+			map[string]any{"type": "image", "source": map[string]any{
+				"type": "base64", "media_type": img.MediaType, "data": base64.StdEncoding.EncodeToString(data),
+			}},
+		)
 	}
 	if strings.TrimSpace(text) != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
