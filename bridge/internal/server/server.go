@@ -66,6 +66,9 @@ type Server struct {
 	// ChatCheck reports whether the installed Claude Code can serve Chat;
 	// nil checks the CLI at Config.ClaudePath (tests replace it).
 	ChatCheck func(ctx context.Context) claude.ChatSupport
+	// CodexAppServerCheck reports whether `codex app-server` starts, for
+	// Codex chats; nil starts it and completes its handshake.
+	CodexAppServerCheck func(ctx context.Context) error
 	// LocalAddrs are this computer's own addresses, whose answers to chat
 	// permission requests are refused; nil reads the network interfaces.
 	LocalAddrs func() []net.IP
@@ -83,6 +86,8 @@ type Server struct {
 	claudeVer string
 	codexSt   codex.Status
 	chatSt    claude.ChatSupport
+	// codexChat says why Codex chats can't run here; "" when they can.
+	codexChat string
 }
 
 // SessionHinter is the part of the session watcher POST /v1/sessions uses.
@@ -346,6 +351,7 @@ func (s *Server) versions(ctx context.Context) (string, string) {
 		}
 		s.codexSt = s.checkCodex(ctx)
 		s.chatSt = s.checkChat(ctx)
+		s.codexChat = s.checkCodexChat(ctx, s.codexSt)
 		s.verAt = time.Now()
 	}
 	return s.bdVer, s.claudeVer
@@ -356,6 +362,43 @@ func (s *Server) checkCodex(ctx context.Context) codex.Status {
 		return s.CodexCheck(ctx)
 	}
 	return codex.Check(ctx, s.Config.CodexPath, claude.ChildEnv())
+}
+
+// checkCodexChat says why Codex chats can't run here, given the Codex
+// status: "" only when codex.Check passes and `codex app-server` starts.
+func (s *Server) checkCodexChat(ctx context.Context, cx codex.Status) string {
+	switch {
+	case s.Chats == nil:
+		return "Chat isn't available on this computer."
+	case !cx.Available():
+		return cx.Reason
+	}
+	var err error
+	if s.CodexAppServerCheck != nil {
+		err = s.CodexAppServerCheck(ctx)
+	} else {
+		err = codex.ProbeAppServer(ctx, s.Config.CodexPath, chat.CodexEnv(""))
+	}
+	if err != nil {
+		return "Codex app-server doesn't start on this computer (" + claude.OneLine(err.Error(), 200) + ")"
+	}
+	return ""
+}
+
+// codexChatStatus says why Codex chats can't run here ("" when they can). A
+// cached refusal is rechecked at once, so signing in to Codex takes effect
+// on the next try.
+func (s *Server) codexChatStatus(ctx context.Context) string {
+	s.versions(ctx)
+	s.verMu.Lock()
+	defer s.verMu.Unlock()
+	if s.codexChat != "" {
+		if !s.codexSt.Available() {
+			s.codexSt = s.checkCodex(ctx)
+		}
+		s.codexChat = s.checkCodexChat(ctx, s.codexSt)
+	}
+	return s.codexChat
 }
 
 func (s *Server) checkChat(ctx context.Context) claude.ChatSupport {
@@ -399,12 +442,15 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if s.Chats != nil {
 		cs = s.chatSupport(r.Context())
 	}
+	s.verMu.Lock()
+	codexChat := s.codexChat
+	s.verMu.Unlock()
 	body := map[string]any{
 		"name": version.Name, "version": version.Version, "commit": version.Commit, "hostname": ShortHostname(host),
 		"host_id": h.ID, "host_name": h.Name,
 		"bd_version": bdv, "claude_version": cv, "codex_version": cx.Version,
 		"repos": s.Repos.Count(), "active_runs": s.Runs.ActiveCount(""),
-		"features": s.features(cx, cs),
+		"features": s.features(cx, cs, codexChat),
 	}
 	if !cx.Available() {
 		body["codex_unavailable"] = cx.Reason
@@ -412,12 +458,15 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if s.Chats != nil && !cs.OK {
 		body["agent_chat_unavailable"] = cs.Reason
 	}
+	if s.Chats != nil && codexChat != "" {
+		body["agent_chat_codex_unavailable"] = codexChat
+	}
 	writeJSON(w, http.StatusOK, body)
 }
 
 // features lists optional capabilities, so the app can offer only what this
 // computer can actually do (and an older nacred simply reports none).
-func (s *Server) features(cx codex.Status, cs claude.ChatSupport) []string {
+func (s *Server) features(cx codex.Status, cs claude.ChatSupport, codexChat string) []string {
 	f := []string{}
 	if s.Updates != nil {
 		f = append(f, "daemon-update")
@@ -435,6 +484,11 @@ func (s *Server) features(cx codex.Status, cs claude.ChatSupport) []string {
 		// Chat runs here, and steps the classifier won't allow alone are
 		// asked on the phone (host permission prompts).
 		f = append(f, api.FeatureAgentChat)
+	}
+	if s.Chats != nil && codexChat == "" {
+		// Chat can run on Codex here: it is signed in and its app-server
+		// starts.
+		f = append(f, api.FeatureAgentChatCodex)
 	}
 	if cx.Available() {
 		// Beads can be run with the Codex CLI here.

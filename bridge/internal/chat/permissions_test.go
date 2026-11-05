@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/chat/fakeclaude"
+	"github.com/ryderdavid/nacre/bridge/internal/chat/fakecodex"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 )
 
 func TestMain(m *testing.M) {
 	fakeclaude.RunIfFake()
+	fakecodex.RunIfFake()
 	os.Exit(m.Run())
 }
 
