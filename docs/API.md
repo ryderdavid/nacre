@@ -485,7 +485,7 @@ repository's OpenSpec setup can be read. Artifacts are exact
 Phases: `drafting`, `reviewing`, `needs_attention`, `awaiting_approval`, `promoting`, `ready`,
 `stale`, `interrupted`, `covered`. Routes: `new`, `amend`, `repair`, `covered`, `adopted`. Coverage is a reviewed
 read-only recommendation and does not create an epic or close the seed. A proposal action permits
-at most three author/reviewer passes, $5 total and 30 minutes. The bridge persists checkpoints and
+at most five author/reviewer passes, $30 total and 2 hours; these only stop a runaway. The bridge persists checkpoints and
 does not silently resume a paid call after restart.
 
 Start implementation through `POST /v1/repos/{repo}/rounds` with `epic`, `finish:true`

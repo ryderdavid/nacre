@@ -135,3 +135,23 @@ func TestALapsedSignInSaysWhereToSignIn(t *testing.T) {
 		t.Fatal("other errors should pass through")
 	}
 }
+
+// A call's own Timeout overrides the runner's default in both directions: a
+// slow drafting call outlives the quick-call default, and a short one stops.
+func TestCallTimeoutOverridesRunnerDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nsleep 1\ncat <<'EOF'\n" + successTranscript + "\nEOF\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{ClaudePath: path, Timeout: 200 * time.Millisecond}
+	h := claude.Headless{Prompt: "draft", Schema: json.RawMessage(`{"type":"object"}`)}
+	if _, err := r.Run(context.Background(), dir, h, nil); err == nil || !strings.Contains(err.Error(), "took too long") {
+		t.Fatalf("runner default: err = %v, want it stopped", err)
+	}
+	h.Timeout = 20 * time.Second
+	if _, err := r.Run(context.Background(), dir, h, nil); err != nil {
+		t.Fatalf("own timeout: %v", err)
+	}
+}

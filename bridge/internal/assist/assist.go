@@ -10,6 +10,7 @@ package assist
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -67,7 +68,7 @@ type Outcome struct {
 func (r *Runner) Run(ctx context.Context, cwd string, h claude.Headless, emit func(api.RunEvent)) (Outcome, error) {
 	r.active.Add(1)
 	defer r.active.Add(-1)
-	timeout := r.Timeout
+	timeout := cmp.Or(h.Timeout, r.Timeout)
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}

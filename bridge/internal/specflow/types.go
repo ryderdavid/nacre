@@ -174,7 +174,10 @@ const MaxActionCostUSD = 30.0
 // MaxPasses bounds author/reviewer passes in one action. The author keeps
 // fixing the reviewer's findings until none it can settle are left.
 const MaxPasses = 5
-const OperationTimeout = 30 * time.Minute
+
+// OperationTimeout only stops a wedged operation; MaxActionCostUSD is what
+// bounds a runaway one. Its author and reviewer calls run under it too.
+const OperationTimeout = 2 * time.Hour
 
 // Contract is immutable, exact-revision input for an implementation round.
 type Contract struct {

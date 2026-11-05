@@ -3,6 +3,7 @@ package claude
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // Headless describes one short `claude -p` call whose answer is JSON validated
@@ -40,6 +41,9 @@ type Headless struct {
 	ReadSource bool
 	// AddDirs are more directories the call may read, besides its own.
 	AddDirs []string
+	// Timeout bounds this call instead of the runner's default; 0 keeps the
+	// default.
+	Timeout time.Duration
 	// Images are sent with the prompt. When there are any, the prompt is not
 	// a positional argument: the call reads one stream-json user message from
 	// stdin (see [UserMessage]) holding the images and then the prompt.

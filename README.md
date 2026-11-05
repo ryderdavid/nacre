@@ -108,8 +108,8 @@ Develop a proposal for an existing bead from **Refine** or its overflow menu. **
 specifications and active changes, recommends a new change, amendment, repair or existing coverage,
 then runs strict OpenSpec validation and a fresh adversarial review. Findings, source references,
 artifacts and decisions stay visible in the change view and are recorded on the bead. Feedback is
-saved when you leave the view. Each proposal action is bounded to three review passes, $5 and
-30 minutes; an interrupted operation can resume from its saved checkpoint.
+saved when you leave the view. Each proposal action stops a runaway at five review passes, $30 and
+2 hours; an interrupted operation can resume from its saved checkpoint.
 
 A change reads **Planning** while it is drafted and reviewed, **Ready for your approval**, **Working**
 once approved and **Done** once archived, with one **Needs attention** banner when something needs a

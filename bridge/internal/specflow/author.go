@@ -77,7 +77,7 @@ func (m *Manager) model(ctx context.Context, r *record, review bool) (json.RawMe
 	if e := m.checkpoint(r); e != nil {
 		return nil, e
 	}
-	outcome, e := m.opts.Headless.Run(ctx, r.Repo, claude.Headless{Prompt: prompt, System: system, Schema: schema, ReadSource: true, MaxBudgetUSD: cap, Persist: false}, nil)
+	outcome, e := m.opts.Headless.Run(ctx, r.Repo, claude.Headless{Prompt: prompt, System: system, Schema: schema, ReadSource: true, MaxBudgetUSD: cap, Persist: false, Timeout: OperationTimeout}, nil)
 	cost := outcome.CostUSD
 	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
 		cost = cap
