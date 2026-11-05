@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,10 @@ func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {
 	case "", chat.AgentClaude:
 		if s.Assist == nil || !s.Assist.Available() {
 			writeError(w, http.StatusConflict, "Claude Code isn't installed on this computer.", "")
+			return
+		}
+		if cs := s.chatSupport(r.Context()); !cs.OK {
+			writeError(w, http.StatusConflict, cs.Reason, "")
 			return
 		}
 	case chat.AgentCodex:
@@ -196,4 +201,97 @@ func (s *Server) streamChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// permissionAnswer is POST /v1/chats/{id}/permissions/{req}.
+type permissionAnswer struct {
+	Allow *bool  `json:"allow"`
+	Note  string `json:"note,omitempty"`
+}
+
+// answerChatPermission answers a chat's host permission request. Only a
+// paired device may answer: a request from this computer itself (loopback or
+// one of its own addresses, such as the Tailscale address in NACRED_URL) is
+// refused, so a session on the Mac can't approve its own step.
+func (s *Server) answerChatPermission(w http.ResponseWriter, r *http.Request) {
+	m := s.chatsOn(w)
+	if m == nil {
+		return
+	}
+	if s.fromThisComputer(r) {
+		writeError(w, http.StatusForbidden, chat.PairedDeviceMsg,
+			"Permission requests are answered from the phone, not from this computer.")
+		return
+	}
+	var req permissionAnswer
+	if err := decode(r, &req, false); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", err.Error())
+		return
+	}
+	if req.Allow == nil {
+		writeError(w, http.StatusBadRequest, "allow required", "")
+		return
+	}
+	ev, err := m.Answer(r.PathValue("chat"), r.PathValue("req"), *req.Allow, req.Note)
+	switch {
+	case err == nil:
+		rec, _, _ := m.Get(r.PathValue("chat"), 0)
+		writeJSON(w, http.StatusOK, map[string]any{"permission": ev, "chat": rec})
+	case errors.Is(err, chat.ErrDecided):
+		body := map[string]any{"error": err.Error()}
+		if ev.Kind != "" {
+			body["permission"] = ev
+		}
+		writeJSON(w, http.StatusConflict, body)
+	case errors.Is(err, chat.ErrUnknownRequest):
+		writeError(w, http.StatusNotFound, "unknown permission request", "")
+	default:
+		s.chatFail(w, err)
+	}
+}
+
+// fromThisComputer reports whether r came from this computer: loopback, the
+// address in NACRED_URL, or any address of its own interfaces.
+func (s *Server) fromThisComputer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return true // not a peer address we can place; refuse
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() {
+		return true
+	}
+	if s.Chats != nil {
+		if u, err := url.Parse(s.Chats.NacredURL()); err == nil {
+			if own := net.ParseIP(u.Hostname()); own != nil && own.Equal(ip) {
+				return true
+			}
+		}
+	}
+	for _, own := range s.localAddrs() {
+		if own.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) localAddrs() []net.IP {
+	if s.LocalAddrs != nil {
+		return s.LocalAddrs()
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	out := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok {
+			out = append(out, ipn.IP)
+		}
+	}
+	return out
 }

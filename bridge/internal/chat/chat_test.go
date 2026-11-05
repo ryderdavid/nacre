@@ -145,7 +145,7 @@ func TestFirstResumedAndAcrossBoardsArgv(t *testing.T) {
 	brief := Briefing(BriefingInput{Host: "Mac-Studio", NacredURL: "http://100.64.0.7:7420"})
 	want0 := []string{
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--permission-mode", "auto", "--permission-prompts", "host",
+		"--permission-mode", "auto", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
 		"--append-system-prompt", brief,
 		"--session-id", rec.SessionID,
 		"--max-budget-usd", "50.00",
@@ -156,7 +156,7 @@ func TestFirstResumedAndAcrossBoardsArgv(t *testing.T) {
 		t.Errorf("first turn argv:\n%s\nwant:\n%s", got0, strings.Join(want0, "\n"))
 	}
 	want1 := append([]string{}, want0...)
-	want1[12], want1[13], want1[15] = "--resume", rec.SessionID, "48.50"
+	want1[14], want1[15], want1[17] = "--resume", rec.SessionID, "48.50"
 	got1 := strings.Join(readLines(t, filepath.Join(fdir, "argv1")), "\n")
 	if got1 != strings.Join(want1, "\n") {
 		t.Errorf("resumed turn argv:\n%s\nwant:\n%s", got1, strings.Join(want1, "\n"))
@@ -182,7 +182,7 @@ func TestFirstResumedAndAcrossBoardsArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitIdle(t, m2, across.ID)
-	want2 := append(append([]string{}, want0[:12]...), "--session-id", across.SessionID, "--max-budget-usd", "50.00",
+	want2 := append(append([]string{}, want0[:14]...), "--session-id", across.SessionID, "--max-budget-usd", "50.00",
 		"--add-dir", boards[0], "--add-dir", boards[1], "--add-dir", boards[2])
 	got2 := strings.Join(readLines(t, filepath.Join(fdir2, "argv0")), "\n")
 	if got2 != strings.Join(want2, "\n") {
@@ -467,51 +467,6 @@ func TestNotesReachStdinBeforeTheText(t *testing.T) {
 		if msg.Type != "user" || len(msg.Message.Content) != 2 || !strings.HasPrefix(msg.Message.Content[0].Text, want) {
 			t.Errorf("turn %d stdin = %s", i, line)
 		}
-	}
-}
-
-func TestHostPromptIsDeniedAtOnce(t *testing.T) {
-	bin, fdir := fakeClaude(t, "0.2", `printf '{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"rm -rf build"},"decision_reason":"deletes files"}}\n'
-IFS= read -r answer
-printf '%s\n' "$answer" > "$d/answer"`)
-	m := newManager(t, t.TempDir(), bin)
-	rec, _ := m.Create(CreateRequest{Agent: "claude"})
-	m.Send(rec.ID, SendRequest{TurnID: "c_prompt01", Text: "clean up"})
-	got := waitIdle(t, m, rec.ID)
-	if got.State != StateIdle {
-		t.Fatalf("state = %s", got.State)
-	}
-	var answer struct {
-		Type     string
-		Response struct {
-			Subtype   string
-			RequestID string `json:"request_id"`
-			Response  struct{ Behavior, Message string }
-		}
-	}
-	line := readLines(t, filepath.Join(fdir, "answer"))[0]
-	if err := json.Unmarshal([]byte(line), &answer); err != nil {
-		t.Fatal(err)
-	}
-	if answer.Type != "control_response" || answer.Response.RequestID != "req-1" ||
-		answer.Response.Response.Behavior != "deny" || answer.Response.Response.Message != "Chat can't ask the phone yet" {
-		t.Fatalf("answer = %s", line)
-	}
-	_, evs, _ := m.Get(rec.ID, 0)
-	var perm, end *Event
-	for i := range evs {
-		switch evs[i].Kind {
-		case KindPermission:
-			perm = &evs[i]
-		case KindTurnEnd:
-			end = &evs[i]
-		}
-	}
-	if perm == nil || perm.Tool != "Bash" || perm.Reason != "deletes files" || perm.Allowed == nil || *perm.Allowed {
-		t.Fatalf("permission event = %+v", perm)
-	}
-	if end == nil || end.IsError != nil || end.Text != "Turn finished" {
-		t.Fatalf("turn end = %+v", end)
 	}
 }
 

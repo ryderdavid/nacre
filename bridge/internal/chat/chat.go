@@ -69,10 +69,6 @@ const (
 // LimitReason is the refusal once a chat has spent its runaway ceiling.
 const LimitReason = "This chat reached its runaway limit. Start a new chat to keep going."
 
-// NoPhoneYet is how host permission requests are refused until Chat can ask
-// the phone.
-const NoPhoneYet = "Chat can't ask the phone yet"
-
 var (
 	// ErrNotFound is an unknown chat.
 	ErrNotFound = errors.New("unknown chat")
@@ -158,10 +154,13 @@ type Event struct {
 	// Context is the screen a user message was sent from.
 	Context *Context `json:"context,omitempty"`
 	// RequestID, Allowed and Reason describe a permission request.
-	RequestID string  `json:"request_id,omitempty"`
-	Allowed   *bool   `json:"allowed,omitempty"`
-	Reason    string  `json:"reason,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Allowed   *bool  `json:"allowed,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	// By says who decided a permission_answer: phone, timeout, stop,
+	// restart or turn_end.
+	By      string  `json:"by,omitempty"`
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // chatState is a loaded chat.
@@ -172,6 +171,8 @@ type chatState struct {
 	changed chan struct{}
 	deleted bool
 	turn    *turn
+	// pending are host permission requests waiting for the phone.
+	pending map[string]*pending
 }
 
 // Manager holds every chat on this computer.
@@ -200,6 +201,9 @@ type Options struct {
 	// Whois names the Tailscale device at an address; nil uses tailscale.
 	Whois  func(addr string) (string, error)
 	Logger *log.Logger
+	// PermissionTimeout is how long a permission request waits for the
+	// phone; zero is PermissionTimeout (15 minutes).
+	PermissionTimeout time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
@@ -255,6 +259,7 @@ func New(opts Options) (*Manager, error) {
 	defer m.mu.Unlock()
 	for _, c := range m.chats {
 		if c.rec.State == StateRunning || c.rec.State == StateWaitingPermission {
+			m.closeUnansweredLocked(c, RestartReason, ByRestart)
 			c.rec.State = StateInterrupted
 			c.rec.Reason = "nacred restarted during this turn. Send a message to carry on."
 			m.appendLocked(c, Event{Kind: KindSystem, TurnID: c.rec.TurnID, Text: "Interrupted: nacred restarted during this turn. The next message resumes the same session."})
@@ -446,6 +451,12 @@ func (m *Manager) Delete(id string) error {
 func (m *Manager) removeLocked(c *chatState) {
 	id := c.rec.ID
 	c.deleted = true
+	for _, p := range c.pending {
+		if p.timer != nil {
+			p.timer.Stop()
+		}
+	}
+	c.pending = nil
 	delete(m.chats, id)
 	_ = os.Remove(m.recordPath(id))
 	_ = os.Remove(m.logPath(id))

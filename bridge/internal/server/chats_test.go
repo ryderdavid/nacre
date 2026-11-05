@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,7 +20,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
-	"github.com/ryderdavid/nacre/bridge/internal/codex"
+	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
@@ -71,6 +72,10 @@ func chatServer(t *testing.T, bin string) (s *Server, repoID string) {
 		Chats:  chats,
 		Broker: sse.NewBroker(),
 		Log:    log.New(io.Discard, "", 0),
+		ChatCheck: func(context.Context) claude.ChatSupport {
+			return claude.ChatSupport{OK: true, Version: claude.ChatMinVersion}
+		},
+		LocalAddrs: func() []net.IP { return nil },
 	}
 	return s, discovery.RepoID(repoDir)
 }
@@ -267,16 +272,6 @@ func TestUpdateRefusedWhileAChatTurnRuns(t *testing.T) {
 	waitChatIdle(t, ts.URL, id)
 	if code, b := call(t, "POST", ts.URL+"/v1/daemon/update", `{}`); code != 202 {
 		t.Fatalf("update after the turn: %d %v", code, b)
-	}
-}
-
-func TestChatsAreNotAdvertisedYet(t *testing.T) {
-	bin, _ := chatClaude(t, "")
-	s, _ := chatServer(t, bin)
-	for _, f := range s.features(codex.Status{}) {
-		if strings.HasPrefix(f, "agent_chat") {
-			t.Fatalf("features advertise %s before host prompts are handled", f)
-		}
 	}
 }
 
