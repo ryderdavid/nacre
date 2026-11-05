@@ -36,15 +36,15 @@ Every item SHALL include a title, a plain one- or two-sentence reason that stand
 - **THEN** the item states the bead, what is being asked and why, and offers the answers without opening the transcript
 
 ### Requirement: The assistant starts from Needs you
-The board assistant SHALL see the same list on both backends, through a read tool on the API backend and in the prompt context nacred supplies on the Mac backend, and SHALL use it first when Ryder asks what to work on or what needs him.
+Chat SHALL see the same Needs you list through nacred's API or the `nacred` command, which its briefing names. The briefing SHALL tell it to read that list first when Ryder asks what to work on or what needs him.
 
 #### Scenario: What should I work on next
-- **WHEN** Ryder asks what to work on next while a proposal awaits approval
+- **WHEN** Ryder asks Chat what to work on next while a proposal awaits approval
 - **THEN** the answer mentions the waiting proposal before suggesting new work
 
 #### Scenario: Mac assistant
-- **WHEN** the assistant runs on the Mac backend
-- **THEN** it answers from the attention list in its prompt context without a read tool
+- **WHEN** Chat runs on the Mac and answers what needs Ryder
+- **THEN** it reads the attention list from nacred on that computer before answering
 
 ### Requirement: Inbox
 The app SHALL show Needs you as its own Inbox destination beside Boards and Activity, ordered questions,

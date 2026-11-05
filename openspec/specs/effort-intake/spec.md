@@ -6,7 +6,13 @@ New effort checks a new piece of work against the accepted specifications and ac
 ## Requirements
 
 ### Requirement: New effort runs intake
-In a repository with a valid OpenSpec setup, the board's create action SHALL be "New effort". After the existing draft step, continuing SHALL run one read-only intake call, bounded in cost and time, that compares the draft with the requirement index and the active changes. It SHALL return a verdict of just a bead, new change, amendment to a named active change, or already covered, with a rationale. Intake SHALL NOT write files, create beads or start development.
+In a repository with a valid OpenSpec setup, the board's create action SHALL be "New effort", which drafts the effort in Chat. Continue on the resulting draft SHALL run one read-only intake call, bounded in cost and time, that compares the draft with the requirement index and the active changes. Intake SHALL:
+- return a verdict of just a bead, new change, amendment to a named active change, or already covered, with a rationale
+- NOT write files, create beads or start development
+
+#### Scenario: Drafted in Chat
+- **WHEN** Ryder taps New effort, drafts the work in the chat it opens, and taps Continue on the Draft card
+- **THEN** the New effort sheet opens with that draft and the intake verdict, and no other draft chat is shown
 
 #### Scenario: Small fix
 - **WHEN** Ryder describes a typo fix and continues
@@ -14,7 +20,7 @@ In a repository with a valid OpenSpec setup, the board's create action SHALL be 
 
 #### Scenario: Repository without OpenSpec
 - **WHEN** the repository has no valid OpenSpec setup, or the computer doesn't support intake
-- **THEN** the sheet is today's New bead and no intake call is made
+- **THEN** the create action opens the New bead form, without an AI draft step, and no intake call is made
 
 #### Scenario: Already covered
 - **WHEN** the verdict is already covered
@@ -23,6 +29,10 @@ In a repository with a valid OpenSpec setup, the board's create action SHALL be 
 #### Scenario: Intake fails
 - **WHEN** the intake call times out, reaches its cost cap or returns a malformed verdict
 - **THEN** the sheet shows the reason and still offers just a bead and new change
+
+#### Scenario: Older bridge
+- **WHEN** the board's computer does not offer Chat
+- **THEN** New effort opens its sheet without a draft step, and intake runs on what Ryder types
 
 ### Requirement: Intake verdicts cite their basis
 Amendment and covered verdicts SHALL cite paths present in the requirement index, and an amendment SHALL name an active change. A verdict that doesn't SHALL fall back to new change, with the reason shown.
@@ -131,11 +141,24 @@ Spec epics, their section beads, beads added under them, and spec rounds SHALL o
 - **THEN** New effort opens prefilled and the resulting bead is related to the epic, not a child of it
 
 ### Requirement: The assistant can report found work
-The board assistant SHALL offer a found_something write tool with the same three answers, applied only after Ryder approves it.
+When Ryder tells Chat he found something under a spec epic, Chat SHALL ask which of the three answers applies, unless he said, and SHALL write nothing until it knows. It SHALL record the work through the same nacred calls the Found something sheet uses. The three answers are:
+- changes what done means
+- only how or in what order
+- out of scope
+
+For out of scope, Chat SHALL create the new bead related to the epic, not as a child of it.
 
 #### Scenario: Assistant
-- **WHEN** Ryder tells the assistant he found something in a section
-- **THEN** it proposes found_something with one of the three answers, and nothing is written until he approves
+- **WHEN** Ryder tells Chat he found something in a section without saying which answer applies
+- **THEN** Chat asks which of the three answers applies, and nothing is written until he answers
+
+#### Scenario: Chat records found work
+- **WHEN** Ryder tells Chat that a migration must run before section 3 and that this only changes the order
+- **THEN** a found bead appears under the epic that blocks section 3's bead, and the approved revision stays current
+
+#### Scenario: Out of scope from Chat
+- **WHEN** Ryder tells Chat the found work is out of scope
+- **THEN** the new bead is related to the epic, not a child of it
 
 ### Requirement: Discovered work that changes done waits for a decision to revise
 Answering changes what done means SHALL create a found bead under the epic and a Needs you item, and SHALL NOT revise the change by itself. For a promoted change the item SHALL state how many landed sections a revision would reopen and offer Revise now or a follow-on change. Revise now SHALL be unavailable, with the reason, while linked work is active.

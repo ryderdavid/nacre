@@ -2,25 +2,27 @@
 
 ## Purpose
 The specification workflow shows up where Ryder decides: in the assistant, in round pre-flight, in Needs you, and on board cards and epics.
+
 ## Requirements
+
 ### Requirement: Assistant proposes developing a proposal
-The board assistant SHALL offer a `develop_proposal` write tool for an existing bead and a `then_develop` option on `create_bead`, both within specflow's per-action cost limit shown on the approval card. These spending tools SHALL always require Ryder's approval, including in auto-apply mode. The assistant SHALL NOT offer them for chores, small fixes or beads already linked to a change.
+Chat SHALL start proposal development for an existing bead, or for a bead it has just created, through nacred's develop endpoint, so intake and specflow's per-action limit apply. Development SHALL NOT wait for a separate approval card. The guards SHALL be the auto classifier, the chat's runaway ceiling and that limit. Chat's briefing SHALL tell it not to develop proposals for chores, small fixes or beads already linked to a change.
 
 #### Scenario: New behavior-changing feature
-- **WHEN** Ryder asks for a feature that changes behavior an active change or accepted spec covers
-- **THEN** the assistant proposes `create_bead` with `then_develop`, one card shows the cost limit and what the bead will be compared with, and nothing starts until Ryder applies it
+- **WHEN** Ryder asks Chat for a feature that changes behavior an active change or accepted spec covers
+- **THEN** Chat creates the bead and starts development through nacred, and the change appears in Proposals
 
 #### Scenario: Auto-apply is on
-- **WHEN** auto-apply is on and the assistant proposes `develop_proposal`
-- **THEN** it still waits for Ryder's approval
+- **WHEN** Chat asks nacred to develop a proposal
+- **THEN** no separate approval card is shown, and the work is bounded by specflow's per-action limit and the chat's runaway ceiling
 
 #### Scenario: Development refused after creation
 - **WHEN** the bead is created but `develop` is refused
-- **THEN** the bead remains and the card reports why development didn't start
+- **THEN** the bead remains and Chat reports why development didn't start
 
 #### Scenario: Small fix
-- **WHEN** Ryder asks for a typo fix or a chore
-- **THEN** the assistant does not offer `develop_proposal`
+- **WHEN** Ryder asks Chat for a typo fix or a chore
+- **THEN** Chat does the fix or files the bead without developing a proposal
 
 ### Requirement: Preflight reports spec drift
 Round preflight SHALL compare each ordinary round bead with an index of accepted and active requirements and SHALL report a `spec-drift` finding when a bead would change behavior a cited requirement specifies. A finding without a citation present in the index SHALL be discarded. Spec section beads and found beads SHALL be exempt, and repositories without a valid OpenSpec setup SHALL skip the check.
@@ -68,11 +70,21 @@ Bead cards SHALL show at most one spec chip, in the first label position: the ch
 - **THEN** cards render as today without spec chips
 
 ### Requirement: Spec epics lead with their change
-Bead detail for a change's epic SHALL show the change name, revision, phase, the section strip with per-section evidence, open human checks and the next action before the description. Unlinked beads SHALL offer "Develop a proposal" from Refine and the overflow menu instead of a Change card.
+Bead detail for a change's epic SHALL show the following before the description:
+- the change name, revision and phase
+- the section strip with per-section evidence
+- open human checks
+- the next action
+
+Unlinked beads SHALL offer "Develop a proposal" from the overflow menu instead of a Change card.
 
 #### Scenario: Opening an epic mid-implementation
 - **WHEN** Ryder opens an epic whose sections are partly verified
 - **THEN** the first screen shows how many sections are verified and landed and the action to view the active round
+
+#### Scenario: Unlinked bead
+- **WHEN** Ryder opens the overflow menu of a bead with no change
+- **THEN** it offers Develop a proposal
 
 ### Requirement: Stale approvals name their cause
 When a ready or awaiting-approval change no longer matches its approved context, the change SHALL be shown as stale with a reason naming the files that changed, and SHALL offer a new review. Approval SHALL NOT be restored without review.
@@ -110,4 +122,3 @@ nacred SHALL publish change phase transitions as events, and the app SHALL notif
 #### Scenario: Nothing was being watched
 - **WHEN** a change becomes ready to archive while the app watches nothing
 - **THEN** the notice appears on the app's next refresh
-

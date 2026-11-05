@@ -55,12 +55,11 @@ is paired with.
 - **THEN** Ryder gets one notification that opens the round's screen
 
 ### Requirement: Assistant can propose a round
-The board assistant SHALL have a `start_round` write tool taking a list of beads (or an epic) and an
-optional budget, approved like other writes, which starts a round and links to it.
+Chat SHALL be able to start a round of a list of beads, or of an epic, with an optional budget, through nacred's API or the `nacred round` command, without a separate approval card. Chat SHALL link to the round once it starts.
 
 #### Scenario: Assistant proposes
-- **WHEN** Ryder asks the assistant to finish everything ready under an epic
-- **THEN** the assistant proposes `start_round` with those beads, and approving it starts the round
+- **WHEN** Ryder asks Chat to finish everything ready under an epic
+- **THEN** Chat starts a round with those beads through nacred, the round runs within its own budget, and Chat links to it
 
 ### Requirement: Start work from beads and epics
 The app SHALL start rounds from the work itself: Start work on a bead and Run epic on an epic, on the

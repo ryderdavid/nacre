@@ -91,8 +91,11 @@ integration (commit SHA or the reason it was parked).
 - **THEN** NAC-1 has a comment saying it was integrated in round `<id>` at abc1234
 
 ### Requirement: Rounds can be started from three places
-A round SHALL be startable from the nacred HTTP API, from the `nacred round` command line on the same
-computer, and from the app (directly or by approving the board assistant's `start_round` proposal).
+A round SHALL be startable from:
+- the nacred HTTP API
+- the `nacred round` command line on the same computer
+- the app, either directly or from Chat
+
 All three SHALL create the same kind of round.
 
 #### Scenario: From a terminal
@@ -100,8 +103,8 @@ All three SHALL create the same kind of round.
 - **THEN** a round is created on the local nacred and the command prints its id and how to follow it
 
 #### Scenario: From the assistant
-- **WHEN** Ryder tells the board assistant to finish three beads and approves its `start_round` proposal
-- **THEN** a round with those three beads is created and the assistant links to it
+- **WHEN** Ryder tells Chat to finish three beads
+- **THEN** a round with those three beads is created and Chat links to it
 
 ### Requirement: Cancel
 Cancelling a round SHALL stop its running turns, leave the integration branch and bead branches in place,

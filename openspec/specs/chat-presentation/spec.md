@@ -35,21 +35,29 @@ The docked pane MUST use the same width (the user's resizable detail pane width)
 - **THEN** the pane has the same width and surface as the board's bead-detail pane, is separated from the main content as that pane is, and has no shadow elevation
 
 ### Requirement: Chat entry point lives in the top header
-Every screen that offers chat SHALL put its chat entry point (new chat, active chats with dismiss) in the top app bar in every layout, and SHALL NOT show the floating bottom-right chat button. A chat SHALL remain openable from the header at every point the change lands.
+Every screen that offers chat SHALL put its chat entry point in the top app bar in every layout, and SHALL NOT show the floating bottom-right chat button.
+- The ✨ action SHALL open the current chat, or New when there is none.
+- Its menu SHALL offer New · <label> for the current screen and the recent chats.
+- The bead's chat entry SHALL open the same current chat.
+- A chat SHALL remain openable from the header at every point the change lands.
 
 #### Scenario: Header on phone and wide
 - **WHEN** Ryder opens a board, a bead or the repositories screen in either layout
-- **THEN** a chat action is in the top header with the active-chat count, and no chat button floats in the bottom-right corner
+- **THEN** a chat action is in the top header, and no chat button floats in the bottom-right corner
 
 #### Scenario: Picking from the header
-- **WHEN** Ryder opens the header chat action and chooses "New · <label>" or an active chat
-- **THEN** that chat opens in the pane or the sheet according to the layout
+- **WHEN** Ryder opens the header chat menu and chooses "New · <label>" or a recent chat
+- **THEN** that chat becomes the current chat and opens in the pane or the sheet according to the layout
+
+#### Scenario: Bead entry opens the same chat
+- **WHEN** Ryder taps the chat entry on a bead after using ✨ on the board
+- **THEN** the same chat opens, and its next message is about the bead
 
 ### Requirement: Chat and bead detail share the board's right pane
-On a wide board, the chat and the bead-detail pane SHALL take turns in one right-side pane slot and SHALL NOT be stacked side by side. Swapping between them SHALL NOT end the chat or lose its view state. The bead detail shown inside the board's pane SHALL open its chat in the board's pane, not in a nested pane.
+On a wide board, the chat and the bead-detail pane SHALL take turns in one right-side pane slot and SHALL NOT be stacked side by side. Swapping between them SHALL NOT end the chat or lose its view state. The chat entry in the bead detail shown inside the board's pane SHALL open the current chat in the board's pane, not in a nested pane.
 
 #### Scenario: Chat opened while a bead is in the pane
-- **WHEN** a bead is open in the board's right pane and Ryder starts a board chat from the header
+- **WHEN** a bead is open in the board's right pane and Ryder opens the chat from the header
 - **THEN** the chat takes the pane's place, and closing or collapsing the chat shows that bead in the pane again
 
 #### Scenario: Bead opened while a chat is docked
@@ -57,8 +65,8 @@ On a wide board, the chat and the bead-detail pane SHALL take turns in one right
 - **THEN** the bead detail takes the pane, the chat becomes the collapsed edge tab, and tapping the tab brings the chat back with its draft unchanged
 
 #### Scenario: Chat from the embedded bead detail
-- **WHEN** Ryder uses the chat action in the header of the bead detail shown in the board's pane
-- **THEN** that bead's chat opens in the board's right pane slot, and no second chat pane appears inside the bead pane
+- **WHEN** Ryder uses the chat entry in the bead detail shown in the board's pane
+- **THEN** the current chat opens in the board's right pane slot, no second chat pane appears inside the bead pane, and the next message carries that bead as the selection
 
 ### Requirement: The docked pane can be collapsed and expanded
 On a wide layout the docked pane SHALL offer Collapse, which leaves a slim edge tab in the layout, and tapping the tab SHALL expand the pane again. Collapsing SHALL NOT end, reset or resend the chat, and SHALL keep its messages, draft text and scroll position.
@@ -82,43 +90,36 @@ Back SHALL first collapse an expanded docked chat to its edge tab, then follow t
 - **WHEN** the chat sheet is open on a phone and Ryder presses Back
 - **THEN** the sheet closes, the chat is still listed in the header, and reopening it shows the same messages and draft
 
-### Requirement: A chat belongs to the screen it was opened on
-The app SHALL keep the open chat, and whether it is collapsed, separately for each screen. Going to another screen, including through a bead or run link inside the chat, SHALL NOT bring the pane or sheet along and SHALL NOT clear the original screen's open chat.
+### Requirement: The open chat follows Ryder between screens
+The app SHALL keep one current chat for the whole app, with its draft, pending images and scroll position kept per chat.
+- On a wide layout, a docked chat SHALL stay docked, or collapsed, as Ryder moves to another screen.
+- On a narrow layout, following a link out of the sheet SHALL close the sheet, and opening the chat again SHALL show the same chat with its draft.
 
-#### Scenario: Navigate away
-- **WHEN** Ryder has a chat docked on the NAC board and opens a bead from another screen
-- **THEN** the bead screen shows no pane or sheet from the board chat
+#### Scenario: Wide layout, bead to round
+- **WHEN** a chat is docked beside a bead and Ryder opens a round
+- **THEN** the same chat is docked beside the round with its messages and draft, and its composer reads About: <round>
 
-#### Scenario: Leaving through a link in the chat
-- **WHEN** Ryder taps a bead or run link inside a docked chat
-- **THEN** the linked screen shows no pane from that chat, and the original screen still has that chat open
+#### Scenario: Link from a phone sheet
+- **WHEN** Ryder taps a bead link inside the chat sheet on a phone
+- **THEN** the sheet closes, the bead opens, and ✨ reopens the same chat with its draft
 
-### Requirement: Returning to a screen shows its chat again
-Returning to a screen SHALL show that screen's open chat again with its content unchanged, docked on a wide layout and as the sheet on a narrow one, and SHALL keep its collapsed state.
+#### Scenario: Collapsed stays collapsed
+- **WHEN** the docked chat is collapsed and Ryder moves to another screen
+- **THEN** the new screen shows the collapsed edge tab
 
-#### Scenario: Navigate back to the board
-- **WHEN** Ryder left the NAC board with a chat docked and returns to it
-- **THEN** the board shows the same chat, with its messages and draft, docked again
+### Requirement: Deleted chats are not restored
+When a chat is deleted:
+- any pane or sheet showing it SHALL close
+- its draft and pending images SHALL be discarded
+- nothing SHALL be sent into it
+- it SHALL leave the header menu and the Chat list
 
-#### Scenario: Back from a linked screen
-- **WHEN** Ryder followed a link out of a docked chat and navigates back
-- **THEN** the original screen shows the same chat again
+Closing a chat's view SHALL NOT delete it.
 
-#### Scenario: Collapsed state is per screen
-- **WHEN** the board chat was collapsed when Ryder left and he comes back
-- **THEN** the board shows the collapsed edge tab, not an expanded pane
+#### Scenario: Deleted from the Chat list
+- **WHEN** Ryder deletes the current chat from the Chat list
+- **THEN** no pane or sheet shows it, its draft is gone, and ✨ offers New
 
-#### Scenario: Phone return
-- **WHEN** on a phone Ryder leaves a screen whose chat sheet was open and comes back
-- **THEN** the sheet for that same chat opens again
-
-### Requirement: Expired or dismissed chats are not restored
-When a screen's chat expires or is dismissed, the screen SHALL show no pane or sheet for it, SHALL discard its draft and list position, and SHALL NOT send anything into the expired session.
-
-#### Scenario: Expired chat
-- **WHEN** the screen's chat expired while Ryder was elsewhere
-- **THEN** returning shows no pane or sheet, the chat's draft is discarded, and the header offers a new chat
-
-#### Scenario: Dismissed from the header
-- **WHEN** Ryder dismisses the screen's open chat from the header list
-- **THEN** the pane or sheet closes, the chat leaves the header list, and nothing is sent
+#### Scenario: View closed
+- **WHEN** Ryder closes the chat sheet with Back
+- **THEN** the chat is still in the header menu and the Chat list
