@@ -315,7 +315,7 @@ func serve(cfg *config.Config, listenFlag string) error {
 	}
 	go invalidateAttention(broker, registry, needsYou)
 	chats, err := chat.New(chat.Options{
-		Dir: cfg.ChatsDir(), ClaudePath: cfg.ClaudePath, HostID: cfg.Host().ID, HostName: cfg.Host().Name,
+		Dir: cfg.ChatsDir(), ClaudePath: cfg.ClaudePath, CodexPath: cfg.CodexPath, HostID: cfg.Host().ID, HostName: cfg.Host().Name,
 		RouterModel: cfg.Chat.RouterModel, LightModel: cfg.Chat.LightModel,
 		RepoPath: registry.Path,
 		Boards: func() []string {

@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -47,11 +46,12 @@ var (
 
 // pending is a host permission request waiting for the phone.
 type pending struct {
-	id    string
-	turn  *turn
-	input json.RawMessage
-	write func([]byte)
-	timer *time.Timer
+	id   string
+	turn *turn
+	// answer writes the decision back to the agent: on the CLI's control
+	// channel for Claude, as the JSON-RPC answer for Codex.
+	answer func(allow bool, message string)
+	timer  *time.Timer
 }
 
 func (m *Manager) permissionTimeout() time.Duration {
@@ -105,15 +105,30 @@ func (m *Manager) control(c *chatState, t *turn, req claude.ControlRequest, writ
 		Kind: KindPermission, TurnID: t.id, RequestID: req.RequestID, Tool: req.ToolName,
 		Text: PermissionSummary(req), Reason: req.Reason, Input: req.Input,
 	})
-	p := &pending{id: req.RequestID, turn: t, input: req.Input, write: write}
-	c.pending[req.RequestID] = p
+	input := req.Input
+	m.waitLocked(c, &pending{id: req.RequestID, turn: t, answer: func(allow bool, message string) {
+		if allow {
+			write(claude.AllowControl(req.RequestID, input))
+		} else {
+			write(claude.DenyControl(req.RequestID, message))
+		}
+	}})
+	m.mu.Unlock()
+}
+
+// waitLocked holds p for the phone: the chat waits for permission, and the
+// request is denied if nobody answers within the timeout.
+func (m *Manager) waitLocked(c *chatState, p *pending) {
+	if c.pending == nil {
+		c.pending = map[string]*pending{}
+	}
+	c.pending[p.id] = p
 	c.rec.State = StateWaitingPermission
 	m.touchLocked(c)
-	id := req.RequestID
+	id := p.id
 	p.timer = time.AfterFunc(m.permissionTimeout(), func() {
 		m.decide(c, id, false, NoAnswerReason, ByTimeout)
 	})
-	m.mu.Unlock()
 }
 
 // decide settles a pending request and writes the answer to the CLI.
@@ -127,11 +142,7 @@ func (m *Manager) decide(c *chatState, reqID string, allow bool, message, by str
 	}
 	ev := m.settleLocked(c, p, allow, message, by)
 	m.mu.Unlock()
-	if allow {
-		p.write(claude.AllowControl(p.id, p.input))
-	} else {
-		p.write(claude.DenyControl(p.id, message))
-	}
+	p.answer(allow, message)
 	return ev, nil
 }
 

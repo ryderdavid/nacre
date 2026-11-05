@@ -47,6 +47,12 @@ const FeatureAssistTurnIDs = "assist_turn_ids"
 // missing, health's agent_chat_unavailable says why.
 const FeatureAgentChat = "agent_chat"
 
+// FeatureAgentChatCodex is reported in /v1/health when Chat can run on
+// Codex here: codex.Check passes (installed and signed in) and `codex
+// app-server` starts. When it is missing, health's
+// agent_chat_codex_unavailable says why.
+const FeatureAgentChatCodex = "agent_chat_codex"
+
 // FeatureCodex is reported in /v1/health when beads can be run with the
 // OpenAI Codex CLI here: it is installed and signed in. When it is missing,
 // health's codex_unavailable says why.
