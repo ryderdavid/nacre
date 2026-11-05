@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.ui.bead
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +44,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,14 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
 import com.ryderdavid.nacre.data.Loadable
 import com.ryderdavid.nacre.data.model.AdoptableChange
 import com.ryderdavid.nacre.data.model.ChangeEnvelope
@@ -162,17 +156,9 @@ fun ChangeDetail(
     }
     val scope = rememberCoroutineScope()
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        val lightSurface = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-        SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = lightSurface
-                    isAppearanceLightNavigationBars = lightSurface
-                }
-            }
-        }
+    // Drawn over the content area, so the tab bar and the rail stay visible and the action row sits above the bar.
+    com.ryderdavid.nacre.ui.common.OverContent {
+        BackHandler(onBack = onDismiss)
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {

@@ -1,6 +1,15 @@
 package com.ryderdavid.nacre.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.ryderdavid.nacre.ui.chat.ChatsScreen
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import com.ryderdavid.nacre.ui.common.LocalScreenOverlay
+import com.ryderdavid.nacre.ui.common.ScreenOverlay
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -19,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,6 +71,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class RunRoute(val runKey: String)
 @Serializable data class RoundRoute(val roundKey: String)
 @Serializable data object SettingsRoute
+@Serializable data object ChatsRoute
 
 /** Something the activity was opened with: a pairing link or a run notification. */
 sealed interface DeepLink {
@@ -72,8 +81,6 @@ sealed interface DeepLink {
     /** A change notification: the bead whose change view to open. */
     data class OpenChange(val repoKey: String, val beadId: String) : DeepLink
 }
-
-private enum class Tab { BOARDS, INBOX, ACTIVITY }
 
 @Composable
 fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
@@ -85,6 +92,7 @@ fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: (
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
     LaunchedEffect(container) {
@@ -95,12 +103,26 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
-    val dest = entry?.destination
-    val tab = when {
-        dest?.hasRoute(RunsRoute::class) == true || dest?.hasRoute(RunRoute::class) == true || dest?.hasRoute(RoundRoute::class) == true -> Tab.ACTIVITY
-        dest?.hasRoute(InboxRoute::class) == true -> Tab.INBOX
-        else -> Tab.BOARDS
+    val shown: Any? = entry?.let { e ->
+        val d = e.destination
+        when {
+            d.hasRoute(BoardsRoute::class) -> BoardsRoute
+            d.hasRoute(InboxRoute::class) -> InboxRoute
+            d.hasRoute(RunsRoute::class) -> RunsRoute
+            d.hasRoute(ChatsRoute::class) -> ChatsRoute
+            d.hasRoute(SettingsRoute::class) -> SettingsRoute
+            d.hasRoute(BoardRoute::class) -> e.toRoute<BoardRoute>()
+            d.hasRoute(BeadRoute::class) -> e.toRoute<BeadRoute>()
+            d.hasRoute(RunRoute::class) -> e.toRoute<RunRoute>()
+            d.hasRoute(RoundRoute::class) -> e.toRoute<RoundRoute>()
+            else -> null
+        }
     }
+    val tab = tabFor(shown)
+    // The screen last shown before Chat: what the Chat tab is about and what New · <label> starts from.
+    var origin by remember { mutableStateOf<ScreenOrigin?>(null) }
+    LaunchedEffect(shown) { origin = rememberedOrigin(origin, shown) { container.repository.repo(it)?.name } }
+    val overlay = remember { ScreenOverlay() }
     val runs by container.repository.runs.collectAsState()
     // Counts agent-owned sessions too: the badge stands for what the Runs tab is showing.
     val rounds by container.repository.rounds.collectAsState()
@@ -133,36 +155,28 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
     }
 
     val adaptive = currentWindowAdaptiveInfo()
-    val detailRoute = dest?.let { d ->
-        d.hasRoute(BeadRoute::class) || d.hasRoute(RunRoute::class) || d.hasRoute(RoundRoute::class)
-    } == true
-    val baseType = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
-    val layoutType = if (detailRoute && baseType == NavigationSuiteType.NavigationBar) NavigationSuiteType.None else baseType
+    val layoutType = shellLayoutType(NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive), WindowInsets.isImeVisible)
 
-    Box(Modifier.fillMaxSize()) {
-        NavigationSuiteScaffold(
-            layoutType = layoutType,
-            navigationSuiteItems = {
+    NavigationSuiteScaffold(
+        layoutType = layoutType,
+        navigationSuiteItems = {
+            Tab.entries.forEach { t ->
+                val badge = when (t) {
+                    Tab.INBOX -> needsYou
+                    Tab.ACTIVITY -> activeRuns
+                    else -> 0
+                }
                 item(
-                    selected = tab == Tab.BOARDS, onClick = { nav.switchTab(BoardsRoute) },
-                    icon = { Icon(Icons.Rounded.ViewKanban, null) },
-                    label = { Text("Boards") },
+                    selected = tab == t, onClick = { nav.go(ShellNav.tab(t)) },
+                    icon = { BadgedBox(badge = { if (badge > 0) Badge { Text("$badge") } }) { Icon(t.icon, null) } },
+                    label = { Text(t.label) },
                 )
-                item(
-                    selected = tab == Tab.INBOX, onClick = { nav.switchTab(InboxRoute) },
-                    icon = { BadgedBox(badge = { if (needsYou > 0) Badge { Text("$needsYou") } }) { Icon(Icons.Rounded.Inbox, null) } },
-                    label = { Text("Inbox") },
-                )
-                item(
-                    selected = tab == Tab.ACTIVITY, onClick = { nav.switchTab(RunsRoute) },
-                    icon = {
-                        BadgedBox(badge = { if (activeRuns > 0) Badge { Text("$activeRuns") } }) { Icon(Icons.Rounded.Terminal, null) }
-                    },
-                    label = { Text("Activity") },
-                )
-
-            },
-        ) {
+            }
+        },
+    ) {
+        // The content area ends above the bar and beside the rail: everything drawn here sits above the bar.
+        Box(Modifier.fillMaxSize()) {
+          CompositionLocalProvider(LocalScreenOverlay provides overlay) {
             NavHost(nav, startDestination = BoardsRoute) {
                 composable<BoardsRoute> {
                     ReposScreen(
@@ -184,7 +198,7 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                     BoardScreen(
                         r.repoKey,
                         onBack = { nav.popBackStack() },
-                        onOpenBead = { nav.navigate(BeadRoute(r.repoKey, it)) },
+                        onOpenBead = { nav.go(ShellNav.openBead(r.repoKey, it)) },
                         onOpenChatBead = { repo, bead -> nav.navigate(BeadRoute(repo, bead)) },
                         onOpenRun = { nav.navigate(RunRoute(it)) },
                         onSwitchBoard = { key -> nav.navigate(BoardRoute(key)) { popUpTo<BoardRoute> { inclusive = true } } },
@@ -224,14 +238,29 @@ private fun AppShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHan
                 composable<SettingsRoute> {
                     SettingsScreen(pending = pendingPair, onPendingHandled = { pendingPair = null }, onBack = { nav.popBackStack() })
                 }
+                composable<ChatsRoute> {
+                    ChatsScreen(chatOriginLabel(origin))
+                }
             }
+          }
+            overlay.content?.invoke()
+            // The scaffold has already taken the bar's insets, so only the system bars still showing are padded.
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp))
         }
-        SnackbarHost(
-            snackbar,
-            Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(bottom = if (layoutType == NavigationSuiteType.NavigationBar) 88.dp else 16.dp),
-        )
     }
+}
+
+private val Tab.icon: ImageVector
+    get() = when (this) {
+        Tab.BOARDS -> Icons.Rounded.ViewKanban
+        Tab.INBOX -> Icons.Rounded.Inbox
+        Tab.ACTIVITY -> Icons.Rounded.Terminal
+        Tab.CHAT -> Icons.AutoMirrored.Rounded.Chat
+    }
+
+private fun NavHostController.go(step: NavStep) = when (step) {
+    is NavStep.Push -> navigate(step.route)
+    is NavStep.SwitchTab -> switchTab(step.route)
 }
 
 /** Top-level navigation that keeps one copy of each tab and restores its state. */
