@@ -88,6 +88,7 @@ class RunNotifier(
     private val repository: NacreRepository,
     private val settings: SettingsStore,
     private val scope: CoroutineScope,
+    private val chats: com.ryderdavid.nacre.data.chat.ChatHub? = null,
 ) {
     /** Stalled runs already announced, so each stall notifies once. */
     private var stallsAnnounced: Set<String> = emptySet()
@@ -125,6 +126,14 @@ class RunNotifier(
             }
         }
         scope.launch {
+            // A chat at work keeps the watcher running, so a permission request still reaches the phone in the background.
+            repository.chats.collect { listing ->
+                if (listing.chats.any { it.active } && foreground && !RunWatcherService.running) {
+                    withContext(Dispatchers.Main) { runCatching { RunWatcherService.start(context) } }
+                }
+            }
+        }
+        scope.launch {
             repository.runs.collect { runs ->
                 val fresh = newlyStalled(runs, stallsAnnounced)
                 stallsAnnounced = runs.filter { it.stalled && it.isNacreWork }.mapTo(mutableSetOf()) { it.key }
@@ -137,7 +146,18 @@ class RunNotifier(
     }
 
     /** Called when the app leaves the foreground. True if the watcher keeps the event stream. */
-    fun onBackground(): Boolean = RunWatcherService.running
+    fun onBackground(): Boolean {
+        // Learn of running and waiting chats from the chat list as the app leaves the foreground.
+        chats?.let { hub ->
+            scope.launch {
+                hub.watch.refresh()
+                if (hub.watch.watching.value.isNotEmpty() && !RunWatcherService.running) {
+                    withContext(Dispatchers.Main) { runCatching { RunWatcherService.start(context) } }
+                }
+            }
+        }
+        return RunWatcherService.running
+    }
 
     private fun createChannels() {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -235,6 +255,8 @@ class RunNotifier(
         const val EXTRA_CHANGE_REPO = "nacre.change_repo"
         const val EXTRA_CHANGE_BEAD = "nacre.change_bead"
         const val CH_ROUNDS = "rounds"
+        const val EXTRA_CHAT = "nacre.chat_key"
+        const val EXTRA_CHAT_REQUEST = "nacre.chat_request"
 
         fun openRound(context: Context, roundKey: String): PendingIntent {
             val intent = Intent(context, MainActivity::class.java).apply {

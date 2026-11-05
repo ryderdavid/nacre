@@ -186,6 +186,19 @@ fun BeadDetail(
     var menu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    // What Chat is told about this screen: the bead, or its change with its phase and revision.
+    val changeShown = changeState.data?.change
+    com.ryderdavid.nacre.ui.chat.PublishScreen(
+        if (openChange) com.ryderdavid.nacre.ui.ScreenOrigin.Change(repoKey, beadId) else com.ryderdavid.nacre.ui.ScreenOrigin.Bead(repoKey, beadId),
+        com.ryderdavid.nacre.data.chat.ScreenSummaries.bead(
+            repoKey, beadId, issue,
+            pane = when { showChange -> "change"; showRun -> "run"; else -> null },
+            changeId = if (showChange) changeShown?.id ?: boardChange?.id else null,
+            changePhase = if (showChange) changeShown?.phase ?: boardChange?.phase else null,
+            changeRevision = if (showChange) changeShown?.revision ?: boardChange?.revision else null,
+            asChange = showChange,
+        ),
+    )
 
     ChatHost(ChatContext.Bead(repoKey, beadId), onOpenChatBead, onOpenRun,
         enabled = !inPane, onDevelop = if (developable) ({ showChange = true }) else null) {

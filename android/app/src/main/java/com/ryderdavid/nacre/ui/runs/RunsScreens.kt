@@ -170,6 +170,15 @@ fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpe
     val showComputer = vm.hosts.collectAsState().value.size > 1
     val refreshing by vm.refreshing.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    com.ryderdavid.nacre.ui.chat.PublishScreen(
+        com.ryderdavid.nacre.ui.ScreenOrigin.AllBoards("activity"),
+        com.ryderdavid.nacre.data.chat.ScreenSummaries.allBoards(
+            "activity",
+            rounds.take(10).map { "round ${it.id} on ${it.repoName}: ${it.state}" } +
+                runs.take(20).map { "run ${it.id} of ${it.issueId} on ${it.repoName}: ${it.status}" } +
+                listOfNotNull(selected?.let { "Selected: $it" }),
+        ),
+    )
     var listPaneDp by rememberSaveable { mutableStateOf(DEFAULT_LIST_PANE_DP) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -339,6 +348,7 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
     val vm = nacreViewModel(key = "run:$runKey") { RunViewModel(it.repository, runKey) }
     val run by vm.run.collectAsState()
     val entries by vm.transcript.collectAsState()
+    run?.let { r -> if (!inPane) com.ryderdavid.nacre.ui.chat.PublishScreen(com.ryderdavid.nacre.ui.ScreenOrigin.Run(runKey), com.ryderdavid.nacre.data.chat.ScreenSummaries.run(r)) }
     val error by vm.error.collectAsState()
     val sending by vm.sending.collectAsState()
     val list = rememberLazyListState()

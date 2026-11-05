@@ -75,6 +75,18 @@ sealed interface RoundMessage {
     data class Changed(val round: Round) : RoundMessage
 }
 
+/** Messages from `/v1/chats/{id}/stream`. */
+sealed interface ChatStreamMessage {
+    /** One event of the chat's log, in seq order. */
+    data class Event(val event: com.ryderdavid.nacre.data.model.ChatEvent) : ChatStreamMessage
+
+    /** The chat is no longer running and every event has been sent; the stream ends after this. */
+    data class State(val chat: com.ryderdavid.nacre.data.model.ChatRecord) : ChatStreamMessage
+
+    /** The chat was deleted. */
+    data class Gone(val error: String) : ChatStreamMessage
+}
+
 /** Messages from a streamed `claude -p` turn on the computer. */
 sealed interface AssistMessage {
     /** The id to reattach with if the connection drops; always first from a current nacred. */
@@ -378,6 +390,81 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         val body = response?.let { runCatching { it.body?.string() }.getOrNull() }.orEmpty()
         val err = runCatching { json.decodeFromString<ErrorBody>(body) }.getOrNull()
         return BridgeException(err?.error?.takeIf { it.isNotBlank() } ?: "The computer stopped answering (${code.takeIf { it != 0 } ?: "no response"})", code = code)
+    }
+
+    // ---- chats ----
+
+    @Serializable private data class ChatList(val chats: List<com.ryderdavid.nacre.data.model.ChatRecord> = emptyList())
+    @Serializable private data class ChatOne(val chat: com.ryderdavid.nacre.data.model.ChatRecord)
+    @Serializable data class ChatDetail(
+        val chat: com.ryderdavid.nacre.data.model.ChatRecord,
+        val events: List<com.ryderdavid.nacre.data.model.ChatEvent> = emptyList(),
+    )
+    @Serializable private data class PermissionReply(
+        val permission: com.ryderdavid.nacre.data.model.ChatEvent? = null,
+        val chat: com.ryderdavid.nacre.data.model.ChatRecord? = null,
+        val error: String = "",
+    )
+
+    /** Every chat on this computer, newest first. */
+    suspend fun chats(): List<com.ryderdavid.nacre.data.model.ChatRecord> = get<ChatList>("/v1/chats").chats
+    suspend fun createChat(body: com.ryderdavid.nacre.data.model.CreateChat): com.ryderdavid.nacre.data.model.ChatRecord =
+        send<com.ryderdavid.nacre.data.model.CreateChat, ChatOne>("POST", "/v1/chats", body).chat
+    suspend fun chat(id: String): ChatDetail = get("/v1/chats/${enc(id)}")
+    suspend fun sendChat(id: String, body: com.ryderdavid.nacre.data.model.SendChatMessage): com.ryderdavid.nacre.data.model.ChatSendResult =
+        send("POST", "/v1/chats/${enc(id)}/messages", body)
+    suspend fun cancelChat(id: String) {
+        withContext(Dispatchers.IO) {
+            http.newCall(Request.Builder().url(url("/v1/chats/${enc(id)}/cancel")).post("{}".toRequestBody(JSON)).build()).await().use { it.checked() }
+        }
+    }
+    suspend fun deleteChat(id: String) {
+        withContext(Dispatchers.IO) {
+            http.newCall(Request.Builder().url(url("/v1/chats/${enc(id)}")).delete().build()).await().use { it.checked() }
+        }
+    }
+
+    /** Answers a permission request. A request already decided answers 409 with its recorded outcome. */
+    suspend fun answerPermission(id: String, request: String, body: com.ryderdavid.nacre.data.model.PermissionAnswer): com.ryderdavid.nacre.data.model.PermissionOutcome {
+        val req = Request.Builder().url(url("/v1/chats/${enc(id)}/permissions/${enc(request)}"))
+            .post(json.encodeToString(body).toRequestBody(JSON)).build()
+        return withContext(Dispatchers.IO) {
+            http.newCall(req).await().use { resp ->
+                if (resp.code == 409) {
+                    val reply = runCatching { json.decodeFromString<PermissionReply>(resp.body?.string().orEmpty()) }.getOrNull()
+                    com.ryderdavid.nacre.data.model.PermissionOutcome(reply?.permission, conflict = true)
+                } else {
+                    val reply = json.decodeFromString<PermissionReply>(resp.checked())
+                    com.ryderdavid.nacre.data.model.PermissionOutcome(reply.permission, conflict = false, chat = reply.chat)
+                }
+            }
+        }
+    }
+
+    /** A chat's events after [after], then live while a turn runs; ends with its state. */
+    fun chatStream(id: String, after: Long): Flow<ChatStreamMessage> = callbackFlow {
+        val req = Request.Builder().url(url("/v1/chats/${enc(id)}/stream?after=$after")).header("Accept", "text/event-stream").build()
+        val source = EventSources.createFactory(assistHttp).newEventSource(req, object : EventSourceListener() {
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                val msg = runCatching {
+                    when (type) {
+                        "state" -> ChatStreamMessage.State(json.decodeFromString<com.ryderdavid.nacre.data.model.ChatRecord>(data))
+                        "error" -> ChatStreamMessage.Gone(json.decodeFromString<ErrorBody>(data).error.ifBlank { "This chat was deleted." })
+                        else -> ChatStreamMessage.Event(json.decodeFromString<com.ryderdavid.nacre.data.model.ChatEvent>(data))
+                    }
+                }.getOrNull() ?: return
+                trySend(msg)
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                close()
+            }
+
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                close(assistFailure(t, response))
+            }
+        })
+        awaitClose { source.cancel() }
     }
 
     /** Live transcript of one run; replays events after [after] first. */

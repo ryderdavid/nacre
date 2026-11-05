@@ -41,7 +41,12 @@ class AppContainer(app: Application) {
         api = ApiBackend(claude) { settings.current() },
         mac = MacBackend(repository) { settings.current() },
     )
-    val notifier = RunNotifier(app, repository, settings, scope)
+    /** Chat: conversations, the screen-context holder and the background watch. */
+    val chats = com.ryderdavid.nacre.data.chat.ChatHub(
+        repository, scope, com.ryderdavid.nacre.notify.ChatNotifier(app),
+        inBackground = { !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) },
+    )
+    val notifier = RunNotifier(app, repository, settings, scope, chats)
 
     /** Whether a chat can take images on the chosen backend and its target computer; kept current. */
     val imageSupport = com.ryderdavid.nacre.data.claude.ChatImageSupport(settings.settings, repository.hosts)

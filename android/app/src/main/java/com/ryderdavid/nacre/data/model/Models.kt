@@ -358,6 +358,10 @@ data class Health(
     @SerialName("codex_version") val codexVersion: String = "",
     /** Why beads can't be run with Codex on this computer, in a sentence; "" when they can. */
     @SerialName("codex_unavailable") val codexUnavailable: String = "",
+    /** Why Chat can't run on this computer, in a sentence; "" when it can or nacred doesn't say. */
+    @SerialName("agent_chat_unavailable") val agentChatUnavailable: String = "",
+    /** Why Codex chats can't run on this computer; "" when they can or nacred doesn't say. */
+    @SerialName("agent_chat_codex_unavailable") val agentChatCodexUnavailable: String = "",
     val repos: Int = 0,
     @SerialName("active_runs") val activeRuns: Int = 0,
     /** Optional capabilities this computer reports; see [Features]. */
@@ -394,6 +398,12 @@ object Features {
      * long enough for a phone that slept to pick its answer back up.
      */
     const val ASSIST_TURN_IDS = "assist_turn_ids"
+
+    /** Chat (`/v1/chats`) can run here, with host permission prompts answered from the phone. */
+    const val AGENT_CHAT = "agent_chat"
+
+    /** Chats can run on Codex through `codex app-server`. */
+    const val AGENT_CHAT_CODEX = "agent_chat_codex"
 }
 
 // ---- request bodies ----

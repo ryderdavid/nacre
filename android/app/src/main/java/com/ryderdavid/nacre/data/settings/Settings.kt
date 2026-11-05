@@ -52,6 +52,8 @@ data class AppSettings(
     val hiddenRepos: Set<String> = emptySet(),
     val detailPaneDp: Int = 440,
     val notifyRuns: Boolean = true,
+    /** The agent last chosen for a new chat: claude or codex. */
+    val chatAgent: String = "claude",
 ) {
     /** Launch policy, never read from legacy preferences. */
     val runWorktree get() = true
@@ -102,6 +104,7 @@ class SettingsStore(private val context: Context) {
         val pane = intPreferencesKey("detail_pane_dp")
         val notify = booleanPreferencesKey("notify_runs")
         val changeFeedback = stringPreferencesKey("change_feedback_json")
+        val chatAgent = stringPreferencesKey("chat_agent")
     }
 
     @Serializable
@@ -135,6 +138,7 @@ class SettingsStore(private val context: Context) {
             hiddenRepos = p[K.hidden].orEmpty(),
             detailPaneDp = p[K.pane] ?: 440,
             notifyRuns = p[K.notify] ?: true,
+            chatAgent = p[K.chatAgent] ?: "claude",
         )
     }
 
@@ -191,6 +195,9 @@ class SettingsStore(private val context: Context) {
     suspend fun setAnthropicKey(key: String) = context.dataStore.edit {
         if (key.isBlank()) it.remove(K.apiKey) else it[K.apiKey] = Secrets.encrypt(key.trim())
     }
+
+    /** Remembers the agent chosen in the New chat sheet. */
+    suspend fun setChatAgent(agent: String) = context.dataStore.edit { it[K.chatAgent] = agent }
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current())
