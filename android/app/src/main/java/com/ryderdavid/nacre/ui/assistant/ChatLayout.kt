@@ -17,7 +17,7 @@ fun chatLayout(
     presentation: ChatPresentation,
     beadPaneOpen: Boolean = false,
 ): ChatLayout = when {
-    presentation.selected == null -> ChatLayout.None
+    !presentation.shown -> ChatLayout.None
     presentation.collapsed -> if (isWide) ChatLayout.EdgeTab else ChatLayout.None
     !isWide || available - paneWidth < minBody -> ChatLayout.Sheet
     else -> ChatLayout.Docked
@@ -31,7 +31,7 @@ fun boardSlot(layout: ChatLayout, beadPaneOpen: Boolean): BoardSlot = when {
 
 /** A card tap replaces an expanded chat even when that bead was remembered underneath it. */
 fun boardBeadAfterTap(current: String?, tapped: String, presentation: ChatPresentation): String? =
-    if (presentation.selected != null && !presentation.collapsed) tapped else tapped.takeUnless { it == current }
+    if (presentation.shown && !presentation.collapsed) tapped else tapped.takeUnless { it == current }
 
 fun chatBack(layout: ChatLayout, beadPaneOpen: Boolean): ChatBack = when {
     layout == ChatLayout.Docked -> ChatBack.CollapseChat

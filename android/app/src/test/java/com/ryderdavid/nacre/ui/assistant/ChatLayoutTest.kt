@@ -1,13 +1,12 @@
 package com.ryderdavid.nacre.ui.assistant
 
 import androidx.compose.ui.unit.dp
-import com.ryderdavid.nacre.data.claude.ChatContext
 import com.ryderdavid.nacre.data.claude.ChatPresentation
 import com.ryderdavid.nacre.ui.common.isPaneWide
 import kotlin.test.*
 
 class ChatLayoutTest {
-    private val selected = ChatPresentation(ChatContext.Board("repo"))
+    private val selected = ChatPresentation(shown = true)
     @Test fun existingWideBoundary() {
         assertFalse(isPaneWide(759.dp))
         assertTrue(isPaneWide(760.dp))
@@ -42,14 +41,13 @@ class ChatLayoutTest {
         assertEquals("NAC-2", boardBeadAfterTap("NAC-1", "NAC-2", selected))
         assertEquals(null, boardBeadAfterTap("NAC-1", "NAC-1", selected.copy(collapsed = true)))
         val stack = com.ryderdavid.nacre.data.claude.ChatStack()
-        val screen = ChatContext.Board("repo")
-        stack.select(screen, screen)
-        stack.collapse(screen)
-        val layout = chatLayout(true, 1000.dp, 440.dp, presentation = stack.presentation(screen), beadPaneOpen = true)
+        stack.open("h1~c1")
+        stack.collapse()
+        val layout = chatLayout(true, 1000.dp, 440.dp, presentation = stack.presentation.value, beadPaneOpen = true)
         assertEquals(ChatLayout.EdgeTab, layout)
         assertEquals(BoardSlot.Bead, boardSlot(layout, true))
-        stack.expand(screen)
-        assertEquals(BoardSlot.Chat, boardSlot(chatLayout(true, 1000.dp, 440.dp, presentation = stack.presentation(screen)), true))
+        stack.expand()
+        assertEquals(BoardSlot.Chat, boardSlot(chatLayout(true, 1000.dp, 440.dp, presentation = stack.presentation.value), true))
     }
     @Test fun backCollapsesChatThenClosesBeadThenNavigates() {
         assertEquals(ChatBack.CollapseChat, chatBack(ChatLayout.Docked, true))

@@ -1,19 +1,37 @@
 package com.ryderdavid.nacre.data.claude
 
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Identity deliberately excludes the display name: renaming a bead must not create a chat. */
+/**
+ * The older per-screen helpers (bead chat, board assistant) are still told apart by this until
+ * they are retired. It no longer decides what a screen shows: there is one current chat.
+ * Identity deliberately excludes the display name.
+ */
 sealed interface ChatContext {
     data object Multi : ChatContext
     data class Board(val repoKey: String) : ChatContext
     data class Bead(val repoKey: String, val beadId: String) : ChatContext
 }
 
-data class ChatPresentation(val selected: ChatContext? = null, val collapsed: Boolean = false)
+/** The key the older helpers keep their composer state under in [ChatStack.views]. */
+val ChatContext.viewKey: String
+    get() = when (this) {
+        ChatContext.Multi -> "legacy:all"
+        is ChatContext.Board -> "legacy:board:$repoKey"
+        is ChatContext.Bead -> "legacy:bead:$repoKey:$beadId"
+    }
+
 /**
- * What a chat's composer and list hold while the chat is away: the draft, the
- * images pending with it (in memory only), and the scroll position.
+ * How the current chat is shown beside the screens, the same on every screen: [shown] is false
+ * when its pane or sheet is closed, and [collapsed] leaves only the edge tab on wide layouts.
+ */
+data class ChatPresentation(val shown: Boolean = false, val collapsed: Boolean = false)
+
+/**
+ * What a chat's composer and list hold while the chat is away: the draft, the images pending
+ * with it (in memory only), and the scroll position.
  */
 data class ChatViewState(
     val draft: String = "",
@@ -22,89 +40,105 @@ data class ChatViewState(
     val images: List<ImagePayload> = emptyList(),
 )
 
-data class ActiveChat(val context: ChatContext, val label: String, val lastActivity: Long)
-data class ChatSlot(val context: ChatContext, val label: String, val isNew: Boolean)
+/**
+ * The one chat in the app: the current chat's key (persisted through [persist]), whether its
+ * pane or sheet is shown or collapsed, and a [ChatViewState] for each chat key. Opening, closing
+ * and collapsing never start, end or delete a chat.
+ */
+class ChatStack(private val persist: (String?) -> Unit = {}) {
+    private val currentState = MutableStateFlow<String?>(null)
+    /** The app-wide current chat, or null when there is none (✨ then offers New). */
+    val current: StateFlow<String?> = currentState.asStateFlow()
 
-/** Process-owned conversations. Viewing, opening and reordering never start or refresh a chat. */
-class ChatStack(
-    private val now: () -> Long = System::currentTimeMillis,
-    private val onRemoved: (ChatContext) -> Unit = {},
-) {
-    private val state = MutableStateFlow<List<ActiveChat>>(emptyList())
-    val active = state.asStateFlow()
+    private val presentationState = MutableStateFlow(ChatPresentation())
+    val presentation: StateFlow<ChatPresentation> = presentationState.asStateFlow()
 
-    private val presentationState = MutableStateFlow<Map<ChatContext, ChatPresentation>>(emptyMap())
-    val presentations = presentationState.asStateFlow()
-    private val viewState = MutableStateFlow<Map<ChatContext, ChatViewState>>(emptyMap())
-    val views = viewState.asStateFlow()
+    private val viewState = MutableStateFlow<Map<String, ChatViewState>>(emptyMap())
+    val views: StateFlow<Map<String, ChatViewState>> = viewState.asStateFlow()
 
-    fun presentation(screen: ChatContext) = presentationState.value[screen] ?: ChatPresentation()
-    fun view(context: ChatContext) = viewState.value[context] ?: ChatViewState()
-    @Synchronized fun select(screen: ChatContext, selected: ChatContext) {
-        presentationState.value = presentationState.value + (screen to ChatPresentation(selected))
-    }
-    @Synchronized fun collapse(screen: ChatContext) {
-        if (presentation(screen).selected == null) return
-        presentationState.value = presentationState.value + (screen to presentation(screen).copy(collapsed = true))
-    }
-    @Synchronized fun expand(screen: ChatContext) {
-        presentationState.value = presentationState.value + (screen to presentation(screen).copy(collapsed = false))
-    }
-    @Synchronized fun close(screen: ChatContext) {
-        presentationState.value = presentationState.value - screen
-    }
-    @Synchronized fun updateView(context: ChatContext, change: (ChatViewState) -> ChatViewState) {
-        if (!contains(context) && presentationState.value.values.none { it.selected == context }) return
-        viewState.value = viewState.value + (context to change(view(context)))
-    }
-    /** Removes the pending image [id] from [context]'s next message. */
-    fun removePending(context: ChatContext, id: String) = updateView(context) { it.copy(images = it.images.without(id)) }
+    /** Keys of deleted chats: a late update can't bring their draft back. */
+    private val gone = mutableSetOf<String>()
 
-    private fun clearView(context: ChatContext) {
-        viewState.value = viewState.value - context
-        presentationState.value = presentationState.value.filterValues { it.selected != context }
+    /** What the pane or sheet shows now, if anything. */
+    fun shownChat(): String? = currentState.value?.takeIf { presentationState.value.shown }
+
+    /** Restores the current chat remembered in settings, unless one was chosen since. */
+    @Synchronized fun restore(key: String?) {
+        if (key == null || currentState.value != null || key in gone) return
+        currentState.value = key
     }
 
-    /** Called only after the backend accepts the first user message. */
-    @Synchronized fun started(context: ChatContext, label: String) {
-        val chat = ActiveChat(context, label, now())
-        state.value = listOf(chat) + state.value.filterNot { it.context == context }
-    }
-
-    /** Replies, tool progress and user decisions keep an existing conversation alive. */
-    @Synchronized fun touch(context: ChatContext) {
-        val chat = state.value.firstOrNull { it.context == context } ?: return
-        state.value = listOf(chat.copy(lastActivity = now())) + state.value.filterNot { it.context == context }
-    }
-
-    fun dismiss(context: ChatContext) {
-        synchronized(this) {
-            state.value = state.value.filterNot { it.context == context }
-            clearView(context)
+    /** Makes [key] the current chat without changing how it is shown (the Chat tab, a notification). */
+    @Synchronized fun select(key: String) {
+        gone -= key
+        if (currentState.value != key) {
+            currentState.value = key
+            persist(key)
         }
-        onRemoved(context)
     }
 
-    fun expire() {
-        val expired = synchronized(this) {
-            state.value.filter { now() - it.lastActivity >= IDLE_MS }.also {
-                state.value = state.value - it.toSet()
-                it.forEach { chat -> clearView(chat.context) }
-            }
+    /** Makes [key] current and shows it expanded in the pane or the sheet. */
+    @Synchronized fun open(key: String) {
+        select(key)
+        presentationState.value = ChatPresentation(shown = true, collapsed = false)
+    }
+
+    /** ✨ and the bead's chat entry: shows the current chat, or returns false when there is none. */
+    @Synchronized fun openCurrent(): Boolean {
+        val key = currentState.value ?: return false
+        open(key)
+        return true
+    }
+
+    @Synchronized fun collapse() {
+        if (!presentationState.value.shown) return
+        presentationState.value = presentationState.value.copy(collapsed = true)
+    }
+
+    @Synchronized fun expand() {
+        if (currentState.value == null) return
+        presentationState.value = ChatPresentation(shown = true, collapsed = false)
+    }
+
+    /** Closes the pane or sheet; the chat stays current with its draft. */
+    @Synchronized fun close() {
+        presentationState.value = ChatPresentation()
+    }
+
+    /**
+     * A link was followed out of the chat. On phones the sheet closes; on wide layouts the pane
+     * stays docked, or collapsed, beside the screen the link opens.
+     */
+    fun followedLink(wide: Boolean) {
+        if (!wide) close()
+    }
+
+    fun view(key: String) = viewState.value[key] ?: ChatViewState()
+
+    @Synchronized fun updateView(key: String, change: (ChatViewState) -> ChatViewState) {
+        if (key in gone) return
+        viewState.value = viewState.value + (key to change(view(key)))
+    }
+
+    /** Removes the pending image [id] from [key]'s next message. */
+    fun removePending(key: String, id: String) = updateView(key) { it.copy(images = it.images.without(id)) }
+
+    /** Drops [key]'s draft, pending images and scroll position. */
+    @Synchronized fun clearView(key: String) {
+        viewState.value = viewState.value - key
+    }
+
+    /**
+     * A chat was deleted: its pane or sheet closes, its draft and pending images are dropped,
+     * and nothing more is kept for it. When it was current there is no current chat.
+     */
+    @Synchronized fun deleted(key: String) {
+        gone += key
+        viewState.value = viewState.value - key
+        if (currentState.value == key) {
+            currentState.value = null
+            presentationState.value = ChatPresentation()
+            persist(null)
         }
-        expired.forEach { onRemoved(it.context) }
     }
-
-    /** The current screen always owns the first slot; other chats follow by recent activity. */
-    fun slots(context: ChatContext, label: String): List<ChatSlot> {
-        val chats = state.value
-        val current = chats.firstOrNull { it.context == context }
-        return listOf(ChatSlot(context, current?.label ?: label, current == null)) +
-            chats.filterNot { it.context == context }.map { ChatSlot(it.context, it.label, false) }
-    }
-
-    fun shouldExpand(context: ChatContext) = state.value.any { it.context != context }
-    fun contains(context: ChatContext) = state.value.any { it.context == context }
-
-    companion object { const val IDLE_MS = 30 * 60 * 1000L }
 }

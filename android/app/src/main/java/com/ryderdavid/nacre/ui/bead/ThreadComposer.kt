@@ -86,7 +86,15 @@ private val CHAT_SUGGESTIONS = listOf(
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun ThreadComposer(vm: BeadDetailViewModel, issue: Issue, comments: List<Comment>, claudeReady: Boolean, onComment: (String) -> Unit) {
+fun ThreadComposer(
+    vm: BeadDetailViewModel,
+    issue: Issue,
+    comments: List<Comment>,
+    claudeReady: Boolean,
+    onComment: (String) -> Unit,
+    /** The bead's chat entry: opens the one current chat instead of a chat of the bead's own. */
+    onOpenChat: (() -> Unit)? = null,
+) {
     var chatting by rememberSaveable(issue.id) { mutableStateOf(false) }
     var text by rememberSaveable(issue.id) { mutableStateOf("") }
     val thinking by vm.chatThinking.collectAsState()
@@ -126,13 +134,13 @@ fun ThreadComposer(vm: BeadDetailViewModel, issue: Issue, comments: List<Comment
         ) {
             Row(Modifier.heightIn(min = 60.dp).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    onClick = { chatting = !chatting }, color = pill, contentColor = onPill, shape = RoundedCornerShape(20.dp),
+                    onClick = { if (onOpenChat != null) onOpenChat() else chatting = !chatting }, color = pill, contentColor = onPill, shape = RoundedCornerShape(20.dp),
                     modifier = Modifier.heightIn(min = 40.dp),
                 ) {
                     Row(Modifier.padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(if (chatting) AiIcon else Icons.Rounded.ChatBubbleOutline, null, Modifier.size(18.dp))
                         Text(if (chatting) "Chat" else "Comment", style = MaterialTheme.typography.labelLarge)
-                        Icon(Icons.Rounded.ArrowDropDown, if (chatting) "Switch to commenting" else "Switch to chatting with Claude", Modifier.size(18.dp))
+                        Icon(Icons.Rounded.ArrowDropDown, if (onOpenChat != null) "Open chat" else if (chatting) "Switch to commenting" else "Switch to chatting with Claude", Modifier.size(18.dp))
                     }
                 }
                 TextField(

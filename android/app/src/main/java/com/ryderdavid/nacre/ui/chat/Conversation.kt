@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
@@ -65,10 +67,24 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import kotlinx.coroutines.launch
 
-/** One chat full screen: the conversation, its cards and the composer. */
+/** How a conversation is framed: full screen in the Chat tab, or in the docked pane or the sheet. */
+enum class ConversationFrame { Tab, Pane, Sheet }
+
+/**
+ * One chat: the conversation, its cards and the composer. In the Chat tab [onBack] goes to the
+ * list; in the pane or sheet it closes the view, and [onCollapse] leaves the edge tab. Bead links
+ * call [onOpenBead].
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationScreen(key: String, onBack: () -> Unit, onNew: (NewChatRequest) -> Unit) {
+fun ConversationScreen(
+    key: String,
+    onBack: () -> Unit,
+    onNew: (NewChatRequest) -> Unit,
+    frame: ConversationFrame = ConversationFrame.Tab,
+    onCollapse: (() -> Unit)? = null,
+    onOpenBead: ((String, String) -> Unit)? = null,
+) {
     val container = LocalContainer.current
     val hub = container.chats
     val conv = remember(key) { hub.conversation(key) }
@@ -80,7 +96,10 @@ fun ConversationScreen(key: String, onBack: () -> Unit, onNew: (NewChatRequest) 
     val shown by hub.screens.current.collectAsState()
     val send = contextForChat(shown, Keys.host(key), container.repository.groups.collectAsState().value, container.repository::hostName)
     val focus by hub.focus.collectAsState()
-    val list = rememberLazyListState()
+    val list = com.ryderdavid.nacre.ui.assistant.rememberChatList(key)
+    // Bead links point into the chat's own repository.
+    val startRepo = record?.repo?.let { Keys.of(Keys.host(key), it) }
+    val knownBeads = startRepo?.let { container.repository.board(it).collectAsState().value.data?.index?.byId?.keys }.orEmpty()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
 
@@ -93,16 +112,26 @@ fun ConversationScreen(key: String, onBack: () -> Unit, onNew: (NewChatRequest) 
     }
 
     Scaffold(
+        contentWindowInsets = if (frame == ConversationFrame.Tab) androidx.compose.material3.ScaffoldDefaults.contentWindowInsets else androidx.compose.foundation.layout.WindowInsets(0),
+        containerColor = if (frame == ConversationFrame.Pane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
+                windowInsets = if (frame == ConversationFrame.Tab) androidx.compose.material3.TopAppBarDefaults.windowInsets else androidx.compose.foundation.layout.WindowInsets(0),
+                colors = if (frame == ConversationFrame.Pane) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
                 title = {
                     Column {
                         Text(record?.title?.ifBlank { null } ?: "Chat", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(computer, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Chats") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        if (frame == ConversationFrame.Tab) Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Chats")
+                        else Icon(Icons.Rounded.Close, "Close chat")
+                    }
+                },
                 actions = {
+                    onCollapse?.let { IconButton(onClick = it) { Icon(Icons.Rounded.ChevronRight, "Collapse chat") } }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -123,7 +152,15 @@ fun ConversationScreen(key: String, onBack: () -> Unit, onNew: (NewChatRequest) 
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(state.items, key = { it.key }) { item ->
                     Box(Modifier.padding(horizontal = 16.dp)) {
-                        ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) })
+                        Column {
+                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) })
+                            if (onOpenBead != null && startRepo != null && item is ChatItem.Assistant) {
+                                val mentioned = beadMentions(item.text, knownBeads)
+                                if (mentioned.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    mentioned.forEach { id -> TextButton(onClick = { onOpenBead(startRepo, id) }) { Text("Open $id") } }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -170,15 +207,15 @@ private fun StatusLine(text: String, error: Boolean = false, onDismiss: (() -> U
 
 @Composable
 private fun Composer(chatKey: String, about: String, running: Boolean, canSend: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
-    val hub = LocalContainer.current.chats
-    val drafts by hub.drafts.collectAsState()
-    var text by rememberSaveable(chatKey) { mutableStateOf(drafts[chatKey].orEmpty()) }
+    val stack = LocalContainer.current.chats.stack
+    // The draft lives with the chat, so it follows it between the pane, the sheet and the tab.
+    val text = com.ryderdavid.nacre.ui.assistant.chatDraft(chatKey)
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         AssistChip(onClick = {}, label = { Text(about, maxLines = 1, overflow = TextOverflow.Ellipsis) })
         Row(verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it; hub.drafts.value += (chatKey to it) },
+                onValueChange = { v -> stack.updateView(chatKey) { it.copy(draft = v) } },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Message") },
                 maxLines = 6,
@@ -191,8 +228,7 @@ private fun Composer(chatKey: String, about: String, running: Boolean, canSend: 
                         val t = text.trim()
                         if (t.isNotEmpty()) {
                             onSend(t)
-                            text = ""
-                            hub.drafts.value -= chatKey
+                            stack.updateView(chatKey) { it.copy(draft = "") }
                         }
                     },
                     enabled = canSend && text.isNotBlank(),
@@ -273,3 +309,11 @@ internal fun PermissionCardView(card: PermissionCard, onAnswer: (String, Boolean
         }
     }
 }
+
+/** Bead ids in [text] that are on the chat's board, in order of first mention, at most [max]. */
+fun beadMentions(text: String, known: Set<String>, max: Int = 3): List<String> {
+    if (known.isEmpty()) return emptyList()
+    return BEAD_ID.findAll(text).map { it.value.trimEnd('.') }.filter { it in known }.distinct().take(max).toList()
+}
+
+private val BEAD_ID = Regex("""\b[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*""")

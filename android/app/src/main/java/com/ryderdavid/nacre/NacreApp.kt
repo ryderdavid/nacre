@@ -1,6 +1,5 @@
 package com.ryderdavid.nacre
 
-import com.ryderdavid.nacre.data.claude.ChatContext
 import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.data.claude.BeadChats
 import android.app.Application
@@ -21,6 +20,8 @@ import com.ryderdavid.nacre.notify.RunNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -41,40 +42,29 @@ class AppContainer(app: Application) {
         api = ApiBackend(claude) { settings.current() },
         mac = MacBackend(repository) { settings.current() },
     )
-    /** Chat: conversations, the screen-context holder and the background watch. */
+    /** The one chat in the app: its current chat id is remembered in settings. */
+    val chatStack = ChatStack(persist = { key -> scope.launch { settings.setCurrentChat(key) } })
+
+    /** Chat: conversations, the current chat, the screen-context holder and the background watch. */
     val chats = com.ryderdavid.nacre.data.chat.ChatHub(
         repository, scope, com.ryderdavid.nacre.notify.ChatNotifier(app),
         inBackground = { !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) },
+        stack = chatStack,
     )
+
+    init {
+        scope.launch { chatStack.restore(settings.settings.first().currentChat) }
+    }
     val notifier = RunNotifier(app, repository, settings, scope, chats)
 
     /** Whether a chat can take images on the chosen backend and its target computer; kept current. */
     val imageSupport = com.ryderdavid.nacre.data.claude.ChatImageSupport(settings.settings, repository.hosts)
-
-    val chatStack = ChatStack(onRemoved = ::resetChat)
 
     /** Each bead's chat with Claude, held on the bead's own screen beside its thread. */
     val beadChats = BeadChats(
         java.io.File(app.filesDir, "bead-chats.json"), scope,
         attachments = com.ryderdavid.nacre.data.claude.ChatAttachments(java.io.File(app.filesDir, "chat-attachments")),
     )
-
-    fun chatLabel(context: ChatContext): String = when (context) {
-        ChatContext.Multi -> "multi"
-        is ChatContext.Board -> repository.repo(context.repoKey)?.name ?: context.repoKey
-        is ChatContext.Bead -> repository.board(context.repoKey).value.data?.index?.byId?.get(context.beadId)?.title
-            ?.ifBlank { null } ?: context.beadId
-    }
-
-    /** Dismissal/expiry starts fresh next time and cancels any work belonging to the old chat. */
-    fun resetChat(context: ChatContext) {
-        when (context) {
-            is ChatContext.Bead -> beadChats.clear(BeadChats.key(context.repoKey, context.beadId))
-            else -> synchronized(assistants) {
-                assistants.remove(if (context is ChatContext.Board) context.repoKey else ALL_BOARDS)?.clear()
-            }
-        }
-    }
 
     /** Each board's unfinished new-bead form, kept in memory when the form is dismissed. */
     val newBeadDrafts = com.ryderdavid.nacre.data.board.NewBeadDrafts()
@@ -91,8 +81,6 @@ class AppContainer(app: Application) {
             BoardAssistant(
                 backends, { settings.current() }, SingleBoard(RepoBoardTools(repository, repoKey, repoName)), scope,
                 attention = { repository.attention.value },
-                onStarted = { chatStack.started(ChatContext.Board(repoKey), chatLabel(ChatContext.Board(repoKey))) },
-                onActivity = { chatStack.touch(ChatContext.Board(repoKey)) },
             )
         }
     }
@@ -103,8 +91,6 @@ class AppContainer(app: Application) {
             BoardAssistant(
                 backends, { settings.current() }, AllBoardsRouter(repository, settings), scope,
                 attention = { repository.attention.value },
-                onStarted = { chatStack.started(ChatContext.Multi, "multi") },
-                onActivity = { chatStack.touch(ChatContext.Multi) },
             )
         }
     }

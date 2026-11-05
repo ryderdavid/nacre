@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.claude.ChatContext
+import com.ryderdavid.nacre.data.claude.viewKey
 import com.ryderdavid.nacre.data.claude.ChatImage
 import com.ryderdavid.nacre.data.claude.ComposerGate
 import com.ryderdavid.nacre.data.claude.ImageBudget
@@ -147,7 +148,7 @@ private fun displayName(resolver: ContentResolver, uri: Uri): String = runCatchi
 @Composable
 fun pendingImages(context: ChatContext): List<ImagePayload> {
     val views by LocalContainer.current.chatStack.views.collectAsState()
-    return views[context]?.images.orEmpty()
+    return views[context.viewKey]?.images.orEmpty()
 }
 
 /**
@@ -165,7 +166,7 @@ fun rememberImageAttacher(context: ChatContext, remaining: Int): () -> Unit {
         if (uris.isNotEmpty()) scope.launch {
             val prepared = withContext(Dispatchers.IO) { uris.map { prepareImage(resolver, it) } }
             val ready = prepared.filterIsInstance<PreparedImage.Ready>().map { it.payload }
-            if (ready.isNotEmpty()) container.chatStack.updateView(chat) { it.copy(images = it.images.plusPicked(ready)) }
+            if (ready.isNotEmpty()) container.chatStack.updateView(chat.viewKey) { it.copy(images = it.images.plusPicked(ready)) }
             prepared.filterIsInstance<PreparedImage.Skipped>().takeIf { it.isNotEmpty() }?.let { skipped ->
                 container.repository.notify(skipped.joinToString("\n") { it.reason })
             }

@@ -83,8 +83,6 @@ import com.ryderdavid.nacre.data.Connection
 import com.ryderdavid.nacre.data.NacreRepository
 import com.ryderdavid.nacre.data.model.Repo
 import com.ryderdavid.nacre.data.settings.SettingsStore
-import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.ui.assistant.ChatHost
 import com.ryderdavid.nacre.ui.assistant.ChatHeaderAction
 import androidx.compose.material.icons.rounded.Settings
 import com.ryderdavid.nacre.ui.common.ErrorState
@@ -193,7 +191,7 @@ fun ReposScreen(
         com.ryderdavid.nacre.ui.ScreenOrigin.AllBoards("boards"),
         com.ryderdavid.nacre.data.chat.ScreenSummaries.allBoards("boards", groups.map { g -> "${g.home.name} on ${g.members.joinToString { it.hostName }}: ${g.home.counts.open} open, ${g.home.activeRuns} running" }),
     )
-    ChatHost(ChatContext.Multi, onOpenBead, onOpenRun) {
+    run {
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
@@ -205,7 +203,7 @@ fun ReposScreen(
                     }
                 },
                 actions = {
-                    ChatHeaderAction(ChatContext.Multi, "Every board")
+                    ChatHeaderAction()
                     IconButton(onClick = onPair) { Icon(Icons.Rounded.Settings, "Settings") }
                     IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
                         Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search boards")

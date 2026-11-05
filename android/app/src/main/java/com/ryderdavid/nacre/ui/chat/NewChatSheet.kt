@@ -83,7 +83,7 @@ fun NewChatSheet(req: NewChatRequest, onDismiss: () -> Unit, onCreated: (String)
                                 val shown = container.chats.screens.atSend()
                                 val ctx = contextForChat(shown, target.hostId, container.repository.groups.value, container.repository::hostName).context
                                 val rec = container.repository.createChat(target.hostId, CreateChat(picked, target.repoId, ctx))
-                                req.carry?.let { container.chats.drafts.value += (rec.key to it) }
+                                req.carry?.let { container.chats.prefill(rec.key, it) }
                                 onCreated(rec.key)
                             } catch (e: Exception) {
                                 if (e is kotlinx.coroutines.CancellationException) throw e

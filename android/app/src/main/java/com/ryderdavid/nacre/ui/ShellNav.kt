@@ -96,3 +96,13 @@ internal fun rememberedOrigin(previous: ScreenOrigin?, shown: Any?, boardName: (
 
 /** The label the Chat tab uses: the remembered screen's, or all boards when there was none. */
 internal fun chatOriginLabel(origin: ScreenOrigin?): String = origin?.label ?: ScreenOrigin.ALL_BOARDS
+
+/**
+ * Whether the app shell shows the current chat beside (or over) [shown]. A board hosts the chat
+ * itself, sharing its right pane slot with the bead detail; the Chat tab shows it full screen;
+ * Settings has no chat. Every other screen keeps the pane docked, or collapsed, as Ryder moves.
+ */
+fun shellHostsChat(shown: Any?): Boolean = when (shown) {
+    is BoardRoute, ChatsRoute, SettingsRoute, null -> false
+    else -> true
+}

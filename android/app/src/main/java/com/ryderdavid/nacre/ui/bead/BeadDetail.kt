@@ -88,8 +88,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.ryderdavid.nacre.ui.common.LocalContainer
-import com.ryderdavid.nacre.data.claude.ChatContext
-import com.ryderdavid.nacre.ui.assistant.ChatHost
 import com.ryderdavid.nacre.ui.common.AiIcon
 import com.ryderdavid.nacre.ui.common.BeadId
 import com.ryderdavid.nacre.ui.common.Dot
@@ -200,8 +198,10 @@ fun BeadDetail(
         ),
     )
 
-    ChatHost(ChatContext.Bead(repoKey, beadId), onOpenChatBead, onOpenRun,
-        enabled = !inPane, onDevelop = if (developable) ({ showChange = true }) else null) {
+    // The chat entry opens the one current chat: beside or over this screen, or in the board's
+    // right pane slot when this detail is shown inside the board's pane.
+    val openChat = com.ryderdavid.nacre.ui.assistant.rememberChatOpener()
+    run {
     Scaffold(
         containerColor = if (inPane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
         contentWindowInsets = if (inPane) WindowInsets(0) else ScaffoldDefaults.contentWindowInsets,
@@ -216,6 +216,7 @@ fun BeadDetail(
                 },
                 title = { BeadId(beadId, color = MaterialTheme.colorScheme.onSurface) },
                 actions = {
+                    com.ryderdavid.nacre.ui.assistant.ChatHeaderAction()
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Copy id") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = {
@@ -284,7 +285,7 @@ fun BeadDetail(
                 onRemoveBlocker = vm::removeBlocker,
                 onOpenBead = onOpenBead,
                 onOpenRun = onOpenRun,
-                composer = { ThreadComposer(vm, i, comments, prefs?.claudeConfigured == true, onComment = vm::addComment) },
+                composer = { ThreadComposer(vm, i, comments, prefs?.claudeConfigured == true, onComment = vm::addComment, onOpenChat = { openChat(null) }) },
                 changeCard = {
                     val epicOf = boardChanges?.changes?.firstOrNull { it.epicId == i.id }
                     when {

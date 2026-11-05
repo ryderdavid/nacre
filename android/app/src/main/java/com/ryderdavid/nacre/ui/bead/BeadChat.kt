@@ -71,6 +71,7 @@ import com.ryderdavid.nacre.data.claude.ComposerGate
 import com.ryderdavid.nacre.data.claude.ImagePayload
 import com.ryderdavid.nacre.data.claude.ImageSupport
 import com.ryderdavid.nacre.data.claude.composerGate
+import com.ryderdavid.nacre.data.claude.viewKey
 import com.ryderdavid.nacre.ui.common.AttachImageButton
 import com.ryderdavid.nacre.ui.common.ComposerReason
 import com.ryderdavid.nacre.ui.common.PendingImageRow
@@ -144,7 +145,7 @@ fun BeadChatContent(
     val container = com.ryderdavid.nacre.ui.common.LocalContainer.current
     val stack = container.chatStack
     val text = com.ryderdavid.nacre.ui.assistant.chatDraft(context)
-    fun setText(value: String) = stack.updateView(context) { it.copy(draft = value) }
+    fun setText(value: String) = stack.updateView(context.viewKey) { it.copy(draft = value) }
     val pending = com.ryderdavid.nacre.ui.common.pendingImages(context)
     val supportFlow = remember(vm.repoKey) { container.imageSupport.of(vm.repoKey) }
     val support by supportFlow.collectAsState(ImageSupport.YES)
@@ -165,7 +166,7 @@ fun BeadChatContent(
     // The pending images go with whatever is sent; on failure the draft and images stay.
     fun send(message: String) {
         if (!claudeReady || thinking || gate.sendReason != null) return
-        if (vm.sendChat(message, mode, pending)) stack.updateView(context) { it.copy(draft = "", images = emptyList()) }
+        if (vm.sendChat(message, mode, pending)) stack.updateView(context.viewKey) { it.copy(draft = "", images = emptyList()) }
     }
 
         Column(Modifier.fillMaxSize().then(if (inPane) Modifier else Modifier.navigationBarsPadding()).imePadding()) {
@@ -257,7 +258,7 @@ fun BeadChatContent(
                 text = text, onText = ::setText, mode = mode, look = look, busy = thinking,
                 onMode = vm::setChatMode, onSend = { send(text) },
                 pending = pending, gate = gate, onAttach = attach,
-                onRemove = { stack.removePending(context, it) },
+                onRemove = { stack.removePending(context.viewKey, it) },
             )
         }
 }
