@@ -162,6 +162,8 @@ type Event struct {
 	// restart or turn_end.
 	By      string  `json:"by,omitempty"`
 	CostUSD float64 `json:"cost_usd,omitempty"`
+	// Draft is a New effort draft the agent wrote (kind draft).
+	Draft *Draft `json:"draft,omitempty"`
 }
 
 // chatState is a loaded chat.
