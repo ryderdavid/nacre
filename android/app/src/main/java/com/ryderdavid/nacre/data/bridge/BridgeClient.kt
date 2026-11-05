@@ -441,6 +441,15 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         }
     }
 
+    /** One of a chat's stored images, for a thumbnail (`GET /v1/chats/{id}/images/{image}`). */
+    suspend fun chatImage(id: String, image: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(url("/v1/chats/${enc(id)}/images/${enc(image)}")).build()
+        http.newCall(req).await().use { resp ->
+            if (!resp.isSuccessful) resp.checked()
+            resp.body?.bytes() ?: throw BridgeException("Image unavailable")
+        }
+    }
+
     /** A chat's events after [after], then live while a turn runs; ends with its state. */
     fun chatStream(id: String, after: Long): Flow<ChatStreamMessage> = callbackFlow {
         val req = Request.Builder().url(url("/v1/chats/${enc(id)}/stream?after=$after")).header("Accept", "text/event-stream").build()

@@ -37,7 +37,13 @@ data class PermissionCard(
 sealed interface ChatItem {
     val key: String
 
-    data class User(override val key: String, val text: String, val about: String?) : ChatItem
+    /** A message Ryder sent, with the images it carried ([images], in order) for its thumbnails. */
+    data class User(
+        override val key: String,
+        val text: String,
+        val about: String?,
+        val images: List<com.ryderdavid.nacre.data.model.ChatImageRef> = emptyList(),
+    ) : ChatItem
     data class Assistant(override val key: String, val text: String, val route: String) : ChatItem
     data class ToolStep(
         override val key: String,
@@ -116,7 +122,7 @@ class ChatTranscript {
         }
         val key = "e${ev.seq}"
         when (ev.kind) {
-            ChatWire.USER -> items += ChatItem.User(key, ev.text, ev.context?.let { ctxLabel(it) })
+            ChatWire.USER -> items += ChatItem.User(key, ev.text, ev.context?.let { ctxLabel(it) }, ev.images)
             ChatWire.TEXT -> {
                 val last = items.lastOrNull()
                 if (last is ChatItem.Assistant && last.route == ev.route) {

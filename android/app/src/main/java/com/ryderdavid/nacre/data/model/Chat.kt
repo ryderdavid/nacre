@@ -121,6 +121,20 @@ data class ChatEvent(
     val by: String = "",
     /** A New effort draft the agent wrote (kind draft). */
     val draft: ChatDraft? = null,
+    /** The stored images a user message sent, in order. */
+    val images: List<ChatImageRef> = emptyList(),
+)
+
+/**
+ * A stored image a chat message sent, as its user event names it. [id] is the `{image}` of
+ * `GET /v1/chats/{id}/images/{image}`, which serves it for thumbnails.
+ */
+@Serializable
+data class ChatImageRef(
+    val id: String,
+    val name: String = "",
+    @SerialName("media_type") val mediaType: String = "",
+    val bytes: Long = 0,
 )
 
 /** A `nacre-draft` block nacred read from the agent's text: the New effort sheet's draft fields. */
@@ -147,6 +161,8 @@ data class SendChatMessage(
     @SerialName("turn_id") val turnId: String,
     val text: String,
     val context: ScreenContext?,
+    /** The message's images, in order; left out of the body when there are none. */
+    val images: List<AssistImage> = emptyList(),
 )
 
 @Serializable
