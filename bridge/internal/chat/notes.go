@@ -64,11 +64,13 @@ func repoLabel(c *Context, repoName func(string) string) string {
 	return "this board"
 }
 
-// Note is the "On screen" note put before a user message. It is the full
-// context when ctx differs from prev, and the one-line reminder otherwise.
-// repoPath resolves a repository key to its checkout on this computer.
-func Note(ctx, prev *Context, host string, repoPath func(string) (string, error)) string {
-	name := func(key string) string {
+// Reminder is the one-line "On screen: same as before" note for ctx.
+func Reminder(ctx *Context, repoPath func(string) (string, error)) string {
+	return "On screen: same as before (" + Label(ctx, repoBase(repoPath)) + ")"
+}
+
+func repoBase(repoPath func(string) (string, error)) func(string) string {
+	return func(key string) string {
 		if repoPath == nil {
 			return ""
 		}
@@ -77,8 +79,14 @@ func Note(ctx, prev *Context, host string, repoPath func(string) (string, error)
 		}
 		return ""
 	}
+}
+
+// Note is the "On screen" note put before a user message. It is the full
+// context when ctx differs from prev, and the one-line reminder otherwise.
+// repoPath resolves a repository key to its checkout on this computer.
+func Note(ctx, prev *Context, host string, repoPath func(string) (string, error)) string {
 	if prev != nil && sameContext(ctx, prev) {
-		return "On screen: same as before (" + Label(ctx, name) + ")"
+		return Reminder(ctx, repoPath)
 	}
 	if host == "" {
 		host = "this computer"

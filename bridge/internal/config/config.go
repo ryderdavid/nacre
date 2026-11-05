@@ -82,11 +82,30 @@ type Config struct {
 	// mistaken for a hang. Default 15; negative turns the check off.
 	StallMinutes int `json:"stall_minutes,omitempty"`
 
+	// Chat configures the app's Chat.
+	Chat ChatConfig `json:"chat"`
+
 	// DataDir holds run history. Default ~/Library/Application Support/nacred.
 	DataDir string `json:"data_dir,omitempty"`
 
 	path string // file this config was loaded from
 }
+
+// ChatConfig configures the app's Chat on this computer.
+type ChatConfig struct {
+	// RouterModel is the small model that reads each Claude chat message
+	// and chooses a quick answer (light) or the full harness. Default haiku.
+	RouterModel string `json:"router_model"`
+	// LightModel answers the messages routed light, in read-only plan mode
+	// in the chat's own session. Default sonnet.
+	LightModel string `json:"light_model"`
+}
+
+// Default chat models.
+const (
+	DefaultChatRouterModel = "haiku"
+	DefaultChatLightModel  = "sonnet"
+)
 
 // DefaultPromptTemplate is the prompt sent to Claude for a new run. When the
 // template does not reference {{instructions}}, non-empty instructions are
@@ -224,6 +243,12 @@ func (c *Config) fillDefaults() {
 	}
 	if c.AdoptIdleMinutes <= 0 {
 		c.AdoptIdleMinutes = DefaultAdoptIdleMinutes
+	}
+	if c.Chat.RouterModel == "" {
+		c.Chat.RouterModel = DefaultChatRouterModel
+	}
+	if c.Chat.LightModel == "" {
+		c.Chat.LightModel = DefaultChatLightModel
 	}
 }
 

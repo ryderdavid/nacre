@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,5 +63,34 @@ func TestStallAfter(t *testing.T) {
 		if got := (&Config{StallMinutes: minutes}).StallAfter(); got != want {
 			t.Errorf("stall_minutes %d: %v, want %v", minutes, got, want)
 		}
+	}
+}
+
+func TestChatModelsDefaultAndKeepTheirSetting(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Chat.RouterModel != "haiku" || c.Chat.LightModel != "sonnet" {
+		t.Fatalf("defaults: router %q light %q", c.Chat.RouterModel, c.Chat.LightModel)
+	}
+	c.Chat.RouterModel, c.Chat.LightModel = "claude-haiku-5-5", "claude-sonnet-5-5"
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"router_model": "claude-haiku-5-5"`) || !strings.Contains(string(data), `"light_model": "claude-sonnet-5-5"`) {
+		t.Fatalf("saved config lacks chat.router_model / chat.light_model:\n%s", data)
+	}
+	again, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Chat.RouterModel != "claude-haiku-5-5" || again.Chat.LightModel != "claude-sonnet-5-5" {
+		t.Fatalf("reloaded: %+v", again.Chat)
 	}
 }
