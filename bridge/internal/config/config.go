@@ -284,6 +284,9 @@ func (c *Config) WorktreesDir() string { return filepath.Join(c.dataDir(), "work
 // conversation's later turns can resume the session claude saved there.
 func (c *Config) AssistBoardsDir() string { return filepath.Join(c.dataDir(), "assist-boards") }
 
+// ChatsDir holds the app's Chat records, event logs and images.
+func (c *Config) ChatsDir() string { return filepath.Join(c.dataDir(), "chats") }
+
 func (c *Config) dataDir() string {
 	d := c.DataDir
 	if d == "" {

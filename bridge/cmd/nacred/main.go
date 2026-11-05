@@ -30,6 +30,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/assist"
 	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
+	"github.com/ryderdavid/nacre/bridge/internal/chat"
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
@@ -313,7 +314,23 @@ func serve(cfg *config.Config, listenFlag string) error {
 		},
 	}
 	go invalidateAttention(broker, registry, needsYou)
-	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Rounds: roundsMgr, Changes: changes, Attention: needsYou, Broker: broker, Log: logger}
+	chats, err := chat.New(chat.Options{
+		Dir: cfg.ChatsDir(), ClaudePath: cfg.ClaudePath, HostID: cfg.Host().ID, HostName: cfg.Host().Name,
+		RepoPath: registry.Path,
+		Boards: func() []string {
+			refs := registry.Refs()
+			out := make([]string, 0, len(refs))
+			for _, ref := range refs {
+				out = append(out, ref.Path)
+			}
+			return out
+		},
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("load chats: %w", err)
+	}
+	srv := &server.Server{Config: cfg, Repos: registry, BD: client, Runs: manager, Assist: assistant, Chats: chats, Rounds: roundsMgr, Changes: changes, Attention: needsYou, Broker: broker, Log: logger}
 	srv.Updates = daemonupdate.NewService(cfg, addr)
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
@@ -339,6 +356,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 	if err != nil {
 		return err
 	}
+	// Chat turns reach nacred where it actually listens: the address from
+	// ResolveListen that the nacred command uses too.
+	chats.SetNacredURL(server.NacredURL(ln))
 	logger.Printf("%s %s (%s) listening on http://%s (config %s, bd %s, claude %s)", version.Name, version.Version, version.Commit, addr, cfg.Path(), cfg.BdPath, cfg.ClaudePath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
