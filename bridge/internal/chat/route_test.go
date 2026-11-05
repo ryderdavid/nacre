@@ -28,7 +28,10 @@ func routedChat(t *testing.T, files map[string]string, opts ...func(*Options)) (
 	}
 	all := append([]func(*Options){func(o *Options) {
 		o.RouterModel, o.LightModel = "haiku", "sonnet"
-		o.RouterTimeout = 3 * time.Second
+		// The fake CLI is a fresh re-run of the test binary, which can take
+		// seconds to start while the whole gate runs; a router that answers
+		// is never near this.
+		o.RouterTimeout = 10 * time.Second
 	}}, opts...)
 	m = newManager(t, t.TempDir(), bin, all...)
 	rec, err := m.Create(CreateRequest{Agent: "claude"})
@@ -241,7 +244,9 @@ func TestRouterFailuresRunFull(t *testing.T) {
 	for _, mode := range []string{"error", "slow", "malformed"} {
 		t.Run(mode, func(t *testing.T) {
 			m, rec, fdir := routedChat(t, map[string]string{"router": mode, "full": "light_plain"}, func(o *Options) {
-				o.RouterTimeout = 500 * time.Millisecond
+				// Long enough for the fake to start and record its call under
+				// load; the slow fake sleeps a minute, so it still times out.
+				o.RouterTimeout = 5 * time.Second
 			})
 			start := time.Now()
 			got := sendAndWait(t, m, rec.ID, "c_fail0001", "hello")
@@ -252,7 +257,7 @@ func TestRouterFailuresRunFull(t *testing.T) {
 			if v, _ := flag(cs[1].argv, "--permission-mode"); v != "auto" {
 				t.Errorf("not a full turn: %v", cs[1].argv)
 			}
-			if mode == "slow" && time.Since(start) > 8*time.Second {
+			if mode == "slow" && time.Since(start) > 30*time.Second {
 				t.Errorf("router timeout not applied: %v", time.Since(start))
 			}
 			if got.State != StateIdle {
