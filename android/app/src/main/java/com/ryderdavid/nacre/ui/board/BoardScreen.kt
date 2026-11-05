@@ -249,11 +249,11 @@ fun BoardScreen(
         }
     }
 
-    if (newBead && ui != null) NewBeadSheet(
+    if (newBead && ui != null) NewEffortEntry(
         repoKey, repo?.name.orEmpty(), ui.snapshot.index,
         defaultParent = filter.epic.takeIf { it.isNotEmpty() && it != com.ryderdavid.nacre.data.board.BoardFilter.NO_EPIC },
+        openspec = ui.snapshot.changes?.openspec == true,
         onDismiss = { newBead = false },
         onCreated = { newBead = false; if (pane != null) pane = it.id },
-        effort = ui.snapshot.changes?.openspec == true,
     )
 }

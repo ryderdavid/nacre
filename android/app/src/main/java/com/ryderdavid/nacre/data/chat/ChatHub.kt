@@ -3,7 +3,11 @@ package com.ryderdavid.nacre.data.chat
 import com.ryderdavid.nacre.data.claude.ChatStack
 import com.ryderdavid.nacre.data.claude.TurnLostException
 import com.ryderdavid.nacre.data.friendly
+import com.ryderdavid.nacre.data.model.ChatDraft
 import com.ryderdavid.nacre.data.model.ChatRecord
+import com.ryderdavid.nacre.data.model.CreateChat
+import com.ryderdavid.nacre.data.model.Keys
+import com.ryderdavid.nacre.data.model.NewEffortPrefill
 import com.ryderdavid.nacre.data.model.ChatWire
 import com.ryderdavid.nacre.data.model.ScreenContext
 import com.ryderdavid.nacre.data.model.SendChatMessage
@@ -39,6 +43,8 @@ data class ConversationState(
     val limitReason: String? get() = if (limitReached) chat?.reason?.ifBlank { null } ?: LIMIT_REASON else null
     val canSend get() = chat != null && !turnRunning && !limitReached
     val pendingCards get() = items.filterIsInstance<ChatItem.Permission>().filter { it.card.pending }.map { it.card }
+    /** The newest draft, which the Draft card shows. */
+    val newestDraft get() = items.filterIsInstance<ChatItem.Draft>().lastOrNull { it.latest }?.draft
 }
 
 /** Posts and clears "Chat needs your OK" notifications. */
@@ -315,6 +321,33 @@ class ChatHub(
 
     /** Sets the first message's text of a new chat, such as the note New carries from a chat at its limit. */
     fun prefill(key: String, text: String) = stack.updateView(key) { it.copy(draft = text) }
+
+    private val efforts = MutableStateFlow<Map<String, NewEffortOrigin>>(emptyMap())
+
+    /** The board and prefill a New effort chat was started for, by chat key. */
+    fun effortOrigin(key: String): NewEffortOrigin? = efforts.value[key]
+
+    /**
+     * New effort in a repository with OpenSpec on a computer with Chat: creates a `new_effort`
+     * chat on the board's computer ([repoKey]'s), with the composer prefilled when New effort was
+     * opened prefilled, and opens it in the pane, the sheet or the Chat tab as the layout
+     * chooses. Returns the chat's key.
+     */
+    suspend fun startNewEffort(repoKey: String, prefill: NewEffortPrefill?, context: ScreenContext?): String {
+        val rec = link.createChat(
+            Keys.host(repoKey),
+            CreateChat(ChatWire.AGENT_CLAUDE, Keys.id(repoKey), context, newEffort = true),
+        )
+        val key = rec.copy(hostId = Keys.host(repoKey)).key
+        efforts.update { it + (key to NewEffortOrigin(repoKey, prefill)) }
+        composerPrefill(prefill)?.let { prefill(key, it) }
+        stack.open(key)
+        return key
+    }
+
+    /** Continue on [key]'s Draft card: the New effort sheet to open, or null when the chat has no board. */
+    fun continueDraft(key: String, chat: ChatRecord?, draft: ChatDraft): DraftContinuation? =
+        draftContinuation(chat, key, draft, effortOrigin(key))
 
     /**
      * Deletes the chat on its computer. Its pane or sheet closes, its draft and pending images

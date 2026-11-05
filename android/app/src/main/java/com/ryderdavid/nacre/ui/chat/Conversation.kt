@@ -102,6 +102,11 @@ fun ConversationScreen(
     val knownBeads = startRepo?.let { container.repository.board(it).collectAsState().value.data?.index?.byId?.keys }.orEmpty()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var continuing by remember(key) { mutableStateOf<com.ryderdavid.nacre.data.chat.DraftContinuation?>(null) }
+    val onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = { d ->
+        val c = hub.continueDraft(key, record, d)
+        if (c != null) continuing = c else container.repository.notify("This chat isn't about a board. Start New effort on a board to continue a draft.")
+    }
 
     LaunchedEffect(state.items.size, focus) {
         val target = focus?.let { f -> state.items.indexOfFirst { it is ChatItem.Permission && it.card.requestId == f } }?.takeIf { it >= 0 }
@@ -153,7 +158,7 @@ fun ConversationScreen(
                 items(state.items, key = { it.key }) { item ->
                     Box(Modifier.padding(horizontal = 16.dp)) {
                         Column {
-                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) })
+                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) }, onContinue = onContinue)
                             if (onOpenBead != null && startRepo != null && item is ChatItem.Assistant) {
                                 val mentioned = beadMentions(item.text, knownBeads)
                                 if (mentioned.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -178,6 +183,7 @@ fun ConversationScreen(
                     TextButton(onClick = { onNew(NewChatRequest(forceRepoKey = e.repoKey)) }) { Text("New chat on ${e.computer}") }
                 }
             }
+            continuing?.let { c -> com.ryderdavid.nacre.ui.board.DraftContinueSheet(c, onDone = { continuing = null }) }
             Composer(
                 chatKey = key,
                 about = aboutChip(send.label),
@@ -240,7 +246,7 @@ private fun Composer(chatKey: String, about: String, running: Boolean, canSend: 
 }
 
 @Composable
-internal fun ChatItemView(item: ChatItem, onAnswer: (String, Boolean, String?) -> Unit) {
+internal fun ChatItemView(item: ChatItem, onAnswer: (String, Boolean, String?) -> Unit, onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = {}) {
     when (item) {
         is ChatItem.User -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(
@@ -260,6 +266,30 @@ internal fun ChatItemView(item: ChatItem, onAnswer: (String, Boolean, String?) -
             item.text, style = MaterialTheme.typography.bodySmall,
             color = if (item.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        is ChatItem.Draft -> if (item.latest) DraftCardView(item.draft, onContinue)
+    }
+}
+
+/** The newest New effort draft: its fields, and Continue into the New effort sheet. */
+@Composable
+internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Draft" + draft.type.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), style = MaterialTheme.typography.labelLarge)
+            Text(draft.title, style = MaterialTheme.typography.titleMedium)
+            if (draft.description.isNotBlank()) Text(draft.description, style = MaterialTheme.typography.bodyMedium, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            if (draft.acceptance.isNotBlank()) {
+                Text("Acceptance", style = MaterialTheme.typography.labelMedium)
+                Text(draft.acceptance, style = MaterialTheme.typography.bodySmall, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            }
+            if (draft.design.isNotBlank()) {
+                Text("Design", style = MaterialTheme.typography.labelMedium)
+                Text(draft.design, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(onClick = { onContinue(draft) }) { Text("Continue") }
+            }
+        }
     }
 }
 

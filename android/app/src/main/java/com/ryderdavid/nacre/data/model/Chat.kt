@@ -119,6 +119,18 @@ data class ChatEvent(
     val reason: String = "",
     /** Who decided a permission_answer: phone, timeout, stop, restart or turn_end. */
     val by: String = "",
+    /** A New effort draft the agent wrote (kind draft). */
+    val draft: ChatDraft? = null,
+)
+
+/** A `nacre-draft` block nacred read from the agent's text: the New effort sheet's draft fields. */
+@Serializable
+data class ChatDraft(
+    val title: String = "",
+    val type: String = "",
+    val description: String = "",
+    val design: String = "",
+    val acceptance: String = "",
 )
 
 @Serializable
