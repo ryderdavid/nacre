@@ -54,8 +54,7 @@ fun mostRecentThread(chats: List<ChatRecord>, repoKey: String): String? =
 @Composable
 fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null) {
     val repo = LocalContainer.current.repository
-    val shown by stripProjects.collectAsState()
-    val key = repoKey ?: shown.lastOrNull()
+    val key = repoKey
     val decisions by repo.decisions.collectAsState()
     val inQueue = key?.let { DecisionModel.counts(decisions[it].orEmpty()).inQueue } ?: 0
     val focus by repo.queueFocus.collectAsState()
@@ -133,22 +132,12 @@ fun stripWork(work: List<WorkSummary>): WorkSummary? =
 /** A notification's request to open the queue is honoured this long after it was made. */
 private const val QUEUE_REQUEST_MS = 60_000L
 
-/**
- * The projects whose strip state is being read, newest last: the workspace on screen. The shell hands
- * [StatusStrip] only the project's name, so this is how the strip finds its queue.
- */
-private val stripProjects = MutableStateFlow<List<String>>(emptyList())
-
 /** A project's strip state: its open work and how many decisions wait on Ryder (pending or held; deferred doesn't count). */
 @Composable
 fun projectStrip(repoKey: String): Pair<WorkSummary?, Int> {
     val repo = LocalContainer.current.repository
     val work by repo.work.collectAsState()
     val decisions by repo.decisions.collectAsState()
-    DisposableEffect(repoKey) {
-        stripProjects.update { it + repoKey }
-        onDispose { stripProjects.update { it - repoKey } }
-    }
     return stripWork(work[repoKey].orEmpty()) to DecisionModel.counts(decisions[repoKey].orEmpty()).needsYou
 }
 

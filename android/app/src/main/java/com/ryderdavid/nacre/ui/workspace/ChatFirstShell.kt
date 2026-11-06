@@ -94,6 +94,11 @@ fun ChatFirstShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandl
                 if (repoKey != null) nav.navigate(WorkspaceRoute(repoKey, deepLink.chatKey))
             }
             is DeepLink.OpenChange -> nav.navigate(WorkspaceRoute(deepLink.repoKey, dest = Destination.SPEC.name))
+            // The queue focus is already set; the strip opens the queue (or the chat shows the card).
+            is DeepLink.OpenDecision -> {
+                deepLink.chatKey?.let { container.chats.openChat(it, null) }
+                nav.navigate(WorkspaceRoute(deepLink.repoKey, deepLink.chatKey, dest = Destination.CHAT.name))
+            }
             is DeepLink.OpenRound -> container.repository.rounds.value.firstOrNull { Keys.of(it.hostId, it.id) == deepLink.roundKey }?.let {
                 nav.navigate(WorkspaceRoute(Keys.of(it.hostId, it.repoId)))
             }
@@ -182,7 +187,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
         spec = { m -> SpecSlot(repoKey, m) },
         beads = { m -> BeadsSlot(repoKey, m) },
-        strip = { m -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m) },
+        strip = { m -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m, repoKey = repoKey) },
         switcher = {
             Surface(
                 onClick = { scope.launch { drawer.open() } }, shape = projectAvatarShape(name),

@@ -17,6 +17,8 @@ sealed interface DeepLink {
     data class OpenRound(val roundKey: String) : DeepLink
     /** A change notification: the bead whose change view to open. */
     data class OpenChange(val repoKey: String, val beadId: String) : DeepLink
+    /** A decision notification: the project's workspace, in [chatKey] when a chat raised it, with the queue pointed at it. */
+    data class OpenDecision(val repoKey: String, val decisionId: String?, val chatKey: String?) : DeepLink
     /** A "Chat needs your OK" notification: the chat to open, at the card for [requestId]. */
     data class OpenChat(val chatKey: String, val requestId: String?) : DeepLink
 }

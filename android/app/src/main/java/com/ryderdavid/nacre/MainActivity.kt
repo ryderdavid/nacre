@@ -55,6 +55,6 @@ class MainActivity : ComponentActivity() {
         val id = intent.getStringExtra(ChatNotifier.EXTRA_DECISION)
         val chat = intent.getStringExtra(RunNotifier.EXTRA_CHAT)
         (application as NacreApp).container.repository.focusQueue(repoKey, id, open = chat == null)
-        return if (chat != null) DeepLink.OpenChat(chat, null) else DeepLink.OpenChange(repoKey, "")
+        return DeepLink.OpenDecision(repoKey, id, chat)
     }
 }
