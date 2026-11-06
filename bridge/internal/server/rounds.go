@@ -63,7 +63,16 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.linkWork(r, round.ID)
 	writeJSON(w, http.StatusCreated, round)
+}
+
+// linkWork remembers that the chat whose token started a round or run did
+// so, for its work card.
+func (s *Server) linkWork(r *http.Request, workID string) {
+	if sc := scopeOf(r.Context()); sc.Chat() && s.Decisions != nil {
+		s.Decisions.LinkWork(workID, sc.ChatID)
+	}
 }
 
 func (s *Server) listRounds(w http.ResponseWriter, r *http.Request) {

@@ -187,6 +187,9 @@ func (s *Server) routes() []route {
 		{"POST", "/v1/decisions/{decision}/answer", s.answerDecision},
 		{"POST", "/v1/decisions/{decision}/renew", s.renewDecision},
 		{"POST", "/v1/chats/{chat}/decisions", s.raiseDecision},
+		{"GET", "/v1/projects", s.listProjects},
+		{"GET", "/v1/repos/{repo}/work", s.repoWork},
+		{"GET", "/v1/repos/{repo}/specs", s.listSpecs},
 	}
 }
 

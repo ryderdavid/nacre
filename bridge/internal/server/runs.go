@@ -112,6 +112,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.linkWork(r, run.ID)
 	writeJSON(w, http.StatusCreated, run)
 }
 
