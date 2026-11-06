@@ -178,6 +178,49 @@ class SpecListModelTest {
     }
 
     @Test
+    fun `a cited current spec opens the list at its row with the requirement marked`() {
+        val o = SpecList.opening("openspec/specs/chat-first/spec.md", "Decision cards carry evidence", emptyList())
+        assertEquals(listOf<SpecScreen>(SpecScreen.List), o.stack)
+        assertEquals(SpecFocus("chat-first", "Decision cards carry evidence"), o.focus)
+        assertTrue(o.focus!!.cites(" decision cards carry EVIDENCE "))
+        // A spec cited as a whole marks no requirement.
+        val whole = SpecList.opening("openspec/specs/chat-first/spec.md", "", emptyList()).focus!!
+        assertEquals("chat-first", whole.capability)
+        assertTrue(!whole.cites("Decision cards carry evidence"))
+    }
+
+    @Test
+    fun `a cited change file opens its document, a spec delta at the requirement`() {
+        val changes = listOf(change("chg-1", "ready").copy(changeName = "offline-resume"))
+        val delta = SpecList.opening("openspec/changes/offline-resume/specs/sync/spec.md", "Resume after a drop", changes)
+        assertEquals(listOf(SpecScreen.List, SpecScreen.Change("chg-1"), SpecScreen.Document("chg-1", DocKind.SPECS, "Resume after a drop")), delta.stack)
+        assertNull(delta.focus)
+        assertEquals(SpecScreen.Document("chg-1", DocKind.SPECS, "sync"), SpecList.opening("openspec/changes/offline-resume/specs/sync/spec.md", "", changes).stack.last())
+        assertEquals(SpecScreen.Document("chg-1", DocKind.PROPOSAL, ""), SpecList.opening("openspec/changes/offline-resume/proposal.md", "", changes).stack.last())
+        // A change named by id, name or bead opens its overview.
+        assertEquals(listOf(SpecScreen.List, SpecScreen.Change("chg-1")), SpecList.opening("offline-resume", "", changes).stack)
+    }
+
+    @Test
+    fun `a spec citation's label names the requirement unless it is the path`() {
+        assertEquals("Decision cards carry evidence", SpecList.citedRequirement("Decision cards carry evidence", "openspec/specs/chat-first/spec.md"))
+        assertEquals("", SpecList.citedRequirement("openspec/specs/chat-first/spec.md", "openspec/specs/chat-first/spec.md"))
+        assertEquals("", SpecList.citedRequirement(" ", "openspec/specs/chat-first/spec.md"))
+    }
+
+    @Test
+    fun `a spec row's list position counts the groups and requirement hits above it`() {
+        val current = listOf(CurrentSpec("alpha", listOf("One")), CurrentSpec("beta", listOf("Two")))
+        val model = SpecList.build(listOf(change("a", "drafting"), change("b", "ready", sections = sections("none"))), current = current)
+        // Drafting heading + row, In progress heading + row, then the Specs heading.
+        assertEquals(5, SpecList.specRowIndex(model, "alpha"))
+        assertEquals(6, SpecList.specRowIndex(model, "beta"))
+        assertNull(SpecList.specRowIndex(model, "gamma"))
+        val searched = SpecList.build(listOf(change("a", "drafting")), current = current, query = "beta")
+        assertEquals(1, SpecList.specRowIndex(searched, "beta"))
+    }
+
+    @Test
     fun `an Open change target resolves by id, name or bead`() {
         val changes = listOf(change("chg-1", "ready").copy(changeName = "offline-resume", epicId = "NAC-epic"))
         assertEquals("chg-1", SpecList.resolveTarget("chg-1", changes))
