@@ -49,6 +49,16 @@ class ChatReferences {
         m + (repoKey to s.copy(attached = emptyList(), viewingDropped = false))
     }
 
+    private val specTargets = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** A change the Spec pane should open next, by project checkout (set by Open change and evidence links). */
+    val specTarget: StateFlow<Map<String, String>> = specTargets.asStateFlow()
+
+    fun openSpec(repoKey: String, changeId: String) = specTargets.update { it + (repoKey to changeId) }
+
+    /** The Spec pane took the target. */
+    fun specOpened(repoKey: String) = specTargets.update { it - repoKey }
+
     companion object {
         const val MAX = 6
     }

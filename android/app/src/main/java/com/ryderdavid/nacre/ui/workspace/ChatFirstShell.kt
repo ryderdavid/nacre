@@ -173,6 +173,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     CompositionLocalProvider(
         LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT; queue = false; inspecting = null },
         LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
+        com.ryderdavid.nacre.ui.workspace.beads.LocalOpenChange provides { changeId -> container.chats.references.openSpec(repoKey, changeId); destination = Destination.SPEC },
         LocalOpenEvidence provides { e ->
             when (e.kind) {
                 "review", "changes" -> destination = Destination.SPEC
