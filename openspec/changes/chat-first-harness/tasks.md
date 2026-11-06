@@ -7,25 +7,25 @@ The gates named below:
 
 ## 1. nacred: protected actions and the chat-scoped token
 
-- [ ] 1.1 Mint a chat-scoped token per chat turn and put it in the turn's environment, never the device token. Verify with a Go test that reads a fake turn's environment. Gates: bridge.
-- [ ] 1.2 Mark the protected routes (approve, land, finish, sign-off, limits and budget, spending or landing stop choices, adopt) and refuse the chat token on them with 403 `needs_decision`. Device tokens keep working. Verify with a table test over every protected and unprotected route, legacy routes included. Gates: bridge.
-- [ ] 1.3 Document the token scopes and `needs_decision` in docs/API.md, and say in the chat briefing how to raise a decision. Verify with a test that the briefing names it. Gates: bridge, specs.
+- [x] 1.1 Mint a chat-scoped token per chat turn and put it in the turn's environment, never the device token. Verify with a Go test that reads a fake turn's environment. Gates: bridge.
+- [x] 1.2 Mark the protected routes (approve, land, finish, sign-off, limits and budget, spending or landing stop choices, adopt) and refuse the chat token on them with 403 `needs_decision`. Device tokens keep working. Verify with a table test over every protected and unprotected route, legacy routes included. Gates: bridge.
+- [x] 1.3 Document the token scopes and `needs_decision` in docs/API.md, and say in the chat briefing how to raise a decision. Verify with a test that the briefing names it. Gates: bridge, specs.
 
 ## 2. nacred: decisions
 
-- [ ] 2.1 Generalize the permission-request store into a decision store. A record holds the kind, the targets, the exact action, the revision, the consequences, an expiry, the state and the answer. It persists across restarts. Verify with Go tests for create, load and expiry. Gates: bridge.
-- [ ] 2.2 Add `POST /v1/chats/{id}/decisions`. The agent gives a kind and a target, and nacred builds the action, the revision and the consequences: approve (with or without run or land), land (target and push from `nacre.yaml`), finish, sign-off, limit, and adopt. Verify with a test per kind checking the computed consequences. Gates: bridge.
-- [ ] 2.3 Answer a decision from a paired device only. Revalidate the revision, execute once (idempotent by decision id), and record done, failed or outcome unknown. Verify with tests for a stale revision, a double answer, a failed execution, and an answer from the Mac's own address (403). Gates: bridge.
-- [ ] 2.4 The queue lifecycle: defer (out of the count for a day or until the state changes), reject per kind (revise with a note, Held round, send back), expiry with Ask again, and supersession. Verify with Go tests for each path. Gates: bridge.
-- [ ] 2.5 Show attention items as decisions by mapping their server-defined options, keeping stable ids. Verify that one decision serves the queue and the chat. Gates: bridge.
-- [ ] 2.6 Notify the phone about new decisions as permission requests are notified today, and stream decision events on the chat's event stream. Verify with a server test. Gates: bridge.
+- [x] 2.1 Generalize the permission-request store into a decision store. A record holds the kind, the targets, the exact action, the revision, the consequences, an expiry, the state and the answer. It persists across restarts. Verify with Go tests for create, load and expiry. Gates: bridge.
+- [x] 2.2 Add `POST /v1/chats/{id}/decisions`. The agent gives a kind and a target, and nacred builds the action, the revision and the consequences: approve (with or without run or land), land (target and push from `nacre.yaml`), finish, sign-off, limit, and adopt. Verify with a test per kind checking the computed consequences. Gates: bridge.
+- [x] 2.3 Answer a decision from a paired device only. Revalidate the revision, execute once (idempotent by decision id), and record done, failed or outcome unknown. Verify with tests for a stale revision, a double answer, a failed execution, and an answer from the Mac's own address (403). Gates: bridge.
+- [x] 2.4 The queue lifecycle: defer (out of the count for a day or until the state changes), reject per kind (revise with a note, Held round, send back), expiry with Ask again, and supersession. Verify with Go tests for each path. Gates: bridge.
+- [x] 2.5 Show attention items as decisions by mapping their server-defined options, keeping stable ids. Verify that one decision serves the queue and the chat. Gates: bridge.
+- [x] 2.6 Notify the phone about new decisions as permission requests are notified today, and stream decision events on the chat's event stream. Verify with a server test. Gates: bridge.
 
 ## 3. nacred: summaries for the new screens
 
-- [ ] 3.1 Add `GET /v1/projects`: projects grouped by remote and computer, with live status, the Needs-you count, the active change and the last line. Verify with a server test. Gates: bridge.
-- [ ] 3.2 List chats per checkout, with title, agent, waiting state and last line. Verify with a server test. Gates: bridge.
-- [ ] 3.3 Add a work summary per round and run for the work card: progress, gates, spend, and the stall signal. Verify with a server test that the stall signal follows the configured threshold. Gates: bridge.
-- [ ] 3.4 Document 3.1 to 3.3 and the decision API in docs/API.md. Gates: specs.
+- [x] 3.1 Add `GET /v1/projects`: projects grouped by remote and computer, with live status, the Needs-you count, the active change and the last line. Verify with a server test. Gates: bridge.
+- [x] 3.2 List chats per checkout, with title, agent, waiting state and last line. Verify with a server test. Gates: bridge.
+- [x] 3.3 Add a work summary per round and run for the work card: progress, gates, spend, and the stall signal. Verify with a server test that the stall signal follows the configured threshold. Gates: bridge.
+- [x] 3.4 Document 3.1 to 3.3 and the decision API in docs/API.md. Gates: specs.
 
 ## 4. App: the shell and Projects
 
