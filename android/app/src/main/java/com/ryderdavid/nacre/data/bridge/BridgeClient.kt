@@ -354,6 +354,13 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
     }
 
+    /** Every open decision on the computer, across its repositories, or null from a nacred without decisions. */
+    suspend fun openDecisions(): List<com.ryderdavid.nacre.data.model.Decision>? = try {
+        get<com.ryderdavid.nacre.data.model.DecisionList>("/v1/decisions").decisions
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
     suspend fun decision(id: String): com.ryderdavid.nacre.data.model.Decision = get("/v1/decisions/${enc(id)}")
 
     /** The repository's current specs (openspec/specs), or null from a nacred without the inventory. */
