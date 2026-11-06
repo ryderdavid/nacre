@@ -1,7 +1,6 @@
 package com.ryderdavid.nacre.ui.workspace
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,9 +13,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.ryderdavid.nacre.data.model.Keys
-import com.ryderdavid.nacre.data.model.WorkSummary
-import com.ryderdavid.nacre.ui.board.BoardScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
 
 // Interim pane contents for the chat-first shell; sections 5 to 9 replace each of them.
@@ -36,14 +32,6 @@ fun SpecSlot(repoKey: String, modifier: Modifier) {
         items(changes) { c -> Text(c.id + " · " + c.phase, style = MaterialTheme.typography.bodyLarge) }
     }
 }
-
-@Composable
-fun BeadsSlot(repoKey: String, modifier: Modifier) {
-    Column(modifier) {
-        BoardScreen(repoKey, onBack = {}, onOpenBead = {}, onOpenChatBead = { _, _ -> }, onOpenRun = {}, onSwitchBoard = {}, onOpenRound = {})
-    }
-}
-
 
 /** The project's Needs-you queue: every open decision, pending first, then held, failed and deferred. */
 @Composable

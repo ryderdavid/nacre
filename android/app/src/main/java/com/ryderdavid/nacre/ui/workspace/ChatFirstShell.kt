@@ -58,6 +58,7 @@ import com.ryderdavid.nacre.ui.common.LocalScreenOverlay
 import com.ryderdavid.nacre.ui.common.ScreenOverlay
 import com.ryderdavid.nacre.ui.settings.PairRequest
 import com.ryderdavid.nacre.ui.settings.SettingsScreen
+import com.ryderdavid.nacre.ui.workspace.beads.BeadsSlot
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
