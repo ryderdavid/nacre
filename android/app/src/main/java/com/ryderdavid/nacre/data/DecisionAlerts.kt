@@ -15,9 +15,14 @@ interface DecisionNotices {
  * arrived (`/v1/events`, a chat's log, or the answer Ryder just sent from this device).
  *
  * A decision is announced at most once. One already seen answered, deferred or otherwise settled is
- * never announced again, so a stale "pending" arriving after Ryder's own answer stays quiet.
+ * never announced again, so a stale "pending" arriving after Ryder's own answer stays quiet. [announced]
+ * is shared with the background check, so neither announces what the other already has.
  */
-class DecisionAlerts(private val notices: DecisionNotices, private val inBackground: () -> Boolean) {
+class DecisionAlerts(
+    private val notices: DecisionNotices,
+    private val inBackground: () -> Boolean,
+    private val announced: AnnouncedDecisions = AnnouncedDecisions(),
+) {
     private val posted = mutableSetOf<String>()
     private val settled = mutableSetOf<String>()
 
@@ -26,11 +31,12 @@ class DecisionAlerts(private val notices: DecisionNotices, private val inBackgro
         val key = d.key
         if (!d.pending) {
             settled += key
-            if (key in posted) notices.clearDecision(d)
+            if (key in posted || announced.contains(key)) notices.clearDecision(d)
             return
         }
-        if (key in settled || key in posted || !inBackground()) return
+        if (key in settled || key in posted || announced.contains(key) || !inBackground()) return
         posted += key
+        announced.add(key)
         notices.postDecision(d)
     }
 

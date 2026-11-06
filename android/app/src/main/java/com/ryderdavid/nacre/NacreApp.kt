@@ -13,7 +13,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -43,8 +45,11 @@ class AppContainer(app: Application) {
     /** Chat: conversations, the current chat, the screen-context holder and the background watch. */
     val chats = com.ryderdavid.nacre.data.chat.ChatHub(repository, scope, chatNotifier, inBackground = inBackground, stack = chatStack)
 
+    /** Decisions already announced, shared by the live stream and the background check. */
+    val announcedDecisions = com.ryderdavid.nacre.data.AnnouncedDecisions(com.ryderdavid.nacre.data.PrefsAnnouncedStore(app))
+
     /** One notification per decision that newly waits, from `/v1/events` and the chats' logs alike. */
-    private val decisionAlerts = com.ryderdavid.nacre.data.DecisionAlerts(chatNotifier, inBackground)
+    private val decisionAlerts = com.ryderdavid.nacre.data.DecisionAlerts(chatNotifier, inBackground, announcedDecisions)
 
     init {
         scope.launch { repository.decisionChanges.collect(decisionAlerts::seen) }
@@ -73,6 +78,12 @@ class NacreApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         container.notifier.start()
+        // Decisions raised while no event stream is open: a periodic check while notifications are on.
+        container.scope.launch {
+            container.settings.settings.map { it.notifyRuns && it.hosts.isNotEmpty() }.distinctUntilChanged().collect { on ->
+                com.ryderdavid.nacre.notify.DecisionCheckWorker.schedule(this@NacreApp, on)
+            }
+        }
         // Live events only while something of ours is on screen; the run watcher covers background runs.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
