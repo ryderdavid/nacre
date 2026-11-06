@@ -565,7 +565,7 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 		if done, ok := s.followCheck(context.Background(), out, resp); ok {
 			out, err = s.settle(out.Decision.ID, done)
 		} else {
-			go s.follow(out.Decision.ID)
+			s.goFollow(out.Decision.ID)
 		}
 	}
 	return out, err
@@ -751,11 +751,34 @@ func (s *Server) settle(id string, out settled) (decisions.Record, error) {
 
 // follow checks on an action that finishes later until it ends, or gives up
 // with the outcome unknown.
+// goFollow follows a decision to its outcome in the background.
+func (s *Server) goFollow(id string) {
+	s.followInit.Do(func() { s.stopFollow = make(chan struct{}) })
+	s.following.Add(1)
+	go func() {
+		defer s.following.Done()
+		s.follow(id)
+	}()
+}
+
+// StopFollowing stops following decisions in the background and waits for
+// the follows to return.
+func (s *Server) StopFollowing() {
+	s.followInit.Do(func() { s.stopFollow = make(chan struct{}) })
+	s.stopOnce.Do(func() { close(s.stopFollow) })
+	s.following.Wait()
+}
+
 func (s *Server) follow(id string) {
 	deadline := time.Now().Add(followFor)
 	tick := time.NewTicker(followEvery)
 	defer tick.Stop()
-	for range tick.C {
+	for {
+		select {
+		case <-s.stopFollow:
+			return
+		case <-tick.C:
+		}
 		rec, ok := s.Decisions.Get(id)
 		if !ok || rec.Decision.State != decisions.StateExecuting {
 			return
@@ -921,7 +944,7 @@ func (s *Server) StartDecisions(ctx context.Context) {
 			continue
 		}
 		if rec.Follow {
-			go s.follow(rec.Decision.ID)
+			s.goFollow(rec.Decision.ID)
 			continue
 		}
 		_, _ = s.settle(rec.Decision.ID, settled{decisions.StateUnknown,

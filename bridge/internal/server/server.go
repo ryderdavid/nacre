@@ -42,6 +42,12 @@ const maxBody = 1 << 20
 
 // Server holds the API's dependencies.
 type Server struct {
+	// following counts decisions being followed to their outcome in the
+	// background; tests wait on it before their temporary files go.
+	following     sync.WaitGroup
+	stopFollow    chan struct{}
+	stopOnce      sync.Once
+	followInit    sync.Once
 	Updates       *daemonupdate.Manager
 	maintenanceMu sync.Mutex
 	mutations     int

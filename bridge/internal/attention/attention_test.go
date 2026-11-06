@@ -329,6 +329,38 @@ func TestFoundCommentsOutliveTheirRound(t *testing.T) {
 	}
 }
 
+// A slow or failing read keeps what was last known, so Needs you doesn't
+// flicker: found comments survive a comment read that fails, and a whole
+// repository's items survive a bead read that fails.
+func TestSlowReadsKeepWhatWasKnown(t *testing.T) {
+	f := newFixture(t)
+	f.change = []api.ChangeSummary{{ID: "sf1", ChangeName: "x", Phase: "ready", EpicID: "E", SeedIDs: []string{"E"}}}
+	f.rounds = []api.Round{{ID: "R1", RepoID: "r1", State: api.RoundLanded, Beads: []api.RoundBead{
+		{ID: "S-1", SpecChangeID: "sf1", State: api.BeadIntegrated},
+		{ID: "S-2", SpecChangeID: "sf1", State: api.BeadIntegrated},
+	}}}
+	fail := false
+	f.b.Comments = func(_ context.Context, _ string, id string) ([]api.Comment, error) {
+		if fail && id == "S-1" {
+			return nil, context.DeadlineExceeded
+		}
+		return []api.Comment{{ID: "c-" + id, Text: "Found: something in " + id}}, nil
+	}
+	if n := len(f.b.Items(context.Background())); n != 2 {
+		t.Fatalf("first read: %d items", n)
+	}
+	fail = true
+	f.now = f.now.Add(RefreshAfter + time.Second)
+	if items := f.b.Items(context.Background()); len(items) != 2 {
+		t.Fatalf("a failed comment read dropped items: %+v", items)
+	}
+	f.b.Issues = func(context.Context, string) ([]api.Issue, error) { return nil, context.DeadlineExceeded }
+	f.now = f.now.Add(RefreshAfter + time.Second)
+	if items := f.b.Items(context.Background()); len(items) != 2 {
+		t.Fatalf("a failed bead read dropped items: %+v", items)
+	}
+}
+
 func TestFinishedEpicsAndStuckBeads(t *testing.T) {
 	f := newFixture(t)
 	repo := t.TempDir()

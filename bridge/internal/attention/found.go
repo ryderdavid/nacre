@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
@@ -74,9 +76,15 @@ func foundBeadItems(ref repos.Ref, changes []api.ChangeSummary, beads map[string
 	return out
 }
 
+// commentReadTimeout bounds one bead's comment read.
+const commentReadTimeout = 8 * time.Second
+
 // foundCommentItems lists agents' `Found:` comments on spec section beads
-// that have finished in a round, until each is answered or dismissed.
-func (b *Builder) foundCommentItems(ctx context.Context, ref repos.Ref, changes []api.ChangeSummary) []api.AttentionItem {
+// that have finished in a round, until each is answered or dismissed. Beads
+// are read in parallel, each with its own time limit; a bead whose comments
+// can't be read keeps the items it had in [prev], so a slow read never makes
+// a waiting item disappear and come back.
+func (b *Builder) foundCommentItems(ctx context.Context, ref repos.Ref, changes []api.ChangeSummary, prev []api.AttentionItem) []api.AttentionItem {
 	if b.Comments == nil || b.Rounds == nil {
 		return nil
 	}
@@ -99,10 +107,33 @@ func (b *Builder) foundCommentItems(ctx context.Context, ref repos.Ref, changes 
 			}
 		}
 	}
-	var out []api.AttentionItem
+	type read struct {
+		beadID, changeID string
+		comments         []api.Comment
+		err              error
+	}
+	reads := make(chan read, len(done))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
 	for beadID, changeID := range done {
-		comments, err := b.Comments(ctx, ref.Path, beadID)
-		if err != nil {
+		wg.Add(1)
+		go func(beadID, changeID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			cctx, cancel := context.WithTimeout(ctx, commentReadTimeout)
+			defer cancel()
+			comments, err := b.Comments(cctx, ref.Path, beadID)
+			reads <- read{beadID, changeID, comments, err}
+		}(beadID, changeID)
+	}
+	wg.Wait()
+	close(reads)
+	var out []api.AttentionItem
+	for r := range reads {
+		beadID, changeID, comments := r.beadID, r.changeID, r.comments
+		if r.err != nil {
+			out = append(out, commentItemsOf(prev, beadID)...)
 			continue
 		}
 		for _, c := range comments {
@@ -162,4 +193,16 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// commentItemsOf picks the `Found:` comment items for beadID out of items.
+func commentItemsOf(items []api.AttentionItem, beadID string) []api.AttentionItem {
+	var out []api.AttentionItem
+	for _, it := range items {
+		if it.Kind == api.AttentionFoundWork && it.BeadID == beadID && len(it.Options) > 0 &&
+			it.Options[0].Target != nil && it.Options[0].Target.Kind == "found_something" {
+			out = append(out, it)
+		}
+	}
+	return out
 }

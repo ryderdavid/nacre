@@ -134,13 +134,16 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 	if ok && b.now().Sub(c.at) < RefreshAfter {
 		return c.items
 	}
+	outer := ctx
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	raw, err := b.Issues(ctx, ref.Path)
 	if err != nil {
-		// A repository bd can't read contributes nothing rather than failing
-		// the whole list; its board already shows the error.
-		return nil
+		// A repository bd can't read keeps what it last reported (or
+		// contributes nothing) rather than failing the whole list; its board
+		// already shows the error. Dropping known items would make Needs you
+		// flicker whenever one read is slow.
+		return c.items
 	}
 	beads := parseBeads(raw)
 	items := beadItems(ref, beads)
@@ -150,7 +153,7 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 			items = append(items, epicItems(ref, beads, changes)...)
 			items = append(items, changeItems(ref, changes, beads)...)
 			items = append(items, foundBeadItems(ref, changes, beads)...)
-			items = append(items, b.foundCommentItems(ctx, ref, changes)...)
+			items = append(items, b.foundCommentItems(outer, ref, changes, c.items)...)
 		}
 	}
 	b.mu.Lock()

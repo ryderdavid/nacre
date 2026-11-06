@@ -128,6 +128,8 @@ func newDecisionRig(t *testing.T) *decisionRig {
 	}
 	rg.chatID = rec.ID
 	rg.h = s.Handler()
+	// Registered last so it runs first: background follows finish before the temporary files go.
+	t.Cleanup(s.StopFollowing)
 	return rg
 }
 
