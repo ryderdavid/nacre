@@ -111,7 +111,6 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
     var filter by rememberSaveable { mutableStateOf(ProjectFilter.ALL) }
     var query by rememberSaveable { mutableStateOf("") }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    var fabOpen by rememberSaveable { mutableStateOf(false) }
     var newChatAgent by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -224,22 +223,10 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
             }
         }
 
-        FloatingActionButtonMenu(
-            expanded = fabOpen,
-            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding(),
-            button = {
-                ToggleFloatingActionButton(
-                    modifier = Modifier.semantics { contentDescription = if (fabOpen) "Close new chat menu" else "New chat" }.animateFloatingActionButton(visible = true, alignment = Alignment.BottomEnd),
-                    checked = fabOpen, onCheckedChange = { fabOpen = it },
-                ) {
-                    val icon by remember { androidx.compose.runtime.derivedStateOf { if (checkedProgress > 0.5f) Icons.Rounded.Close else Icons.Rounded.Add } }
-                    Icon(icon, null, Modifier.animateIcon({ checkedProgress }))
-                }
-            },
-        ) {
-            FloatingActionButtonMenuItem(onClick = { fabOpen = false; newChatAgent = ChatWire.AGENT_CLAUDE }, icon = { Icon(Icons.AutoMirrored.Rounded.Chat, null) }, text = { Text("Claude chat") })
-            FloatingActionButtonMenuItem(onClick = { fabOpen = false; newChatAgent = ChatWire.AGENT_CODEX }, icon = { Icon(Icons.Rounded.Code, null) }, text = { Text("Codex chat") })
-        }
+        com.ryderdavid.nacre.ui.common.NewChatButton(
+            onStart = { newChatAgent = it },
+            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp),
+        )
     }
 
     newChatAgent?.let { agent ->

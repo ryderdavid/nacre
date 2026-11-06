@@ -46,7 +46,7 @@ import com.ryderdavid.nacre.ui.workspace.StatusPill
 import com.ryderdavid.nacre.ui.workspace.segmentShape
 import kotlinx.coroutines.launch
 
-/** The project's threads: this checkout's, then other computers'; New Claude chat with Codex in its menu. */
+/** The project's threads: this checkout's, then other computers'; New chat with the default agent, the other in its menu. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
@@ -58,7 +58,6 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
     val open = repo.siblingKeys(repoKey).plus(repoKey).flatMap { decisions[it].orEmpty() }.filter { it.pending && !it.chatId.isNullOrBlank() }
         .groupingBy { it.chatId.orEmpty() }.eachCount()
     val rows = threadsFor(listing.chats, repoKey, repo.siblingKeys(repoKey), open)
-    var menu by remember { mutableStateOf(false) }
     val scope = container.scope
     val start: (String) -> Unit = { agent ->
         scope.launch {
@@ -70,25 +69,7 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp)) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("$name chats", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.weight(1f))
-                Box {
-                    SplitButtonLayout(
-                        leadingButton = {
-                            SplitButtonDefaults.LeadingButton(onClick = { start(ChatWire.AGENT_CLAUDE) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                                Icon(Icons.Rounded.Add, null, Modifier.size(SplitButtonDefaults.LeadingIconSize))
-                                Text("New Claude chat")
-                            }
-                        },
-                        trailingButton = {
-                            SplitButtonDefaults.TrailingButton(
-                                checked = menu, onCheckedChange = { menu = it },
-                                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "More ways to start a chat" },
-                            ) { Icon(Icons.Rounded.KeyboardArrowDown, null) }
-                        },
-                    )
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("New Codex chat") }, onClick = { menu = false; start(ChatWire.AGENT_CODEX) })
-                    }
-                }
+                com.ryderdavid.nacre.ui.common.NewChatButton(onStart = start, height = 48.dp)
             }
             val groups = rows.groupBy { it.hostId }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 16.dp)) {

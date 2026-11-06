@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New chat split button</title>
+<style>
+:root{--bg:#f6f7fb;--phone:#fbfbff;--card:#ececf3;--text:#1b1b21;--muted:#5d5e67;--accent:#3a5bb5;--on-accent:#fff;--tint:#dce3fa;--tint-text:#20366f;--line:#c9cad3;--menu:#ffffff}
+@media (prefers-color-scheme:dark){:root{--bg:#121318;--phone:#1a1b21;--card:#262730;--text:#e4e4ec;--muted:#a6a7b2;--accent:#b3c5ff;--on-accent:#152a63;--tint:#2f3f6e;--tint-text:#dbe2ff;--line:#454652;--menu:#2b2c35}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+.row{display:flex;flex-wrap:wrap;gap:16px;justify-content:center}
+.step{width:300px;max-width:100%}
+.step h2{font-size:14px;font-weight:600;color:var(--muted);margin:0 0 8px}
+.phone{background:var(--phone);border:1px solid var(--line);border-radius:28px;height:520px;position:relative;overflow:hidden}
+.title{font-size:28px;font-weight:700;padding:20px 20px 4px}
+.sub{color:var(--muted);padding:0 20px 12px;font-size:14px}
+.item{background:var(--card);border-radius:18px;margin:8px 14px;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.av{width:36px;height:36px;border-radius:50%;background:var(--tint);color:var(--tint-text);display:grid;place-items:center;font-weight:700}
+.item small{display:block;color:var(--muted)}
+.split{position:absolute;right:14px;bottom:18px;display:flex;gap:3px}
+.split div{background:var(--accent);color:var(--on-accent);height:56px;display:flex;align-items:center;font-weight:600}
+.lead{border-radius:28px 6px 6px 28px;padding:0 18px;gap:10px}
+.trail{border-radius:6px 28px 28px 6px;padding:0 14px}
+.trail.open{border-radius:28px}
+.menu{position:absolute;right:14px;bottom:86px;background:var(--menu);border:1px solid var(--line);border-radius:16px;width:210px;padding:6px 0}
+.menu div{padding:12px 16px;display:flex;gap:12px;align-items:center}
+.menu .sep{border-top:1px solid var(--line);color:var(--muted)}
+.seg{display:flex;margin:8px 20px;border:1px solid var(--line);border-radius:22px;overflow:hidden}
+.seg div{flex:1;text-align:center;padding:10px 0}
+.seg .on{background:var(--tint);color:var(--tint-text);font-weight:600}
+.note{color:var(--muted);font-size:13px;margin:10px 4px 0}
+.label{color:var(--accent);font-size:13px;font-weight:600;padding:8px 20px 0}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<div class="row">
+
+<section class="step">
+<h2>1 · At rest</h2>
+<div class="phone">
+<div class="title">Projects</div><div class="sub">2 computers · 19 projects</div>
+<div class="item"><div class="av">D</div><div>draw-things-android<small>2 need you</small></div></div>
+<div class="item"><div class="av">N</div><div>Nacre<small>8 need you</small></div></div>
+<div class="item"><div class="av">B</div><div>Beads<small>Idle</small></div></div>
+<div class="split">
+<div class="lead"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Claude chat</div>
+<div class="trail"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></div>
+</div>
+</div>
+<p class="note">One tap on the main half starts a chat with the default agent. No menu.</p>
+</section>
+
+<section class="step">
+<h2>2 · Arrow tapped (or long-press)</h2>
+<div class="phone">
+<div class="title">Projects</div><div class="sub">2 computers · 19 projects</div>
+<div class="item"><div class="av">D</div><div>draw-things-android<small>2 need you</small></div></div>
+<div class="item"><div class="av">N</div><div>Nacre<small>8 need you</small></div></div>
+<div class="menu">
+<div><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>Codex chat</div>
+<div class="sep"><svg viewBox="0 0 24 24"><path d="M12 17v5M8 3h8l-1 6 3 3H6l3-3z"/></svg>Make Codex default</div>
+</div>
+<div class="split">
+<div class="lead"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Claude chat</div>
+<div class="trail open"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+</div>
+</div>
+<p class="note">The other agent, plus a one-tap way to swap which one is the default.</p>
+</section>
+
+<section class="step">
+<h2>3 · Settings</h2>
+<div class="phone">
+<div class="title">Settings</div>
+<div class="label">Chat</div>
+<div style="padding:12px 20px 0">New chats use</div>
+<div class="seg"><div class="on">✓ Claude</div><div>Codex</div></div>
+<div class="sub" style="padding-top:4px">The other one stays in the button's menu.</div>
+</div>
+<p class="note">The same choice, findable in Settings.</p>
+</section>
+
+</div>
+</body>
+</html>

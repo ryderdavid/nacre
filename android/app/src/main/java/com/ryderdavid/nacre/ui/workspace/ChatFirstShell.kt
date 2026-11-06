@@ -347,7 +347,7 @@ private fun ChatSlot(repoKey: String, thread: String?, onThread: (String) -> Uni
                                     .onSuccess(onThread).onFailure { container.repository.notify("Couldn't start the chat: ${it.message}") }
                             }
                         }
-                        if (agent == ChatWire.AGENT_CLAUDE) Button(onClick = { start() }) { Text("Claude chat") } else OutlinedButton(onClick = { start() }) { Text("Codex chat") }
+                        if (agent == ChatWire.AGENT_CLAUDE) Button(onClick = { start() }) { Text("Claude") } else OutlinedButton(onClick = { start() }) { Text("Codex") }
                     }
                 }
             }

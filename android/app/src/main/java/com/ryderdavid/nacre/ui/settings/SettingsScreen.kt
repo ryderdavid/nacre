@@ -87,6 +87,7 @@ import com.ryderdavid.nacre.data.settings.AppSettings
 import com.ryderdavid.nacre.data.settings.ThemeMode
 import com.ryderdavid.nacre.ui.bead.RUN_MODES
 import com.ryderdavid.nacre.ui.common.ClaudeSignInDialog
+import com.ryderdavid.nacre.data.model.ChatWire
 import com.ryderdavid.nacre.ui.common.SectionHeader
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -242,6 +243,16 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit, onBack: 
             // so the old runner, API key, model and effort settings are gone from here.
             item { Header("Notifications") }
             item { SwitchRow(Icons.Rounded.Notifications, "Notify when runs finish", "While Nacre is in the background", p.notifyRuns) { v -> vm.update { it.copy(notifyRuns = v) } } }
+
+            item { Header("Chat") }
+            item {
+                Labeled("New chats use", "The new-chat button starts this one with a tap; the other is in its menu.") {
+                    val agent by com.ryderdavid.nacre.data.chat.DefaultAgent.state(context)
+                    Segmented(listOf(ChatWire.AGENT_CLAUDE to "Claude", ChatWire.AGENT_CODEX to "Codex"), agent) { v ->
+                        com.ryderdavid.nacre.data.chat.DefaultAgent.set(context, v)
+                    }
+                }
+            }
 
             item { Header("Appearance") }
             item {
