@@ -144,6 +144,9 @@ func thread(id string) map[string]any {
 
 func (f *fake) handle(m message) {
 	if m.Method == "" {
+		// Record the answer as it arrives, before the turn/interrupt that
+		// may follow it is answered and the fake is closed.
+		_ = os.WriteFile(filepath.Join(f.dir, "answer"), m.Result, 0o644)
 		f.answers <- m // an answer to the fake's approval request
 		return
 	}
@@ -218,7 +221,6 @@ func (f *fake) turn(threadID, turnID string) {
 func (f *fake) approve(threadID, turnID, method string, params map[string]any, item map[string]any) {
 	f.send(map[string]any{"id": 0, "method": method, "params": params})
 	ans := <-f.answers
-	_ = os.WriteFile(filepath.Join(f.dir, "answer"), ans.Result, 0o644)
 	var r struct {
 		Decision string `json:"decision"`
 	}

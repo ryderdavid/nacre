@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -104,12 +105,24 @@ type SignIn struct {
 	exited  bool
 }
 
+// scriptCommand runs `claude setup-token` in a terminal under script(1). BSD
+// script (macOS) takes the command as arguments; util-linux script (Linux)
+// takes it as one shell string after -c.
+func scriptCommand(claudePath string) *exec.Cmd {
+	const run = `stty cols 1000 2>/dev/null; exec "$0" setup-token`
+	if runtime.GOOS == "linux" {
+		quoted := "'" + strings.ReplaceAll(claudePath, "'", `'\''`) + "'"
+		return exec.Command("script", "-q", "-e", "-c", "sh -c '"+strings.ReplaceAll(run, "'", `'\''`)+"' "+quoted, "/dev/null")
+	}
+	return exec.Command("script", "-q", "/dev/null", "sh", "-c", run, claudePath)
+}
+
 // SignInTimeout is how long a started sign-in waits for its code.
 const SignInTimeout = 15 * time.Minute
 
 // StartSignIn starts signing in and returns the link to open.
 func StartSignIn(claudePath string) (*SignIn, string, error) {
-	cmd := exec.Command("script", "-q", "/dev/null", "sh", "-c", `stty cols 1000 2>/dev/null; exec "$0" setup-token`, claudePath)
+	cmd := scriptCommand(claudePath)
 	// Never open a browser on this computer; the link goes to the phone.
 	cmd.Env = append(ChildEnv(), "BROWSER=/usr/bin/true")
 	stdin, err := cmd.StdinPipe()
