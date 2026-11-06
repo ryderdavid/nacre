@@ -1,5 +1,9 @@
 package com.ryderdavid.nacre.ui.workspace.spec
 
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,6 +57,8 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
     val envelopes by vm.envelopes.collectAsState()
     val query by vm.query.collectAsState()
     val searching by vm.searching.collectAsState()
+    val focus by vm.focus.collectAsState()
+    val shown by vm.shown.collectAsState()
     val changes = board.data?.changes
     val inventories by repo.currentSpecs.collectAsState()
     // Every current spec, read again whenever the changes do (an archive changes both).
@@ -82,14 +88,24 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
                 Icons.AutoMirrored.Rounded.Rule, "No changes yet",
                 "Ask in chat to propose a change. It shows here while it's drafted, reviewed and built.",
             )
-            else -> SpecListContent(model, onOpen = { vm.open(it) })
+            else -> SpecListContent(model, focus, shown, onOpen = { vm.focus.value = null; vm.open(it) }, onUnfocus = { vm.focus.value = null })
         }
     }
 }
 
 @Composable
-private fun SpecListContent(model: SpecListModel, onOpen: (SpecScreen) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun SpecListContent(model: SpecListModel, focus: SpecFocus?, shown: Int, onOpen: (SpecScreen) -> Unit, onUnfocus: () -> Unit) {
+    val list = rememberLazyListState()
+    // A cited current spec: scroll to its row once it is listed (the inventory may still be loading), once per citation.
+    val focusIndex = focus?.let { SpecList.specRowIndex(model, it.capability) }
+    var scrolledFor by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(focus, focusIndex, shown) {
+        if (focus != null && focusIndex != null && scrolledFor != shown) {
+            list.animateScrollToItem(focusIndex)
+            scrolledFor = shown
+        }
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (model.isEmpty) item {
             Text("Nothing matches \"${model.query.trim()}\".", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
         }
@@ -121,7 +137,11 @@ private fun SpecListContent(model: SpecListModel, onOpen: (SpecScreen) -> Unit) 
                 )
             }
             itemsIndexed(model.specs, key = { _, s -> "spec:${s.capability}" }) { i, spec ->
-                SpecRowView(spec, segmentShape(i, model.specs.size), onOpen = spec.changeId?.let { id -> { onOpen(SpecScreen.Document(id, DocKind.SPECS, anchor = spec.capability)) } })
+                SpecRowView(
+                    spec, segmentShape(i, model.specs.size),
+                    onOpen = spec.changeId?.let { id -> { onOpen(SpecScreen.Document(id, DocKind.SPECS, anchor = spec.capability)) } },
+                    focus = focus?.takeIf { it.capability == spec.capability }, onUnfocus = onUnfocus,
+                )
             }
         }
     }
@@ -172,12 +192,14 @@ private fun RequirementRowView(hit: RequirementHit, shape: Shape, onOpen: () -> 
 
 /**
  * One spec. One an open change touches opens at that change's requirement changes ([onOpen]); one no
- * change touches expands to its requirements, read-only.
+ * change touches expands to its requirements, read-only. A cited spec ([focus]) is shown expanded and
+ * marked, its cited requirement brought into view; tapping it again hands it back to the plain list.
  */
 @Composable
-private fun SpecRowView(spec: SpecRow, shape: Shape, onOpen: (() -> Unit)?) {
+private fun SpecRowView(spec: SpecRow, shape: Shape, onOpen: (() -> Unit)?, focus: SpecFocus? = null, onUnfocus: () -> Unit = {}) {
     var expanded by rememberSaveable(spec.capability) { mutableStateOf(false) }
     val c = MaterialTheme.colorScheme
+    val focused = focus != null
     val line = when {
         spec.touched && !spec.current -> "New in " + spec.changes.joinToString(", ")
         spec.touched -> "Changed by " + spec.changes.joinToString(", ")
@@ -185,22 +207,47 @@ private fun SpecRowView(spec: SpecRow, shape: Shape, onOpen: (() -> Unit)?) {
         else -> "${spec.requirements.size} requirements"
     }
     val canExpand = onOpen == null && spec.requirements.isNotEmpty()
+    LaunchedEffect(focused) { if (focused && canExpand) expanded = true }
+    val showRequirements = spec.requirements.isNotEmpty() && (focused || (canExpand && expanded))
     Surface(
-        onClick = { if (onOpen != null) onOpen() else if (canExpand) expanded = !expanded }, enabled = onOpen != null || canExpand,
-        shape = shape, color = c.surfaceContainerLowest, contentColor = c.onSurface,
+        onClick = {
+            if (onOpen != null) onOpen()
+            else if (canExpand) { expanded = !expanded; if (focused) onUnfocus() }
+        },
+        enabled = onOpen != null || canExpand,
+        shape = shape,
+        color = if (focused) c.secondaryContainer else c.surfaceContainerLowest,
+        contentColor = if (focused) c.onSecondaryContainer else c.onSurface,
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics(mergeDescendants = true) {
-            if (canExpand) stateDescription = if (expanded) "Requirements shown" else "Requirements hidden"
+            if (canExpand) stateDescription = if (showRequirements) "Requirements shown" else "Requirements hidden"
         },
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(spec.capability, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                if (canExpand) Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(20.dp), tint = c.onSurfaceVariant)
+                if (focused) SpecPill("Cited", c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.FormatQuote)
+                if (canExpand) Icon(if (showRequirements) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(20.dp), tint = if (focused) c.onSecondaryContainer else c.onSurfaceVariant)
             }
-            Text(line, style = MaterialTheme.typography.bodySmall, color = if (spec.touched) c.primary else c.onSurfaceVariant)
-            if (expanded) Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                spec.requirements.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium) }
+            Text(line, style = MaterialTheme.typography.bodySmall, color = if (focused) c.onSecondaryContainer else if (spec.touched) c.primary else c.onSurfaceVariant)
+            if (showRequirements) Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                spec.requirements.forEach { req ->
+                    if (focus?.cites(req) == true) CitedRequirement(req)
+                    else Text("· $req", style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
+    }
+}
+
+/** The requirement a decision cited, marked within its spec's row and brought into view. */
+@Composable
+private fun CitedRequirement(name: String) {
+    val bring = remember { BringIntoViewRequester() }
+    LaunchedEffect(name) { bring.bringIntoView() }
+    Surface(
+        shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = Modifier.fillMaxWidth().bringIntoViewRequester(bring).semantics { contentDescription = "Cited requirement: $name" },
+    ) {
+        Text(name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
     }
 }

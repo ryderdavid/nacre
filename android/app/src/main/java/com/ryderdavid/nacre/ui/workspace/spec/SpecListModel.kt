@@ -63,6 +63,18 @@ data class SpecRow(
     val touched get() = changeId != null
 }
 
+/**
+ * A current spec the list brings forward: its row scrolled to and expanded, with the cited [requirement]
+ * marked (empty when the citation names the whole spec).
+ */
+data class SpecFocus(val capability: String, val requirement: String = "") {
+    /** Whether [name] is the requirement the citation names. */
+    fun cites(name: String) = requirement.isNotBlank() && name.trim().equals(requirement.trim(), ignoreCase = true)
+}
+
+/** Where the Spec pane opens for a target: the screens, so Back walks them, and the current spec to bring forward. */
+data class SpecOpening(val stack: List<SpecScreen>, val focus: SpecFocus? = null)
+
 /** A requirement change whose name matches the search. */
 data class RequirementHit(val changeId: String, val changeName: String, val capability: String, val requirement: String, val kind: DeltaKind?)
 
@@ -166,6 +178,35 @@ object SpecList {
             ?: changes.firstOrNull { it.changeName == target }?.id
             ?: changes.firstOrNull { target in it.seedIds || it.epicId == target }?.id
             ?: target
+
+    /**
+     * Where a Spec target opens. A change (id, name or bead) opens its overview. A cited change file opens
+     * that document over the overview, a spec delta at the cited [requirement], else its capability. A
+     * cited current spec (`openspec/specs/<capability>/spec.md`) opens the list at that spec's row.
+     */
+    fun opening(target: String, requirement: String, changes: List<ChangeSummary>): SpecOpening {
+        if (!target.startsWith("openspec/")) return SpecOpening(listOf(SpecScreen.List, SpecScreen.Change(resolveTarget(target, changes))))
+        val change = com.ryderdavid.nacre.ui.workspace.chat.ChatSend.changeIdOf(target)
+            ?: return SpecOpening(listOf(SpecScreen.List), capabilityOf(target)?.let { SpecFocus(it, requirement.trim()) })
+        val id = resolveTarget(change, changes)
+        val doc = DocKind.of(target) ?: return SpecOpening(listOf(SpecScreen.List, SpecScreen.Change(id)))
+        val anchor = if (doc == DocKind.SPECS) requirement.trim().ifEmpty { capabilityOf(target).orEmpty() } else ""
+        return SpecOpening(listOf(SpecScreen.List, SpecScreen.Change(id), SpecScreen.Document(id, doc, anchor)))
+    }
+
+    /** The requirement a spec citation names: its label, unless the label is only the cited path. */
+    fun citedRequirement(label: String, path: String): String = label.trim().takeIf { it.isNotEmpty() && it != path.trim() }.orEmpty()
+
+    /**
+     * The list item [capability]'s spec row is at, counted the way the Spec list lays itself out: each
+     * group's heading and rows, the requirement hits' heading and rows, then the specs' heading and rows.
+     * Null when the spec isn't listed.
+     */
+    fun specRowIndex(model: SpecListModel, capability: String): Int? {
+        val i = model.specs.indexOfFirst { it.capability == capability }.takeIf { it >= 0 } ?: return null
+        val before = model.groups.sumOf { 1 + it.second.size } + if (model.requirements.isEmpty()) 0 else 1 + model.requirements.size
+        return before + 1 + i
+    }
 
     /** The bead a change is opened through. */
     fun openId(c: ChangeSummary) = c.seedIds.firstOrNull { it.isNotBlank() } ?: c.epicId

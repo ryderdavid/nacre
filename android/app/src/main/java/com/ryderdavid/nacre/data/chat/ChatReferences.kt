@@ -53,12 +53,15 @@ class ChatReferences {
         viewingByRepo.update { m -> m[repoKey]?.let { m + (repoKey to (it.first to false)) } ?: m }
     }
 
-    private val specTargets = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** What the Spec pane opens: a change, or a cited file ([ref]) and the requirement it names, if any. */
+    data class SpecTarget(val ref: String, val requirement: String = "")
 
-    /** A change the Spec pane should open next, by project checkout (set by Open change and evidence links). */
-    val specTarget: StateFlow<Map<String, String>> = specTargets.asStateFlow()
+    private val specTargets = MutableStateFlow<Map<String, SpecTarget>>(emptyMap())
 
-    fun openSpec(repoKey: String, changeId: String) = specTargets.update { it + (repoKey to changeId) }
+    /** A change or cited file the Spec pane should open next, by project checkout (set by Open change and evidence links). */
+    val specTarget: StateFlow<Map<String, SpecTarget>> = specTargets.asStateFlow()
+
+    fun openSpec(repoKey: String, changeId: String, requirement: String = "") = specTargets.update { it + (repoKey to SpecTarget(changeId, requirement)) }
 
     /** The Spec pane took the target. */
     fun specOpened(repoKey: String) = specTargets.update { it - repoKey }

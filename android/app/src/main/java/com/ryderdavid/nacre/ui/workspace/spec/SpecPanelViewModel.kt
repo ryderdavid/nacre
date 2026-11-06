@@ -74,6 +74,20 @@ class SpecPanelViewModel(private val repository: NacreRepository, val repoKey: S
     /** Opens [changeId]'s overview on top of the list, as an Open change link from elsewhere asks. */
     fun openChange(changeId: String) = stack.update { listOf(SpecScreen.List, SpecScreen.Change(changeId)) }
 
+    /** The current spec the list brings forward (a cited spec), until Ryder moves on from it. */
+    val focus = MutableStateFlow<SpecFocus?>(null)
+
+    /** Counts the targets shown, so the same spec cited again scrolls to it again. */
+    val shown = MutableStateFlow(0)
+
+    /** Opens what a target asks for; a current spec clears the search so its row is listed. */
+    fun show(opening: SpecOpening) {
+        stack.value = opening.stack
+        focus.value = opening.focus
+        shown.update { it + 1 }
+        if (opening.focus != null) setSearching(false)
+    }
+
     /** Back: document → change → list. False when already on the list. */
     fun back(): Boolean {
         if (stack.value.size <= 1) return false
