@@ -29,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.InputChip
-import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
@@ -44,10 +43,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -70,10 +76,14 @@ import com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard
 import com.ryderdavid.nacre.ui.workspace.decisions.PermissionCardM3
 import com.ryderdavid.nacre.ui.workspace.projectStrip
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** How long after the last output the loading indicator keeps moving: it shows output arriving, not mere waiting. */
+private const val ACTIVE_WINDOW_MS = 20_000L
 
 /**
- * The workspace's Chat: the project and the thread, the agent's state, the conversation with its cards,
- * and the composer with the Viewing chip, reference chips and suggestions.
+ * The workspace's Chat: the project and the thread, the agent's state, the conversation with its cards and
+ * work cards, and the composer with the Viewing chip, the thread's reference chips and suggestions.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -88,10 +98,14 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val record = listing.chat(thread) ?: state.chat
     val project = repo.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }
     val computer = repo.hostName(Keys.host(thread)).ifBlank { record?.hostName ?: "this computer" }
-    val refsAll by hub.references.all.collectAsState()
-    val refs = refsAll[repoKey] ?: com.ryderdavid.nacre.data.chat.ChatReferences.State()
+    val attachedAll by hub.references.attachedAll.collectAsState()
+    val viewingAll by hub.references.viewingAll.collectAsState()
+    val viewing = viewingAll[repoKey]
+    val refs = com.ryderdavid.nacre.data.chat.ChatReferences.State(attachedAll[thread].orEmpty(), viewing?.first, viewing?.second ?: false)
     val decisionsAll by repo.decisions.collectAsState()
-    val mine = decisionsAll[repoKey].orEmpty().filter { it.chatId == Keys.id(thread) }
+    val mine = decisionsAll[repoKey].orEmpty().filter { it.chatId == Keys.id(thread) }.sortedBy { it.createdAt }
+    val workAll by repo.work.collectAsState()
+    val myWork = workAll[repoKey].orEmpty().filter { it.chatId == Keys.id(thread) }
     val (work, needsYou) = projectStrip(repoKey)
     val views by hub.stack.views.collectAsState()
     val draft = views[thread]?.draft.orEmpty()
@@ -100,16 +114,19 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val compact = LocalConfiguration.current.screenWidthDp < 600
 
     // Silence is measured from the last thing the turn produced.
-    var lastOutput by remember(thread) { mutableLongStateOf(System.currentTimeMillis()) }
+    var lastOutput by remember(thread) { mutableLongStateOf(0L) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.items.size, state.lastSeq) { lastOutput = System.currentTimeMillis(); repo.refreshDecisions(repoKey) }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
-    val agent = AgentStates.of(state, (now - lastOutput).coerceAtLeast(0), stalled = work?.stalled == true && state.turnRunning)
+    LaunchedEffect(Unit) { while (true) { delay(10_000); now = System.currentTimeMillis() } }
+    val since = if (lastOutput == 0L) 0L else (now - lastOutput).coerceAtLeast(0)
+    val agent = AgentStates.of(state, since, stalled = work?.stalled == true && state.turnRunning, pendingDecisions = mine.count { it.pending })
+    val outputFlowing = state.turnRunning && lastOutput > 0 && since < ACTIVE_WINDOW_MS
 
-    LaunchedEffect(state.items.size, mine.size) {
-        val total = state.items.size + mine.size
-        if (total > 0) list.animateScrollToItem(total - 1)
-    }
+    // Follow the bottom only when Ryder is already there; a thread he scrolled up in keeps its place.
+    val total = state.items.size + mine.size + myWork.size
+    var following by remember(thread) { mutableStateOf(views[thread]?.firstVisibleIndex == null || views[thread]?.firstVisibleIndex == 0) }
+    LaunchedEffect(list.canScrollForward, list.isScrollInProgress) { if (!list.isScrollInProgress) following = !list.canScrollForward }
+    LaunchedEffect(total) { if (total > 0 && following) list.animateScrollToItem(total - 1) }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -134,7 +151,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp).semantics { liveRegion = LiveRegionMode.Polite },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (agent.phase == AgentPhase.WORKING && state.lastSeq > 0) LoadingIndicator(Modifier.size(24.dp))
+            if (agent.phase == AgentPhase.WORKING && outputFlowing) LoadingIndicator(Modifier.size(24.dp))
             Text(
                 agent.text, style = MaterialTheme.typography.labelLarge,
                 color = when (agent.phase) {
@@ -150,7 +167,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                 when (item) {
                     is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
                     is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth(0.84f).wrapRight()) {
+                        Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth(0.84f)) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                                 if (item.images.isNotEmpty()) com.ryderdavid.nacre.ui.common.ChatSentImages(thread, item.images, Modifier.padding(bottom = 4.dp))
                                 Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -161,15 +178,17 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                 }
             }
             items(mine, key = { "d:" + it.id }) { d -> DecisionCard(d, onEvidence) }
-            work?.takeIf { it.chatId == Keys.id(thread) }?.let { w ->
-                item(key = "w:" + w.id) {
-                    com.ryderdavid.nacre.ui.workspace.work.WorkCard(
-                        w, replyRunning = state.turnRunning,
-                        onInspect = { onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = w.id)) },
-                        onStopReply = conv::stop,
-                        onCancelRound = { repo.cancelRoundQuietly(Keys.of(Keys.host(repoKey), w.id)) },
-                    )
-                }
+            items(myWork, key = { "w:" + it.kind + it.id }) { w ->
+                com.ryderdavid.nacre.ui.workspace.work.WorkCard(
+                    w, replyRunning = state.turnRunning,
+                    onInspect = { onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = Keys.of(Keys.host(repoKey), w.id))) },
+                    onStopReply = conv::stop,
+                    onCancelWork = {
+                        val key = Keys.of(Keys.host(repoKey), w.id)
+                        if (w.kind == "run") container.scope.launch { runCatching { repo.cancelRun(key) }.onFailure { repo.notify("Couldn't cancel the run: ${it.message}") } }
+                        else repo.cancelRoundQuietly(key)
+                    },
+                )
             }
         }
 
@@ -178,8 +197,6 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
 
     if (switching) ThreadSwitcher(repoKey, current = thread, onPick = { switching = false; onThread(it) }, onDismiss = { switching = false })
 }
-
-private fun Modifier.wrapRight(): Modifier = this
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -200,7 +217,24 @@ private fun Composer(
     val pending = views[thread]?.images.orEmpty()
     val gate = chatComposerGate(draft, pending, state.chat ?: record, state.canSend)
     val attach = rememberImageAttacher(thread, gate.remaining)
-    val chipColors = InputChipDefaults.inputChipColors()
+    val scope = rememberCoroutineScope()
+    var sending by remember(thread) { mutableStateOf(false) }
+
+    // References are spent only once nacred accepts the message; a failed send keeps the draft as written.
+    val send: () -> Unit = send@{
+        if (!gate.canSend || sending) return@send
+        val original = draft
+        val repoId = record?.repo ?: Keys.id(repoKey)
+        val ctx = ChatSend.context(repoId, refs.viewing, refs.viewingDropped)
+        hub.stack.updateView(thread) { it.copy(draft = ChatSend.text(original, refs.attached)) }
+        sending = true
+        scope.launch {
+            val turn = runCatching { conv.sendDraftNow(ctx) }.getOrNull()
+            if (turn != null) hub.references.sent(repoKey, thread)
+            else hub.stack.updateView(thread) { it.copy(draft = original) }
+            sending = false
+        }
+    }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val viewing = refs.viewing
@@ -212,12 +246,11 @@ private fun Composer(
                     leadingIcon = { Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp)) },
                     trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) },
                     modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (refs.viewingDropped) "Viewing ${viewing.label} is left out of the next message. Tap to send it" else "Viewing ${viewing.label}. Tap to leave it out of the next message" },
-                    colors = chipColors,
                 )
             }
             items(refs.attached) { r: ChatReference ->
                 InputChip(
-                    selected = true, onClick = { hub.references.remove(repoKey, r) },
+                    selected = true, onClick = { hub.references.remove(thread, r) },
                     label = { Text(r.label, maxLines = 1) },
                     leadingIcon = { Icon(Icons.Rounded.Link, null, Modifier.size(18.dp)) },
                     trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) },
@@ -234,7 +267,10 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextField(
                 value = draft, onValueChange = { v -> hub.stack.updateView(thread) { it.copy(draft = v) } },
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 56.dp).onPreviewKeyEvent { e ->
+                    // Ctrl+Enter sends from a hardware keyboard.
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && e.isCtrlPressed) { send(); true } else false
+                },
                 placeholder = { Text("Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}") },
                 leadingIcon = { AttachImageButton(gate, attach) },
                 shape = RoundedCornerShape(28.dp), maxLines = 6,
@@ -249,16 +285,9 @@ private fun Composer(
                     Icon(Icons.Rounded.Stop, "Stop this reply")
                 }
             } else {
-                FilledIconButton(
-                    onClick = {
-                        val repoId = record?.repo ?: Keys.id(repoKey)
-                        val text = ChatSend.text(draft, refs.attached)
-                        hub.stack.updateView(thread) { it.copy(draft = text) }
-                        conv.sendDraft(ChatSend.context(repoId, refs.viewing, refs.viewingDropped))
-                        hub.references.sent(repoKey)
-                    },
-                    enabled = gate.canSend, modifier = Modifier.size(56.dp), shape = RoundedCornerShape(18.dp),
-                ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+                FilledIconButton(onClick = send, enabled = gate.canSend && !sending, modifier = Modifier.size(56.dp), shape = RoundedCornerShape(18.dp)) {
+                    if (sending) LoadingIndicator(Modifier.size(28.dp)) else Icon(Icons.AutoMirrored.Rounded.Send, "Send")
+                }
             }
         }
         ComposerReason(gate, Modifier.padding(start = 8.dp))

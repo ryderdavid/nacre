@@ -338,7 +338,7 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
 
     /** A repository's open decisions, or null from a nacred without decisions. */
     suspend fun decisions(repo: String): List<com.ryderdavid.nacre.data.model.Decision>? = try {
-        get<com.ryderdavid.nacre.data.model.DecisionList>("/v1/decisions?repo=${enc(repo)}&state=open").decisions
+        get<com.ryderdavid.nacre.data.model.DecisionList>("/v1/decisions?repo=${enc(repo)}&state=all").decisions
     } catch (e: BridgeException) {
         if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
     }

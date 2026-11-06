@@ -3,12 +3,14 @@
     python3 -m venv /tmp/mcu && /tmp/mcu/bin/pip install materialyoucolor
     /tmp/mcu/bin/python android/tools/gen_palettes.py > android/app/src/main/java/com/ryderdavid/nacre/ui/theme/Palettes.kt
 
-Pearl, the default, is hand-made in Theme.kt. The palettes below are hue and chroma per tonal palette:
+Every fixed palette, Pearl (the default) included, are hue and chroma per tonal palette:
 primary, secondary, tertiary, neutral and neutral variant. Tones follow the M3 color roles.
 """
 from materialyoucolor.palettes.tonal_palette import TonalPalette
 
 PALETTES = {
+    # Pearl: Nacre's own mother-of-pearl teal, lilac and clay (measured from the original hand-made scheme).
+    "Pearl":  ((202, 40), (294, 24), (44, 36), (213, 5), (205, 8)),
     "Ocean":  ((268, 56), (250, 24), (236, 44), (258, 6), (255, 12)),   # blues throughout
     "Sage":   ((140, 36), (125, 16), (190, 26), (130, 4), (130, 8)),
     "Ember":  ((42, 60),  (48, 20),  (80, 38),  (45, 6),  (45, 10)),

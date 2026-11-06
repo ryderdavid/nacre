@@ -122,7 +122,7 @@ fun ChatFirstShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandl
                         repoKey = r.repoKey, startChat = r.chat,
                         startDestination = runCatching { Destination.valueOf(r.dest) }.getOrDefault(Destination.CHAT),
                         onProjects = { nav.popBackStack(ProjectsRoute, inclusive = false) },
-                        onOpenProject = { key -> nav.navigate(WorkspaceRoute(key)) { popUpTo(ProjectsRoute) } },
+                        onOpenProject = { key, chat -> nav.navigate(WorkspaceRoute(key, chat)) { popUpTo(ProjectsRoute) } },
                     )
                 }
                 composable<ChatFirstSettingsRoute> {
@@ -135,10 +135,15 @@ fun ChatFirstShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandl
     }
 }
 
+/** A round or run for the work inspector, with the computer it runs on. */
+data class InspectTarget(val hostId: String, val kind: String, val id: String, val label: String) {
+    val key get() = Keys.of(hostId, id)
+}
+
 /** One project's workspace with its slots filled. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Destination, onProjects: () -> Unit, onOpenProject: (String) -> Unit) {
+fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Destination, onProjects: () -> Unit, onOpenProject: (String, String?) -> Unit) {
     val container = LocalContainerOrThrow()
     val repo = container.repository
     val listing by repo.chats.collectAsState()
@@ -147,7 +152,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     var destination by rememberSaveable(repoKey) { mutableStateOf(startDestination) }
     var thread by rememberSaveable(repoKey) { mutableStateOf(startChat) }
     if (thread == null) mostRecentThread(listing.chats, repoKey)?.let { thread = it }
-    var inspecting by remember { mutableStateOf<WorkSummary?>(null) }
+    var inspecting by remember { mutableStateOf<InspectTarget?>(null) }
     var queue by remember { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -155,12 +160,21 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     LaunchedEffect(repoKey) { repo.refreshBoard(repoKey, quiet = true) }
     val (work, needsYou) = projectStrip(repoKey)
     val name = project?.name ?: Keys.id(repoKey)
+    val host = Keys.host(repoKey)
+
+    // A thread of the same project on another computer moves the whole workspace to that checkout.
+    val pickThread: (String) -> Unit = { key ->
+        val rec = listing.chat(key)
+        val targetRepo = rec?.repo?.let { Keys.of(Keys.host(key), it) }
+        if (targetRepo != null && targetRepo != repoKey) onOpenProject(targetRepo, key) else thread = key
+    }
+    val inspect: (WorkSummary) -> Unit = { w -> inspecting = InspectTarget(host, w.kind, w.id, w.title) }
 
     val slots = WorkspaceSlots(
-        chat = { m -> ChatSlot(repoKey, thread, onThread = { thread = it }, onProjects = onProjects, modifier = m) },
+        chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
         spec = { m -> SpecSlot(repoKey, m) },
         beads = { m -> BeadsSlot(repoKey, m) },
-        strip = { m -> StatusStrip(name, work, needsYou, onWork = { inspecting = it }, onQueue = { queue = true }, modifier = m) },
+        strip = { m -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m) },
         switcher = {
             Surface(
                 onClick = { scope.launch { drawer.open() } }, shape = projectAvatarShape(name),
@@ -170,15 +184,31 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         },
     )
 
+    // Ask about this attaches to the current thread; with none yet, a Claude chat starts in this checkout.
+    val askAbout: (ChatReference) -> Unit = { ref ->
+        destination = Destination.CHAT; queue = false; inspecting = null
+        val t = thread
+        if (t != null) container.chats.references.add(t, ref) else scope.launch {
+            runCatching { container.chats.link.createChat(host, CreateChat(ChatWire.AGENT_CLAUDE, Keys.id(repoKey), null)).copy(hostId = host).key }
+                .onSuccess { k -> thread = k; container.chats.references.add(k, ref) }
+                .onFailure { repo.notify("Couldn't start a chat: ${it.message}") }
+        }
+    }
+
     CompositionLocalProvider(
-        LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT; queue = false; inspecting = null },
+        LocalAskAbout provides askAbout,
+        LocalOpenQueue provides { inspecting = null; queue = true },
         LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
         com.ryderdavid.nacre.ui.workspace.beads.LocalOpenChange provides { changeId -> container.chats.references.openSpec(repoKey, changeId); destination = Destination.SPEC },
         LocalOpenEvidence provides { e ->
             when (e.kind) {
-                "review", "changes" -> destination = Destination.SPEC
-                "bead" -> destination = Destination.BEADS
-                else -> (work?.takeIf { it.id == e.ref || e.ref.isBlank() } ?: com.ryderdavid.nacre.data.model.WorkSummary(kind = if (e.kind == "run") "run" else "round", id = e.ref, title = e.label)).let { inspecting = it }
+                "review", "changes" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; queue = false; inspecting = null }
+                "bead" -> { if (e.ref.isNotBlank()) container.chats.references.openBead(repoKey, Keys.id(e.ref)); destination = Destination.BEADS; queue = false; inspecting = null }
+                else -> {
+                    val h = if (e.ref.contains('~')) Keys.host(e.ref) else host
+                    val id = Keys.id(e.ref).ifBlank { work?.id.orEmpty() }
+                    if (id.isNotBlank()) inspecting = InspectTarget(h, if (e.kind == "run") "run" else "round", id, e.label)
+                }
             }
         },
     ) {
@@ -188,7 +218,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 ModalDrawerSheet {
                     Column(Modifier.statusBarsPadding().padding(horizontal = 12.dp)) {
                         Text("Projects", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(16.dp))
-                        ProjectsDrawerList(current = repoKey) { key -> scope.launch { drawer.close() }; if (key != repoKey) onOpenProject(key) }
+                        ProjectsDrawerList(current = repoKey) { key -> scope.launch { drawer.close() }; if (key != repoKey) onOpenProject(key, null) }
                         OutlinedButton(onClick = { scope.launch { drawer.close() }; onProjects() }, modifier = Modifier.padding(16.dp)) { Text("All projects") }
                     }
                 }
@@ -197,9 +227,9 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
             Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
         }
 
-        inspecting?.let { w ->
+        inspecting?.let { t ->
             ModalBottomSheet(onDismissRequest = { inspecting = null }) {
-                com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, w, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
+                com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, t, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
             }
         }
         if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {

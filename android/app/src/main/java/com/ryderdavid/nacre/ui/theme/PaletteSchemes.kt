@@ -33,7 +33,6 @@ object Palettes {
     /** Primary, secondary and tertiary colors for a palette's swatch. Wallpaper shows a stand-in blend. */
     fun swatch(palette: Palette): List<Color> = when (palette) {
         Palette.WALLPAPER -> listOf(Color(0xFF5E7C3A), Color(0xFFB79B64), Color(0xFF7C9AC0))
-        Palette.PEARL -> listOf(Color(0xFF00696E), Color(0xFFA79FC4), Color(0xFFC98A68))
         else -> GeneratedSwatches.getValue(palette.label)
     }
 }

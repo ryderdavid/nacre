@@ -520,7 +520,7 @@ class NacreRepository(
 
     /** Open work by repository key, as nacred reports it, or from its rounds on an older nacred. */
     val work: StateFlow<Map<String, List<com.ryderdavid.nacre.data.model.WorkSummary>>> = combine(workLists, rounds) { reported, rs ->
-        val fromRounds = rs.groupBy { Keys.of(it.hostId, it.repoId) }.mapValues { (_, list) -> list.map(ChatFirstData::work).filter { it.open } }
+        val fromRounds = rs.groupBy { Keys.of(it.hostId, it.repoId) }.mapValues { (_, list) -> list.map(ChatFirstData::work) }
         fromRounds + reported
     }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -553,7 +553,7 @@ class NacreRepository(
         decisionLists.update { m ->
             val list = m[key] ?: return@update m
             val next = if (list.any { it.id == d.id }) list.map { if (it.id == d.id) d else it } else list + d
-            m + (key to next.filter { it.open })
+            m + (key to next)
         }
     }
 

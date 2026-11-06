@@ -81,4 +81,21 @@ class DecisionModelTest {
         val list = listOf(approve.copy(id = "a", state = "deferred"), approve.copy(id = "b", state = "held"), approve.copy(id = "c"))
         assertEquals(listOf("c", "b", "a"), DecisionModel.queueOrder(list).map { it.id })
     }
+
+    @Test
+    fun `a non-finite amount is refused`() {
+        assertEquals("Enter an amount", DecisionModel.problem(recovery, DecisionDraft(option = "raise", input = "NaN")))
+    }
+
+    @Test
+    fun `questions come before approvals, approvals before landing`() {
+        val list = listOf(approve.copy(id = "land", kind = "land"), approve.copy(id = "ap"), approve.copy(id = "q", kind = "question"))
+        assertEquals(listOf("q", "ap", "land"), DecisionModel.queueOrder(list).map { it.id })
+    }
+
+    @Test
+    fun `the recommended option is shown first`() {
+        val d = approve.copy(options = approve.options.reversed())
+        assertEquals("run_hold", DecisionModel.ordered(d).first().id)
+    }
 }

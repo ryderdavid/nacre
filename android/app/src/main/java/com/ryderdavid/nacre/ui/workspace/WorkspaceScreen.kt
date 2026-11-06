@@ -128,3 +128,6 @@ val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatRefere
 
 /** Opens a decision's evidence: review and changes in Spec, a bead in Beads, a round, run or gates in the work inspector. */
 val LocalOpenEvidence = androidx.compose.runtime.staticCompositionLocalOf<(com.ryderdavid.nacre.data.model.DecisionEvidence) -> Unit> { {} }
+
+/** Opens the project's Needs-you queue (from a card that points at a newer request or held work). */
+val LocalOpenQueue = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }

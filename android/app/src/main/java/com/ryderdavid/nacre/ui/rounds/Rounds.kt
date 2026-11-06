@@ -569,7 +569,7 @@ private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
 
 /** The commits and files a round adds, loaded on demand. */
 @Composable
-private fun RoundChangesList(changes: Result<RoundChanges>?) {
+internal fun RoundChangesList(changes: Result<RoundChanges>?) {
     val c = changes?.getOrNull()
     when {
         changes == null -> Text("Loading the changes…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

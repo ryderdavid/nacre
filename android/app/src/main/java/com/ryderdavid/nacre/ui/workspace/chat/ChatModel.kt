@@ -14,11 +14,11 @@ object ChatSend {
         val v = viewing.takeUnless { dropped }
         return when (v?.kind) {
             null -> ScreenContext(ScreenContext.BOARD, repo = repoId)
-            "bead" -> ScreenContext(ScreenContext.BEAD, repo = repoId, beadId = v.id, summary = v.text.take(ScreenContext.SUMMARY_MAX_BYTES).ifBlank { null })
+            "bead" -> ScreenContext(ScreenContext.BEAD, repo = repoId, beadId = v.id, summary = com.ryderdavid.nacre.data.chat.trimUtf8(v.text).ifBlank { null })
             "round" -> ScreenContext(ScreenContext.ROUND, repo = repoId, roundId = v.id)
             else -> ScreenContext(
                 ScreenContext.CHANGE, repo = repoId, changeId = v.id.substringBefore('/'),
-                pane = v.kind, selection = v.label, summary = v.text.take(ScreenContext.SUMMARY_MAX_BYTES).ifBlank { null },
+                pane = v.kind, selection = v.label, summary = com.ryderdavid.nacre.data.chat.trimUtf8(v.text).ifBlank { null },
             )
         }
     }
@@ -44,10 +44,10 @@ object AgentStates {
      * [sinceOutputMs] is how long since the turn last produced anything. "May be stalled" comes only from
      * nacred's stall signal ([stalled]); a quiet running turn says "No updates for N min".
      */
-    fun of(s: ConversationState, sinceOutputMs: Long, stalled: Boolean): AgentState = when {
+    fun of(s: ConversationState, sinceOutputMs: Long, stalled: Boolean, pendingDecisions: Int = 0): AgentState = when {
         s.reconnecting -> AgentState(AgentPhase.RECONNECTING, "Reconnecting")
         s.error != null && !s.turnRunning -> AgentState(AgentPhase.FAILED, "Failed: ${s.error}")
-        s.pendingCards.isNotEmpty() -> AgentState(AgentPhase.WAITING, "Waiting for you")
+        s.pendingCards.isNotEmpty() || pendingDecisions > 0 -> AgentState(AgentPhase.WAITING, "Waiting for you")
         s.turnRunning && stalled -> AgentState(AgentPhase.STALLED, "May be stalled")
         s.turnRunning && sinceOutputMs >= QUIET_AFTER_MS -> AgentState(AgentPhase.QUIET, "Working · no updates for ${sinceOutputMs / 60_000} min")
         s.turnRunning -> AgentState(AgentPhase.WORKING, "Working")

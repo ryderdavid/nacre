@@ -57,4 +57,12 @@ class ProjectsModelTest {
         val reported = mapOf("h1" to listOf(ProjectSummary(repo = "r2", name = "Beads", status = "working", work = WorkSummary(state = "running"))))
         assertEquals(listOf("Beads"), sections(ProjectFilter.WORKING, reported).flatMap { it.rows }.map { it.name })
     }
+
+    @Test
+    fun `an offline project that last reported waiting stays in needs you, with its count unknown`() {
+        val reported = mapOf("h2" to listOf(ProjectSummary(repo = "r3", name = "dotfiles", needsYou = 1)))
+        val rows = sections(ProjectFilter.NEEDS_YOU, reported).flatMap { it.rows }
+        assertEquals(listOf("dotfiles"), rows.map { it.name })
+        assertNull(rows.single().needsYou)
+    }
 }

@@ -295,6 +295,7 @@ private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, onCli
                 }
                 val n = row.needsYou ?: 0
                 if (n > 0) StatusPill(if (busy) "$n need${if (n == 1) "s" else ""} you" else "$n", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                else if (row.needsYou == null && row.lastKnownNeedsYou > 0) StatusPill("${row.lastKnownNeedsYou} last known", MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val w = row.work
             if (w != null && w.total > 0 && online) {

@@ -94,6 +94,7 @@ data class Decision(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("answered_at") val answeredAt: String? = null,
+    @SerialName("repo_name") val repoName: String = "",
     /** Set by the app: the computer the decision came from. */
     @kotlinx.serialization.Transient val hostId: String = "",
 ) {
@@ -112,7 +113,8 @@ data class DecisionTarget(
     val change: String = "",
     val bead: String = "",
     val round: String = "",
-    val revision: Int = 0,
+    /** The change revision (a hash) the decision is bound to. */
+    val revision: String = "",
     val commit: String = "",
 )
 
@@ -126,6 +128,8 @@ data class DecisionOption(
     val detail: String = "",
     val recommended: Boolean = false,
     val protected: Boolean = false,
+    /** Why the option can't be used now; shown instead of letting it be chosen. */
+    val disabled: String = "",
     val input: DecisionInput? = null,
 )
 
@@ -156,6 +160,8 @@ data class DecisionAnswer(
     val input: String? = null,
     val defer: Boolean? = null,
     val reject: Boolean? = null,
+    /** Acknowledges a failed or unknown outcome so it leaves the queue. */
+    val acknowledge: Boolean? = null,
 )
 
 /** A chat event carrying a decision raised in that chat. */

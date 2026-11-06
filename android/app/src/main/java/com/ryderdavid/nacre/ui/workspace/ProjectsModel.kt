@@ -16,6 +16,8 @@ data class ProjectRow(
     val status: String,
     val statusText: String,
     val needsYou: Int?,
+    /** What the computer last reported waiting, kept while it's offline. */
+    val lastKnownNeedsYou: Int = 0,
     val activeChange: String,
     val lastLine: String,
     val work: WorkSummary?,
@@ -74,6 +76,7 @@ object ProjectsModel {
                 status = if (c.online) summary.status else "unknown",
                 statusText = if (c.online) summary.statusText.ifBlank { ChatFirstData.statusText(summary.work ?: w) } else "Status unknown while offline",
                 needsYou = if (c.online) summary.needsYou else null,
+                lastKnownNeedsYou = summary.needsYou,
                 activeChange = summary.activeChange,
                 lastLine = summary.lastLine,
                 work = summary.work ?: w,
@@ -81,7 +84,7 @@ object ProjectsModel {
         }.filter { row ->
             (query.isBlank() || row.name.contains(query.trim(), ignoreCase = true)) && when (filter) {
                 ProjectFilter.ALL -> true
-                ProjectFilter.NEEDS_YOU -> (row.needsYou ?: 0) > 0
+                ProjectFilter.NEEDS_YOU -> (row.needsYou ?: row.lastKnownNeedsYou) > 0
                 ProjectFilter.WORKING -> row.status == "working" || row.work?.running == true
             }
         }.sortedWith(compareByDescending<ProjectRow> { (it.needsYou ?: 0) > 0 }.thenByDescending { it.work != null }.thenBy { it.name.lowercase() })

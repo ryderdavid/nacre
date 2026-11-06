@@ -108,6 +108,7 @@ fun BeadPeekSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth()) {
+            var showAllComments by androidx.compose.runtime.saveable.rememberSaveable(peek.id) { androidx.compose.runtime.mutableStateOf(false) }
             LazyColumn(
                 Modifier.weight(1f, fill = false).fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 8.dp, bottom = 12.dp),
@@ -125,7 +126,10 @@ fun BeadPeekSheet(
                         style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() },
                     )
                 }
-                items(peek.comments.takeLast(20), key = { "c:" + it.id }) { c ->
+                if (peek.comments.size > 20 && !showAllComments) item(key = "c:earlier") {
+                    androidx.compose.material3.TextButton(onClick = { showAllComments = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Show ${peek.comments.size - 20} earlier comments") }
+                }
+                items(if (showAllComments) peek.comments else peek.comments.takeLast(20), key = { "c:" + it.id }) { c ->
                     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.fillMaxWidth().padding(end = 12.dp)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(listOf(c.author, relativeTime(c.createdAt)).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -7,8 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * What the next message in a project checkout points at: references Ryder attached with Ask about this,
- * and the item a pane shows (the Viewing chip), which Ryder can drop for one message.
+ * What the next message points at. References Ryder attached with Ask about this belong to a thread (by chat
+ * key); the item a pane shows (the Viewing chip) belongs to the project checkout and survives leaving the
+ * pane, and Ryder can leave it out of one message.
  */
 class ChatReferences {
     data class State(
@@ -18,35 +19,38 @@ class ChatReferences {
         val viewingDropped: Boolean = false,
     )
 
-    private val states = MutableStateFlow<Map<String, State>>(emptyMap())
-    val all: StateFlow<Map<String, State>> = states.asStateFlow()
+    private val attachedByThread = MutableStateFlow<Map<String, List<ChatReference>>>(emptyMap())
+    private val viewingByRepo = MutableStateFlow<Map<String, Pair<ChatReference?, Boolean>>>(emptyMap())
 
-    fun state(repoKey: String): State = states.value[repoKey] ?: State()
+    val attachedAll: StateFlow<Map<String, List<ChatReference>>> = attachedByThread.asStateFlow()
+    val viewingAll: StateFlow<Map<String, Pair<ChatReference?, Boolean>>> = viewingByRepo.asStateFlow()
 
-    fun add(repoKey: String, ref: ChatReference) = states.update { m ->
-        val s = m[repoKey] ?: State()
-        m + (repoKey to s.copy(attached = (s.attached.filterNot { it.kind == ref.kind && it.id == ref.id && it.text == ref.text } + ref).takeLast(MAX)))
+    /** The state the composer of [thread] in [repoKey] shows. */
+    fun state(repoKey: String, thread: String): State {
+        val v = viewingByRepo.value[repoKey]
+        return State(attachedByThread.value[thread].orEmpty(), v?.first, v?.second ?: false)
     }
 
-    fun remove(repoKey: String, ref: ChatReference) = states.update { m ->
-        val s = m[repoKey] ?: return@update m
-        m + (repoKey to s.copy(attached = s.attached - ref))
+    fun add(thread: String, ref: ChatReference) = attachedByThread.update { m ->
+        val list = m[thread].orEmpty()
+        m + (thread to (list.filterNot { it.kind == ref.kind && it.id == ref.id && it.text == ref.text } + ref).takeLast(MAX))
     }
 
-    fun view(repoKey: String, ref: ChatReference?) = states.update { m ->
-        val s = m[repoKey] ?: State()
-        if (s.viewing == ref) m else m + (repoKey to s.copy(viewing = ref, viewingDropped = false))
+    fun remove(thread: String, ref: ChatReference) = attachedByThread.update { m -> m + (thread to (m[thread].orEmpty() - ref)) }
+
+    /** What a pane shows. Clearing it (null) only happens when the pane shows nothing, not when it's left. */
+    fun view(repoKey: String, ref: ChatReference?) = viewingByRepo.update { m ->
+        if (m[repoKey]?.first == ref) m else m + (repoKey to (ref to false))
     }
 
-    fun dropViewing(repoKey: String, dropped: Boolean) = states.update { m ->
-        val s = m[repoKey] ?: State()
-        m + (repoKey to s.copy(viewingDropped = dropped))
+    fun dropViewing(repoKey: String, dropped: Boolean) = viewingByRepo.update { m ->
+        m + (repoKey to ((m[repoKey]?.first) to dropped))
     }
 
-    /** After a send: attached references are spent and Viewing comes back for the next message. */
-    fun sent(repoKey: String) = states.update { m ->
-        val s = m[repoKey] ?: return@update m
-        m + (repoKey to s.copy(attached = emptyList(), viewingDropped = false))
+    /** After the message was accepted: the thread's references are spent and Viewing comes back. */
+    fun sent(repoKey: String, thread: String) {
+        attachedByThread.update { it - thread }
+        viewingByRepo.update { m -> m[repoKey]?.let { m + (repoKey to (it.first to false)) } ?: m }
     }
 
     private val specTargets = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -58,6 +62,15 @@ class ChatReferences {
 
     /** The Spec pane took the target. */
     fun specOpened(repoKey: String) = specTargets.update { it - repoKey }
+
+    private val beadTargets = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** A bead the Beads pane should peek next, by project checkout (set by evidence links). */
+    val beadTarget: StateFlow<Map<String, String>> = beadTargets.asStateFlow()
+
+    fun openBead(repoKey: String, beadId: String) = beadTargets.update { it + (repoKey to beadId) }
+
+    fun beadOpened(repoKey: String) = beadTargets.update { it - repoKey }
 
     companion object {
         const val MAX = 6

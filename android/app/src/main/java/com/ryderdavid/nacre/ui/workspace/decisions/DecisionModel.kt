@@ -49,7 +49,7 @@ object DecisionModel {
             "amount" -> {
                 val n = v.removePrefix("$").toDoubleOrNull()
                 when {
-                    n == null -> "Enter an amount"
+                    n == null || !n.isFinite() -> "Enter an amount"
                     spec.min != null && n <= spec.min -> "More than %s, which is already spent".format(money(spec.min, spec.unit))
                     spec.max != null && n > spec.max -> "At most %s".format(money(spec.max, spec.unit))
                     else -> null
@@ -100,9 +100,20 @@ object DecisionModel {
     /** Whether the card can be asked again (expired). */
     fun canRenew(d: Decision) = d.state == "expired"
 
-    /** Ordering in the queue: pending first, then held and deferred, then the rest; newest first within. */
+    /** Needs-you order within a state: questions and found work first, then approvals, then landing. */
+    fun kindRank(kind: String): Int = when (kind) {
+        "question", "found", "recovery", "intake" -> 0
+        "approve", "adopt", "signoff", "limit" -> 1
+        else -> 2
+    }
+
+    /** Ordering in the queue: pending, held, failed, deferred; then by kind; newest first within. */
     fun queueOrder(list: List<Decision>): List<Decision> = list.sortedWith(
         compareBy<Decision> { when (it.state) { "pending" -> 0; "held" -> 1; "failed", "unknown" -> 2; "deferred" -> 3; else -> 4 } }
+            .thenBy { kindRank(it.kind) }
             .thenByDescending { it.createdAt },
     )
+
+    /** The options as a card shows them: the recommended one first, the rest in nacred's order. */
+    fun ordered(d: Decision) = d.options.sortedByDescending { it.recommended }
 }

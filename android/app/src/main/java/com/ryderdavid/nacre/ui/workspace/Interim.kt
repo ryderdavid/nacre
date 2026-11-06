@@ -27,7 +27,7 @@ fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProj
 fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     val repo = LocalContainer.current.repository
     val decisions by repo.decisions.collectAsState()
-    val list = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queueOrder(decisions[repoKey].orEmpty())
+    val list = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queueOrder(decisions[repoKey].orEmpty().filter { it.open })
     val open = LocalOpenEvidence.current
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
         item { Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(bottom = 4.dp)) }

@@ -36,6 +36,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -114,8 +115,13 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
 
     // The peeked bead is what the pane is viewing, for the next message's context.
     DisposableEffect(peekId) {
-        viewing(peekId?.let(::beadReference))
-        onDispose { viewing(null) }
+        peekId?.let { viewing(beadReference(it)) }
+        onDispose { }
+    }
+
+    val beadTargets by container.chats.references.beadTarget.collectAsState()
+    LaunchedEffect(beadTargets[repoKey]) {
+        beadTargets[repoKey]?.let { peekId = it; container.chats.references.beadOpened(repoKey) }
     }
 
     val handlers = CardHandlers(
