@@ -267,7 +267,7 @@ object ChangeOverviewModel {
  * A change's headline: the first sentence of its summary's first paragraph, without markdown marks, at most
  * [max] characters. The summary itself renders below as markdown.
  */
-internal fun headlineOf(summary: String, max: Int = 140): String {
+internal fun headlineOf(summary: String, max: Int = 110): String {
     val para = summary.trim().lineSequence().map { it.trim() }.dropWhile { it.isEmpty() || it.startsWith("#") }
         .takeWhile { it.isNotEmpty() }.joinToString(" ")
     val plain = para.removePrefix("- ").removePrefix("* ")

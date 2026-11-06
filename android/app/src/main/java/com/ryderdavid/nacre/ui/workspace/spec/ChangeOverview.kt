@@ -202,9 +202,9 @@ private fun Hero(o: ChangeOverview) {
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 SpecPill(o.group?.label ?: "Archived", c.primary, c.onPrimary)
-                Text(o.revisionText, style = MaterialTheme.typography.bodySmall)
             }
-            Text(o.headline, style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.semantics { heading() })
+            // A short headline gets display type; a long first sentence reads as a title.
+            Text(o.headline, style = if (o.headline.length <= 60) MaterialTheme.typography.headlineSmallEmphasized else MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
             Text(o.status, style = MaterialTheme.typography.bodyMedium)
             o.progress?.let { ProgressTrack(it, height = 8) }
             Text(o.summaryLine, style = MaterialTheme.typography.bodyMedium)
