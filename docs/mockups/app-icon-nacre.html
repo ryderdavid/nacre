@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nacre app icon</title>
+<style>
+:root{--bg:#f6f7fb;--card:#ffffff;--text:#1b1b21;--muted:#5d5e67;--line:#d6d7df;--wall:#e9e4f2}
+@media (prefers-color-scheme:dark){:root{--bg:#121318;--card:#1c1d24;--text:#e4e4ec;--muted:#a6a7b2;--line:#3a3b45;--wall:#2a2635}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+.grid{display:flex;flex-wrap:wrap;gap:16px;justify-content:center}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:16px;width:320px;max-width:100%}
+.opt h2{margin:0 0 2px;font-size:17px}
+.opt p{margin:0 0 12px;color:var(--muted);font-size:13px}
+.row{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.cap{font-size:11px;color:var(--muted);text-align:center;margin-top:4px}
+svg{display:block}
+.wall{background:var(--wall);border-radius:16px;padding:10px;display:flex;gap:14px;align-items:center;margin-top:12px}
+.now{display:flex;justify-content:center;margin-bottom:16px;gap:12px;align-items:center;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+  <!-- masks: squircle-ish and circle at 108 -->
+  <clipPath id="squircle"><path d="M54,0 C94,0 108,14 108,54 C108,94 94,108 54,108 C14,108 0,94 0,54 C0,14 14,0 54,0Z"/></clipPath>
+  <clipPath id="circle"><circle cx="54" cy="54" r="54"/></clipPath>
+
+  <linearGradient id="deep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0E5E66"/><stop offset="1" stop-color="#183B52"/></linearGradient>
+  <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B2A5C"/><stop offset="1" stop-color="#0F1B33"/></linearGradient>
+  <linearGradient id="blush" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3E9F5"/><stop offset="1" stop-color="#DCE7F4"/></linearGradient>
+
+  <!-- pearly nacre: pale base with soft colour pools -->
+  <linearGradient id="nacreBase" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBF7FD"/><stop offset="1" stop-color="#E2EEF7"/></linearGradient>
+  <radialGradient id="pPink" cx="0.3" cy="0.3" r="0.55"><stop offset="0" stop-color="#F6BFD8" stop-opacity="0.95"/><stop offset="1" stop-color="#F6BFD8" stop-opacity="0"/></radialGradient>
+  <radialGradient id="pLav" cx="0.72" cy="0.32" r="0.45"><stop offset="0" stop-color="#C6B4F4" stop-opacity="0.95"/><stop offset="1" stop-color="#C6B4F4" stop-opacity="0"/></radialGradient>
+  <radialGradient id="pAqua" cx="0.7" cy="0.75" r="0.55"><stop offset="0" stop-color="#8FDDE0" stop-opacity="0.95"/><stop offset="1" stop-color="#8FDDE0" stop-opacity="0"/></radialGradient>
+  <radialGradient id="pMint" cx="0.28" cy="0.78" r="0.4"><stop offset="0" stop-color="#C4F0CF" stop-opacity="0.9"/><stop offset="1" stop-color="#C4F0CF" stop-opacity="0"/></radialGradient>
+
+  <!-- abalone: deeper peacock nacre -->
+  <linearGradient id="abBase" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3C6FD1"/><stop offset="1" stop-color="#1D8C93"/></linearGradient>
+  <radialGradient id="aViolet" cx="0.3" cy="0.3" r="0.5"><stop offset="0" stop-color="#9A7BEA"/><stop offset="1" stop-color="#9A7BEA" stop-opacity="0"/></radialGradient>
+  <radialGradient id="aPink" cx="0.62" cy="0.22" r="0.35"><stop offset="0" stop-color="#F0A9D6"/><stop offset="1" stop-color="#F0A9D6" stop-opacity="0"/></radialGradient>
+  <radialGradient id="aGreen" cx="0.78" cy="0.72" r="0.45"><stop offset="0" stop-color="#5FE0B4"/><stop offset="1" stop-color="#5FE0B4" stop-opacity="0"/></radialGradient>
+
+  <radialGradient id="pearl" cx="0.38" cy="0.34" r="0.7"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.55" stop-color="#EEE8F8"/><stop offset="1" stop-color="#A9D3DC"/></radialGradient>
+  <linearGradient id="shellOut" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9BFD9"/><stop offset="1" stop-color="#8E86A8"/></linearGradient>
+
+  <!-- A: open valve, pearly lining -->
+  <path id="aOuter" d="M41,24 C54,19 75,25 83,39 C91,53 87,74 73,83 C59,92 36,88 27,74 C18,60 24,32 41,24Z"/>
+  <path id="aInner" d="M43,30 C54,26 71,31 77,42 C84,54 80,71 69,78 C57,85 39,82 32,71 C25,59 30,36 43,30Z"/>
+  <symbol id="iconA" viewBox="0 0 108 108">
+    <rect width="108" height="108" fill="url(#deep)"/>
+    <use href="#aOuter" fill="#F2ECF7"/>
+    <g>
+      <use href="#aInner" fill="url(#nacreBase)"/>
+      <use href="#aInner" fill="url(#pPink)"/>
+      <use href="#aInner" fill="url(#pLav)"/>
+      <use href="#aInner" fill="url(#pAqua)"/>
+      <use href="#aInner" fill="url(#pMint)"/>
+    </g>
+    <path d="M38,44 C45,36 60,34 69,41" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M37,58 C44,70 60,74 71,66" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="2" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="monoA" viewBox="0 0 108 108">
+    <path d="M41,24 C54,19 75,25 83,39 C91,53 87,74 73,83 C59,92 36,88 27,74 C18,60 24,32 41,24Z M43,30 C30,36 25,59 32,71 C39,82 57,85 69,78 C80,71 84,54 77,42 C71,31 54,26 43,30Z" fill="currentColor" fill-rule="evenodd"/>
+    <path d="M38,44 C45,36 60,34 69,41" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- B: abalone, ear shape with its row of pores -->
+  <path id="bShell" d="M29,64 C24,45 37,26 58,25 C77,24 88,39 85,57 C82,75 67,86 50,84 C39,83 32,75 29,64Z"/>
+  <symbol id="iconB" viewBox="0 0 108 108">
+    <rect width="108" height="108" fill="url(#night)"/>
+    <use href="#bShell" fill="url(#abBase)"/>
+    <use href="#bShell" fill="url(#aViolet)"/>
+    <use href="#bShell" fill="url(#aPink)"/>
+    <use href="#bShell" fill="url(#aGreen)"/>
+    <path d="M66,66 C58,66 52,60 53,52 C54,44 62,40 69,43 C77,47 77,58 70,62" fill="none" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M44,74 C35,66 34,50 42,40 C49,32 61,30 70,33" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round"/>
+    <g fill="#0F1B33" fill-opacity="0.75">
+      <circle cx="36" cy="44" r="2.6"/><circle cx="43" cy="35" r="2.6"/><circle cx="52" cy="30" r="2.6"/><circle cx="62" cy="29" r="2.4"/><circle cx="71" cy="31" r="2.2"/>
+    </g>
+  </symbol>
+  <symbol id="monoB" viewBox="0 0 108 108">
+    <path d="M29,64 C24,45 37,26 58,25 C77,24 88,39 85,57 C82,75 67,86 50,84 C39,83 32,75 29,64Z" fill="currentColor"/>
+    <g fill="#000" style="mix-blend-mode:destination-out"></g>
+  </symbol>
+
+  <!-- C: open clam with its pearl -->
+  <path id="cTop" d="M22,58 C22,36 37,22 54,22 C71,22 86,36 86,58 Z"/>
+  <path id="cBottom" d="M22,64 L86,64 C85,78 72,88 54,88 C36,88 23,78 22,64Z"/>
+  <symbol id="iconC" viewBox="0 0 108 108">
+    <rect width="108" height="108" fill="url(#blush)"/>
+    <use href="#cTop" fill="url(#nacreBase)"/>
+    <use href="#cTop" fill="url(#pPink)"/>
+    <use href="#cTop" fill="url(#pLav)"/>
+    <use href="#cTop" fill="url(#pAqua)"/>
+    <path d="M30,52 C32,38 42,30 54,30 C66,30 76,38 78,52" fill="none" stroke="#FFFFFF" stroke-opacity="0.8" stroke-width="2.2" stroke-linecap="round"/>
+    <use href="#cBottom" fill="url(#shellOut)"/>
+    <path d="M38,66 L40,84 M54,66 L54,88 M70,66 L68,84" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="54" cy="58" r="10" fill="url(#pearl)"/>
+    <ellipse cx="50" cy="54" rx="3.2" ry="2.2" fill="#FFFFFF" fill-opacity="0.9" transform="rotate(-30 50 54)"/>
+  </symbol>
+  <symbol id="monoC" viewBox="0 0 108 108">
+    <path d="M22,58 C22,36 37,22 54,22 C71,22 86,36 86,58 Z M22,64 L86,64 C85,78 72,88 54,88 C36,88 23,78 22,64Z" fill="currentColor"/>
+  </symbol>
+</defs>
+</svg>
+
+<div class="now">
+  <svg width="56" height="56" viewBox="0 0 108 108" aria-label="Current icon"><g clip-path="url(#circle)"><rect width="108" height="108" fill="url(#deep)"/><circle cx="54" cy="54" r="16" fill="url(#pearl)"/><circle cx="28" cy="72" r="5.5" fill="#B9E4E6"/><circle cx="80" cy="36" r="5.5" fill="#CFC6F0"/></g></svg>
+  <span>Current icon (pearl and strand), for comparison</span>
+</div>
+
+<div class="grid">
+
+<section class="opt">
+<h2>A · Open valve</h2>
+<p>One shell half seen from inside: a pale nacre lining with pink, lavender, aqua and mint pools, on the current teal.</p>
+<div class="row">
+  <div><svg width="132" height="132" viewBox="0 0 108 108"><g clip-path="url(#squircle)"><use href="#iconA"/></g></svg><div class="cap">Squircle</div></div>
+  <div><svg width="88" height="88" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconA"/></g></svg><div class="cap">Circle</div></div>
+  <div><svg width="48" height="48" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconA"/></g></svg><div class="cap">48dp</div></div>
+</div>
+<div class="wall">
+  <svg width="48" height="48" viewBox="0 0 108 108" style="color:#3B3466"><g clip-path="url(#circle)"><rect width="108" height="108" fill="#DCD3F7"/><use href="#monoA"/></g></svg>
+  <span class="cap" style="margin:0;text-align:left">Themed icon</span>
+</div>
+</section>
+
+<section class="opt">
+<h2>B · Abalone</h2>
+<p>An ear-shaped abalone with its row of pores and a peacock sheen: blue, violet, pink and green, like your photos.</p>
+<div class="row">
+  <div><svg width="132" height="132" viewBox="0 0 108 108"><g clip-path="url(#squircle)"><use href="#iconB"/></g></svg><div class="cap">Squircle</div></div>
+  <div><svg width="88" height="88" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconB"/></g></svg><div class="cap">Circle</div></div>
+  <div><svg width="48" height="48" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconB"/></g></svg><div class="cap">48dp</div></div>
+</div>
+<div class="wall">
+  <svg width="48" height="48" viewBox="0 0 108 108" style="color:#3B3466"><g clip-path="url(#circle)"><rect width="108" height="108" fill="#DCD3F7"/><use href="#monoB"/><g fill="#DCD3F7"><circle cx="36" cy="44" r="2.6"/><circle cx="43" cy="35" r="2.6"/><circle cx="52" cy="30" r="2.6"/><circle cx="62" cy="29" r="2.4"/><circle cx="71" cy="31" r="2.2"/></g><path d="M66,66 C58,66 52,60 53,52 C54,44 62,40 69,43 C77,47 77,58 70,62" fill="none" stroke="#DCD3F7" stroke-width="3" stroke-linecap="round"/></g></svg>
+  <span class="cap" style="margin:0;text-align:left">Themed icon</span>
+</div>
+</section>
+
+<section class="opt">
+<h2>C · Open clam</h2>
+<p>A clam opened on its pearl: the nacre lid above, the ribbed outer shell below, on a soft blush.</p>
+<div class="row">
+  <div><svg width="132" height="132" viewBox="0 0 108 108"><g clip-path="url(#squircle)"><use href="#iconC"/></g></svg><div class="cap">Squircle</div></div>
+  <div><svg width="88" height="88" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconC"/></g></svg><div class="cap">Circle</div></div>
+  <div><svg width="48" height="48" viewBox="0 0 108 108"><g clip-path="url(#circle)"><use href="#iconC"/></g></svg><div class="cap">48dp</div></div>
+</div>
+<div class="wall">
+  <svg width="48" height="48" viewBox="0 0 108 108" style="color:#3B3466"><g clip-path="url(#circle)"><rect width="108" height="108" fill="#DCD3F7"/><use href="#monoC"/><circle cx="54" cy="58" r="10" fill="#DCD3F7"/></g></svg>
+  <span class="cap" style="margin:0;text-align:left">Themed icon</span>
+</div>
+</section>
+
+</div>
+</body>
+</html>
