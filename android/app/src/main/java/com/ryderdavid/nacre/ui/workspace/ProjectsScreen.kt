@@ -196,7 +196,9 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                     }
                 }
                 if (section.rows.isEmpty()) item(key = "e:" + section.hostId) {
-                    Text(if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (section.online && repos.data.isNullOrEmpty()) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.LoadingIndicator(Modifier.semantics { contentDescription = "Loading projects" })
+                    } else Text(if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(section.rows.size, key = { section.rows[it].key }) { i ->
                     ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online) {

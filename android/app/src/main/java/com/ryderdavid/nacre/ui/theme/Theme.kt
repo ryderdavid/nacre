@@ -152,7 +152,7 @@ fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, palette: Palette? = null
     }
     val extra = remember(scheme, dark) { nacreColors(scheme, dark) }
     CompositionLocalProvider(LocalNacreColors provides extra) {
-        MaterialExpressiveTheme(colorScheme = scheme, motionScheme = MotionScheme.expressive(), content = content)
+        MaterialExpressiveTheme(colorScheme = scheme, motionScheme = MotionScheme.expressive(), typography = NacreTypography, content = content)
     }
 }
 
