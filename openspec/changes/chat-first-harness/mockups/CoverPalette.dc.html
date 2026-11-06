@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Appearance and palettes</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit}
+</style>
+</helmet>
+<div class="m3 {{rootClass}}" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--on-surface); transition: background-color 250ms linear">
+
+  <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px; flex: none">
+    <a href="Main.dc.html" class="icon-btn" aria-label="Back to settings"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <h1 class="title-e" style="margin: 0; padding: 0 8px">Appearance</h1>
+  </header>
+
+  <main style="flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 24px; display: flex; flex-direction: column; gap: 20px">
+
+    <section aria-label="Preview" style="border-radius: 32px; background: var(--sc-low); padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 6px 4px 12px; border-radius: 16px; background: var(--sc-high)">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path style="fill: var(--primary)" d="M12 1.5l2.6 3.2 4-.9.9 4 3.2 2.6-2.2 3.4.9 4-4 .9L15 22l-3-1.9L9 22l-2.4-3.3-4-.9.9-4L1.3 10.4l3.2-2.6.9-4 4 .9z"></path></svg>
+        <span class="label-l" style="flex: 1">Round running · 3 of 7</span>
+        <span class="pill" style="background: var(--error-container); color: var(--on-error-container)">2 need you</span>
+      </div>
+      <svg viewBox="0 0 340 12" width="100%" height="12" preserveAspectRatio="none" aria-hidden="true"><path d="M3 6 q6 -6 12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0" style="fill: none; stroke: var(--primary); stroke-width: 4; stroke-linecap: round"></path><path d="M160 6 H330" style="stroke: var(--secondary-container); stroke-width: 4; stroke-linecap: round"></path><circle cx="337" cy="6" r="2.5" style="fill: var(--primary)"></circle></svg>
+      <div class="bubble-me body-m" style="max-width: 78%">Approve it and run it. I'll land.</div>
+      <div style="border-radius: 24px; background: var(--sc-high); padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span class="shape-cookie" style="width: 32px; height: 32px; background: var(--tertiary-container); color: var(--on-tertiary-container); display: flex; align-items: center; justify-content: center"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span>
+          <span class="title-s" style="color: var(--on-tertiary-container)">Needs you · Approve change</span>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <span class="btn filled" style="height: 40px">Approve</span>
+          <span class="btn tonal" style="height: 40px">Defer</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <span class="lane" style="height: 32px">Ready <span class="n">12</span></span>
+        <span class="lane" aria-selected="true" style="height: 32px">In progress <span class="n">3</span></span>
+        <span class="lane" style="height: 32px">Done <span class="n">86</span></span>
+      </div>
+    </section>
+
+    <section aria-labelledby="pal-h" style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="pal-h" class="title-m" style="margin: 0 4px">Color</h2>
+      <div role="radiogroup" aria-label="Palette" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 8px">
+        <sc-for list="{{palettes}}" as="p" hint-placeholder-count="6">
+          <button role="radio" aria-checked="{{p.checked}}" aria-label="{{p.label}}" onClick="{{p.pick}}" style="border: 0; background: transparent; color: var(--on-surface); padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; min-height: 48px; font: 600 13px/18px var(--font)">
+            <span style="{{p.ringStyle}}">
+              <span style="{{p.swatchStyle}}"></span>
+              <sc-if value="{{p.selected}}" hint-placeholder-val="{{false}}">
+                <span style="position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; border-radius: 13px; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--surface)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 3"><path d="M5 12l5 5 9-10"></path></svg></span>
+              </sc-if>
+            </span>
+            <span>{{p.label}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <p class="body-s muted" style="margin: 0 4px">Wallpaper uses your phone's colors on Android 12 and later. The others are fixed palettes, made the same way, with light and dark versions that meet the contrast rules.</p>
+    </section>
+
+    <section aria-labelledby="theme-h" style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="theme-h" class="title-m" style="margin: 0 4px">Theme</h2>
+      <div class="group" role="radiogroup" aria-label="Theme" style="width: 100%">
+        <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+          <button class="{{m.cls}}" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="flex: 1; justify-content: center; height: 48px">{{m.label}}</button>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"palette":{"editor":"enum","options":["wallpaper","pearl","ocean","sage","ember","orchid"],"default":"ocean"},"mode":{"editor":"enum","options":["system","light","dark"],"default":"system"},"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { palette: null, mode: null };
+  }
+  renderVals() {
+    const palette = this.state.palette ?? this.props.palette ?? 'ocean';
+    const mode = this.state.mode ?? this.props.mode ?? 'system';
+    const defs = [
+      { key: 'wallpaper', label: 'Wallpaper', colors: ['#5E7C3A', '#B79B64', '#7C9AC0'] },
+      { key: 'pearl', label: 'Pearl', colors: ['#00696E', '#A79FC4', '#C98A68'] },
+      { key: 'ocean', label: 'Ocean', colors: ['#235AB9', '#94AECB', '#3E99C8'] },
+      { key: 'sage', label: 'Sage', colors: ['#426834', '#A7AF90', '#669A95'] },
+      { key: 'ember', label: 'Ember', colors: ['#A33E01', '#CFA189', '#B68938'] },
+      { key: 'orchid', label: 'Orchid', colors: ['#834886', '#B9A4BF', '#C87C80'] },
+    ];
+    const palettes = defs.map((d) => {
+      const selected = d.key === palette;
+      const [p, s, t] = d.colors;
+      const gradient = d.key === 'wallpaper'
+        ? 'conic-gradient(from 200deg, #5E7C3A, #B79B64, #E0B48A, #7C9AC0, #5E7C3A)'
+        : `conic-gradient(from 270deg, ${p} 0 50%, ${t} 50% 75%, ${s} 75% 100%)`;
+      return {
+        label: d.key === 'pearl' ? 'Pearl (default)' : d.label,
+        selected,
+        checked: selected ? 'true' : 'false',
+        pick: () => this.setState({ palette: d.key }),
+        ringStyle: `position: relative; width: 76px; height: 76px; display: flex; align-items: center; justify-content: center; border-radius: ${selected ? '28px' : '38px'}; box-shadow: ${selected ? 'inset 0 0 0 3px var(--primary)' : 'none'}; transition: border-radius 350ms cubic-bezier(.34,1.56,.64,1)`,
+        swatchStyle: `width: 60px; height: 60px; border-radius: ${selected ? '20px' : '30px'}; background: ${gradient}; transition: border-radius 350ms cubic-bezier(.34,1.56,.64,1)`,
+      };
+    });
+    const modes = ['system', 'light', 'dark'].map((m) => ({
+      label: m[0].toUpperCase() + m.slice(1),
+      cls: m === mode ? 'seg on' : 'seg',
+      checked: m === mode ? 'true' : 'false',
+      pick: () => this.setState({ mode: m }),
+    }));
+    const palClass = palette === 'wallpaper' ? 'pal-sage' : (palette === 'pearl' ? '' : 'pal-' + palette);
+    return { palettes, modes, rootClass: palClass + (mode === 'dark' ? ' dark' : '') };
+  }
+}
+</script>
+</body>
+</html>

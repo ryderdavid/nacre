@@ -71,6 +71,8 @@ The gates named below:
 
 - [ ] 10.1 Theme: dynamic color with the teal fallback, Roboto Flex emphasized headlines, expressive shapes for identity only, spring motion with reduced-motion crossfades, and stable card geometry. Verify with a contrast unit test of the fallback schemes against the app-accessibility thresholds (light and dark). Gates: app.
 
+- [ ] 10.2 Palettes: generate the Pearl, Ocean, Sage, Ember and Orchid schemes (light and dark) from HCT tonal palettes. Add the Appearance picker with Wallpaper when dynamic color is available, swatches with a check and a shape change when selected, and System/Light/Dark. Persist the choice and apply it live. Verify with a unit test that checks every palette's contrast pairs against the app-accessibility thresholds, and a settings round-trip test. Gates: app.
+
 ## 11. Remove what chat replaced
 
 - [ ] 11.1 Remove the old shell, the Inbox and Activity tabs, the round and run screens, the change-action buttons, the sheets (StartRound, GatesSetup, NewBead and intake, FoundSomething, OwnAnswer, RoundQuestions, Signoff, RunLaunch, BeadSheets editors), the ✨ header chat, the docked, edge and sheet chat, the live-send action, and the setting from 4.1. Delete their tests or move them to the new screens. Verify with the app gate and a check against the inventory that every removed flow maps to chat or a card. Gates: app, specs.

@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
 <style>
 body{margin:0}
-a{color:#00696E}a:hover{color:#004F53}
+a{color:inherit}
 </style>
 </helmet>
 <div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; position: relative; overflow: hidden; background: var(--surface)">
@@ -93,7 +93,7 @@ a{color:#00696E}a:hover{color:#004F53}
     </div>
   </main>
 
-  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 320px; background: linear-gradient(to bottom, rgba(247,249,250,0), rgba(247,249,250,.92) 45%); pointer-events: none"></div>
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 320px; background: linear-gradient(to bottom, color-mix(in srgb, var(--surface) 0%, transparent), color-mix(in srgb, var(--surface) 92%, transparent) 45%); pointer-events: none"></div>
   <div class="fab-menu" role="menu" aria-label="New chat" style="position: absolute; right: 16px; bottom: 20px">
     <a href="CoverChat.dc.html" class="fab-item" role="menuitem"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg>Claude chat</a>
     <a href="CoverChat.dc.html" class="fab-item" role="menuitem"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12"></path></svg>Codex chat</a>

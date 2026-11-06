@@ -15,18 +15,24 @@
     "CoverSpec.dc.html": {"x": 984, "y": 1315, "w": 412, "h": 915, "title": "Cover · Change overview"},
     "CoverDoc.dc.html": {"x": 1476, "y": 1315, "w": 412, "h": 915, "title": "Cover · Spec document reader"},
     "CoverThreads.dc.html": {"x": 1968, "y": 1315, "w": 412, "h": 915, "title": "Cover · Thread switcher"},
-    "InnerChat.dc.html": {"x": 3680, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat alone"},
     "Inner.dc.html": {"x": 0, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat beside Beads"},
     "InnerSpec.dc.html": {"x": 920, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat beside a change"},
     "InnerFocus.dc.html": {"x": 1840, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Focus Beads, dark"},
-    "InnerDrawer.dc.html": {"x": 2760, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Project switcher"}
+    "InnerDrawer.dc.html": {"x": 2760, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Project switcher"},
+    "InnerChat.dc.html": {"x": 3680, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat alone"},
+    "CoverPalette.dc.html": {"x": 0, "y": 3770, "w": 412, "h": 915, "title": "Cover · Appearance: palette picker", "is_interactive": true},
+    "OceanChat.dc.html": {"x": 492, "y": 3770, "w": 412, "h": 915, "title": "Ocean · Chat"},
+    "OceanBeads.dc.html": {"x": 984, "y": 3770, "w": 412, "h": 915, "title": "Ocean · Beads"},
+    "OceanFocus.dc.html": {"x": 1476, "y": 3770, "w": 840, "h": 740, "title": "Ocean · Focus Beads, dark"}
   },
-  "order": ["Main.dc.html", "CoverChat.dc.html", "CoverDecide.dc.html", "CoverWork.dc.html", "CoverLarge.dc.html", "CoverBeads.dc.html", "CoverBead.dc.html", "CoverSpec.dc.html", "CoverDoc.dc.html", "CoverThreads.dc.html", "Inner.dc.html", "InnerSpec.dc.html", "InnerFocus.dc.html", "InnerDrawer.dc.html", "InnerChat.dc.html"],
+  "order": ["Main.dc.html", "CoverChat.dc.html", "CoverDecide.dc.html", "CoverWork.dc.html", "CoverLarge.dc.html", "CoverBeads.dc.html", "CoverBead.dc.html", "CoverSpec.dc.html", "CoverDoc.dc.html", "CoverThreads.dc.html", "Inner.dc.html", "InnerSpec.dc.html", "InnerFocus.dc.html", "InnerDrawer.dc.html", "InnerChat.dc.html", "CoverPalette.dc.html", "OceanChat.dc.html", "OceanBeads.dc.html", "OceanFocus.dc.html"],
   "notes": {
     "t1": {"x": 0, "y": -300, "text": "Cover screen · Chat is the workspace", "kind": "title1", "maxW": 2380},
     "t2": {"x": 0, "y": 1015, "text": "Cover screen · Beads and Spec", "kind": "title1", "maxW": 2380},
     "t3": {"x": 0, "y": 2330, "text": "Unfolded · Chat with a supporting pane", "kind": "title1", "maxW": 4520},
-    "s1": {"x": 2460, "y": 0, "w": 360, "text": "Two levels: Projects, then one workspace with three destinations — Chat · Spec · Beads.\n\nChat is the verb: work is asked for in chat. Spec and Beads are the nouns: they show the truth and let you point.\n\nOwner decisions arrive as cards bound to one exact action and revision; nacred carries them out.\n\nStop, cancel, retry and recovery stay as direct controls in the work inspector.", "fill": "teal", "size": "m"}
+    "t4": {"x": 0, "y": 3470, "text": "Palettes · pick one, or follow the wallpaper", "kind": "title1", "maxW": 2316},
+    "s1": {"x": 2460, "y": 0, "w": 360, "text": "Two levels: Projects, then one workspace with three destinations — Chat · Spec · Beads.\n\nChat is the verb: work is asked for in chat. Spec and Beads are the nouns: they show the truth and let you point.\n\nOwner decisions arrive as cards bound to one exact action and revision; nacred carries them out.\n\nStop, cancel, retry and recovery stay as direct controls in the work inspector.", "fill": "teal", "size": "m"},
+    "s2": {"x": 2396, "y": 3770, "w": 360, "text": "Palettes: Wallpaper (dynamic color), Pearl (default), Ocean (blues), Sage, Ember, Orchid.\n\nEach is generated from HCT tonal palettes with light and dark roles, and passes the contrast contract.\n\nThe picker is live: tap a swatch or a theme. The Ocean boards are the same screens recolored.", "fill": "blue", "size": "m"}
   },
   "designSystems": []
 }

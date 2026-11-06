@@ -58,6 +58,9 @@ picture shows better stays visual: the kanban and the specs.
   - Roboto Flex, with emphasized headlines.
   - Expressive shapes for identity only.
   - Spring motion, and stable geometry for anything you act on.
+- **Palettes:** Settings › Appearance gets a palette picker: Wallpaper (dynamic color), Pearl (the
+  default), Ocean (blues throughout), Sage, Ember and Orchid. Each is a full Material 3 scheme in light
+  and dark that meets the contrast contract, and each applies immediately.
 - An accessibility contract:
   - keyboard completion of the core flows, and TalkBack custom actions for every gesture;
   - 200% font that never truncates a decision;
@@ -83,6 +86,8 @@ picture shows better stays visual: the kanban and the specs.
   document reader.
 - `beads-board`: the Beads panel, covering the compact and column boards, moving beads, the bead
   peek and Ask about this.
+- `app-palettes`: the palette picker, palettes as full Material 3 schemes, and remembering the palette
+  and theme.
 - `app-accessibility`: keyboard, TalkBack and Switch Access, font scale, contrast and the validation
   required before sign-off.
 
@@ -120,5 +125,5 @@ picture shows better stays visual: the kanban and the specs.
   - a summary per round and run for the work card.
 - **docs/API.md:** the decision contract, the token scopes and the new summary endpoints. Older apps
   keep their device tokens and existing routes.
-- **Design reference:** the mockup canvas "Nacre chat-first" (15 artboards across the cover and
-  unfolded screens). It was reviewed in three rounds by an independent Codex design review.
+- **Design reference:** the mockup canvas "Nacre chat-first" (19 artboards across the cover and
+  unfolded screens, including the palette picker and the Ocean palette). It was reviewed in three rounds by an independent Codex design review.

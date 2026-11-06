@@ -78,7 +78,15 @@ method and an accessibility pass. Its findings shaped decisions 1, 2, 4, 5, 6 an
    - Expressive shapes appear on identity (project and thread avatars), never on state.
    - Cards you act on keep a stable geometry.
    - Dynamic color, with the existing mother-of-pearl teal palette as the fallback.
-8. **Accessibility is part of the contract** (the app-accessibility spec). It is validated on the Fold
+8. **Palettes are generated, not hand-picked.**
+   - Each fixed palette is a hue and chroma per tonal palette (primary, secondary, tertiary, neutral,
+     neutral variant), turned into roles with Material's tone mapping. The light and dark versions come
+     from the same palette.
+   - Ocean keeps primary, secondary and tertiary all in blue hues (royal, steel and sky), so the app reads
+     as blue throughout.
+   - A unit test keeps every palette inside the contrast contract.
+   - *Alternative:* hand-tuned hex sets. Rejected: they drift between roles and between light and dark.
+9. **Accessibility is part of the contract** (the app-accessibility spec). It is validated on the Fold
    with TalkBack, Switch Access and a keyboard before sign-off.
 
 ## Risks / Trade-offs
