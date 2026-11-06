@@ -208,6 +208,8 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 d.evidence.forEach { e -> AssistChip(onClick = { onEvidence(e) }, label = { Text(e.label) }, modifier = Modifier.heightIn(min = 48.dp)) }
             }
 
+            // Asked whatever is chosen, e.g. which round bead found work came from.
+            d.ask?.let { spec -> if (d.pending && !draft.rejecting) DecisionInputField(spec, draft.ask) { set(draft.copy(ask = it)) } }
             if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 DecisionModel.ordered(d).forEach { o ->
                     val selected = draft.option == o.id
@@ -231,28 +233,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     }
                 }
                 val option = d.options.firstOrNull { it.id == draft.option }
-                option?.input?.let { spec ->
-                    when (spec.kind) {
-                        "choice" -> Column(Modifier.padding(top = 4.dp)) {
-                            Text(spec.label.ifBlank { "Pick one" }, style = MaterialTheme.typography.labelLarge)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                spec.choices.forEach { c ->
-                                    androidx.compose.material3.FilterChip(selected = draft.input == c.id, onClick = { set(draft.copy(input = if (draft.input == c.id) "" else c.id)) }, label = { Text(c.label) }, modifier = Modifier.heightIn(min = 48.dp))
-                                }
-                            }
-                        }
-                        else -> OutlinedTextField(
-                            value = draft.input, onValueChange = { set(draft.copy(input = it)) },
-                            label = { Text(spec.label.ifBlank { if (spec.kind == "amount") "Amount" else "Your answer" }) },
-                            prefix = if (spec.kind == "amount" && spec.unit == "usd") ({ Text("$") }) else null,
-                            keyboardOptions = if (spec.kind == "amount") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
-                            isError = DecisionModel.inputProblem(option, draft.input) != null && draft.input.isNotEmpty(),
-                            supportingText = DecisionModel.inputProblem(option, draft.input)?.takeIf { draft.input.isNotEmpty() }?.let { p -> { Text(p) } },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            minLines = if (spec.kind == "text") 2 else 1,
-                        )
-                    }
-                }
+                option?.input?.let { spec -> DecisionInputField(spec, draft.input) { set(draft.copy(input = it)) } }
             }
 
             val askable = d.kind in setOf("question", "intake", "found", "recovery") || (d.options.isEmpty() && !d.allowReject)
@@ -339,5 +320,36 @@ fun PermissionCardM3(card: PermissionCard, agent: String, onAnswer: (String, Boo
                 }
             }
         }
+    }
+}
+
+/** One input a card asks for: a choice as chips (an empty answer shows its default), or an amount or text field. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun DecisionInputField(spec: com.ryderdavid.nacre.data.model.DecisionInput, value: String, onValue: (String) -> Unit) {
+    val problem = DecisionModel.inputProblem(spec, value)
+    when (spec.kind) {
+        "choice" -> Column(Modifier.padding(top = 4.dp)) {
+            Text(spec.label.ifBlank { "Pick one" }, style = MaterialTheme.typography.labelLarge)
+            val shown = value.ifEmpty { spec.default }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                spec.choices.forEach { c ->
+                    androidx.compose.material3.FilterChip(
+                        selected = shown == c.id, onClick = { onValue(if (value == c.id) "" else c.id) },
+                        label = { Text(c.label) }, modifier = Modifier.heightIn(min = 48.dp),
+                    )
+                }
+            }
+        }
+        else -> OutlinedTextField(
+            value = value, onValueChange = onValue,
+            label = { Text(spec.label.ifBlank { if (spec.kind == "amount") "Amount" else "Your answer" }) },
+            prefix = if (spec.kind == "amount" && spec.unit == "usd") ({ Text("$") }) else null,
+            keyboardOptions = if (spec.kind == "amount") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
+            isError = problem != null && value.isNotEmpty(),
+            supportingText = problem?.takeIf { value.isNotEmpty() }?.let { p -> { Text(p) } },
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            minLines = if (spec.kind == "text") 2 else 1,
+        )
     }
 }

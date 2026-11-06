@@ -166,4 +166,17 @@ class DecisionModelTest {
         val d = approve.copy(options = approve.options.reversed())
         assertEquals("run_hold", DecisionModel.ordered(d).first().id)
     }
+
+    @Test
+    fun `a found card's ask is sent beside the option and an empty answer takes its default`() {
+        val ask = DecisionInput(kind = "choice", label = "Found in which round bead?", required = true,
+            choices = listOf(com.ryderdavid.nacre.data.model.DecisionChoice("N-3", "N-3"), com.ryderdavid.nacre.data.model.DecisionChoice("N-4", "N-4")), default = "N-3")
+        val d = Decision(id = "d1", kind = "found", options = listOf(DecisionOption("how_order", "Changes how or order")), ask = ask)
+        val draft = DecisionDraft(option = "how_order")
+        assertNull(DecisionModel.problem(d, draft))
+        assertNull(DecisionModel.answer(d, draft).ask)
+        assertEquals("N-4", DecisionModel.answer(d, draft.copy(ask = "N-4")).ask)
+        val noDefault = d.copy(ask = ask.copy(default = ""))
+        assertEquals("Pick one", DecisionModel.problem(noDefault, draft))
+    }
 }

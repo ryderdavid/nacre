@@ -82,6 +82,8 @@ data class Decision(
     val evidence: List<DecisionEvidence> = emptyList(),
     val body: String = "",
     val options: List<DecisionOption> = emptyList(),
+    /** An input asked whatever option is chosen (found work from a round: which round bead). */
+    val ask: DecisionInput? = null,
     @SerialName("allow_defer") val allowDefer: Boolean = true,
     @SerialName("allow_reject") val allowReject: Boolean = true,
     @SerialName("reject_label") val rejectLabel: String = "Reject",
@@ -165,6 +167,8 @@ data class DecisionInput(
     val unit: String = "",
     val required: Boolean = false,
     val choices: List<DecisionChoice> = emptyList(),
+    /** What an empty answer means (a choice's id). */
+    val default: String = "",
 )
 
 @Serializable
@@ -179,6 +183,8 @@ data class DecisionAnswer(
     val option: String? = null,
     val note: String? = null,
     val input: String? = null,
+    /** The answer to the decision's [Decision.ask], beside the option. */
+    val ask: String? = null,
     val defer: Boolean? = null,
     val reject: Boolean? = null,
     /** Acknowledges a failed or unknown outcome so it leaves the queue. */

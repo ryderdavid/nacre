@@ -8,6 +8,8 @@ import com.ryderdavid.nacre.data.model.DecisionOption
 data class DecisionDraft(
     val option: String? = null,
     val input: String = "",
+    /** The answer to the decision's ask input; empty takes its default. */
+    val ask: String = "",
     val note: String = "",
     /** Rejecting: the note field is for the rejection. */
     val rejecting: Boolean = false,
@@ -51,9 +53,12 @@ object DecisionModel {
     fun initialOption(d: Decision): String? = d.options.firstOrNull { it.recommended }?.id ?: d.options.singleOrNull()?.id
 
     /** Why the input for [option] isn't acceptable yet, or null when it is. */
-    fun inputProblem(option: DecisionOption?, input: String): String? {
-        val spec = option?.input ?: return null
-        val v = input.trim()
+    fun inputProblem(option: DecisionOption?, input: String): String? = inputProblem(option?.input, input)
+
+    /** Why [input] doesn't satisfy [spec] yet, or null when it does; an empty answer takes the default. */
+    fun inputProblem(spec: com.ryderdavid.nacre.data.model.DecisionInput?, input: String): String? {
+        if (spec == null) return null
+        val v = input.trim().ifEmpty { spec.default }
         return when (spec.kind) {
             "amount" -> {
                 val n = v.removePrefix("$").toDoubleOrNull()
@@ -77,7 +82,7 @@ object DecisionModel {
         if (!d.pending) return "Already answered"
         if (draft.rejecting) return if (d.rejectNeedsNote && draft.note.isBlank()) "Say why in a note" else null
         val option = d.options.firstOrNull { it.id == draft.option } ?: return "Pick an answer"
-        return inputProblem(option, draft.input)
+        return inputProblem(d.ask, draft.ask) ?: inputProblem(option, draft.input)
     }
 
     /** The answer body for the card as it stands. */
@@ -88,6 +93,7 @@ object DecisionModel {
         DecisionAnswer(
             option = draft.option, note = draft.note.trim().ifBlank { null },
             input = draft.input.trim().removePrefix("$").ifBlank { null }?.takeIf { option?.input != null },
+            ask = draft.ask.trim().ifBlank { null }?.takeIf { d.ask != null },
         )
     }
 
