@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
@@ -289,11 +290,27 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	if s.Config != nil {
 		host = s.Config.Host()
 	}
-	out := []Project{}
-	for _, repo := range s.Repos.List(false) {
+	repos := s.Repos.List(false)
+	out := make([]Project, len(repos))
+	// Each repository's summary reads its changes, which can take seconds; build them side by side.
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		wg.Add(1)
+		go func(i int, repo api.Repo) {
+			defer wg.Done()
+			out[i] = s.projectSummary(r.Context(), repo, host, needs, open)
+		}(i, repo)
+	}
+	wg.Wait()
+	writeJSON(w, http.StatusOK, map[string]any{"projects": out})
+}
+
+// projectSummary is one repository's row on Projects.
+func (s *Server) projectSummary(ctx context.Context, repo api.Repo, host api.Host, needs map[string]int, open []decisions.Decision) Project {
+	{
 		p := Project{Repo: repo.ID, Name: repo.Name, Remote: repo.GitRemote, HostID: host.ID, HostName: host.Name,
 			NeedsYou: needs[repo.ID], LastAt: repo.LastUpdated}
-		work := s.workFor(r.Context(), repo.ID, repo.Path, open)
+		work := s.workFor(ctx, repo.ID, repo.Path, open)
 		for i := range work {
 			if work[i].State == "running" || work[i].State == "stopped" || work[i].State == "ready_to_land" || work[i].State == "held" {
 				p.Work = &work[i]
@@ -333,9 +350,8 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 				p.LastAt = chats[0].UpdatedAt
 			}
 		}
-		out = append(out, p)
+		return p
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": out})
 }
 
 // statusText says in a line what a project is doing.
