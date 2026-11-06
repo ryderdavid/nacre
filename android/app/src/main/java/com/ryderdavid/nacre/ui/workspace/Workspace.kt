@@ -151,7 +151,7 @@ private fun content(slots: WorkspaceSlots, d: Destination, modifier: Modifier) =
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Rail(slots: WorkspaceSlots, destination: Destination, focused: Boolean, onPick: (Destination) -> Unit) {
-    WideNavigationRail(header = { slots.switcher() }) {
+    WideNavigationRail(header = { Box(Modifier.width(82.dp), contentAlignment = Alignment.Center) { slots.switcher() } }) {
         Destination.entries.forEach { d ->
             WideNavigationRailItem(
                 selected = d == destination, onClick = { onPick(d) },
