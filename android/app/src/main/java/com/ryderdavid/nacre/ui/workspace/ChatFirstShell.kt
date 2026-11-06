@@ -199,7 +199,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
         spec = { m -> SpecSlot(repoKey, m) },
         beads = { m -> BeadsSlot(repoKey, m) },
-        strip = { m -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m, repoKey = repoKey) },
+        strip = { m, compact -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m, repoKey = repoKey, compact = compact) },
         switcher = {
             Surface(
                 onClick = { scope.launch { drawer.open() } }, shape = projectAvatarShape(name),

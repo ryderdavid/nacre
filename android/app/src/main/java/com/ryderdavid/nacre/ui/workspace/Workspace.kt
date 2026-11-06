@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
@@ -75,8 +78,8 @@ class WorkspaceSlots(
     val chat: @Composable (Modifier) -> Unit,
     val spec: @Composable (Modifier) -> Unit,
     val beads: @Composable (Modifier) -> Unit,
-    /** The project-wide status strip (work summary and Needs-you count). */
-    val strip: @Composable (Modifier) -> Unit,
+    /** The project-wide status strip (work summary and Needs-you count); compact is its short-window form, a column of badges at the top right. */
+    val strip: @Composable (Modifier, Boolean) -> Unit,
     /** The project switcher on wide layouts. */
     val switcher: @Composable () -> Unit,
 )
@@ -138,9 +141,9 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
             is WorkspaceLayout.Single -> if (!layout.rail) {
                 Column(Modifier.fillMaxSize()) {
                     // While typing the strip steps aside so the conversation and composer keep the room.
-                    if (!tabletop && !WindowInsets.isImeVisible) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    if (!tabletop && !WindowInsets.isImeVisible) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), false)
                     Box(Modifier.weight(1f).fillMaxWidth().focusRequester(chatFocus).focusGroup()) { content(slots, destination, Modifier.fillMaxSize()) }
-                    if (tabletop) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    if (tabletop) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), false)
                     if (!WindowInsets.isImeVisible) {
                         ShortNavigationBar {
                             Destination.entries.forEach { d ->
@@ -157,10 +160,14 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
                 Row(Modifier.fillMaxSize()) {
                     Rail(slots, destination, focused = focus) { d -> if (d == destination && d != Destination.CHAT) focus = !focus else { focus = false; onDestination(d) } }
                     Column(Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-                        // Below 480dp of height the strip stays one compact line; on tabletop it sits below the fold.
-                        if (!tabletop) slots.strip(Modifier.padding(bottom = if (compactHeight) 4.dp else 8.dp))
-                        Box(Modifier.weight(1f).fillMaxWidth().focusRequester(chatFocus).focusGroup()) { content(slots, destination, Modifier.fillMaxSize()) }
-                        if (tabletop) slots.strip(Modifier.padding(top = 8.dp))
+                        if (!tabletop && !compactHeight) slots.strip(Modifier.padding(bottom = 8.dp), false)
+                        // Below 480dp of height the strip folds to a column of badges at the top right, beside the
+                        // pane's own app bar, and gives its row back to the content; on tabletop it sits below the fold.
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            Box(Modifier.weight(1f).fillMaxHeight().focusRequester(chatFocus).focusGroup()) { content(slots, destination, Modifier.fillMaxSize()) }
+                            if (!tabletop && compactHeight) slots.strip(Modifier.padding(start = 8.dp), true)
+                        }
+                        if (tabletop) slots.strip(Modifier.padding(top = 8.dp), false)
                         if (focus && destination != Destination.CHAT) ChatBar(onExpand = { focus = false })
                     }
                 }
@@ -168,7 +175,7 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
             is WorkspaceLayout.Split -> Row(Modifier.fillMaxSize()) {
                 Rail(slots, destination, focused = false) { d -> if (d == destination && d != Destination.CHAT) focus = true else onDestination(d) }
                 Column(Modifier.weight(1f).fillMaxHeight().padding(top = 8.dp, bottom = 8.dp)) {
-                    if (!tabletop) slots.strip(Modifier.padding(end = 8.dp, bottom = 8.dp))
+                    if (!tabletop && !compactHeight) slots.strip(Modifier.padding(end = 8.dp, bottom = 8.dp), false)
                     Row(Modifier.weight(1f)) {
                         Surface(Modifier.width(layout.chatDp.dp).fillMaxHeight().focusRequester(chatFocus).focusGroup(), shape = RoundedCornerShape(28.dp, 0.dp, 0.dp, 28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             slots.chat(Modifier.fillMaxSize())
@@ -177,8 +184,9 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
                         Surface(Modifier.width(layout.paneDp.dp).fillMaxHeight().focusRequester(paneFocus).focusGroup(), shape = RoundedCornerShape(0.dp, 28.dp, 28.dp, 0.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             content(slots, destination, Modifier.fillMaxSize())
                         }
+                        if (!tabletop && compactHeight) slots.strip(Modifier.padding(start = 8.dp, end = 8.dp), true)
                     }
-                    if (tabletop) slots.strip(Modifier.padding(end = 8.dp, top = 8.dp))
+                    if (tabletop) slots.strip(Modifier.padding(end = 8.dp, top = 8.dp), false)
                 }
             }
         }
@@ -195,7 +203,12 @@ private fun content(slots: WorkspaceSlots, d: Destination, modifier: Modifier) =
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Rail(slots: WorkspaceSlots, destination: Destination, focused: Boolean, onPick: (Destination) -> Unit) {
-    WideNavigationRail(header = { Box(Modifier.width(82.dp), contentAlignment = Alignment.Center) { slots.switcher() } }) {
+    // The workspace already pads for the status bar, so the rail doesn't add it again at the top.
+    WideNavigationRail(windowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Bottom + WindowInsetsSides.Start), header = {
+        Column(Modifier.width(82.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            slots.switcher()
+        }
+    }) {
         Destination.entries.forEach { d ->
             WideNavigationRailItem(
                 selected = d == destination, onClick = { onPick(d) },

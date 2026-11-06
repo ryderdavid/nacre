@@ -52,7 +52,7 @@ fun mostRecentThread(chats: List<ChatRecord>, repoKey: String): String? =
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null) {
+fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null, compact: Boolean = false) {
     val repo = LocalContainer.current.repository
     val key = repoKey
     val decisions by repo.decisions.collectAsState()
@@ -69,6 +69,10 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
     val listing by repo.chats.collectAsState()
     val replying = key?.let { k -> listing.chats.count { c -> c.repo != null && Keys.of(c.hostId, c.repo) == k && c.state == com.ryderdavid.nacre.data.model.ChatWire.RUNNING } } ?: 0
     if (work == null && needsYou == 0 && inQueue == 0 && replying == 0) return
+    if (compact) {
+        CompactStrip(projectName, work, needsYou, inQueue, onWork, onQueue, modifier)
+        return
+    }
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.heightIn(min = 52.dp).padding(start = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (work != null) {
@@ -113,6 +117,41 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
                         Text("$inQueue in queue", style = MaterialTheme.typography.labelLarge)
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The strip folded into the rail on short windows: the work's state as an icon button and the Needs you
+ * count as a badge, stacked under the chat switcher, each a 48dp target with the strip's own labels.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CompactStrip(projectName: String, work: WorkSummary?, needsYou: Int, inQueue: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier) {
+    androidx.compose.foundation.layout.Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (work != null) {
+            androidx.compose.material3.IconButton(
+                onClick = { onWork(work) },
+                modifier = Modifier.semantics { contentDescription = "$projectName, project-wide: ${ChatFirstData.statusText(work)}. Open the work inspector" },
+            ) {
+                when {
+                    work.running && !work.stalled -> LoadingIndicator(Modifier.size(24.dp))
+                    else -> Icon(Icons.Rounded.WarningAmber, null, tint = if (work.stopped || work.stalled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        val count = if (needsYou > 0) needsYou else inQueue
+        if (count > 0) {
+            Surface(
+                onClick = onQueue, shape = RoundedCornerShape(16.dp),
+                color = if (needsYou > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = if (needsYou > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(width = 56.dp, height = 48.dp).semantics {
+                    contentDescription = if (needsYou > 0) "$needsYou need you: open the queue" else "$inQueue in the queue, none waiting on you: open the queue"
+                },
+            ) {
+                Box(contentAlignment = Alignment.Center) { Text("$count", style = MaterialTheme.typography.titleMedium) }
             }
         }
     }
