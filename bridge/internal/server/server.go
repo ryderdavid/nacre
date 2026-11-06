@@ -75,6 +75,9 @@ type Server struct {
 	// Sessions takes hook hints for the session watcher (POST /v1/sessions);
 	// nil when adopt_sessions is off, which makes the route a no-op.
 	Sessions SessionHinter
+	// Facts replaces the state decisions and protection read, in tests;
+	// nil reads nacred's own managers.
+	Facts Facts
 
 	// signIn is the Claude sign-in the app is part way through.
 	signInMu sync.Mutex
@@ -95,79 +98,95 @@ type SessionHinter interface {
 	Nudge(sessions.Hint) bool
 }
 
+// route is one API route: its method, its pattern and its handler.
+type route struct {
+	method, pattern string
+	handler         http.HandlerFunc
+}
+
+// routes lists every API route. The protected ones are refused to chat
+// tokens by protect (see protectedKinds).
+func (s *Server) routes() []route {
+	return []route{
+		{"GET", "/v1/ping", s.ping},
+		{"GET", "/v1/health", s.health},
+		{"GET", "/v1/daemon/update", s.updateStatus},
+		{"POST", "/v1/daemon/update", s.startUpdate},
+		{"GET", "/v1/config", s.getConfig},
+		{"GET", "/v1/repos", s.listRepos},
+		{"GET", "/v1/repos/{repo}/issues", s.listIssues},
+		{"POST", "/v1/repos/{repo}/issues", s.createIssue},
+		{"GET", "/v1/repos/{repo}/issues/{id}", s.getIssue},
+		{"PATCH", "/v1/repos/{repo}/issues/{id}", s.updateIssue},
+		{"POST", "/v1/repos/{repo}/issues/{id}/close", s.closeIssue},
+		{"POST", "/v1/repos/{repo}/issues/{id}/reopen", s.reopenIssue},
+		{"POST", "/v1/repos/{repo}/issues/{id}/signoff", s.signOff},
+		{"POST", "/v1/repos/{repo}/issues/{id}/comments", s.addComment},
+		{"POST", "/v1/repos/{repo}/deps", s.addDep},
+		{"DELETE", "/v1/repos/{repo}/deps", s.removeDep},
+		{"POST", "/v1/repos/{repo}/issues/{id}/runs", s.startRun},
+		{"GET", "/v1/repos/{repo}/issues/{id}/change", s.getChange},
+		{"POST", "/v1/repos/{repo}/issues/{id}/change", s.actOnChange},
+		{"GET", "/v1/repos/{repo}/changes", s.listChanges},
+		{"POST", "/v1/repos/{repo}/intake", s.intake},
+		{"POST", "/v1/repos/{repo}/changes/{change}/found", s.found},
+		{"POST", "/v1/repos/{repo}/changes/{change}/draft/dismiss", s.dismissDraft},
+		{"POST", "/v1/repos/{repo}/config/draft", s.draftRepoConfig},
+		{"POST", "/v1/repos/{repo}/config", s.saveRepoConfig},
+		{"GET", "/v1/attention", s.listAttention},
+		{"POST", "/v1/repos/{repo}/claude/json", s.assistJSON},
+		{"POST", "/v1/repos/{repo}/claude/stream", s.assistStream},
+		{"POST", "/v1/claude/stream", s.assistBoardsStream},
+		{"GET", "/v1/claude/signin", s.claudeSignInState},
+		{"POST", "/v1/claude/signin", s.startClaudeSignIn},
+		{"POST", "/v1/claude/signin/code", s.finishClaudeSignIn},
+		{"GET", "/v1/assist/{turn}/stream", s.resumeAssist},
+		{"POST", "/v1/assist/{turn}/cancel", s.cancelAssist},
+		{"GET", "/v1/chats", s.listChats},
+		{"POST", "/v1/chats", s.createChat},
+		{"GET", "/v1/chats/{chat}", s.getChat},
+		{"DELETE", "/v1/chats/{chat}", s.deleteChat},
+		{"GET", "/v1/chats/{chat}/stream", s.streamChat},
+		{"POST", "/v1/chats/{chat}/messages", s.sendChat},
+		{"GET", "/v1/chats/{chat}/images/{image}", s.chatImage},
+		{"POST", "/v1/chats/{chat}/cancel", s.cancelChat},
+		{"POST", "/v1/chats/{chat}/permissions/{req}", s.answerChatPermission},
+		{"GET", "/v1/runs", s.listRuns},
+		{"GET", "/v1/runs/{run}", s.getRun},
+		{"GET", "/v1/runs/{run}/stream", s.streamRun},
+		{"POST", "/v1/runs/{run}/cancel", s.cancelRun},
+		{"POST", "/v1/runs/{run}/followup", s.followupRun},
+		{"POST", "/v1/runs/{run}/live", s.sendLive},
+		{"GET", "/v1/events", s.events},
+		{"POST", "/v1/sessions", s.hintSession},
+		{"POST", "/v1/repos/{repo}/rounds", s.createRound},
+		{"GET", "/v1/rounds", s.listRounds},
+		{"GET", "/v1/rounds/{round}", s.getRound},
+		{"GET", "/v1/rounds/{round}/stream", s.streamRound},
+		{"POST", "/v1/rounds/{round}/answers", s.answerRound},
+		{"POST", "/v1/rounds/{round}/answers/recommended", s.acceptRecommended},
+		{"POST", "/v1/rounds/{round}/plan", s.editRoundPlan},
+		{"POST", "/v1/rounds/{round}/limits", s.setRoundLimits},
+		{"GET", "/v1/rounds/{round}/changes", s.roundChanges},
+		{"POST", "/v1/rounds/{round}/land", s.landRound},
+		{"POST", "/v1/repos/{repo}/epics/{id}/finish", s.finishEpic},
+		{"POST", "/v1/rounds/{round}/cancel", s.cancelRound},
+		{"POST", "/v1/rounds/{round}/resume", s.resumeRound},
+		{"POST", "/v1/rounds/{round}/choose", s.chooseRound},
+		{"POST", "/v1/rounds/{round}/beads/{id}/retry", s.retryRoundBead},
+	}
+}
+
 // Handler returns the routed, authenticated and logged HTTP handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/ping", s.ping)
-	mux.HandleFunc("GET /v1/health", s.health)
-	mux.HandleFunc("GET /v1/daemon/update", s.updateStatus)
-	mux.HandleFunc("POST /v1/daemon/update", s.startUpdate)
-	mux.HandleFunc("GET /v1/config", s.getConfig)
-	mux.HandleFunc("GET /v1/repos", s.listRepos)
-	mux.HandleFunc("GET /v1/repos/{repo}/issues", s.listIssues)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues", s.createIssue)
-	mux.HandleFunc("GET /v1/repos/{repo}/issues/{id}", s.getIssue)
-	mux.HandleFunc("PATCH /v1/repos/{repo}/issues/{id}", s.updateIssue)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/close", s.closeIssue)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/reopen", s.reopenIssue)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/signoff", s.signOff)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/comments", s.addComment)
-	mux.HandleFunc("POST /v1/repos/{repo}/deps", s.addDep)
-	mux.HandleFunc("DELETE /v1/repos/{repo}/deps", s.removeDep)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/runs", s.startRun)
-	mux.HandleFunc("GET /v1/repos/{repo}/issues/{id}/change", s.getChange)
-	mux.HandleFunc("POST /v1/repos/{repo}/issues/{id}/change", s.actOnChange)
-	mux.HandleFunc("GET /v1/repos/{repo}/changes", s.listChanges)
-	mux.HandleFunc("POST /v1/repos/{repo}/intake", s.intake)
-	mux.HandleFunc("POST /v1/repos/{repo}/changes/{change}/found", s.found)
-	mux.HandleFunc("POST /v1/repos/{repo}/changes/{change}/draft/dismiss", s.dismissDraft)
-	mux.HandleFunc("POST /v1/repos/{repo}/config/draft", s.draftRepoConfig)
-	mux.HandleFunc("POST /v1/repos/{repo}/config", s.saveRepoConfig)
-	mux.HandleFunc("GET /v1/attention", s.listAttention)
-	mux.HandleFunc("POST /v1/repos/{repo}/claude/json", s.assistJSON)
-	mux.HandleFunc("POST /v1/repos/{repo}/claude/stream", s.assistStream)
-	mux.HandleFunc("POST /v1/claude/stream", s.assistBoardsStream)
-	mux.HandleFunc("GET /v1/claude/signin", s.claudeSignInState)
-	mux.HandleFunc("POST /v1/claude/signin", s.startClaudeSignIn)
-	mux.HandleFunc("POST /v1/claude/signin/code", s.finishClaudeSignIn)
-	mux.HandleFunc("GET /v1/assist/{turn}/stream", s.resumeAssist)
-	mux.HandleFunc("POST /v1/assist/{turn}/cancel", s.cancelAssist)
-	mux.HandleFunc("GET /v1/chats", s.listChats)
-	mux.HandleFunc("POST /v1/chats", s.createChat)
-	mux.HandleFunc("GET /v1/chats/{chat}", s.getChat)
-	mux.HandleFunc("DELETE /v1/chats/{chat}", s.deleteChat)
-	mux.HandleFunc("GET /v1/chats/{chat}/stream", s.streamChat)
-	mux.HandleFunc("POST /v1/chats/{chat}/messages", s.sendChat)
-	mux.HandleFunc("GET /v1/chats/{chat}/images/{image}", s.chatImage)
-	mux.HandleFunc("POST /v1/chats/{chat}/cancel", s.cancelChat)
-	mux.HandleFunc("POST /v1/chats/{chat}/permissions/{req}", s.answerChatPermission)
-	mux.HandleFunc("GET /v1/runs", s.listRuns)
-	mux.HandleFunc("GET /v1/runs/{run}", s.getRun)
-	mux.HandleFunc("GET /v1/runs/{run}/stream", s.streamRun)
-	mux.HandleFunc("POST /v1/runs/{run}/cancel", s.cancelRun)
-	mux.HandleFunc("POST /v1/runs/{run}/followup", s.followupRun)
-	mux.HandleFunc("POST /v1/runs/{run}/live", s.sendLive)
-	mux.HandleFunc("GET /v1/events", s.events)
-	mux.HandleFunc("POST /v1/sessions", s.hintSession)
-	mux.HandleFunc("POST /v1/repos/{repo}/rounds", s.createRound)
-	mux.HandleFunc("GET /v1/rounds", s.listRounds)
-	mux.HandleFunc("GET /v1/rounds/{round}", s.getRound)
-	mux.HandleFunc("GET /v1/rounds/{round}/stream", s.streamRound)
-	mux.HandleFunc("POST /v1/rounds/{round}/answers", s.answerRound)
-	mux.HandleFunc("POST /v1/rounds/{round}/answers/recommended", s.acceptRecommended)
-	mux.HandleFunc("POST /v1/rounds/{round}/plan", s.editRoundPlan)
-	mux.HandleFunc("POST /v1/rounds/{round}/limits", s.setRoundLimits)
-	mux.HandleFunc("GET /v1/rounds/{round}/changes", s.roundChanges)
-	mux.HandleFunc("POST /v1/rounds/{round}/land", s.landRound)
-	mux.HandleFunc("POST /v1/repos/{repo}/epics/{id}/finish", s.finishEpic)
-	mux.HandleFunc("POST /v1/rounds/{round}/cancel", s.cancelRound)
-	mux.HandleFunc("POST /v1/rounds/{round}/resume", s.resumeRound)
-	mux.HandleFunc("POST /v1/rounds/{round}/choose", s.chooseRound)
-	mux.HandleFunc("POST /v1/rounds/{round}/beads/{id}/retry", s.retryRoundBead)
+	for _, rt := range s.routes() {
+		mux.HandleFunc(rt.method+" "+rt.pattern, rt.handler)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such route: "+r.Method+" "+r.URL.Path, "")
 	})
-	return s.logRequests(s.auth(s.maintenance(mux)))
+	return s.logRequests(s.auth(s.protect(s.maintenance(mux))))
 }
 
 // auth requires the bearer token on every /v1/ route except /v1/ping.

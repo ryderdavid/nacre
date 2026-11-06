@@ -56,6 +56,8 @@ func (s *Server) createRound(w http.ResponseWriter, r *http.Request) {
 		SpecChangeID: req.SpecChangeID, SpecRevision: req.SpecRevision,
 		Goal: req.Goal, RepoID: repoID, Beads: req.Beads, Epic: req.Epic, Target: req.Target,
 		BudgetUSD: req.BudgetUSD, TimeLimitMinutes: req.TimeLimitMinutes, LandWhenReady: req.LandWhenReady, Finish: req.Finish,
+		// A round a chat starts never lands on its own: landing is Ryder's.
+		HoldLanding: scopeOf(r.Context()).Chat(),
 	})
 	if err != nil {
 		s.fail(w, err)
