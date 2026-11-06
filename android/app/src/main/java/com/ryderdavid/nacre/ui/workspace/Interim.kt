@@ -22,17 +22,6 @@ fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProj
     com.ryderdavid.nacre.ui.workspace.chat.ChatPaneM3(repoKey, thread, onThread, onProjects, onEvidence = LocalOpenEvidence.current)
 }
 
-@Composable
-fun SpecSlot(repoKey: String, modifier: Modifier) {
-    val repo = LocalContainer.current.repository
-    val board by repo.board(repoKey).collectAsState()
-    val changes = board.data?.changes?.changes.orEmpty()
-    LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("Spec", style = MaterialTheme.typography.titleLargeEmphasized) }
-        items(changes) { c -> Text(c.id + " · " + c.phase, style = MaterialTheme.typography.bodyLarge) }
-    }
-}
-
 /** The project's Needs-you queue: every open decision, pending first, then held, failed and deferred. */
 @Composable
 fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
