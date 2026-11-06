@@ -1,11 +1,11 @@
 package com.ryderdavid.nacre.ui.common
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.DropdownMenu
@@ -21,11 +21,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.R
 import com.ryderdavid.nacre.data.chat.DefaultAgent
 import com.ryderdavid.nacre.data.model.ChatWire
 
@@ -48,6 +51,7 @@ fun NewChatButton(onStart: (agent: String) -> Unit, modifier: Modifier = Modifie
                     modifier = Modifier.heightIn(min = height).semantics { contentDescription = "New ${DefaultAgent.label(default)} chat" },
                 ) {
                     Icon(agentIcon(default), null, Modifier.size(SplitButtonDefaults.LeadingIconSize))
+                    Spacer(Modifier.width(8.dp))
                     Text(DefaultAgent.label(default))
                 }
             },
@@ -71,4 +75,7 @@ fun NewChatButton(onStart: (agent: String) -> Unit, modifier: Modifier = Modifie
     }
 }
 
-fun agentIcon(agent: String) = if (agent == ChatWire.AGENT_CODEX) Icons.Rounded.Code else Icons.AutoMirrored.Rounded.Chat
+/** The agent's own mark: Claude's for Claude, OpenAI's for Codex. Tinted like any icon. */
+@Composable
+fun agentIcon(agent: String): Painter =
+    painterResource(if (agent == ChatWire.AGENT_CODEX) R.drawable.ic_agent_codex else R.drawable.ic_agent_claude)
