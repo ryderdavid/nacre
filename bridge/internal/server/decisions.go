@@ -131,8 +131,29 @@ func (s *Server) queue(ctx context.Context) []decisions.Record {
 			openKeys[rec.Key] = true
 		}
 	}
-	out := stored
-	for _, rec := range s.attentionDecisions(ctx) {
+	virtual := s.attentionDecisions(ctx)
+	live := map[string]bool{}
+	for _, rec := range virtual {
+		live[rec.AttentionID] = true
+	}
+	out := stored[:0:0]
+	for _, rec := range stored {
+		if rec.AttentionID != "" && rec.Decision.Answerable() && s.Attention != nil && !live[rec.AttentionID] {
+			// Its item no longer waits: a deferred or held card goes with it.
+			if upd, err := s.Decisions.Update(rec.Decision.ID, func(r *decisions.Record) bool {
+				if !r.Decision.Answerable() {
+					return false
+				}
+				r.Decision.State, r.Decision.Reason, r.Decision.DeferredUntil = decisions.StateExpired, "This no longer waits on you.", nil
+				r.Decision.Acknowledged = true
+				return true
+			}); err == nil {
+				rec = upd
+			}
+		}
+		out = append(out, rec)
+	}
+	for _, rec := range virtual {
 		if byID[rec.Decision.ID] || (rec.Key != "" && openKeys[rec.Key]) {
 			continue
 		}

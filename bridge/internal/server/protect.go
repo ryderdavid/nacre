@@ -58,10 +58,24 @@ func pairedOnly(r *http.Request) bool {
 // nil when it performs none. Some routes are protected only for some bodies
 // or round states, so the body is read and put back.
 func (s *Server) protectedKinds(r *http.Request) []string {
-	if r.Method != http.MethodPost {
+	return s.protectedFor(r.Method, r.URL.EscapedPath(), func(v any) { peekJSON(r, v) })
+}
+
+// protectedAction is protectedKinds for an action nacred holds.
+func (s *Server) protectedAction(method, path string, body map[string]any) []string {
+	return s.protectedFor(method, path, func(v any) {
+		if b, err := json.Marshal(body); err == nil {
+			_ = json.Unmarshal(b, v)
+		}
+	})
+}
+
+// protectedFor decides protection from a method, an escaped path and a way
+// to decode the body.
+func (s *Server) protectedFor(method, path string, decode func(any)) []string {
+	if method != http.MethodPost {
 		return nil
 	}
-	path := r.URL.EscapedPath()
 	if _, ok := matchPath("/v1/rounds/{round}/land", path); ok {
 		return []string{decisions.KindLand}
 	}
@@ -78,7 +92,7 @@ func (s *Server) protectedKinds(r *http.Request) []string {
 		var body struct {
 			Action string `json:"action"`
 		}
-		peekJSON(r, &body)
+		decode(&body)
 		switch body.Action {
 		case "approve":
 			return []string{decisions.KindApprove}
@@ -93,7 +107,7 @@ func (s *Server) protectedKinds(r *http.Request) []string {
 			Finish        bool    `json:"finish"`
 			BudgetUSD     float64 `json:"budget_usd"`
 		}
-		peekJSON(r, &body)
+		decode(&body)
 		var kinds []string
 		if body.LandWhenReady {
 			kinds = append(kinds, decisions.KindLand)
@@ -110,7 +124,7 @@ func (s *Server) protectedKinds(r *http.Request) []string {
 		var body struct {
 			Choice string `json:"choice"`
 		}
-		peekJSON(r, &body)
+		decode(&body)
 		switch body.Choice {
 		case api.ChoiceRetryWithBudget, api.ChoiceRaiseLimits:
 			return []string{decisions.KindLimit}
