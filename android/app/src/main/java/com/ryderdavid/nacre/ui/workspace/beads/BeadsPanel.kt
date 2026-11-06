@@ -29,7 +29,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,9 +68,8 @@ import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.nacreViewModel
-import com.ryderdavid.nacre.ui.rounds.RoundDetail
-import com.ryderdavid.nacre.ui.runs.RunDetail
 import com.ryderdavid.nacre.ui.workspace.LocalAskAbout
+import com.ryderdavid.nacre.ui.workspace.LocalOpenEvidence
 import com.ryderdavid.nacre.ui.workspace.LocalViewing
 import kotlinx.coroutines.launch
 
@@ -91,11 +89,11 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
     val draftsBusy by vm.draftsBusy.collectAsState()
     val ask = LocalAskAbout.current
     val viewing = LocalViewing.current
+    val openEvidence = LocalOpenEvidence.current
 
     var searching by rememberSaveable { mutableStateOf(false) }
     var laneKey by rememberSaveable(repoKey) { mutableStateOf(Lane.READY.key) }
     var peekId by rememberSaveable(repoKey) { mutableStateOf<String?>(null) }
-    var inspect by rememberSaveable { mutableStateOf<String?>(null) }
     var moving by remember { mutableStateOf<Pair<Issue, Lane>?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
 
@@ -163,22 +161,9 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
         onDismiss = { peekId = null },
         onMoveTo = { issue, from -> moving = issue to from },
         onOpenBead = { peekId = it },
-        onInspect = { kind, key -> inspect = "${kind.name}|$key" },
+        // The project's work inspector, the same one the chat's work card opens.
+        onInspect = { kind, id, label -> peekId = null; openEvidence(inspectorEvidence(kind, id, label)) },
     )
-
-    inspect?.let { target ->
-        val kind = target.substringBefore('|')
-        val key = target.substringAfter('|')
-        ModalBottomSheet(onDismissRequest = { inspect = null }) {
-            Column(Modifier.fillMaxWidth().fillMaxSize(0.9f)) {
-                if (kind == PeekRun.Kind.ROUND.name) RoundDetail(
-                    key, inPane = true, onBack = { inspect = null },
-                    onOpenRun = { inspect = "${PeekRun.Kind.RUN.name}|$it" },
-                    onOpenBead = { _, id -> inspect = null; peekId = id },
-                ) else RunDetail(key, inPane = true, onBack = { inspect = null }, onOpenBead = { _, id -> inspect = null; peekId = id })
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

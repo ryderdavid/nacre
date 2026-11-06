@@ -7,9 +7,9 @@ import com.ryderdavid.nacre.data.model.BEAD_RUNNING
 import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Comment
+import com.ryderdavid.nacre.data.model.DecisionEvidence
 import com.ryderdavid.nacre.data.model.Dependency
 import com.ryderdavid.nacre.data.model.Issue
-import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.ROUND_IMPLEMENTING
 import com.ryderdavid.nacre.data.model.ROUND_LANDED
 import com.ryderdavid.nacre.data.model.ROUND_PAUSED
@@ -78,7 +78,7 @@ class BeadPeekModelTest {
     @Test fun startWorkStopsBeforeLandingOrOpensTheRoundAlreadyWorking() {
         assertEquals(PeekStartWork("Start work", BeadPeekModel.STOPS_BEFORE_LANDING), BeadPeekModel.startWork(axe3, null))
         val r = round("r1", ROUND_IMPLEMENTING, RoundBead("NAC-axe.3", state = BEAD_RUNNING), "2026-11-06T10:00:00Z")
-        assertEquals(Keys.of("h", "r1"), BeadPeekModel.startWork(axe3, r)?.opensRound)
+        assertEquals("r1", BeadPeekModel.startWork(axe3, r)?.opensRound)
         assertEquals("Running", BeadPeekModel.startWork(axe3, r)?.label)
         assertEquals("Needs you", BeadPeekModel.startWork(axe3, r.copy(state = ROUND_PAUSED))?.label)
         assertNull(BeadPeekModel.startWork(axe3.copy(status = "closed"), null), "nothing to start on a closed bead")
@@ -92,7 +92,7 @@ class BeadPeekModelTest {
         val run = Run(id = "run1", issueId = "NAC-axe.3", status = "done", createdAt = "2026-11-02T10:00:00Z", hostId = "h")
         val latest = BeadPeekModel.latestRun("NAC-axe.3", listOf(run), listOf(older, stopped))!!
         assertEquals(PeekRun.Kind.ROUND, latest.kind)
-        assertEquals(Keys.of("h", "rdto3k"), latest.key)
+        assertEquals("rdto3k", latest.id)
         // A paused round waits on Ryder: that leads over the parked bead.
         assertEquals(PeekRunState.NEEDS_YOU, latest.state)
         assertEquals("TestResumeAfterDrop timed out", latest.detail)
@@ -100,8 +100,11 @@ class BeadPeekModelTest {
         assertEquals(PeekRunState.FAILED, failed.state)
         assertEquals("Stopped in round rdto3k", failed.title)
         val justRun = BeadPeekModel.latestRun("NAC-axe.3", listOf(run, run.copy(id = "run2", status = "running", createdAt = "2026-11-03T10:00:00Z")), listOf(older))!!
-        assertEquals(Keys.of("h", "run2"), justRun.key)
+        assertEquals("run2", justRun.id)
         assertEquals(PeekRunState.RUNNING, justRun.state)
+        // Both open the workspace's work inspector, by id.
+        assertEquals(DecisionEvidence("Round rdto3k needs you", "round", "rdto3k"), inspectorEvidence(latest.kind, latest.id, latest.title))
+        assertEquals(DecisionEvidence("Run working", "run", "run2"), inspectorEvidence(justRun.kind, justRun.id, justRun.title))
         assertNull(BeadPeekModel.latestRun("NAC-axe.5", listOf(run), listOf(older)))
     }
 

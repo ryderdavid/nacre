@@ -83,8 +83,8 @@ fun BeadPeekSheet(
     onDismiss: () -> Unit,
     onMoveTo: (Issue, Lane) -> Unit,
     onOpenBead: (String) -> Unit,
-    /** Opens the work inspector for a round ([PeekRun.Kind.ROUND]) or a run. */
-    onInspect: (PeekRun.Kind, String) -> Unit,
+    /** Opens the work inspector for a round or a run, by id, with a label. */
+    onInspect: (PeekRun.Kind, String, String) -> Unit,
 ) {
     val vm = nacreViewModel(key = "beadpeek:$repoKey:${issue.id}") { BeadPeekViewModel(it.repository, repoKey, issue.id) }
     val comments by vm.comments.collectAsState()
@@ -104,7 +104,7 @@ fun BeadPeekSheet(
     val repository = LocalContainer.current.repository
     // Starting work in a repository without gates sets them up first, then goes on.
     var gatesFirst by remember { mutableStateOf(false) }
-    val start = { vm.startWork { r -> onInspect(PeekRun.Kind.ROUND, r.key) } }
+    val start = { vm.startWork { r -> onInspect(PeekRun.Kind.ROUND, r.id, "Round ${r.id}") } }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth()) {
@@ -117,7 +117,7 @@ fun BeadPeekSheet(
                 item { PeekPills(peek, onOpenChange = { id -> dismiss(); openChange(id) }) }
                 if (peek.description.isNotEmpty()) item { MarkdownText(peek.description, Modifier.padding(end = 12.dp)) }
                 if (peek.acceptance.isNotEmpty()) item { Acceptance(peek.acceptance) }
-                peek.latestRun?.let { run -> item { LatestRun(run) { onInspect(run.kind, run.key) } } }
+                peek.latestRun?.let { run -> item { LatestRun(run) { onInspect(run.kind, run.id, run.title) } } }
                 if (peek.waitsOn.isNotEmpty() || peek.blocks.isNotEmpty() || peek.parent != null) item { Dependencies(peek, onOpenBead) }
                 item {
                     Text(
@@ -151,7 +151,7 @@ fun BeadPeekSheet(
                     OutlinedButton(
                         onClick = {
                             val round = start.opensRound
-                            if (round != null) onInspect(PeekRun.Kind.ROUND, round)
+                            if (round != null) onInspect(PeekRun.Kind.ROUND, round, "Round $round")
                             else if (needsGateSetup(repository.repo(repoKey))) gatesFirst = true
                             else start()
                         },

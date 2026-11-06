@@ -8,6 +8,7 @@ import com.ryderdavid.nacre.data.model.BEAD_SKIPPED
 import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Comment
+import com.ryderdavid.nacre.data.model.DecisionEvidence
 import com.ryderdavid.nacre.data.model.Issue
 import com.ryderdavid.nacre.data.model.ROUND_CANCELLED
 import com.ryderdavid.nacre.data.model.ROUND_LANDED
@@ -27,15 +28,15 @@ enum class PeekRunState(val text: String) { RUNNING("Working"), NEEDS_YOU("Needs
 /** The bead's latest run: a round it is part of, or a run of it on its own. Opens the work inspector. */
 data class PeekRun(
     val kind: Kind,
-    /** The round's or run's key, for the work inspector. */
-    val key: String,
+    /** The round's or run's id, for the work inspector. */
+    val id: String,
     val title: String,
     val detail: String,
     val state: PeekRunState,
     /** When it last moved, for "14 min ago". */
     val at: String,
 ) {
-    enum class Kind { ROUND, RUN }
+    enum class Kind(val evidence: String) { ROUND("round"), RUN("run") }
 }
 
 /** The change a bead belongs to, for Open change. */
@@ -46,6 +47,9 @@ data class PeekChange(val id: String, val label: String)
  * the button names it and opens it instead ([opensRound]).
  */
 data class PeekStartWork(val label: String, val note: String, val opensRound: String? = null)
+
+/** What the workspace's work inspector opens for a round or run. */
+fun inspectorEvidence(kind: PeekRun.Kind, id: String, label: String) = DecisionEvidence(label = label, kind = kind.evidence, ref = id)
 
 /** Everything the bead peek shows; read-only, since editing a bead is asked for in chat. */
 data class BeadPeek(
@@ -128,7 +132,7 @@ object BeadPeekModel {
     fun startWork(issue: Issue, activeRound: Round?): PeekStartWork? = when {
         // A closed bead, one waiting on sign-off, or an epic (worked as a whole from the change) has nothing to start.
         issue.isClosed || issue.awaitsSignoff || issue.isEpic -> null
-        activeRound != null -> PeekStartWork(if (activeRound.needsYou) "Needs you" else "Running", "Open its round", opensRound = activeRound.key)
+        activeRound != null -> PeekStartWork(if (activeRound.needsYou) "Needs you" else "Running", "Open its round", opensRound = activeRound.id)
         else -> PeekStartWork("Start work", STOPS_BEFORE_LANDING)
     }
 
@@ -149,7 +153,7 @@ object BeadPeekModel {
                 PeekRunState.DONE -> if (r.state == ROUND_CANCELLED) "Round ${r.id} cancelled" else "Finished in round ${r.id}"
             }
             val detail = b.reason.ifBlank { r.stop?.reason.orEmpty() }.ifBlank { r.error }
-            PeekRun(PeekRun.Kind.ROUND, r.key, title, detail, state, r.updatedAt.ifBlank { r.createdAt })
+            PeekRun(PeekRun.Kind.ROUND, r.id, title, detail, state, r.updatedAt.ifBlank { r.createdAt })
         }
         val fromRuns = runs.filter { it.issueId == beadId }.map { run ->
             val state = when {
@@ -162,7 +166,7 @@ object BeadPeekModel {
                 PeekRunState.FAILED -> "Run failed"
                 else -> "Run ${run.status.replace('_', ' ')}"
             }
-            PeekRun(PeekRun.Kind.RUN, run.key, title, run.error.ifBlank { run.lastText }, state, run.endedAt.ifBlank { run.startedAt }.ifBlank { run.createdAt })
+            PeekRun(PeekRun.Kind.RUN, run.id, title, run.error.ifBlank { run.lastText }, state, run.endedAt.ifBlank { run.startedAt }.ifBlank { run.createdAt })
         }
         return (fromRounds + fromRuns).maxByOrNull { it.at }
     }
