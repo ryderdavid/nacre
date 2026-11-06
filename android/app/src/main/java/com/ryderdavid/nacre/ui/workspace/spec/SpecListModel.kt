@@ -134,6 +134,13 @@ object SpecList {
 
     fun shortRevision(revision: String) = if (revision.length > 8) revision.take(7) else revision
 
+    /** The change id an Open change target names: a change id, a change name, or a seed or epic bead. */
+    fun resolveTarget(target: String, changes: List<ChangeSummary>): String =
+        changes.firstOrNull { it.id == target }?.id
+            ?: changes.firstOrNull { it.changeName == target }?.id
+            ?: changes.firstOrNull { target in it.seedIds || it.epicId == target }?.id
+            ?: target
+
     /** The bead a change is opened through. */
     fun openId(c: ChangeSummary) = c.seedIds.firstOrNull { it.isNotBlank() } ?: c.epicId
 

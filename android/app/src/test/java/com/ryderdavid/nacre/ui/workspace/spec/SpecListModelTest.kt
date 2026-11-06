@@ -132,6 +132,16 @@ class SpecListModelTest {
     }
 
     @Test
+    fun `an Open change target resolves by id, name or bead`() {
+        val changes = listOf(change("chg-1", "ready").copy(changeName = "offline-resume", epicId = "NAC-epic"))
+        assertEquals("chg-1", SpecList.resolveTarget("chg-1", changes))
+        assertEquals("chg-1", SpecList.resolveTarget("offline-resume", changes))
+        assertEquals("chg-1", SpecList.resolveTarget("NAC-chg-1", changes))
+        assertEquals("chg-1", SpecList.resolveTarget("NAC-epic", changes))
+        assertEquals("unknown", SpecList.resolveTarget("unknown", changes))
+    }
+
+    @Test
     fun `revisions are shortened and the change opens through its seed`() {
         val c = change("c", "ready", revision = "0123456789abcdef")
         assertEquals("0123456", SpecList.row(c, emptySet())!!.revision)

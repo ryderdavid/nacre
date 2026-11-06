@@ -25,10 +25,22 @@ import kotlinx.coroutines.delay
 @Composable
 fun SpecSlot(repoKey: String, modifier: Modifier) {
     val vm = nacreViewModel(key = "spec:$repoKey") { SpecPanelViewModel(it.repository, repoKey) }
-    val repo = LocalContainer.current.repository
+    val container = LocalContainer.current
+    val repo = container.repository
     val stack by vm.stack.collectAsState()
     val viewing = LocalViewing.current
     val screen = stack.last()
+
+    // Open change (from a bead peek, a card or chat) names a change for this pane: open its overview.
+    val targets by container.chats.references.specTarget.collectAsState()
+    val target = targets[repoKey]
+    val board by repo.board(repoKey).collectAsState()
+    val boardLoaded = board.data != null
+    LaunchedEffect(target, boardLoaded) {
+        if (target == null || (!boardLoaded && board.loading)) return@LaunchedEffect
+        vm.openChange(com.ryderdavid.nacre.ui.workspace.spec.SpecList.resolveTarget(target, board.data?.changes?.changes.orEmpty()))
+        container.chats.references.specOpened(repoKey)
+    }
 
     // Live progress: the board (section evidence) and rounds (failed beads) while the pane is shown.
     LaunchedEffect(repoKey) {
