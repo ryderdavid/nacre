@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Change overview</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface)">
+
+  <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px; flex: none">
+    <button class="icon-btn" aria-label="Back to changes"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></button>
+    <div style="flex: 1; min-width: 0; padding: 0 8px">
+      <div class="title-e">offline-chat-resume</div>
+      <div class="body-s muted">Nacre · Mac Studio · revision 4</div>
+    </div>
+  </header>
+
+  <div style="margin: 0 12px 4px; flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px 6px 14px; border-radius: 18px; background: var(--sc-high); text-decoration: none; color: inherit">
+    <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--error)"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+    <a href="CoverWork.dc.html" class="label-l" style="flex: 1; min-height: 48px; display: flex; align-items: center; color: inherit; text-decoration: none">Nacre · Round stopped</a>
+    <a href="CoverDecide.dc.html" class="pill hit48" aria-label="2 need you: open the queue" style="background: var(--error-container); color: var(--on-error-container); text-decoration: none">2 need you</a>
+  </div>
+
+  <main style="flex: 1; overflow: hidden; padding: 4px 12px 0; display: flex; flex-direction: column; gap: 10px">
+    <section style="border-radius: 32px; padding: 18px 20px; background: var(--primary-container); color: var(--on-primary-container); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span class="pill" style="background: var(--primary); color: var(--on-primary)">In progress</span>
+        <span class="body-s">Approved revision 4 · Nov 5</span>
+      </div>
+      <h2 class="headline-m" style="margin: 0; text-wrap: pretty">Keep agentic chats alive through brief drops</h2>
+      <div class="track" role="img" aria-label="3 sections landed, 1 failed, 1 waiting" style="height: 8px; background: transparent; gap: 4px">
+        <span style="flex: 3; background: var(--primary)"></span><span style="flex: 1; background: var(--error)"></span><span style="flex: 1; background: rgba(0,79,83,.18)"></span>
+      </div>
+      <div class="body-m">3 of 5 sections landed · review passed, 2 notes</div>
+    </section>
+
+    <div class="group" role="tablist" aria-label="Documents" style="align-self: flex-start">
+      <button class="seg on" role="tab" aria-selected="true" style="padding: 0 14px">Overview</button>
+      <a href="CoverDoc.dc.html" class="seg" role="tab" aria-selected="false" style="padding: 0 12px; text-decoration: none">Proposal</a>
+      <a href="CoverDoc.dc.html" class="seg" role="tab" aria-selected="false" style="padding: 0 12px; text-decoration: none">Design</a>
+      <a href="CoverDoc.dc.html" class="seg" role="tab" aria-selected="false" style="padding: 0 12px; text-decoration: none">Tasks</a>
+      <a href="CoverDoc.dc.html" class="seg" role="tab" aria-selected="false" style="padding: 0 12px; text-decoration: none">Specs</a>
+    </div>
+
+    <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 4px 8px 0">
+      <h3 class="title-s" style="margin: 0">Plan, as approved</h3>
+      <span class="label-m muted">Progress from beads</span>
+    </div>
+    <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; border-radius: 24px; overflow: hidden">
+      <li style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--sc-low)">
+        <span class="title-s muted" style="width: 18px">1</span>
+        <div style="flex: 1"><div class="label-l">Event ids on every chat event</div><div class="body-s muted">3 tasks · NAC-axe.1</div></div>
+        <span class="pill" style="background: var(--primary-container); color: var(--on-primary-container)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Landed</span>
+      </li>
+      <li style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--sc-low)">
+        <span class="title-s muted" style="width: 18px">2</span>
+        <div style="flex: 1"><div class="label-l">Resume from the last event</div><div class="body-s muted">3 tasks · NAC-axe.2, .3</div></div>
+        <span class="pill" style="background: var(--error-container); color: var(--on-error-container)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9l6 6M15 9l-6 6"></path></svg>Failed</span>
+      </li>
+      <li style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--sc-low)">
+        <span class="title-s muted" style="width: 18px">3</span>
+        <div style="flex: 1"><div class="label-l">Drafts survive a reconnect</div><div class="body-s muted">2 tasks · NAC-axe.4</div></div>
+        <span class="pill" style="background: var(--primary-container); color: var(--on-primary-container)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Landed</span>
+      </li>
+      <li style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--sc-low)">
+        <span class="title-s muted" style="width: 18px">4</span>
+        <div style="flex: 1"><div class="label-l">"Reconnecting" in the status strip</div><div class="body-s muted">2 tasks · NAC-axe.6</div></div>
+        <span class="pill" style="background: var(--primary-container); color: var(--on-primary-container)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Landed</span>
+      </li>
+      <li style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--sc-low)">
+        <span class="title-s muted" style="width: 18px">5</span>
+        <div style="flex: 1"><div class="label-l">Manual device check</div><div class="body-s muted">2 tasks · NAC-axe.5 · you</div></div>
+        <span class="pill" style="background: var(--sc-highest); color: var(--on-surface-variant)">Waiting</span>
+      </li>
+    </ol>
+    <a href="CoverWork.dc.html" class="chip" style="align-self: flex-start; text-decoration: none; height: 40px; border-radius: 20px"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg>Evidence: round rdto3k</a>
+  </main>
+
+  <nav class="navbar" aria-label="Workspace" style="flex: none">
+    <a href="CoverChat.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="CoverSpec.dc.html" class="on" aria-current="page"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="CoverBeads.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

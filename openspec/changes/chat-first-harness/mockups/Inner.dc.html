@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat beside Beads</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 840px; height: 740px; display: flex; overflow: hidden; background: var(--surface)">
+
+  <nav aria-label="Workspace" class="rail">
+    <a href="InnerDrawer.dc.html" aria-label="Switch project. Nacre, 2 need you" style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--on-surface); margin-bottom: 20px">
+      <span class="shape-cookie" style="width: 52px; height: 52px; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; font: 700 20px/1 var(--font); font-variation-settings: 'wdth' 120">N</span>
+      <span class="badge" style="position: absolute; top: -2px; right: 6px">2</span>
+      <span class="label-m">Nacre</span>
+    </a>
+    <a href="InnerChat.dc.html" class="dest"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="InnerSpec.dc.html" class="dest"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="Inner.dc.html" class="dest" aria-current="page"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+
+  <section aria-label="Chat" style="width: 364px; flex: none; display: flex; flex-direction: column; background: var(--sc-low); border-radius: 28px 0 0 28px; margin: 8px 0">
+    <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px 0 8px; flex: none">
+      <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; color: inherit; text-align: left; cursor: pointer" aria-label="Switch chat. Resume after drops, Mac Studio, Claude">
+        <span style="display: flex; align-items: center; gap: 4px"><span class="title-m">Resume after drops</span><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+        <span class="body-s muted">Mac Studio · Claude</span>
+      </button>
+      <button class="icon-btn" aria-label="More options"><svg class="ic fill" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg></button>
+    </header>
+    <div style="margin: 0 10px; flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px 6px 12px; border-radius: 18px; background: var(--sc-highest); text-decoration: none; color: inherit">
+      <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--error)"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+      <a href="CoverWork.dc.html" class="label-l" style="flex: 1; min-height: 48px; display: flex; align-items: center; color: inherit; text-decoration: none">Round stopped · 3 of 5 landed</a>
+      <a href="CoverDecide.dc.html" class="pill hit48" aria-label="2 need you: open the queue" style="background: var(--error-container); color: var(--on-error-container); text-decoration: none">2 need you</a>
+    </div>
+    <main style="flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px 14px"><div aria-hidden="true" style="margin-top: auto"></div>
+      <div class="bubble-me body-m">Why did NAC-axe.3 fail?</div>
+      <div class="agent body-m" style="display: flex; flex-direction: column; gap: 8px">
+        <button style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 14px 0 12px; border: 0; border-radius: 24px; background: var(--sc); color: var(--on-surface-variant); font: 600 12px/16px var(--font); cursor: pointer" aria-expanded="false"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Read the round log and the test<svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+        <p style="margin: 0">The test waits for the fake to replay events, but the fake only replays after a second subscriber connects, so it never does under the gate's single runner.</p>
+        <p style="margin: 0">Retrying with that failure attached should fix it. I've put the choice in the round's card.</p>
+      </div>
+    </main>
+    <div style="padding: 0 10px 12px; flex: none; display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; gap: 6px">
+        <span class="chip ref"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1"></path><path d="M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"></path></svg>NAC-axe.3<button class="tap48" aria-label="Remove reference" style="border: 0; background: transparent; color: inherit; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span>
+      </div>
+      <div class="composer">
+        <div class="field" style="min-height: 52px; background: var(--sc-highest)">
+          <button class="icon-btn" aria-label="Attach"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+          <label for="m3" style="position: absolute; left: -9999px">Message Claude</label>
+          <input id="m3" placeholder="Message Claude" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/24px var(--font); color: var(--on-surface); outline: none">
+        </div>
+        <button class="icon-btn filled sq" aria-label="Send" style="width: 52px; height: 52px; border-radius: 16px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <div role="separator" class="hitw48" aria-orientation="vertical" aria-label="Resize panes: Chat wide, Even, Beads wide" tabindex="0" style="width: 16px; flex: none; display: flex; align-items: center; justify-content: center; cursor: col-resize">
+    <span style="width: 4px; height: 48px; border-radius: 2px; background: var(--outline)"></span>
+  </div>
+
+  <section aria-label="Beads" style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--sc-low); border-radius: 0 28px 28px 0; margin: 8px 0">
+    <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px 0 20px; flex: none">
+      <div style="flex: 1"><div class="title-e" style="font-size: 20px">Beads</div><div class="body-s muted">Nacre · Mac Studio</div></div>
+      <button class="icon-btn" aria-label="Search beads"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg></button>
+      <a href="InnerFocus.dc.html" class="icon-btn" aria-label="Focus beads"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></a>
+    </header>
+    <div style="display: flex; align-items: center; flex: none; padding-right: 8px">
+    <div role="tablist" aria-label="Lanes" class="hscroll lanes" style="flex: 1; min-width: 0; padding-left: 12px">
+      <button role="tab" class="lane" aria-selected="false">Proposals <span class="n">1</span></button>
+      <button role="tab" class="lane" aria-selected="false">Ready <span class="n">12</span></button>
+      <button role="tab" class="lane" aria-selected="true">In progress <span class="n">3</span></button>
+      <button role="tab" class="lane" aria-selected="false">To check <span class="n">1</span></button>
+      <button role="tab" class="lane" aria-selected="false">Blocked <span class="n">2</span></button>
+      <button role="tab" class="lane" aria-selected="false">Deferred <span class="n">4</span></button>
+      <button role="tab" class="lane" aria-selected="false">Done <span class="n">86</span></button>
+    </div>
+    <button class="icon-btn tonal" aria-label="All lanes" style="border-radius: 16px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+    </div>
+    <div style="flex: 1; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+      <div class="bead" style="border-radius: 20px; padding: 14px 16px; box-shadow: inset 0 0 0 2px var(--primary)">
+        <div style="display: flex; align-items: center; gap: 8px"><span class="mono muted">NAC-axe.3</span><span class="pill" style="height: 20px; padding: 0 7px; background: var(--tertiary-container); color: var(--on-tertiary-container)">P1</span></div>
+        <div class="title-m">Reattach the event stream after a drop</div>
+        <div style="display: flex; align-items: center; gap: 6px; color: var(--error)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg><span class="label-m">Failed gates</span></div>
+      </div>
+      <div class="bead" style="border-radius: 20px; padding: 14px 16px">
+        <div style="display: flex; align-items: center; gap: 8px"><span class="mono muted">NAC-axe.4</span><span class="pill" style="height: 20px; padding: 0 7px; background: var(--sc-highest); color: var(--on-surface-variant)">P2</span></div>
+        <div class="title-m">Keep a half-written message through a reconnect</div>
+        <div style="display: flex; align-items: center; gap: 6px; color: var(--primary)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#00696E" d="M12 1.5l2.6 3.2 4-.9.9 4 3.2 2.6-2.2 3.4.9 4-4 .9L15 22l-3-1.9L9 22l-2.4-3.3-4-.9.9-4L1.3 10.4l3.2-2.6.9-4 4 .9z"></path></svg><span class="label-m">Claude working · 6 min</span></div>
+      </div>
+      <div class="bead" style="border-radius: 20px; padding: 14px 16px">
+        <div style="display: flex; align-items: center; gap: 8px"><span class="mono muted">NAC-4qu</span><span class="pill" style="height: 20px; padding: 0 7px; background: var(--tertiary-container); color: var(--on-tertiary-container)">P1</span></div>
+        <div class="title-m">Chat first: reorient Nacre to Chat · Spec · Beads</div>
+        <div style="display: flex; align-items: center; gap: 6px; color: var(--on-surface-variant)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"></path><path d="M14 3v5h5"></path></svg><span class="label-m">Proposal in review</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":840,"height":740}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

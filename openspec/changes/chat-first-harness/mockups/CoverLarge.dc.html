@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat at 200% text</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface)">
+
+  <header style="display: flex; align-items: flex-start; gap: 4px; padding: 8px 4px 4px; flex: none">
+    <a href="Main.dc.html" class="icon-btn" aria-label="Back to projects" style="margin-top: 4px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; color: inherit; text-align: left; cursor: pointer" aria-label="Switch chat. Nacre, Mac Studio, Claude">
+      <span style="font: 600 40px/48px var(--font)">Nacre</span>
+      <span style="font: 400 24px/32px var(--font)">Mac Studio · Claude</span>
+    </button>
+  </header>
+
+  <div style="margin: 0 12px 8px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-radius: 24px; background: var(--sc-high)">
+    <a href="CoverWork.dc.html" style="min-height: 48px; display: flex; align-items: center; color: inherit; text-decoration: none; font: 600 28px/36px var(--font)">3 of 7 landed</a>
+    <a href="CoverDecide.dc.html" aria-label="2 need you: open the queue" style="min-height: 48px; display: flex; align-items: center; color: var(--error); text-decoration: none; font: 600 28px/36px var(--font)">2 need you</a>
+  </div>
+
+  <main style="flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 24px; position: relative" aria-label="Conversation, scrolls">
+    <section class="decision" aria-label="Needs you: approve a change">
+      <div style="display: flex; align-items: center; gap: 10px; color: var(--on-tertiary-container)">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+        <span style="font: 650 22px/28px var(--font)">Needs you · Approve</span>
+      </div>
+      <h2 style="margin: 0; font: 600 40px/48px var(--font); text-wrap: pretty">Approve offline-chat-resume and run it</h2>
+      <p style="margin: 0; font: 400 26px/36px var(--font); color: var(--on-surface-variant)">Nacre · Mac Studio · revision 4 · <span style="font-family: var(--mono)">a1b2c3d</span></p>
+      <ul style="margin: 0; padding: 0 0 0 4px; list-style: none; display: flex; flex-direction: column; gap: 14px; font: 400 28px/38px var(--font)">
+        <li>Freezes the plan at revision 4: 5 sections, 12 tasks</li>
+        <li>Starts a round for NAC-axe's 5 beads on epic/nac-axe</li>
+        <li>Up to $50 for this working session</li>
+      </ul>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <a href="CoverSpec.dc.html" style="display: flex; align-items: center; min-height: 64px; padding: 10px 20px; border-radius: 32px; color: var(--on-surface-variant); text-decoration: none; font: 600 26px/34px var(--font)">Review passed</a>
+        <a href="CoverDoc.dc.html" style="display: flex; align-items: center; min-height: 64px; padding: 10px 20px; border-radius: 32px; color: var(--on-surface-variant); text-decoration: none; font: 600 26px/34px var(--font)">3 spec changes</a>
+      </div>
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+        <legend style="position: absolute; left: -9999px">How to approve</legend>
+        <label class="option" style="gap: 14px; min-height: 64px; padding: 14px 16px">
+          <input type="radio" name="apL" checked style="width: 28px; height: 28px; margin: 4px 0 0">
+          <span style="display: flex; flex-direction: column; gap: 4px"><span style="font: 600 28px/36px var(--font)">Approve, run, I'll land</span><span style="font: 400 24px/32px var(--font)">Recommended. Stops before main when the gates pass</span></span>
+        </label>
+        <label class="option" style="gap: 14px; min-height: 64px; padding: 14px 16px">
+          <input type="radio" name="apL" style="width: 28px; height: 28px; margin: 4px 0 0">
+          <span style="display: flex; flex-direction: column; gap: 4px"><span style="font: 600 28px/36px var(--font)">Approve, run and land to main</span><span style="font: 400 24px/32px var(--font)">Merges into main and pushes when the gates pass</span></span>
+        </label>
+        <label class="option" style="gap: 14px; min-height: 64px; padding: 14px 16px">
+          <input type="radio" name="apL" style="width: 28px; height: 28px; margin: 4px 0 0">
+          <span style="display: flex; flex-direction: column; gap: 4px"><span style="font: 600 28px/36px var(--font)">Approve only</span><span style="font: 400 24px/32px var(--font)">Freezes the plan; doesn't start work</span></span>
+        </label>
+      </fieldset>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <button class="btn filled" style="width: 100%; height: auto; min-height: 72px; border-radius: 36px; font-size: 28px; line-height: 36px; padding: 14px 24px">Approve</button>
+        <button class="btn outlined" style="width: 100%; height: auto; min-height: 72px; border-radius: 36px; font-size: 28px; line-height: 36px; padding: 14px 24px">Defer</button>
+        <button class="btn outlined" style="width: 100%; height: auto; min-height: 72px; border-radius: 36px; font-size: 28px; line-height: 36px; padding: 14px 24px; color: var(--error)">Reject…</button>
+      </div>
+    </section>
+  </main>
+
+  <nav aria-label="Workspace" style="flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--sc); padding: 10px 8px 14px">
+    <a href="CoverChat.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--secondary); font: 600 22px/28px var(--font)"><span style="width: 64px; height: 36px; border-radius: 18px; background: var(--secondary-container); color: var(--on-secondary-container); display: flex; align-items: center; justify-content: center"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="CoverSpec.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--on-surface-variant); font: 600 22px/28px var(--font)"><span style="width: 64px; height: 36px; display: flex; align-items: center; justify-content: center"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="CoverBeads.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--on-surface-variant); font: 600 22px/28px var(--font)"><span style="width: 64px; height: 36px; display: flex; align-items: center; justify-content: center"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

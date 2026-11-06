@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spec document reader</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); position: relative">
+
+  <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px; flex: none">
+    <a href="CoverSpec.dc.html" class="icon-btn" aria-label="Back to the change"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; color: inherit; text-align: left; cursor: pointer" aria-label="Choose document. Spec changes, 3 of 5">
+      <span style="display: flex; align-items: center; gap: 4px"><span class="title-e">Spec changes</span><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="body-s muted">offline-chat-resume · revision 4</span>
+    </button>
+  </header>
+
+  <div style="margin: 0 12px 4px; flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 8px 0 14px; border-radius: 18px; background: var(--sc-high)">
+    <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--error)"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+    <a href="CoverWork.dc.html" class="label-l" style="flex: 1; min-height: 48px; display: flex; align-items: center; color: inherit; text-decoration: none">Nacre · Round stopped</a>
+    <a href="CoverDecide.dc.html" class="pill hit48" aria-label="2 need you: open the queue" style="background: var(--error-container); color: var(--on-error-container); text-decoration: none">2 need you</a>
+  </div>
+
+  <article style="flex: 1; min-height: 0; overflow-y: auto; padding: 8px 24px 120px; display: flex; flex-direction: column; gap: 18px">
+    <div class="title-s muted">agent-chat</div>
+
+    <section style="display: flex; flex-direction: column; gap: 10px">
+      <span class="pill" style="align-self: flex-start; background: var(--primary-container); color: var(--on-primary-container)">Added</span>
+      <h2 class="title-l" style="margin: 0; text-wrap: pretty">A dropped stream resumes from the last event</h2>
+      <p class="body-l" style="margin: 0">When the app reconnects to a chat, it SHALL ask nacred for the events after the last one it shows, and <mark style="background: var(--tertiary-container); color: var(--on-tertiary-container); border-radius: 4px; padding: 0 2px">SHALL NOT show an event twice or skip one</mark>.</p>
+      <div style="border-radius: 20px; background: var(--sc-low); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+        <div class="label-l">Scenario: Airplane mode mid-reply</div>
+        <div class="body-m"><b>When</b> the phone loses its connection for 30 seconds while Claude replies</div>
+        <div class="body-m"><b>Then</b> the reply continues from where it stopped, with nothing missing or doubled</div>
+      </div>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 10px">
+      <span class="pill" style="align-self: flex-start; background: var(--secondary-container); color: var(--on-secondary-container)">Modified</span>
+      <h2 class="title-l" style="margin: 0;">Chats are long-lived and resumable</h2>
+      <p class="body-l" style="margin: 0">A chat SHALL survive the app closing, a connection drop<ins style="text-decoration: none; background: rgba(0,105,110,.12); border-radius: 4px; padding: 0 2px">, and a half-written message</ins>.</p>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 10px; opacity: .9">
+      <span class="pill" style="align-self: flex-start; background: var(--error-container); color: var(--on-error-container)">Removed</span>
+      <h2 class="title-l" style="margin: 0; text-decoration: line-through; text-decoration-thickness: 1px">Reconnect restarts the reply</h2>
+    </section>
+  </article>
+
+  <div style="position: absolute; left: 16px; right: 16px; bottom: 24px; display: flex; align-items: center; justify-content: center; gap: 10px">
+    <div role="toolbar" aria-label="Reading tools" class="ftoolbar">
+      <button class="icon-btn" aria-label="Outline"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"></path></svg></button>
+      <button class="icon-btn" aria-label="Find in document"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg></button>
+      <button class="icon-btn" aria-label="Previous change"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg></button>
+      <button class="icon-btn" aria-label="Next change"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+    </div>
+    <a href="CoverChat.dc.html" class="ffab" aria-label="Ask about the selection"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z" style="fill: currentColor"></path></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

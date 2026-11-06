@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Projects</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; position: relative; overflow: hidden; background: var(--surface)">
+
+  <div style="padding: 12px 16px 0">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <a href="#search" class="searchbar" style="flex: 1"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><span>Search projects</span></a>
+      <button class="icon-btn" aria-label="Settings" style="width: 56px; height: 56px; border-radius: 28px; background: var(--tertiary-container); color: var(--on-tertiary-container)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></button>
+    </div>
+  </div>
+
+  <header style="padding: 24px 24px 12px; display: flex; flex-direction: column; gap: 4px">
+    <h1 class="display-e" style="margin: 0">Projects</h1>
+    <p class="body-l muted" style="margin: 0">2 computers · 5 projects</p>
+  </header>
+
+  <div style="padding: 4px 20px 16px">
+    <div class="group" role="group" aria-label="Show">
+      <button class="seg on" aria-pressed="true"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>All</button>
+      <button class="seg" aria-pressed="false">Needs you <span class="badge" style="margin-left: 2px">3</span></button>
+      <button class="seg" aria-pressed="false">Working</button>
+    </div>
+  </div>
+
+  <main style="flex: 1; overflow: hidden; padding: 0 16px; display: flex; flex-direction: column; gap: 10px">
+
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px">
+      <span class="title-s" style="flex: 1">Mac Studio</span>
+      <span class="pill" style="background: var(--primary-container); color: var(--on-primary-container)"><span class="dot" style="background: var(--primary)"></span>Connected</span>
+    </div>
+
+    <div class="seglist">
+      <a href="CoverChat.dc.html" style="display: flex; flex-direction: column; gap: 12px; padding: 18px 18px 16px; text-decoration: none; color: inherit; background: var(--sc-high)">
+        <div style="display: flex; align-items: center; gap: 14px">
+          <div class="shape-cookie" style="width: 52px; height: 52px; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; font: 750 22px/1 var(--font); font-variation-settings: 'wdth' 125; flex: none">N</div>
+          <div style="flex: 1; min-width: 0">
+            <div class="title-e" style="font-size: 22px; line-height: 28px">Nacre</div>
+            <div class="body-m muted">Round running · 3 of 7 landed</div>
+          </div>
+          <span class="pill" style="background: var(--error-container); color: var(--on-error-container); height: 28px; padding: 0 12px; font-size: 13px">2 need you</span>
+        </div>
+        <svg viewBox="0 0 316 12" width="100%" height="12" preserveAspectRatio="none" role="img" aria-label="3 of 7 landed"><path d="M3 6 q5.5 -6 11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0 t11 0" style="fill: none; stroke: var(--primary); stroke-width: 4; stroke-linecap: round"></path><path d="M146 6 H306" style="stroke: var(--secondary-container); stroke-width: 4; stroke-linecap: round"></path><circle cx="313" cy="6" r="2.5" style="fill: var(--primary)"></circle></svg>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <span class="pill" style="background: var(--sc-lowest); color: var(--on-surface-variant)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"></path><path d="M14 3v5h5"></path></svg>offline-chat-resume</span>
+          <span class="body-s muted">Claude · 4 min ago</span>
+        </div>
+      </a>
+      <a href="CoverChat.dc.html" style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; min-height: 76px; text-decoration: none; color: inherit">
+        <div class="shape-clover" style="width: 44px; height: 44px; background: var(--tertiary-container); color: var(--on-tertiary-container); display: flex; align-items: center; justify-content: center; font: 750 19px/1 var(--font); font-variation-settings: 'wdth' 125; flex: none">H</div>
+        <div style="flex: 1; min-width: 0">
+          <div class="title-m">HomeAgentic</div>
+          <div class="body-m muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Codex asks to run npm install</div>
+        </div>
+        <span class="pill" style="background: var(--error-container); color: var(--on-error-container)">1</span>
+      </a>
+      <a href="CoverChat.dc.html" style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; min-height: 76px; text-decoration: none; color: inherit">
+        <div class="shape-squircle" style="width: 44px; height: 44px; background: var(--secondary-container); color: var(--on-secondary-container); display: flex; align-items: center; justify-content: center; font: 750 19px/1 var(--font); font-variation-settings: 'wdth' 125; flex: none">B</div>
+        <div style="flex: 1; min-width: 0">
+          <div class="title-m">Beads</div>
+          <div class="body-m muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Idle · 12 ready</div>
+        </div>
+      </a>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 8px 0">
+      <span class="title-s" style="flex: 1">MacBook Air</span>
+      <span class="pill" style="background: var(--sc-highest); color: var(--on-surface-variant)"><span class="dot" style="background: var(--outline)"></span>Last checked 12 min ago</span>
+    </div>
+    <div class="seglist">
+      <a href="CoverChat.dc.html" style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; min-height: 72px; text-decoration: none; color: inherit; background: var(--sc-low)">
+        <div class="shape-squircle" style="width: 44px; height: 44px; background: var(--sc-highest); color: var(--on-surface-variant); display: flex; align-items: center; justify-content: center; font: 750 19px/1 var(--font); flex: none">R</div>
+        <div style="flex: 1; min-width: 0"><div class="title-m">ryderdavid.com</div><div class="body-m muted">Status unknown while offline</div></div>
+      </a>
+      <a href="CoverChat.dc.html" style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; min-height: 72px; text-decoration: none; color: inherit; background: var(--sc-low)">
+        <div class="shape-clover" style="width: 44px; height: 44px; background: var(--sc-highest); color: var(--on-surface-variant); display: flex; align-items: center; justify-content: center; font: 750 19px/1 var(--font); flex: none">D</div>
+        <div style="flex: 1; min-width: 0"><div class="title-m">dotfiles</div><div class="body-m muted">Status unknown while offline</div></div>
+      </a>
+    </div>
+  </main>
+
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 320px; background: linear-gradient(to bottom, rgba(247,249,250,0), rgba(247,249,250,.92) 45%); pointer-events: none"></div>
+  <div class="fab-menu" role="menu" aria-label="New chat" style="position: absolute; right: 16px; bottom: 20px">
+    <a href="CoverChat.dc.html" class="fab-item" role="menuitem"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg>Claude chat</a>
+    <a href="CoverChat.dc.html" class="fab-item" role="menuitem"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12"></path></svg>Codex chat</a>
+    <a href="CoverChat.dc.html" class="fab-item" role="menuitem"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M2 19h20"></path></svg>On another computer</a>
+    <button class="fab-close" aria-label="Close new chat menu"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

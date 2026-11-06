@@ -1,0 +1,32 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-11-06T02:10:00Z"},
+  "title": "Nacre chat-first",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 412, "h": 915, "title": "Cover · Projects"},
+    "CoverChat.dc.html": {"x": 492, "y": 0, "w": 412, "h": 915, "title": "Cover · Chat with a reviewed action"},
+    "CoverDecide.dc.html": {"x": 984, "y": 0, "w": 412, "h": 915, "title": "Cover · Question, check and permission cards"},
+    "CoverWork.dc.html": {"x": 1476, "y": 0, "w": 412, "h": 915, "title": "Cover · Failed round, work inspector"},
+    "CoverLarge.dc.html": {"x": 1968, "y": 0, "w": 412, "h": 915, "title": "Cover · 200% text"},
+    "CoverBeads.dc.html": {"x": 0, "y": 1315, "w": 412, "h": 915, "title": "Cover · Beads"},
+    "CoverBead.dc.html": {"x": 492, "y": 1315, "w": 412, "h": 915, "title": "Cover · Bead peek"},
+    "CoverSpec.dc.html": {"x": 984, "y": 1315, "w": 412, "h": 915, "title": "Cover · Change overview"},
+    "CoverDoc.dc.html": {"x": 1476, "y": 1315, "w": 412, "h": 915, "title": "Cover · Spec document reader"},
+    "CoverThreads.dc.html": {"x": 1968, "y": 1315, "w": 412, "h": 915, "title": "Cover · Thread switcher"},
+    "InnerChat.dc.html": {"x": 3680, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat alone"},
+    "Inner.dc.html": {"x": 0, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat beside Beads"},
+    "InnerSpec.dc.html": {"x": 920, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Chat beside a change"},
+    "InnerFocus.dc.html": {"x": 1840, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Focus Beads, dark"},
+    "InnerDrawer.dc.html": {"x": 2760, "y": 2630, "w": 840, "h": 740, "title": "Unfolded · Project switcher"}
+  },
+  "order": ["Main.dc.html", "CoverChat.dc.html", "CoverDecide.dc.html", "CoverWork.dc.html", "CoverLarge.dc.html", "CoverBeads.dc.html", "CoverBead.dc.html", "CoverSpec.dc.html", "CoverDoc.dc.html", "CoverThreads.dc.html", "Inner.dc.html", "InnerSpec.dc.html", "InnerFocus.dc.html", "InnerDrawer.dc.html", "InnerChat.dc.html"],
+  "notes": {
+    "t1": {"x": 0, "y": -300, "text": "Cover screen · Chat is the workspace", "kind": "title1", "maxW": 2380},
+    "t2": {"x": 0, "y": 1015, "text": "Cover screen · Beads and Spec", "kind": "title1", "maxW": 2380},
+    "t3": {"x": 0, "y": 2330, "text": "Unfolded · Chat with a supporting pane", "kind": "title1", "maxW": 4520},
+    "s1": {"x": 2460, "y": 0, "w": 360, "text": "Two levels: Projects, then one workspace with three destinations — Chat · Spec · Beads.\n\nChat is the verb: work is asked for in chat. Spec and Beads are the nouns: they show the truth and let you point.\n\nOwner decisions arrive as cards bound to one exact action and revision; nacred carries them out.\n\nStop, cancel, retry and recovery stay as direct controls in the work inspector.", "fill": "teal", "size": "m"}
+  },
+  "designSystems": []
+}

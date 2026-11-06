@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Question, check and permission cards</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface)">
+
+  <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px; flex: none">
+    <a href="Main.dc.html" class="icon-btn" aria-label="Back to projects"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; color: inherit; text-align: left; cursor: pointer" aria-label="Switch chat. Nacre, Mac Studio, Claude">
+      <span style="display: flex; align-items: center; gap: 4px"><span class="title-e">Nacre</span><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="body-s muted">Mac Studio · Claude · Resume after drops</span>
+    </button>
+    <button class="icon-btn" aria-label="More options"><svg class="ic fill" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg></button>
+  </header>
+
+  <button aria-expanded="true" aria-label="Nacre needs you: 3 decisions, shown below" style="border: 0; text-align: left; font: inherit; cursor: pointer; margin: 0 12px; flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 8px 8px 14px; border-radius: 20px; background: var(--error-container); color: var(--on-error-container); text-decoration: none">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 16.5v.5"></path></svg>
+    <div style="flex: 1" class="label-l">Waiting for you · 3 decisions</div>
+    <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
+  </button>
+
+  <main style="flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 12px"><div aria-hidden="true" style="margin-top: auto"></div>
+
+
+    <section class="decision" aria-label="Needs you: a round question">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span class="shape-cookie" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--secondary-container); color: var(--on-secondary-container)"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6M12 16.5v.5"></path></svg></span>
+        <span class="title-s" style="color: var(--on-secondary-container)">Needs you · Round question</span>
+      </div>
+      <div>
+        <h2 class="title-l" style="margin: 0 0 2px;">Where should a chat's reconnect state live?</h2>
+        <div class="body-s muted">Asked by NAC-axe.2 · round <span class="mono">rdto3k</span></div>
+      </div>
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+        <legend style="position: absolute; left: -9999px">Answer</legend>
+        <label class="option">
+          <input type="radio" name="q1" checked >
+          <span style="display: flex; flex-direction: column"><span class="label-l">With each chat, in ChatHub <span class="label-s">· Recommended</span></span><span class="body-s">Drafts stay with their thread; one field more per chat</span></span>
+        </label>
+        <label class="option">
+          <input type="radio" name="q1" >
+          <span style="display: flex; flex-direction: column"><span class="label-l">Shared, in NacreRepository</span><span class="body-s muted">One place for every screen; needs a settings migration</span></span>
+        </label>
+        <label class="option" style="align-items: center">
+          <input type="radio" name="q1" style="margin: 0">
+          <span class="label-l">In my own words</span>
+        </label>
+      </fieldset>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <button class="btn filled" style="height: 48px; border-radius: 24px">Send answer</button>
+        <button class="btn text" style="height: 48px">Ask about this</button>
+        <span style="flex: 1"></span>
+        <button class="btn text" style="height: 48px">Defer</button>
+      </div>
+    </section>
+
+    <section class="decision" aria-label="Needs you: check and sign off">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span class="shape-cookie" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--primary-container); color: var(--on-primary-container)"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2.5"></rect><path d="M11 18h2"></path></svg></span>
+        <span class="title-s" style="color: var(--on-primary-container)">Needs you · Check and sign off</span>
+      </div>
+      <div>
+        <h2 class="title-l" style="margin: 0 0 2px;">A dropped connection resumes the reply</h2>
+        <div class="body-s muted">NAC-axe.5 · build 0.38.0 (66), sent to your Fold</div>
+      </div>
+      <p class="body-m" style="margin: 0">Turn on airplane mode for 30 seconds mid-reply, then off. The reply carries on with nothing missing or doubled.</p>
+      <div style="display: flex; gap: 8px">
+        <button class="btn filled" style="height: 48px; border-radius: 24px">Sign off</button>
+        <button class="btn outlined" style="height: 48px; border-radius: 24px">Not right…</button>
+      </div>
+    </section>
+
+    <section aria-label="Claude asks: run a command" style="flex: none; border-radius: 24px; padding: 14px 14px 14px 18px; background: var(--sc-high); display: flex; flex-direction: column; gap: 10px">
+      <div class="title-s muted">Claude asks to run</div>
+      <pre class="mono" style="margin: 0; font-size: 13px; line-height: 18px; white-space: pre-wrap; word-break: break-all; background: var(--sc-lowest); border-radius: 12px; padding: 10px 12px">tailscale file cp android/app/build/outputs/apk/release/Nacre-0.38.0.apk ryders-z-fold8:</pre>
+      <div style="display: flex; gap: 8px; justify-content: flex-end">
+        <button class="btn outlined" style="height: 48px; border-radius: 24px; padding: 0 18px">Deny</button>
+        <button class="btn filled" style="height: 48px; border-radius: 24px; padding: 0 20px">Allow</button>
+      </div>
+    </section>
+  </main>
+
+  <div style="padding: 4px 12px 10px; flex: none">
+    <div class="composer">
+      <div class="field">
+        <button class="icon-btn" aria-label="Attach"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+        <label for="msg2" style="position: absolute; left: -9999px">Message Claude</label>
+        <input id="msg2" placeholder="Message Claude" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/24px var(--font); color: var(--on-surface); outline: none">
+        <button class="icon-btn" aria-label="Voice input"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+      </div>
+      <button class="icon-btn filled sq" aria-label="Send" style="width: 56px; height: 56px; border-radius: 18px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+    </div>
+  </div>
+
+  <nav class="navbar" aria-label="Workspace" style="flex: none">
+    <a href="CoverChat.dc.html" class="on" aria-current="page"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="CoverSpec.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="CoverBeads.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

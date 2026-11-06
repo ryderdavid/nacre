@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat with a reviewed action</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 412px; height: 915px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface)">
+
+  <header style="display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 4px">
+    <a href="Main.dc.html" class="icon-btn" aria-label="Back to projects"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; cursor: pointer; color: inherit; text-align: left" aria-label="Switch chat. Nacre, Mac Studio, Claude">
+      <span style="display: flex; align-items: center; gap: 4px"><span class="title-e">Nacre</span><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="body-s muted">Mac Studio · Claude · Resume after drops</span>
+    </button>
+    <button class="icon-btn" aria-label="More options"><svg class="ic fill" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg></button>
+  </header>
+
+  <div style="margin: 0 12px; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 8px 8px 14px; border-radius: 20px; background: var(--sc-high); text-decoration: none; color: inherit">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="flex: none"><path fill="#00696E" d="M12 1.5l2.6 3.2 4-.9.9 4 3.2 2.6-2.2 3.4.9 4-4 .9L15 22l-3-1.9L9 22l-2.4-3.3-4-.9.9-4L1.3 10.4l3.2-2.6.9-4 4 .9z"></path></svg>
+    <a href="CoverWork.dc.html" aria-label="Round running, 3 of 7 landed: open the work inspector" style="flex: 1; min-width: 0; min-height: 48px; display: flex; flex-direction: column; justify-content: center; color: inherit; text-decoration: none">
+      <div class="label-l">Round running · 3 of 7 landed</div>
+      <svg viewBox="0 0 240 10" width="100%" height="10" preserveAspectRatio="none" role="img" aria-label="3 of 7 landed" style="margin-top: 6px"><path d="M2 5 q4.5 -5 9 0 t9 0 t9 0 t9 0 t9 0 t9 0 t9 0 t9 0 t9 0 t9 0 t9 0" style="fill: none; stroke: var(--primary); stroke-width: 3.5; stroke-linecap: round"></path><path d="M110 5 H230" style="stroke: var(--secondary-container); stroke-width: 3.5; stroke-linecap: round"></path><circle cx="236" cy="5" r="2" style="fill: var(--primary)"></circle></svg>
+    </a>
+    <a href="CoverDecide.dc.html" class="pill hit48" aria-label="2 need you: open the queue" style="background: var(--error-container); color: var(--on-error-container); text-decoration: none">2 need you</a>
+  </div>
+
+  <main style="flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px 16px 8px"><div aria-hidden="true" style="margin-top: auto"></div>
+
+    <div class="agent" style="display: flex; flex-direction: column; gap: 8px">
+      <button style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 14px 0 12px; border: 0; border-radius: 24px; background: var(--sc-low); color: var(--on-surface-variant); font: 600 12px/16px var(--font); cursor: pointer" aria-expanded="false"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Read 6 files, validated the change<svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <p class="body-l" style="margin: 0">The independent review passed on revision 4 with nothing blocking. I've asked for your approval with landing left to you.</p>
+    </div>
+
+    <section class="decision" aria-label="Needs you: approve a change">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span class="shape-cookie" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--tertiary-container); color: var(--on-tertiary-container)"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span>
+        <span class="title-s" style="color: var(--on-tertiary-container)">Needs you · Approve change</span>
+      </div>
+      <div>
+        <h2 class="headline-s" style="margin: 0 0 4px; font-size: 22px; line-height: 28px;">Approve offline-chat-resume and run it</h2>
+        <div class="body-s muted">Nacre · Mac Studio · revision 4 · <span class="mono">a1b2c3d</span></div>
+      </div>
+      <ul class="body-m" style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+        <li style="display: flex; gap: 10px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--primary); margin-top: 1px"><path d="M5 12l5 5 9-10"></path></svg>Freezes the plan at revision 4: 5 sections, 12 tasks</li>
+        <li style="display: flex; gap: 10px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--primary); margin-top: 1px"><path d="M8 5l11 7-11 7z"></path></svg>Starts a round for NAC-axe's 5 beads on epic/nac-axe</li>
+        <li style="display: flex; gap: 10px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--primary); margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Up to $50 for this working session</li>
+      </ul>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <a href="CoverSpec.dc.html" class="chip" style="text-decoration: none"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l3 3 5-6"></path></svg>Review passed</a>
+        <a href="CoverDoc.dc.html" class="chip" style="text-decoration: none"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"></path><path d="M14 3v5h5"></path></svg>3 spec changes</a>
+      </div>
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+        <legend style="position: absolute; left: -9999px">How to approve</legend>
+        <label class="option">
+          <input type="radio" name="ap1" checked >
+          <span style="display: flex; flex-direction: column"><span class="label-l">Approve, run, I'll land <span class="label-s">· Recommended</span></span><span class="body-s">Stops before main when the gates pass</span></span>
+        </label>
+        <label class="option">
+          <input type="radio" name="ap1" >
+          <span style="display: flex; flex-direction: column"><span class="label-l">Approve, run and land to main</span><span class="body-s muted">Merges into main and pushes when the gates pass</span></span>
+        </label>
+        <label class="option">
+          <input type="radio" name="ap1" >
+          <span style="display: flex; flex-direction: column"><span class="label-l">Approve only</span><span class="body-s muted">Freezes the plan; doesn't start work</span></span>
+        </label>
+      </fieldset>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <button class="btn m filled" style="flex: 1">Approve</button>
+        <button class="btn text" style="height: 48px">Defer</button>
+        <button class="btn text" style="height: 48px; color: var(--error)">Reject…</button>
+      </div>
+    </section>
+  </main>
+
+  <div style="padding: 4px 12px 10px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; gap: 8px; align-items: center">
+      <span class="chip ref" style="background: var(--sc-high); color: var(--on-surface-variant)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Viewing: offline-chat-resume<button class="tap48" aria-label="Don't send what I'm viewing" style="border: 0; background: transparent; color: inherit; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span>
+    </div>
+    <div class="composer">
+      <div class="field">
+        <button class="icon-btn" aria-label="Attach" style="width: 48px; height: 48px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+        <label for="msg1" style="position: absolute; left: -9999px">Message Claude</label>
+        <input id="msg1" placeholder="Message Claude" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/24px var(--font); color: var(--on-surface); outline: none">
+        <button class="icon-btn" aria-label="Voice input" style="width: 48px; height: 48px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+      </div>
+      <button class="icon-btn filled sq" aria-label="Send" style="width: 56px; height: 56px; border-radius: 18px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+    </div>
+  </div>
+
+  <nav class="navbar" aria-label="Workspace">
+    <a href="CoverChat.dc.html" class="on" aria-current="page"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="CoverSpec.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="CoverBeads.dc.html"><span class="ind"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

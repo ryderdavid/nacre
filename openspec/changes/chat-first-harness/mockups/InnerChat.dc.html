@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat alone, unfolded</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./m3e.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&amp;family=Google+Sans+Code:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#00696E}a:hover{color:#004F53}
+</style>
+</helmet>
+<div class="m3" style="width: 840px; height: 740px; display: flex; overflow: hidden; background: var(--surface)">
+
+  <nav aria-label="Workspace" class="rail">
+    <a href="InnerDrawer.dc.html" aria-label="Switch project. Nacre, 2 need you" style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--on-surface); margin-bottom: 20px">
+      <span class="shape-cookie" style="width: 52px; height: 52px; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; font: 700 20px/1 var(--font); font-variation-settings: 'wdth' 120">N</span>
+      <span class="badge" style="position: absolute; top: -2px; right: 6px">2</span>
+      <span class="label-m">Nacre</span>
+    </a>
+    <a href="InnerChat.dc.html" class="dest" aria-current="page"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 1-2z"></path></svg></span>Chat</a>
+    <a href="InnerSpec.dc.html" class="dest"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M7 3h7l5 5v13H7z"></path><path class="k" d="M14 3v5h5M10 13h6M10 17h6"></path></svg></span>Spec</a>
+    <a href="Inner.dc.html" class="dest"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3" y="4" width="5" height="16" rx="1.5"></rect><rect class="f" x="10" y="4" width="5" height="10" rx="1.5"></rect><rect class="f" x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Beads</a>
+  </nav>
+
+  <section aria-label="Chat" style="flex: 1; min-width: 0; margin: 8px 8px 8px 0; border-radius: 28px; background: var(--sc-low); display: flex; flex-direction: column; align-items: center">
+    <div style="width: 100%; max-width: 640px; flex: 1; min-height: 0; display: flex; flex-direction: column">
+      <header style="display: flex; align-items: center; gap: 4px; height: 72px; padding: 0 8px; flex: none">
+        <button style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: transparent; padding: 4px 8px; border-radius: 16px; color: inherit; text-align: left; cursor: pointer" aria-label="Switch chat. Resume after drops, Mac Studio, Claude">
+          <span style="display: flex; align-items: center; gap: 4px"><span class="title-e">Resume after drops</span><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+          <span class="body-s muted">Nacre · Mac Studio · Claude</span>
+        </button>
+        <div class="split">
+          <button class="btn tonal lead" style="height: 48px; border-radius: 24px 6px 6px 24px; padding: 0 14px 0 12px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New Claude chat</button>
+          <button class="btn tonal trail" aria-label="More: Codex chat, or on another computer" style="height: 48px; width: 48px; padding: 0; border-radius: 6px 24px 24px 6px"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+        </div>
+      </header>
+
+      <div style="margin: 0 12px; flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 14px; border-radius: 20px; background: var(--sc-highest); text-decoration: none; color: inherit">
+        <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--error)"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+        <a href="CoverWork.dc.html" class="label-l" style="flex: 1; min-height: 48px; display: flex; align-items: center; color: inherit; text-decoration: none">Nacre · Round stopped · 3 of 5 landed</a>
+        <a href="CoverDecide.dc.html" class="pill hit48" aria-label="2 need you: open the queue" style="background: var(--error-container); color: var(--on-error-container); text-decoration: none">2 need you</a>
+      </div>
+
+      <main style="flex: 1; min-height: 0; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px 20px"><div aria-hidden="true" style="margin-top: auto"></div>
+        <div class="bubble-me body-l">Retry NAC-axe.3 with the failure, and tell me when it's green.</div>
+        <div class="agent body-l" style="display: flex; flex-direction: column; gap: 10px">
+          <p style="margin: 0">Retrying is open to me, so I've started it. The round picks up where it stopped.</p>
+          <a href="CoverWork.dc.html" style="display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border-radius: 28px; background: var(--sc-high); text-decoration: none; color: inherit">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#00696E" d="M12 1.5l2.6 3.2 4-.9.9 4 3.2 2.6-2.2 3.4.9 4-4 .9L15 22l-3-1.9L9 22l-2.4-3.3-4-.9.9-4L1.3 10.4l3.2-2.6.9-4 4 .9z"></path></svg>
+              <span class="title-s" style="flex: 1">Round <span class="mono">rdto3k</span> · Working</span>
+              <span class="body-s muted">$7.10 of $50</span>
+            </div>
+            <svg viewBox="0 0 560 12" width="100%" height="12" preserveAspectRatio="none" role="img" aria-label="3 of 5 landed, NAC-axe.3 retrying"><path d="M3 6 q6 -6 12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0" style="fill: none; stroke: var(--primary); stroke-width: 4; stroke-linecap: round"></path><path d="M338 6 H548" style="stroke: var(--secondary-container); stroke-width: 4; stroke-linecap: round"></path><circle cx="556" cy="6" r="2.5" style="fill: var(--primary)"></circle></svg>
+            <div class="body-m muted">NAC-axe.3 retrying · no updates for 3 min</div>
+          </a>
+        </div>
+      </main>
+
+      <div style="padding: 0 16px 16px; flex: none">
+        <div class="composer">
+          <div class="field">
+            <button class="icon-btn" aria-label="Attach"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+            <label for="m5" style="position: absolute; left: -9999px">Message Claude</label>
+            <input id="m5" placeholder="Message Claude" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/24px var(--font); color: var(--on-surface); outline: none">
+            <button class="icon-btn" aria-label="Voice input"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+          </div>
+          <button class="icon-btn filled sq" aria-label="Send" style="width: 56px; height: 56px; border-radius: 18px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":840,"height":740}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
