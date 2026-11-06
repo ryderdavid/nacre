@@ -175,9 +175,15 @@ func (s *Store) Create(rec Record) (Record, error) {
 }
 
 // Put stores a record as it is (a Needs you item answered for the first
-// time), without supersession or a new id.
+// time), without supersession or a new id. When one with its id is already
+// stored, that one is returned unchanged.
 func (s *Store) Put(rec Record) (Record, error) {
 	s.mu.Lock()
+	if old := s.recs[rec.Decision.ID]; old != nil {
+		out := *old
+		s.mu.Unlock()
+		return out, nil
+	}
 	r := rec
 	if err := s.saveLocked(&r); err != nil {
 		s.mu.Unlock()

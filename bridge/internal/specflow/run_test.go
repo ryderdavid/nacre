@@ -13,8 +13,11 @@ func TestApproveAndRunRecordsRoundOnHistory(t *testing.T) {
 	repo, _, _, opts := fixture(t)
 	var m *Manager
 	calls := 0
-	opts.RunEpic = func(ctx context.Context, path, epic string) (string, error) {
+	opts.RunEpic = func(ctx context.Context, path, epic string, finish bool) (string, error) {
 		calls++
+		if !finish {
+			return "", fmt.Errorf("approve and run must finish the epic")
+		}
 		canonical, _ := filepath.EvalSymlinks(repo)
 		if path != canonical || epic != "NAC-1" {
 			return "", fmt.Errorf("wrong epic: %s %s", path, epic)
@@ -62,12 +65,32 @@ func TestApproveAndRunRecordsRoundOnHistory(t *testing.T) {
 	}
 }
 
+// Approve, run, I'll land: the epic's round runs but doesn't finish the
+// epic into the landing target.
+func TestApproveRunHoldDoesNotFinishTheEpic(t *testing.T) {
+	repo, _, _, opts := fixture(t)
+	var finishes []bool
+	opts.RunEpic = func(_ context.Context, _, _ string, finish bool) (string, error) {
+		finishes = append(finishes, finish)
+		return "rd-held", nil
+	}
+	m := newManager(t, opts)
+	c := develop(t, m, repo)
+	c = act(t, m, repo, c.SeedID, Action{Action: "approve", Revision: c.Revision, Run: true, Hold: true})
+	if c.Phase != "ready" || len(finishes) != 1 || finishes[0] {
+		t.Fatalf("change %+v finishes=%v", c, finishes)
+	}
+	if last := c.History[len(c.History)-1]; last.RoundID != "rd-held" {
+		t.Fatalf("history %+v", c.History)
+	}
+}
+
 func TestApproveRunFailurePreservesReadyApproval(t *testing.T) {
 	for _, unavailable := range []bool{false, true} {
 		t.Run(fmt.Sprint(unavailable), func(t *testing.T) {
 			repo, _, _, opts := fixture(t)
 			if !unavailable {
-				opts.RunEpic = func(context.Context, string, string) (string, error) {
+				opts.RunEpic = func(context.Context, string, string, bool) (string, error) {
 					return "", fmt.Errorf("repository needs nacre.yaml")
 				}
 			}
@@ -90,7 +113,7 @@ func TestApprovalRunsOnlyAfterSuccessfulPromotion(t *testing.T) {
 		t.Run(fmt.Sprint(run), func(t *testing.T) {
 			repo, b, _, opts := fixture(t)
 			calls := 0
-			opts.RunEpic = func(context.Context, string, string) (string, error) { calls++; return "rd-resumed", nil }
+			opts.RunEpic = func(context.Context, string, string, bool) (string, error) { calls++; return "rd-resumed", nil }
 			m := newManager(t, opts)
 			c := develop(t, m, repo)
 			// Stop after an idempotently recorded promotion comment, then

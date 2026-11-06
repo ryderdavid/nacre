@@ -10,19 +10,7 @@ import (
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
-	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 )
-
-// fakeRounds answers Facts.Round from a map.
-type fakeRounds map[string]api.Round
-
-func (f fakeRounds) Round(id string) (api.Round, error) {
-	r, ok := f[id]
-	if !ok {
-		return api.Round{}, rounds.ErrNotFound
-	}
-	return r, nil
-}
 
 // protectCase is one request: what a chat token gets refused for.
 type protectCase struct {
@@ -62,6 +50,7 @@ func protectedCases() []protectCase {
 		{"POST", "/v1/rounds/rdland/resume", ``, []string{"land"}, false},
 		{"POST", "/v1/rounds/rd1/resume", ``, nil, false},
 		{"POST", "/v1/chats/CHAT/permissions/req1", `{"allow":true}`, nil, true},
+		{"POST", "/v1/decisions/dc_1234567/answer", `{"option":"run_hold"}`, nil, true},
 	}
 }
 
@@ -94,10 +83,10 @@ func TestProtectedRoutesRefuseTheChatTokenOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatTok := ChatTokenFor("tok")(rec.ID)
-	s.Facts = fakeRounds{
-		"rd1":    {ID: "rd1", State: api.RoundPaused, Stop: &api.Stop{Kind: api.StopGatesFailed, Phase: "final"}},
-		"rdland": {ID: "rdland", State: api.RoundPaused, Stop: &api.Stop{Kind: api.StopGitError, Phase: "land"}},
-	}
+	facts := newFacts()
+	facts.setRound(api.Round{ID: "rd1", State: api.RoundPaused, Stop: &api.Stop{Kind: api.StopGatesFailed, Phase: "final"}})
+	facts.setRound(api.Round{ID: "rdland", State: api.RoundPaused, Stop: &api.Stop{Kind: api.StopGitError, Phase: "land"}})
+	s.Facts = facts
 	// Stub handlers for every real route: protection runs before them.
 	mux := http.NewServeMux()
 	routes := s.routes()

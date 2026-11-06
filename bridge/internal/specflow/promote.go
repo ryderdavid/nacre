@@ -362,13 +362,13 @@ func (m *Manager) runApprovedEpic(ctx context.Context, r *record) {
 	if m.opts.RunEpic == nil {
 		err = fmt.Errorf("rounds are unavailable on this computer")
 	} else {
-		id, err = m.opts.RunEpic(ctx, r.Repo, r.Change.EpicID)
+		id, err = m.opts.RunEpic(ctx, r.Repo, r.Change.EpicID, !r.RunHold)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// Keep the ready checkpoint and append the implementation result.
 	live := clone(m.records[r.Change.ID])
-	live.RunAfterApproval = false
+	live.RunAfterApproval, live.RunHold = false, false
 	if err != nil {
 		live.Change.Error = "Approved, but starting the epic round failed: " + err.Error()
 		history(live, "run_error", live.Change.Error)

@@ -26,6 +26,8 @@ import (
 func TestMain(m *testing.M) {
 	fakeclaude.RunIfFake()
 	fakecodex.RunIfFake()
+	// Decisions that finish later are checked on quickly in tests.
+	followEvery = 10 * time.Millisecond
 	os.Exit(m.Run())
 }
 

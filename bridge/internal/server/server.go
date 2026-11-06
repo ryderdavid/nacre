@@ -27,6 +27,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/codex"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
+	"github.com/ryderdavid/nacre/bridge/internal/decisions"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/runs"
@@ -78,6 +79,13 @@ type Server struct {
 	// Facts replaces the state decisions and protection read, in tests;
 	// nil reads nacred's own managers.
 	Facts Facts
+	// Decisions holds owner decisions; nil answers the decision routes 503.
+	Decisions *decisions.Store
+	// DecisionExec replaces executing an approved decision's action, in
+	// tests; nil runs it through nacred's own routes.
+	DecisionExec func(ctx context.Context, act decisions.Action) (status int, body []byte)
+	innerOnce    sync.Once
+	innerHandler http.Handler
 
 	// signIn is the Claude sign-in the app is part way through.
 	signInMu sync.Mutex
@@ -174,6 +182,11 @@ func (s *Server) routes() []route {
 		{"POST", "/v1/rounds/{round}/resume", s.resumeRound},
 		{"POST", "/v1/rounds/{round}/choose", s.chooseRound},
 		{"POST", "/v1/rounds/{round}/beads/{id}/retry", s.retryRoundBead},
+		{"GET", "/v1/decisions", s.listDecisions},
+		{"GET", "/v1/decisions/{decision}", s.getDecision},
+		{"POST", "/v1/decisions/{decision}/answer", s.answerDecision},
+		{"POST", "/v1/decisions/{decision}/renew", s.renewDecision},
+		{"POST", "/v1/chats/{chat}/decisions", s.raiseDecision},
 	}
 }
 

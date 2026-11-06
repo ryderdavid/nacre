@@ -1,24 +1,101 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 )
 
-// Facts is the state decisions and route protection read.
+// Facts is the state decisions and route protection read. Tests replace it;
+// nacred reads its own managers (liveFacts).
 type Facts interface {
 	Round(id string) (api.Round, error)
+	// Change is the specification change of a seed bead.
+	Change(ctx context.Context, repoPath, bead string) (specflow.Envelope, error)
+	// Changes summarizes a repository's changes.
+	Changes(repoPath string) ([]api.ChangeSummary, error)
+	Bead(ctx context.Context, repoPath, id string) (BeadFacts, error)
+	// Land is nacre.yaml's landing target and whether landing pushes; push
+	// is nil when nacre.yaml can't be read.
+	Land(repoPath string) (target string, push *bool)
 }
 
-// round reads a round through s.Facts when tests set it, else from the
-// rounds manager.
-func (s *Server) round(id string) (api.Round, error) {
-	if s.Facts != nil {
-		return s.Facts.Round(id)
+// BeadFacts is what decisions read of a bead.
+type BeadFacts struct {
+	ID        string         `json:"id"`
+	Title     string         `json:"title"`
+	Status    string         `json:"status"`
+	Type      string         `json:"issue_type"`
+	Labels    []string       `json:"labels"`
+	Metadata  map[string]any `json:"metadata"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
+// HasLabel reports whether the bead carries label.
+func (b BeadFacts) HasLabel(label string) bool {
+	for _, l := range b.Labels {
+		if l == label {
+			return true
+		}
 	}
-	if s.Rounds == nil {
+	return false
+}
+
+func (s *Server) facts() Facts {
+	if s.Facts != nil {
+		return s.Facts
+	}
+	return liveFacts{s}
+}
+
+// round reads a round through the facts.
+func (s *Server) round(id string) (api.Round, error) { return s.facts().Round(id) }
+
+// liveFacts reads nacred's own managers.
+type liveFacts struct{ s *Server }
+
+func (f liveFacts) Round(id string) (api.Round, error) {
+	if f.s.Rounds == nil {
 		return api.Round{}, rounds.ErrNotFound
 	}
-	r, _, err := s.Rounds.Get(id)
+	r, _, err := f.s.Rounds.Get(id)
 	return r, err
+}
+
+func (f liveFacts) Change(ctx context.Context, repoPath, bead string) (specflow.Envelope, error) {
+	if f.s.Changes == nil {
+		return specflow.Envelope{}, specflow.ErrUnavailable
+	}
+	return f.s.Changes.Get(ctx, repoPath, bead)
+}
+
+func (f liveFacts) Changes(repoPath string) ([]api.ChangeSummary, error) {
+	if f.s.Changes == nil {
+		return nil, nil
+	}
+	list, _, err := f.s.Changes.Summaries(repoPath)
+	return list, err
+}
+
+func (f liveFacts) Bead(ctx context.Context, repoPath, id string) (BeadFacts, error) {
+	raw, err := f.s.BD.Get(ctx, repoPath, id)
+	if err != nil {
+		return BeadFacts{}, err
+	}
+	var b BeadFacts
+	err = json.Unmarshal(raw, &b)
+	return b, err
+}
+
+func (f liveFacts) Land(repoPath string) (string, *bool) {
+	cfg, err := repoconfig.Load(repoPath)
+	if err != nil || cfg == nil {
+		return repoconfig.DefaultTarget, nil
+	}
+	push := cfg.Land.Push
+	return cfg.Land.Target, &push
 }
