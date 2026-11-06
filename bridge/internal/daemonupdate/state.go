@@ -68,6 +68,13 @@ func (m *Manager) get() Status {
 			s.Phase = "unavailable"
 		}
 	}
+	if s.Phase == "updated" && !s.Active && (s.TargetVersion != s.CurrentVersion || s.TargetCommit != s.CurrentCommit) {
+		// nacred was replaced some other way since that update (a direct
+		// install or a local build): the old result no longer describes what
+		// runs here, so it isn't a mismatch to warn about.
+		s.Phase = "idle"
+		s.Message = "Running " + s.CurrentVersion + ", installed outside the in-app updater after its last update (" + s.TargetVersion + ")."
+	}
 	if s.Active && time.Since(s.StartedAt) > Window {
 		s.Phase = "interrupted"
 		s.Active = false

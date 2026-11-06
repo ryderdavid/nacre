@@ -331,3 +331,20 @@ func TestExtractSkipsPaxGlobalHeader(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+// A daemon replaced outside the updater (a direct install or a local build)
+// reports idle, not an update result that no longer matches what runs.
+func TestAnOldUpdateResultDoesNotOutliveAnotherInstall(t *testing.T) {
+	dir := t.TempDir()
+	if err := save(dir, &Status{ID: "u1", Phase: "updated", TargetVersion: "0.38.0", TargetCommit: "aaa"}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{Dir: dir, Version: "0.38.6", Commit: "bbb"}).Get()
+	if s.Phase != "idle" || s.CurrentVersion != "0.38.6" {
+		t.Fatalf("%+v", s)
+	}
+	same := New(Options{Dir: dir, Version: "0.38.0", Commit: "aaa"}).Get()
+	if same.Phase != "updated" {
+		t.Fatalf("a matching update result changed: %+v", same)
+	}
+}
