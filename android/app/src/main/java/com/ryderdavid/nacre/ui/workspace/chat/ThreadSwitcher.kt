@@ -31,7 +31,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +56,7 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
     val name = repo.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }?.name ?: Keys.id(repoKey)
     val rows = threadsFor(listing.chats, repoKey, repo.siblingKeys(repoKey))
     var menu by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    val scope = container.scope
     val start: (String) -> Unit = { agent ->
         scope.launch {
             runCatching { container.chats.link.createChat(Keys.host(repoKey), CreateChat(agent, Keys.id(repoKey), null)).copy(hostId = Keys.host(repoKey)).key }

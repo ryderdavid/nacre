@@ -125,8 +125,11 @@ fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, palette: Palette? = null
         MaterialExpressiveTheme(
             colorScheme = scheme,
             motionScheme = if (reduced) MotionScheme.standard() else MotionScheme.expressive(),
-            typography = NacreTypography, content = content,
-        )
+            typography = NacreTypography,
+        ) {
+            // Text outside any Surface (screen titles, section labels) takes the scheme's colour, not black.
+            CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides scheme.onSurface, content = content)
+        }
     }
 }
 

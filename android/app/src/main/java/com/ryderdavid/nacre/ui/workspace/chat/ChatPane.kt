@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,7 +49,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,6 +117,8 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     var switching by remember { mutableStateOf(false) }
     val list = com.ryderdavid.nacre.ui.chat.rememberChatList(thread)
     val compact = LocalConfiguration.current.screenWidthDp < 600
+    // With the keyboard up the conversation gets the room: a one-line header, small chips, no suggestions.
+    val typing = WindowInsets.isImeVisible
 
     // Silence is measured from the last thing the turn produced.
     var lastOutput by remember(thread) { mutableLongStateOf(0L) }
@@ -133,18 +136,21 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     LaunchedEffect(total) { if (total > 0 && following) list.animateScrollToItem(total - 1) }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().heightIn(min = if (typing) 48.dp else 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (compact) IconButton(onClick = onProjects) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to projects") }
             Surface(
                 onClick = { switching = true }, shape = RoundedCornerShape(16.dp), color = Color.Transparent,
                 modifier = Modifier.weight(1f).semantics { contentDescription = "Switch chat. ${project?.name.orEmpty()}, $computer, ${record?.agent ?: "Claude"}" },
             ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = if (typing) 0.dp else 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(project?.name ?: Keys.id(repoKey), style = MaterialTheme.typography.titleLargeEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            project?.name ?: Keys.id(repoKey), style = if (typing) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLargeEmphasized,
+                            color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                         Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp))
                     }
-                    Text(
+                    if (!typing) Text(
                         listOfNotNull(computer, (record?.agent ?: "claude").replaceFirstChar { it.uppercase() }, record?.title?.ifBlank { null }).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
@@ -206,9 +212,9 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
 
         if (aboveFold != null && aboveFold > 120.dp) {
             Spacer(Modifier.height(with(density) { fold.bounds.height.toDp() }))
-            Composer(repoKey, thread, record, state, refs, draft, work, needsYou)
+            Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing)
             Spacer(Modifier.weight(1f))
-        } else Composer(repoKey, thread, record, state, refs, draft, work, needsYou)
+        } else Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing)
     }
 
     if (switching) ThreadSwitcher(repoKey, current = thread, onPick = { switching = false; onThread(it) }, onDismiss = { switching = false })
@@ -225,6 +231,7 @@ private fun Composer(
     draft: String,
     work: com.ryderdavid.nacre.data.model.WorkSummary?,
     needsYou: Int,
+    typing: Boolean,
 ) {
     val container = LocalContainer.current
     val hub = container.chats
@@ -233,7 +240,8 @@ private fun Composer(
     val pending = views[thread]?.images.orEmpty()
     val gate = chatComposerGate(draft, pending, state.chat ?: record, state.canSend)
     val attach = rememberImageAttacher(thread, gate.remaining)
-    val scope = rememberCoroutineScope()
+    // A send outlives the composer: the pane can recompose away (the thread re-keys, the posture changes) mid-request.
+    val scope = container.scope
     var sending by remember(thread) { mutableStateOf(false) }
     // The agent may later need an OK while the app is closed, so notifications are asked for on the first send.
     val askNotifications = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
@@ -255,7 +263,9 @@ private fun Composer(
         }
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    // Chips are 48dp touch targets normally; while typing they shrink to the standard 32dp chip so the field keeps its lines.
+    val chipHeight = if (typing) 32.dp else 48.dp
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (typing) 4.dp else 8.dp), verticalArrangement = Arrangement.spacedBy(if (typing) 4.dp else 6.dp)) {
         val viewing = refs.viewing
         if (viewing != null || refs.attached.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (viewing != null) item {
@@ -264,7 +274,7 @@ private fun Composer(
                     label = { Text((if (refs.viewingDropped) "Not sending: " else "Viewing: ") + viewing.label, maxLines = 1) },
                     leadingIcon = { Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp)) },
                     trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) },
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (refs.viewingDropped) "Viewing ${viewing.label} is left out of the next message. Tap to send it" else "Viewing ${viewing.label}. Tap to leave it out of the next message" },
+                    modifier = Modifier.heightIn(min = chipHeight).semantics { contentDescription = if (refs.viewingDropped) "Viewing ${viewing.label} is left out of the next message. Tap to send it" else "Viewing ${viewing.label}. Tap to leave it out of the next message" },
                 )
             }
             items(refs.attached) { r: ChatReference ->
@@ -273,16 +283,16 @@ private fun Composer(
                     label = { Text(r.label, maxLines = 1) },
                     leadingIcon = { Icon(Icons.Rounded.Link, null, Modifier.size(18.dp)) },
                     trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) },
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reference ${r.label}. Remove reference" },
+                    modifier = Modifier.heightIn(min = chipHeight).semantics { contentDescription = "Reference ${r.label}. Remove reference" },
                 )
             }
         }
-        if (draft.isEmpty() && !state.turnRunning) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (draft.isEmpty() && !state.turnRunning && !typing && pending.isEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(suggestions(needsYou, work, refs.viewing.takeUnless { refs.viewingDropped })) { s ->
                 SuggestionChip(onClick = { hub.stack.updateView(thread) { it.copy(draft = s) } }, label = { Text(s) }, modifier = Modifier.heightIn(min = 48.dp))
             }
         }
-        PendingImageRow(pending, onRemove = { id -> hub.stack.removePending(thread, id) })
+        PendingImageRow(pending, onRemove = { id -> hub.stack.removePending(thread, id) }, thumb = if (typing) 44.dp else 64.dp)
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextField(
                 value = draft, onValueChange = { v -> hub.stack.updateView(thread) { it.copy(draft = v) } },
@@ -292,7 +302,7 @@ private fun Composer(
                 },
                 placeholder = { Text("Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}") },
                 leadingIcon = { AttachImageButton(gate, attach) },
-                shape = RoundedCornerShape(28.dp), maxLines = 6,
+                shape = RoundedCornerShape(28.dp), minLines = 1, maxLines = if (typing) 4 else 6,
                 colors = TextFieldDefaults.colors(
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,

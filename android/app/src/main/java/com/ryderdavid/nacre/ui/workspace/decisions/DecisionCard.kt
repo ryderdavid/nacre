@@ -49,7 +49,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,7 +128,8 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
     val set: (DecisionDraft) -> Unit = { DecisionDrafts.set(d.key, it) }
     val sending = d.key in inFlight
     var expanded by remember(d.key) { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    // An answer outlives the card: it can be re-keyed or scrolled away while the request is in flight.
+    val scope = container.scope
     val reduced = LocalReducedMotion.current
     val ask = LocalAskAbout.current
     val openQueue = LocalOpenQueue.current

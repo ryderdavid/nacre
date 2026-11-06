@@ -201,12 +201,12 @@ fun ComposerReason(gate: ComposerGate, modifier: Modifier = Modifier) {
 
 /** The images waiting to go with the next message, each removable. */
 @Composable
-fun PendingImageRow(images: List<ImagePayload>, onRemove: (String) -> Unit, modifier: Modifier = Modifier) {
+fun PendingImageRow(images: List<ImagePayload>, onRemove: (String) -> Unit, modifier: Modifier = Modifier, thumb: Dp = 64.dp) {
     if (images.isEmpty()) return
     LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
         items(images, key = { it.image.id }) { p ->
             Box {
-                ImageThumb(p.image, { p.bytes }, 64.dp)
+                ImageThumb(p.image, { p.bytes }, thumb)
                 Surface(
                     shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp),
