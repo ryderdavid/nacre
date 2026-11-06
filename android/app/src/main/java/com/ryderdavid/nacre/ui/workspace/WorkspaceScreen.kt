@@ -105,3 +105,23 @@ fun projectStrip(repoKey: String): Pair<WorkSummary?, Int> {
     val decisions by repo.decisions.collectAsState()
     return stripWork(work[repoKey].orEmpty()) to decisions[repoKey].orEmpty().count { it.pending || it.state == "held" }
 }
+
+/** Something Ryder points Chat at: a bead, a change, a document, a requirement or a selection. */
+data class ChatReference(
+    /** bead, change, document, requirement, selection or round. */
+    val kind: String,
+    val id: String,
+    /** What the chip shows, e.g. "NAC-axe.3" or "offline-chat-resume". */
+    val label: String,
+    /** Quoted text for a selection or requirement; empty otherwise. */
+    val text: String = "",
+)
+
+/**
+ * Ask about this: attaches a reference to the current thread's composer and shows Chat. Provided by the
+ * workspace; Spec and Beads call it from their own actions.
+ */
+val LocalAskAbout = androidx.compose.runtime.staticCompositionLocalOf<(ChatReference) -> Unit> { {} }
+
+/** What the Spec or Beads pane is showing, published as the next message's Viewing context. */
+val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatReference?) -> Unit> { {} }

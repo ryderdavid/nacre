@@ -180,7 +180,12 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
             }
         },
     ) {
-        Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
+        CompositionLocalProvider(
+            LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT },
+            LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
+        ) {
+            Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
+        }
     }
 
     inspecting?.let { w ->

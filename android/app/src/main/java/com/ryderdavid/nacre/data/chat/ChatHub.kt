@@ -343,6 +343,9 @@ class ChatHub(
     val stack: ChatStack = ChatStack(),
 ) {
     val screens = ScreenContextHolder()
+
+    /** Per project checkout: the references Ryder attached and what the panes show (the Viewing chip). */
+    val references = ChatReferences()
     val watch = ChatWatch(link, scope, notices, inBackground)
     private val conversations = mutableMapOf<String, ChatConversation>()
 
