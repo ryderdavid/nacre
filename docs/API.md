@@ -304,10 +304,14 @@ still a 409).
 | POST | `/v1/runs/{run}/cancel` | – | `Run` (queued → `cancelled` at once; running → returned still `running`, final `cancelled` arrives via SSE/GET within ~5 s; finished → unchanged, 200; **409 for an adopted run**) |
 | POST | `/v1/runs/{run}/followup` | `{"message":"…","mode":"auto"}` | `Run` (409 if running/queued or no session_id; **409 for an adopted run**) |
 | POST | `/v1/runs/{run}/live` | `{"message":"…"}` | `Run` with the send in `peer_messages`; **409** unless the run is a live adopted session with `can_send_live`, or if the send fails. See [Live sends](#live-sends) |
-| GET | `/v1/events` | – | SSE: global `run`, `repo` and `change` notifications |
+| GET | `/v1/events` | – | SSE: global `run`, `repo`, `change`, `round` and `decision` notifications |
 | POST | `/v1/sessions` | Claude Code hook payload | `{"accepted":bool,"reason"?}` (202): a hook telling nacred about a session so the adoption poll runs now. See [Session hints](#session-hints) |
 | GET, POST, DELETE | `/v1/chats…` | see [Chat](#chat-v1chats) | the app's Chat: records, messages, SSE, images, cancel and permission answers |
 | GET | `/v1/attention` | – | `{"items":[AttentionItem]}`: Needs you for every repository on this computer (below) |
+| GET, POST | `/v1/decisions…`, `/v1/chats/{id}/decisions` | see [Decisions](#decisions-v1decisions) | owner decisions: raise, list, answer, ask again |
+| GET | `/v1/projects` | – | `{"projects":[Project]}`: this computer's repositories with their live status (see [Projects and work](#projects-and-work)) |
+| GET | `/v1/repos/{repo}/work` | – | `{"work":[WorkSummary]}`: the repository's rounds and runs as work cards |
+| GET | `/v1/repos/{repo}/specs` | – | `{"specs":[{"name","requirements":[…],"path"}]}`: the repository's current OpenSpec specs |
 | GET | `/v1/config` | – | `{"default_mode","default_model","prompt_template","modes":[…]}` |
 
 `{repo}` is a Repo `id`. `{id}` is the bead id.
@@ -795,7 +799,9 @@ Each message: `id: <seq>`, `event: event`, `data: <RunEvent JSON>`. Whenever run
 active, the server sends a final `event: run` and keeps the stream open (a follow-up may resume it)
 until the client disconnects. Keep-alive comment `: ping` every 15 s. Honors `Last-Event-ID`.
 
-`/v1/events`: `event: run` + Run JSON on any run change; `event: repo` + `{"repo_id":"…"}` after
+`/v1/events`: `event: decision` + Decision JSON whenever a decision is created or changes state (the
+app notifies about a new pending one as it does for a chat permission request); `event: run` + Run
+JSON on any run change; `event: repo` + `{"repo_id":"…"}` after
 any write through the bridge and whenever a run finishes (Claude may have edited beads);
 `event: change` + `{"repo_id","change_id","change_name","phase","seed_id","epic_id"}` on every
 specification change phase transition.
@@ -834,6 +840,170 @@ review) or `round` with `id`, or a sheet to open with a prefill: `found_somethin
 
 A repository whose beads can't be read contributes no items; its board shows the error.
 
+## Decisions (`/v1/decisions`)
+
+A decision is one exact nacred action that only Ryder authorizes, from a paired device. A chat's agent
+raises one for a protected action (see [Token scopes](#token-scopes)); Needs you items are shown as
+decisions too. nacred, not the agent, builds each decision: the action (method, path and body, kept
+server side and never sent to clients), the revision it binds, the consequences and the options. On
+approval nacred revalidates the revision, executes the action once and reports its own result. See
+`openspec/changes/chat-first-harness/specs/owner-decisions`.
+
+### Decision
+```jsonc
+{
+  "id": "dc_8f2a…",
+  "repo": "5b0877e4c7cf", "repo_name": "Nacre",
+  "chat_id": "ch_…",                 // the chat that raised it; null for Needs you items
+  "source": "agent",                 // or "attention"
+  "kind": "approve",                 // approve | land | finish | signoff | limit | adopt | question | recovery | found | intake
+  "title": "Approve offline-chat-resume and run it",
+  "subtitle": "Nacre · Mac-Studio · revision 4c0ffee",
+  "target": {"change": "offline-chat-resume", "bead": "NAC-axe", "round": "rdto3k",
+             "revision": "<change revision digest>", "commit": "a1b2c3d…", "question": "q1", "comment": "c-17"},
+  "consequences": ["Freezes the plan at revision 4c0ffee: 5 sections, 12 tasks", "Up to $25 for the round that runs it"],
+  "evidence": [{"label": "Review passed", "kind": "review", "ref": "<change id>", "repo": "…"}], // kind: review | changes | gates | bead | round | run
+  "body": "longer text: the question, the human check, the build path",
+  "options": [
+    {"id": "run_hold", "label": "Approve, run, I'll land", "detail": "Runs the sections and stops before main when the gates pass",
+     "recommended": true, "protected": true, "input": null, "disabled": "optional: why it can't be chosen yet"}
+  ],
+  "allow_defer": true, "allow_reject": true, "reject_label": "Not right", "reject_needs_note": true,
+  "state": "pending",                // pending | executing | done | failed | unknown | declined | expired | superseded | deferred | held
+  "result": {"ok": true, "message": "Landed at 3f2c1aa and pushed"},   // null until it ran
+  "reason": "why it expired, failed or is held",
+  "superseded_by": "dc_9b11…",
+  "answer": {"option": "run_hold", "note": "…", "input": "…"},       // or {"defer":true} / {"reject":true,"note":"…"}
+  "created_at": "RFC3339", "expires_at": "RFC3339 | null", "answered_at": "RFC3339 | null",
+  "deferred_until": "RFC3339 (while deferred)", "acknowledged": false
+}
+```
+`input` is null, or `{"kind":"amount","label","min","max","unit":"usd","required"}` (an answer must be
+more than `min`, what's spent, and at most `max`, the runaway ceiling), `{"kind":"text","label","required"}`,
+or `{"kind":"choice","label","choices":[{"id","label"}],"required"}`.
+
+`target.revision` is the change's revision **digest** (a string), the same value as `revision` in the
+change APIs, not a counter.
+
+### Routes
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?}` | Decision (201). The chat token works, for its own chat only (403 for another chat's); device tokens may raise one in any chat. `repo` defaults to the chat's repository. 400 for an unknown kind or a missing target, 404 for an unknown repo, round or bead, 409 when the action doesn't apply now (a change not awaiting approval, a round not ready to land, a bead not waiting for sign-off) |
+| GET | `/v1/decisions[?repo={repo}&state=open\|all]` | – | `{"decisions":[Decision]}`: stored decisions and Needs you items, questions and found work first, then approvals and checks, then landing, finishing and limits, newest first in each. `open` (the default) is pending, deferred, held and executing, plus failed and unknown not yet acknowledged |
+| GET | `/v1/decisions/{id}` | – | Decision; 404 for an unknown id |
+| POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
+| POST | `/v1/decisions/{id}/renew` | – | Decision (201): Ask again. A fresh decision built from the current state for the same kind and target, which supersedes the old one (`superseded_by`). 409 while it executes, and for Needs you kinds that nacred raises again itself |
+
+### Building decisions (agent kinds)
+
+| Kind | Target | Options | Consequences and binding |
+|---|---|---|---|
+| `approve` | `bead` (the seed) or `change` | `run_hold` "Approve, run, I'll land" (recommended: approves, runs the epic's sections in a round that lands on the epic branch, and does not finish into the landing target), `run_land` "Approve, run and land to <target>" (approve with `run`: the round finishes the epic into the target), `approve_only` "Approve only". All protected | the frozen revision, sections and tasks; the default round budget; whether landing pushes (from `nacre.yaml`). Bound to the change's revision; the change must be `awaiting_approval`. Reject (note required) sends it back for revision with the note as feedback |
+| `land` | `round` | `land` "Merge into <target> and push" / "Merge, don't push" / "Merge into <target>" (when push is unknown), protected; `cancel` "Cancel round" | the commit and target branch, whether it pushes (the round's `land_push`, else `nacre.yaml`, else "depends on nacre.yaml"), beads that close and those left open with why, the version; the build artifacts in `body`; evidence links the round's changes and gates. Bound to the round's final commit; the round must be `ready_to_land`. Reject ("Don't land") holds it: state `held`, `reason` "Held by you: <note>", Land and Cancel round still offered |
+| `finish` | `bead` (the epic) or `change` | `finish` "Merge into <target> and push" (or "don't push"), protected | merging `epic/<id>` into the target with every gate and the build, archiving the change, pushing, closing the epic. The epic must be open. Reject holds it as for `land` |
+| `signoff` | `bead` | `signoff` "Sign off", protected | closes the bead; `body` is the check to try. The bead must carry the `signoff` label. Reject ("Not right", note required) sends it back with the note |
+| `limit` | `round` | `raise` "Raise the limit" with an amount input (more than spent, at most max(4 × budget, $100)), protected | spent against budget; that raising resumes a round stopped at its limit. Bound to the current budget. Executes `POST /v1/rounds/{round}/limits` |
+| `adopt` | `bead`, `change` (an active change Nacre can adopt for that bead) | `adopt` "Adopt as written", and `adopt_recorded_review` when the change has a `review.md`. Protected | tasks already checked, that Nacre tracks it from here |
+
+Decisions an agent raised expire after 24 hours unanswered. A newer decision for the same kind and
+target supersedes an open older one (`superseded`, `superseded_by`).
+
+### Answering
+
+- **Paired device only**, as for chat permission requests.
+- **Revalidation**: before running an option (or a reject that runs an action), nacred rebuilds the
+  decision from current state. A moved revision (a new change revision, a new final commit, a changed
+  budget) or an action that no longer applies makes it `expired`, with a `reason` naming the old and
+  the new revision; nothing runs. Ask again builds the fresh one.
+- **Once**: the first answer claims the decision (`executing`), so concurrent or repeated answers never
+  run the action twice. The same answer again returns the decision with its state and result; a
+  different answer gets 409.
+- **Execution** goes through nacred's own route as a paired device would. 2xx is `done` with nacred's
+  own `result.message` ("Signed off; NAC-5 is closed", "Budget raised to $50"); 4xx or 503 is `failed`
+  with nacred's error as `reason` and `result.message`; anything else is `unknown`. Landing, finishing
+  and approving finish later: the decision stays `executing` until nacred sees the round land
+  ("Landed at 3f2c1aa and pushed"), stop (`failed`, the stop's reason, the round stays ready to land)
+  or be cancelled, or the change become ready ("Approved revision 4c0ffee; round rdx started") or stop.
+  A decision left executing by a restart is followed again, or marked `unknown` when it can't be.
+- **Defer** keeps it in the queue as `deferred`, outside the count, for a day (then `pending` again).
+- **Reject** acts by kind (above); `declined` when it ran an action or recorded the rejection.
+- **Acknowledge** takes a `failed`, `unknown` or `expired` decision out of the open queue.
+- Options with no action (none today for agent kinds) are recorded as `done`.
+
+### Needs you items as decisions
+
+Every Needs you item is also a decision with `source: "attention"`, a stable id (`dc_` + the item's
+id, or for a round question a digest of the round and the question), `chat_id: null` and no expiry.
+It is stored once it is answered or deferred, keeping its id. Proposals ready (`approve`), rounds
+ready to land (`land`), archivable changes and finishable epics (`finish`) and sign-offs (`signoff`)
+are built exactly like a chat's; an open decision a chat raised for the same target replaces the item
+in the list, so one decision serves the queue and the chat. Other items map their server-defined
+options: each `action` becomes an option (its exact request kept server side, `protected` when the
+route is), each navigation becomes evidence.
+
+| Needs you kind | Decision kind | Options |
+|---|---|---|
+| `round_question` | `question`, one per open question | each suggested answer (the recommended one first) and `own_words` "In my own words" with a required text input, sent as the answer |
+| `bead_decision` | `question` | `answer` with a required text input, added to the bead as a comment |
+| `found_work` (a `Found:` comment) | `found` | `how_order` "Changes how or order" with an optional choice "Required before which section?" (`before_section`), `amend` "Changes what done means", `out_of_scope` "Out of scope" (a new bead related to the epic that answers the comment), `dismiss` |
+| `found_work` (a `found-amend` bead), `review_blocked` | `found`, `question` | the item's own actions |
+| `approval_stale`, `workflow_interrupted`, `bead_parked`, `bead_unclosed`, `bead_stuck` | `recovery` | the item's own actions |
+
+A stored Needs you decision whose item no longer waits expires ("This no longer waits on you."). The
+`intake` kind is reserved; nacred raises none yet.
+
+### Events and notifications
+
+Every created or changed decision is published as `event: decision` on `/v1/events`, and one raised
+in a chat is also appended to that chat's log as a `decision` event, so its card in the thread and in
+the queue update together. The app notifies about a new pending decision as it does for a chat
+permission request.
+
+## Projects and work
+
+### `GET /v1/projects`
+```jsonc
+{"projects": [{
+  "repo": "5b0877e4c7cf", "name": "Nacre", "remote": "github.com/ryderdavid/nacre",
+  "host_id": "h_…", "host_name": "Mac-Studio",
+  "status": "working",               // stalled | working | waiting | idle, in that precedence
+  "status_text": "Round running · 3 of 7 landed · 2 need you",
+  "needs_you": 2,                    // waiting decisions, Needs you items included (not deferred)
+  "active_change": "offline-chat-resume",
+  "last_line": "Gates pass after the merge", "last_at": "RFC3339",   // the newest chat in the repository
+  "work": WorkSummary | null         // the newest round or run that is running, stopped, ready or held
+}]}
+```
+These are this computer's repositories; the app groups them by `remote` across computers.
+
+### `GET /v1/repos/{repo}/work`
+`{"work":[WorkSummary]}`: the repository's rounds and its runs outside rounds, newest first by start:
+everything still going, and what ended in the last 24 hours (at most 50).
+```jsonc
+{
+  "kind": "round",                   // or "run"
+  "id": "rdto3k", "title": "Round rdto3k · NAC-axe", "change": "offline-chat-resume", "branch": "epic/nac-axe",
+  "state": "running",                // running | stopped | ready_to_land | held | done | failed | cancelled
+  "landed": 3, "total": 5,           // beads integrated out of the round's beads (a run is 0 or 1 of 1)
+  "gates": [{"name": "bridge", "state": "pass"}],   // pass | fail | pending, nacre.yaml's gates first
+  "spend_usd": 6.4, "budget_usd": 50,
+  "reason": "why it stopped, failed or is held",
+  "started_at": "RFC3339", "last_output_at": "RFC3339",
+  "stalled": false,                  // only when nacred's own stall threshold (stall_minutes, default 15) fired on a running run
+  "chat_id": "ch_…" | null,          // the chat that started it
+  "decision_id": "dc_…" | null,      // an open decision about it
+  "round_state": "implementing", "run_status": "running"
+}
+```
+A round is `stopped` while it waits for answers or is paused, and `held` while it is ready to land and
+Ryder rejected landing it.
+
+### `GET /v1/repos/{repo}/specs`
+`{"specs":[{"name":"agent-chat","requirements":["Chat runs the full agent harness on the host", …],"path":"openspec/specs/agent-chat/spec.md"}]}`:
+each capability folder under `openspec/specs` with a `spec.md`, by name, with its `### Requirement:`
+headings in order. Empty when the repository has no OpenSpec specs.
+
 ## Chat (`/v1/chats`)
 
 Chat is the app's one agentic conversation: a full Claude Code (or Codex) session on this computer,
@@ -850,7 +1020,8 @@ the chat token (see [Token scopes](#token-scopes)). With Chat not set up on the 
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/v1/chats` | – | `{"chats":[ChatRecord]}`, most recently updated first |
+| GET | `/v1/chats[?repo={repo}]` | – | `{"chats":[ChatRecord]}`, most recently updated first; `repo` keeps one checkout's chats. Each also carries `waiting`: its pending permission requests plus the [decisions](#decisions-v1decisions) it raised that wait on Ryder (pending, held, or failed/unknown not yet acknowledged) |
+| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?}` | Decision (201): see [Decisions](#decisions-v1decisions) |
 | POST | `/v1/chats` | `{"agent","repo","context","new_effort"?}` | `{"chat":ChatRecord}` (201). `agent` is `claude` (default) or `codex`; `repo` is a repository key on this computer, or `null` for all boards. There is no model field. **400** `unknown repo` for a key that isn't on this computer, or `unknown agent`. **409** with the reason when that agent can't serve Chat here (the same reason as `agent_chat_unavailable` / `agent_chat_codex_unavailable` in health) |
 | GET | `/v1/chats/{id}` | – | `{"chat":ChatRecord,"events":[ChatEvent]}`: the record and the newest 500 events |
 | GET | `/v1/chats/{id}/stream[?after=seq]` | – | SSE (below). `Last-Event-ID` is honoured and wins over `after` |
@@ -887,6 +1058,7 @@ Stored as `chats/<id>.json` (mode 0600) under nacred's state directory.
 | `turn_id` | the running turn, or the last one |
 | `last_seq` | the newest event's `seq` |
 | `phone` | the Tailscale device of the phone that created the chat (for Taildrop); empty when unknown |
+| `last_line` | the first line of the newest message, Ryder's or the agent's (up to 160 characters) |
 
 States:
 
@@ -916,6 +1088,7 @@ newest 5,000 events; older ones are dropped behind one `truncated` marker.
 | `draft` | a New effort draft: `draft` `{"title","type"?,"description"?,"design"?,"acceptance"?}`, `text` its title, `route` |
 | `permission` | a request waiting for the phone: `request_id`, `tool`, `text` (one line: the command, the file path, or "MCP tool <name> on <server>"), `reason` (the classifier's reason, when given), `input` |
 | `permission_answer` | how it was decided: `request_id`, `allowed`, `by` (`phone`, `timeout`, `stop`, `restart` or `turn_end`), `text`/`reason` (the deny message the agent saw) |
+| `decision` | a [decision](#decisions-v1decisions) raised in this chat, each time it is created or changes state: `decision` holds the Decision as `GET /v1/decisions/{id}` returns it |
 | `system` | a note from nacred, for example the interruption by a restart |
 | `error` | a failure, including "The draft couldn't be read: <reason>" |
 | `turn_end` | the turn finished: `text` "Turn finished", "Stopped" or "Turn ended with an error" (with `is_error`), `cost_usd` (what this turn spent, Claude only) |
