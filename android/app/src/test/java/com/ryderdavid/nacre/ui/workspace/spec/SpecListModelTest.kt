@@ -2,6 +2,7 @@ package com.ryderdavid.nacre.ui.workspace.spec
 
 import com.ryderdavid.nacre.data.model.ChangeDraft
 import com.ryderdavid.nacre.data.model.ChangeSummary
+import com.ryderdavid.nacre.data.model.CurrentSpec
 import com.ryderdavid.nacre.data.model.SectionSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -103,6 +104,51 @@ class SpecListModelTest {
         assertEquals(listOf("chat-first", "offline-resume"), model.specs[0].changes)
         assertEquals("chat-first", model.specs[0].changeId)
         assertEquals("2 changes · 18 specs", model.countsText)
+    }
+
+    @Test
+    fun `every current spec is listed, those an open change touches marked with it`() {
+        val changes = listOf(change("chat-first", "awaiting_approval"))
+        val paths = mapOf(
+            "chat-first" to listOf(
+                "openspec/changes/chat-first/specs/agent-chat/spec.md",
+                "openspec/changes/chat-first/specs/owner-decisions/spec.md",
+            ),
+        )
+        val current = listOf(
+            CurrentSpec("agent-chat", listOf("Chat runs the full agent harness on the host"), "openspec/specs/agent-chat/spec.md"),
+            CurrentSpec("beads-board", listOf("Lanes by status", "Drag to move"), "openspec/specs/beads-board/spec.md"),
+        )
+        val model = SpecList.build(changes, paths, acceptedSpecs = 18, current = current)
+        assertTrue(model.allSpecs)
+        assertEquals(listOf("agent-chat", "beads-board", "owner-decisions"), model.specs.map { it.capability })
+        val (chat, board, decisions) = model.specs
+        assertEquals("chat-first", chat.changeId)
+        assertEquals(listOf("Chat runs the full agent harness on the host"), chat.requirements)
+        // A spec no open change touches has no change to open; it shows its requirements.
+        assertNull(board.changeId)
+        assertEquals(2, board.requirements.size)
+        // A capability the change adds isn't in openspec/specs yet.
+        assertEquals(false, decisions.current)
+        assertEquals(listOf("chat-first"), decisions.changes)
+        // The inventory is the project's count.
+        assertEquals("1 change · 2 specs", model.countsText)
+    }
+
+    @Test
+    fun `search finds a current spec by one of its requirements`() {
+        val current = listOf(CurrentSpec("beads-board", listOf("Lanes by status", "Drag to move")), CurrentSpec("agent-chat", listOf("Chat runs on the host")))
+        assertEquals(listOf("beads-board"), SpecList.build(emptyList(), query = "drag", current = current).specs.map { it.capability })
+    }
+
+    @Test
+    fun `an older computer without the inventory lists only the specs open changes touch`() {
+        val changes = listOf(change("chat-first", "awaiting_approval"))
+        val paths = mapOf("chat-first" to listOf("openspec/changes/chat-first/specs/agent-chat/spec.md"))
+        val model = SpecList.build(changes, paths, acceptedSpecs = 18, current = null)
+        assertEquals(false, model.allSpecs)
+        assertEquals(listOf("agent-chat"), model.specs.map { it.capability })
+        assertEquals("1 change · 18 specs", model.countsText)
     }
 
     @Test

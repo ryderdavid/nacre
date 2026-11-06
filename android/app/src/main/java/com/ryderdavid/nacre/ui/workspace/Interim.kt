@@ -22,12 +22,19 @@ fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProj
     com.ryderdavid.nacre.ui.workspace.chat.ChatPaneM3(repoKey, thread, onThread, onProjects, onEvidence = LocalOpenEvidence.current)
 }
 
-/** The project's Needs-you queue: every open decision, pending first, then held, failed and deferred. */
+/**
+ * The project's Needs-you queue: every open decision, pending first, then held, unresolved outcomes, work
+ * still executing and deferred. Opened at a decision (a notification, or a change waiting in Spec), that
+ * one is listed first.
+ */
 @Composable
 fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     val repo = LocalContainer.current.repository
     val decisions by repo.decisions.collectAsState()
-    val list = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queueOrder(decisions[repoKey].orEmpty().filter { it.open })
+    val focus by repo.queueFocus.collectAsState()
+    val focusId = focus?.takeIf { it.repoKey == repoKey }?.decisionId
+    val list = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queue(decisions[repoKey].orEmpty(), focusId)
+    androidx.compose.runtime.DisposableEffect(repoKey) { onDispose { repo.clearQueueFocus(repoKey) } }
     val open = LocalOpenEvidence.current
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
         item { Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(bottom = 4.dp)) }

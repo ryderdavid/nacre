@@ -28,6 +28,8 @@ object ChatWire {
     const val PERMISSION_ANSWER = "permission_answer"
     const val HANDOFF = "handoff"
     const val DRAFT = "draft"
+    /** A decision raised in the chat, each time it is created or changes state. */
+    const val DECISION = "decision"
     const val ERROR = "error"
     const val TURN_END = "turn_end"
     const val TRUNCATED = "truncated"
@@ -127,6 +129,8 @@ data class ChatEvent(
     val draft: ChatDraft? = null,
     /** The stored images a user message sent, in order. */
     val images: List<ChatImageRef> = emptyList(),
+    /** The decision a `decision` event carries, as `GET /v1/decisions/{id}` returns it. */
+    val decision: Decision? = null,
 )
 
 /**

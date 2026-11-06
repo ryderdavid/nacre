@@ -2,7 +2,10 @@ package com.ryderdavid.nacre.data.chat
 
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.ChatStreamMessage
+import com.ryderdavid.nacre.data.model.ChatEvent
 import com.ryderdavid.nacre.data.model.ChatRecord
+import com.ryderdavid.nacre.data.model.ChatWire
+import com.ryderdavid.nacre.data.model.Decision
 import com.ryderdavid.nacre.data.model.ChatSendResult
 import com.ryderdavid.nacre.data.model.CreateChat
 import com.ryderdavid.nacre.data.model.PermissionOutcome
@@ -25,4 +28,15 @@ interface ChatLink {
     suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): PermissionOutcome
     /** The bytes of the stored image [image] a message of chat [key] sent, for its thumbnail. */
     suspend fun chatImage(key: String, image: String): ByteArray
+
+    /**
+     * A decision a chat's log carried (created or changed), tagged with its computer: kept with the
+     * project's decisions, and announced when it newly waits. A no-op where nothing keeps them.
+     */
+    fun learnDecision(d: Decision) {}
 }
+
+/** The newest state of each decision [events] carry, tagged with the chat's computer [hostId]. */
+fun latestDecisions(events: List<ChatEvent>, hostId: String): List<Decision> =
+    events.filter { it.kind == ChatWire.DECISION }.mapNotNull { it.decision }
+        .associateBy { it.id }.values.map { it.copy(hostId = hostId) }

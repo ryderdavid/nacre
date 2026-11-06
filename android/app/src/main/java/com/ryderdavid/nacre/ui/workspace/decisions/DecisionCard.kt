@@ -296,7 +296,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     }
                     if (DecisionModel.canRenew(d)) TextButton(onClick = { scope.launch { runCatching { container.repository.renewDecision(d) } } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask again") }
                     if (d.state == "superseded") TextButton(onClick = openQueue, modifier = Modifier.heightIn(min = 48.dp)) { Text("See the newer one") }
-                    if (d.state in setOf("failed", "unknown")) TextButton(onClick = { submit(DecisionAnswer(acknowledge = true), false) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Got it") }
+                    if (DecisionModel.canAcknowledge(d)) TextButton(onClick = { submit(DecisionAnswer(acknowledge = true), false) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Got it") }
                     TextButton(onClick = { expanded = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Collapse") }
                 }
             }

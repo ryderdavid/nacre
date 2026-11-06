@@ -37,12 +37,18 @@ class AppContainer(app: Application) {
     /** The one chat in the app: its current chat id is remembered in settings. */
     val chatStack = ChatStack(persist = { key -> scope.launch { settings.setCurrentChat(key) } })
 
+    private val chatNotifier = com.ryderdavid.nacre.notify.ChatNotifier(app)
+    private val inBackground = { !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) }
+
     /** Chat: conversations, the current chat, the screen-context holder and the background watch. */
-    val chats = com.ryderdavid.nacre.data.chat.ChatHub(
-        repository, scope, com.ryderdavid.nacre.notify.ChatNotifier(app),
-        inBackground = { !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) },
-        stack = chatStack,
-    )
+    val chats = com.ryderdavid.nacre.data.chat.ChatHub(repository, scope, chatNotifier, inBackground = inBackground, stack = chatStack)
+
+    /** One notification per decision that newly waits, from `/v1/events` and the chats' logs alike. */
+    private val decisionAlerts = com.ryderdavid.nacre.data.DecisionAlerts(chatNotifier, inBackground)
+
+    init {
+        scope.launch { repository.decisionChanges.collect(decisionAlerts::seen) }
+    }
 
     init {
         scope.launch { chatStack.restore(settings.settings.first().currentChat) }

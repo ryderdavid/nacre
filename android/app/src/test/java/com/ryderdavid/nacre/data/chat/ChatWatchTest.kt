@@ -2,7 +2,9 @@ package com.ryderdavid.nacre.data.chat
 
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.ChatStreamMessage
+import com.ryderdavid.nacre.data.model.ChatEvent
 import com.ryderdavid.nacre.data.model.ChatRecord
+import com.ryderdavid.nacre.data.model.Decision
 import com.ryderdavid.nacre.data.model.ChatWire
 import com.ryderdavid.nacre.data.model.Keys
 import kotlinx.coroutines.CompletableDeferred
@@ -90,6 +92,23 @@ class ChatWatchTest {
         watch.refresh()
         until { watch.watching.value.isEmpty() && notices.posted.isNotEmpty() }
         assertEquals(listOf("a~c1/r1"), notices.posted)
+    }
+
+    @Test fun `decisions a chat's log carries are handed on with their computer, newest state each`() = runBlocking {
+        val notices = RecordingNotices()
+        fun decision(seq: Long, id: String, state: String) = ChatEvent(seq = seq, kind = ChatWire.DECISION, decision = Decision(id = id, repo = "r1", chatId = "c1", state = state))
+        val link = FakeChatLink(
+            listing = ChatListing(listOf(rec("c1", ChatWire.RUNNING))),
+            // The log has dc_1 raised and then answered, and dc_2 raised.
+            detail = { BridgeClient.ChatDetail(ChatRecord("c1", state = ChatWire.RUNNING), listOf(decision(1, "dc_1", "pending"), decision(2, "dc_2", "pending"), decision(3, "dc_1", "done"))) },
+        )
+        link.streams += { _, _ -> stream(*events(decision(4, "dc_2", "expired")), ChatStreamMessage.State(ChatRecord("c1", state = ChatWire.IDLE))) }
+        val watch = ChatWatch(link, this, notices, inBackground = { true }, backoff = ::quickBackoff)
+        watch.refresh()
+        until { watch.watching.value.isEmpty() && link.learned.size == 3 }
+        assertEquals(listOf("a~dc_1" to "done", "a~dc_2" to "pending", "a~dc_2" to "expired"), link.learned.map { it.key to it.state })
+        // Decisions aren't permission requests: no "Chat needs your OK" for them.
+        assertTrue(notices.posted.isEmpty())
     }
 
     @Test fun `idle, interrupted and limit_reached chats are not watched`() = runBlocking {

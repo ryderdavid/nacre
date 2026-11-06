@@ -65,6 +65,9 @@ internal class FakeChatLink(
     var refuse: Exception? = null
 
     override suspend fun refreshChats() = listing
+    /** Decisions the chats' logs carried, in the order they were handed on. */
+    val learned = mutableListOf<com.ryderdavid.nacre.data.model.Decision>()
+    override fun learnDecision(d: com.ryderdavid.nacre.data.model.Decision) { synchronized(learned) { learned += d } }
     val created = mutableListOf<Pair<String, CreateChat>>()
     override suspend fun createChat(hostId: String, body: CreateChat): ChatRecord {
         created += hostId to body

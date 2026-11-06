@@ -4,7 +4,9 @@ import com.ryderdavid.nacre.data.model.Decision
 import com.ryderdavid.nacre.data.model.DecisionInput
 import com.ryderdavid.nacre.data.model.DecisionOption
 import com.ryderdavid.nacre.data.model.DecisionResult
+import com.ryderdavid.nacre.data.model.DecisionTarget
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -91,6 +93,72 @@ class DecisionModelTest {
     fun `questions come before approvals, approvals before landing`() {
         val list = listOf(approve.copy(id = "land", kind = "land"), approve.copy(id = "ap"), approve.copy(id = "q", kind = "question"))
         assertEquals(listOf("q", "ap", "land"), DecisionModel.queueOrder(list).map { it.id })
+    }
+
+    @Test
+    fun `got it takes a failed, unknown or expired outcome out of the queue`() {
+        for (state in listOf("failed", "unknown", "expired")) {
+            val d = approve.copy(state = state)
+            assertTrue(state, d.open)
+            assertTrue(state, DecisionModel.canAcknowledge(d))
+            val acked = d.copy(acknowledged = true)
+            assertFalse(state, acked.open)
+            assertFalse(state, DecisionModel.canAcknowledge(acked))
+        }
+        // Done and superseded aren't listed; a Needs you item that expired no longer waits.
+        assertFalse(approve.copy(state = "done").open)
+        assertFalse(approve.copy(state = "superseded").open)
+        assertFalse(approve.copy(state = "expired", source = "attention").open)
+        assertFalse(DecisionModel.canAcknowledge(approve.copy(state = "done")))
+    }
+
+    @Test
+    fun `needs you counts what waits on Ryder, the rest keeps the queue reachable`() {
+        val list = listOf(
+            approve.copy(id = "p"), approve.copy(id = "h", state = "held"),
+            approve.copy(id = "d", state = "deferred"), approve.copy(id = "f", state = "failed"),
+            approve.copy(id = "x", state = "expired", reason = "revision 5 was written"),
+            approve.copy(id = "u", state = "unknown", acknowledged = true), approve.copy(id = "fin", state = "done"),
+        )
+        assertEquals(QueueCount(needsYou = 2, inQueue = 3), DecisionModel.counts(list))
+        // Only deferred and unresolved outcomes left: nothing needs him, yet the queue stays reachable.
+        val quiet = DecisionModel.counts(list.filter { it.id in setOf("d", "f") })
+        assertEquals(0, quiet.needsYou)
+        assertTrue(quiet.any)
+        assertFalse(DecisionModel.counts(listOf(approve.copy(state = "done"))).any)
+    }
+
+    @Test
+    fun `the queue lists unresolved outcomes after held work, with expired ones and their reason`() {
+        val list = listOf(
+            approve.copy(id = "d", state = "deferred"), approve.copy(id = "e", state = "executing"),
+            approve.copy(id = "x", state = "expired", reason = "revision 5 was written"), approve.copy(id = "h", state = "held"),
+            approve.copy(id = "p"), approve.copy(id = "fin", state = "done"),
+        )
+        val queue = DecisionModel.queue(list)
+        assertEquals(listOf("p", "h", "x", "e", "d"), queue.map { it.id })
+        assertEquals("Expired: revision 5 was written", DecisionModel.stateLine(queue[2]))
+    }
+
+    @Test
+    fun `the queue opened at a decision lists it first, even once it's answered`() {
+        val list = listOf(approve.copy(id = "p"), approve.copy(id = "h", state = "held"), approve.copy(id = "fin", state = "done", result = DecisionResult(true, "Landed at 3f2c1aa")))
+        assertEquals(listOf("h", "p"), DecisionModel.queue(list, focus = "h").map { it.id })
+        assertEquals(listOf("fin", "p", "h"), DecisionModel.queue(list, focus = "fin").map { it.id })
+        assertEquals(listOf("p", "h"), DecisionModel.queue(list, focus = "gone").map { it.id })
+    }
+
+    @Test
+    fun `a change waiting for Ryder finds its decision by change, name or seed`() {
+        val list = listOf(
+            approve.copy(id = "old", state = "superseded", target = DecisionTarget(change = "offline-chat-resume")),
+            approve.copy(id = "land", kind = "land", target = DecisionTarget(change = "offline-chat-resume", round = "rd1"), createdAt = "2026-11-06T02:00:00Z"),
+            approve.copy(id = "ap", target = DecisionTarget(bead = "NAC-axe"), createdAt = "2026-11-06T01:00:00Z"),
+            approve.copy(id = "other", target = DecisionTarget(change = "set-up-gates")),
+        )
+        assertEquals("ap", DecisionModel.forChange(list, "ch_1", "offline-chat-resume", setOf("NAC-axe"))?.id)
+        assertEquals("land", DecisionModel.forChange(list, "offline-chat-resume", "", emptySet())?.id)
+        assertNull(DecisionModel.forChange(list, "ch_9", "nothing", setOf("NAC-zzz")))
     }
 
     @Test

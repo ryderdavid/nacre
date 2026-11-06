@@ -5,6 +5,7 @@ import com.ryderdavid.nacre.data.board.BoardIndex
 import com.ryderdavid.nacre.data.board.MoveAction
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.BridgeException
+import com.ryderdavid.nacre.data.bridge.HostEvent
 import com.ryderdavid.nacre.data.bridge.RoundMessage
 import com.ryderdavid.nacre.data.bridge.StreamMessage
 import com.ryderdavid.nacre.data.model.AttentionItem
@@ -315,7 +316,11 @@ class NacreRepository(
                 }
                 if (health.hostId.isNotEmpty() && health.hostId != p.host.hostId) settings.setReportedHostId(id, health.hostId)
                 backoff = 1_000L
-                p.client.events().collect { msg ->
+                p.client.events().collect { ev ->
+                    val msg = when (ev) {
+                        is HostEvent.DecisionChanged -> { learnDecision(ev.decision.copy(hostId = id)); return@collect }
+                        is HostEvent.Stream -> ev.message
+                    }
                     when (msg) {
                         is StreamMessage.RunChanged -> upsertRun(msg.run.tag(p.host))
                         is StreamMessage.RoundChanged -> { upsertRound(msg.round.tag(p.host)); attentionSoon(p) }
@@ -547,14 +552,61 @@ class NacreRepository(
         decisionLists.update { it + (key to list?.map { d -> d.copy(hostId = host) }) }
     }
 
-    /** Records a decision that changed (from an answer or a chat event) without waiting for a refresh. */
-    fun learnDecision(d: com.ryderdavid.nacre.data.model.Decision) {
+    private val decisionReads = ConcurrentHashMap<String, Job>()
+    private val _decisionChanges = MutableSharedFlow<com.ryderdavid.nacre.data.model.Decision>(extraBufferCapacity = 32)
+
+    /** Every decision as it is created or changes, from any source, tagged with its computer (for notifications). */
+    val decisionChanges: SharedFlow<com.ryderdavid.nacre.data.model.Decision> = _decisionChanges
+
+    /**
+     * Records a decision that changed (from `/v1/events`, a chat's log or an answer) without waiting for a
+     * refresh, keyed by its computer and repository. A project whose decisions were never read is read
+     * whole instead, so its queue never shows just the one that happened to change.
+     */
+    override fun learnDecision(d: com.ryderdavid.nacre.data.model.Decision) {
+        if (d.hostId.isBlank() || d.repo.isBlank()) return
         val key = Keys.of(d.hostId, d.repo)
+        var known = true
         decisionLists.update { m ->
-            val list = m[key] ?: return@update m
-            val next = if (list.any { it.id == d.id }) list.map { if (it.id == d.id) d else it } else list + d
-            m + (key to next)
+            val list = m[key]
+            if (list == null) { known = false; return@update m }
+            m + (key to upsertDecision(list, d))
         }
+        if (!known && decisionReads[key]?.isActive != true) decisionReads[key] = refreshDecisions(key)
+        _decisionChanges.tryEmit(d)
+    }
+
+    /** Where the queue should open: at a decision a notification or the Spec panel pointed at. */
+    data class QueueFocus(val repoKey: String, val decisionId: String?, val open: Boolean, val at: Long = System.currentTimeMillis())
+
+    private val queueFocusState = MutableStateFlow<QueueFocus?>(null)
+    val queueFocus: StateFlow<QueueFocus?> = queueFocusState
+
+    /**
+     * Points [repoKey]'s queue at [decisionId] (shown first). With [open], the workspace's strip opens the
+     * queue when it next shows that project, as a notification asks.
+     */
+    fun focusQueue(repoKey: String, decisionId: String?, open: Boolean = false) {
+        queueFocusState.value = QueueFocus(repoKey, decisionId, open)
+    }
+
+    /** The queue was opened as asked; it keeps its focus until it closes. */
+    fun queueOpened() = queueFocusState.update { it?.copy(open = false) }
+
+    /** The queue for [repoKey] closed: its focus is spent. */
+    fun clearQueueFocus(repoKey: String) = queueFocusState.update { if (it?.repoKey == repoKey) null else it }
+
+    private val specLists = MutableStateFlow<Map<String, List<com.ryderdavid.nacre.data.model.CurrentSpec>?>>(emptyMap())
+
+    /**
+     * Each project's current specs (openspec/specs) by repository key: absent until read, null from a
+     * nacred without the inventory, where the Spec panel lists only the specs open changes touch.
+     */
+    val currentSpecs: StateFlow<Map<String, List<com.ryderdavid.nacre.data.model.CurrentSpec>?>> = specLists
+
+    fun refreshSpecs(key: String) = scope.launch {
+        val list = runCatching { clientFor(key).specs(Keys.id(key)) }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
+        specLists.update { it + (key to list) }
     }
 
     /**
@@ -569,10 +621,16 @@ class NacreRepository(
             perform(item, option)
             return d.copy(state = "done")
         }
-        val out = clientFor(Keys.of(d.hostId, d.repo)).answerDecision(d.id, answer).copy(hostId = d.hostId)
+        val sent = clientFor(Keys.of(d.hostId, d.repo)).answerDecision(d.id, answer).copy(hostId = d.hostId)
+        // Got it leaves the queue even from a nacred that doesn't echo the flag.
+        val out = if (answer.acknowledge == true) sent.copy(acknowledged = true) else sent
         learnDecision(out)
         return out
     }
+
+    /** [list] with [d] in place of the decision with its id, or added. */
+    private fun upsertDecision(list: List<com.ryderdavid.nacre.data.model.Decision>, d: com.ryderdavid.nacre.data.model.Decision) =
+        if (list.any { it.id == d.id }) list.map { if (it.id == d.id) d else it } else list + d
 
     /** Cancels a round from a work card, reporting the outcome as a notice. */
     fun cancelRoundQuietly(roundKey: String) = scope.launch {
