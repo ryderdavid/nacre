@@ -572,6 +572,33 @@ func TestValidationFailureIsFixedByTheNextPass(t *testing.T) {
 		t.Fatalf("phase=%s calls=%d error=%s", c.Phase, model.count(), c.Error)
 	}
 }
+// A drafted tasks.md with a section that lists no tasks goes back to the
+// author like a validation failure, instead of stopping the draft (NAC-ym4).
+func TestTasksSectionWithoutTasksGoesBackToTheAuthor(t *testing.T) {
+	repo, _, model, opts := fixture(t)
+	authors := 0
+	model.fn = func(ctx context.Context, h claude.Headless, n int) (any, float64, error) {
+		if h.System == authorSystem {
+			authors++
+			a := goodAuthor(modelContext(h))
+			if authors == 1 {
+				for i := range a.Artifacts {
+					if strings.HasSuffix(a.Artifacts[i].Path, "/tasks.md") {
+						a.Artifacts[i].Content += "\n## Workflow follow-up\n\nLater, revisit the bottom bar once this lands.\n"
+					}
+				}
+			}
+			return a, 0.1, nil
+		}
+		return normalModel(ctx, h, n)
+	}
+	m := newManager(t, opts)
+	c := act(t, m, repo, "NAC-1", Action{Action: "develop"})
+	if c.Phase != "awaiting_approval" || authors != 2 || c.Error != "" {
+		t.Fatalf("phase=%s authors=%d error=%s", c.Phase, authors, c.Error)
+	}
+}
+
 func TestRestartInterruptDoesNotRepeatBillableCall(t *testing.T) {
 	repo, _, model, opts := fixture(t)
 	entered := make(chan struct{})
