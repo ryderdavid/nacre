@@ -30,7 +30,10 @@ type Action struct {
 	Action   string `json:"action"`
 	Revision string `json:"revision,omitempty"`
 	// Run starts and finishes the epic after successful approval/promotion.
-	Run      bool   `json:"run,omitempty"`
+	Run bool `json:"run,omitempty"`
+	// Hold, with Run, runs the epic's sections without finishing the epic
+	// into the landing target: the work stops before main for Ryder.
+	Hold     bool   `json:"hold,omitempty"`
 	Feedback string `json:"feedback,omitempty"`
 	// Intake is the New effort verdict a develop was confirmed with.
 	Intake *IntakeHint `json:"intake,omitempty"`
@@ -150,9 +153,10 @@ type Options struct {
 	Headless Headless
 	// Validate runs strict noninteractive OpenSpec validation. Nil discovers the installed CLI.
 	Validate func(context.Context, string, string) error
-	// RunEpic starts a round for the promoted epic with automatic landing and
-	// finishing. It is called after ready is persisted, outside manager locks.
-	RunEpic func(ctx context.Context, repoPath, epicID string) (roundID string, err error)
+	// RunEpic starts a round for the promoted epic with automatic landing,
+	// and finishing it into the landing target when finish is set. It is
+	// called after ready is persisted, outside manager locks.
+	RunEpic func(ctx context.Context, repoPath, epicID string, finish bool) (roundID string, err error)
 	// Active returns a description/link of an active linked implementation, or empty.
 	Active func(repoPath, changeID string) string
 	// Notify may publish a changed repository; it must not block.

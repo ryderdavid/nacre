@@ -46,7 +46,7 @@ func runRound(cfg *config.Config, args []string, out io.Writer) error {
 	if cmd == "gc" {
 		return roundGC(cfg, out)
 	}
-	c := &roundClient{base: "http://" + cfg.ResolveListen("", 3*time.Second), token: cfg.Token}
+	c := &roundClient{base: "http://" + cfg.ResolveListen("", 3*time.Second), token: clientToken(cfg)}
 	switch cmd {
 	case "start":
 		return c.start(args, out)

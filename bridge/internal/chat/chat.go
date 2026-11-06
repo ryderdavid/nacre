@@ -141,6 +141,9 @@ type Record struct {
 	// TurnIDs are the turns this chat has started, newest last, so a resend
 	// is recognised.
 	TurnIDs []string `json:"turn_ids,omitempty"`
+	// LastLine is the first line of the newest message, Ryder's or the
+	// agent's, for chat lists.
+	LastLine string `json:"last_line"`
 }
 
 // Event is one entry in a chat's log.
@@ -170,6 +173,9 @@ type Event struct {
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	// Draft is a New effort draft the agent wrote (kind draft).
 	Draft *Draft `json:"draft,omitempty"`
+	// Decision is an owner decision raised in this chat, as it was created
+	// or changed (kind decision).
+	Decision json.RawMessage `json:"decision,omitempty"`
 }
 
 // chatState is a loaded chat.
@@ -225,6 +231,9 @@ type Options struct {
 	RouterTimeout time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// ChatToken mints a chat's scoped token, given to its turns as
+	// NACRE_CHAT_TOKEN; nil gives turns no token.
+	ChatToken func(chatID string) string
 }
 
 var idRe = regexp.MustCompile(`^ch_[a-f0-9]{24}$`)
@@ -608,6 +617,9 @@ func (m *Manager) appendLocked(c *chatState, ev Event) Event {
 		m.opts.Logger.Printf("chat %s: append event: %v", c.rec.ID, err)
 	}
 	c.events = append(c.events, ev)
+	if line := lastLineOf(ev); line != "" {
+		c.rec.LastLine = line
+	}
 	if m.countLocked(c) > MaxEvents {
 		m.truncateLocked(c)
 	}

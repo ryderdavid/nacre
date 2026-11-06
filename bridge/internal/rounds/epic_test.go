@@ -257,6 +257,35 @@ func TestSpecRoundsLandWhenReadyOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// land.auto lands ordinary rounds on their own, except a round started with
+// HoldLanding (a chat's), which waits for Ryder.
+func TestHoldLandingIgnoresLandAuto(t *testing.T) {
+	repo := testRepo(t)
+	yaml, _ := os.ReadFile(filepath.Join(repo, "nacre.yaml"))
+	os.WriteFile(filepath.Join(repo, "nacre.yaml"), []byte(strings.Replace(string(yaml), "  push: false", "  push: false\n  auto: true", 1)), 0o644)
+	if _, err := gitx.CommitAll(context.Background(), repo, "auto land"); err != nil {
+		t.Fatal(err)
+	}
+	beads := newFakeBeads(&fakeBead{ID: "T-1", Title: "One", Type: "task"}, &fakeBead{ID: "T-2", Title: "Two", Type: "task"})
+	h := newHarnessWith(t, beads, emptyPlan, harnessOpts{repo: repo})
+	for _, tc := range []struct {
+		bead string
+		hold bool
+	}{{"T-1", false}, {"T-2", true}} {
+		r, err := h.m.Create(CreateRequest{RepoID: "repo", Beads: []string{tc.bead}, HoldLanding: tc.hold})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.AutoLand == tc.hold {
+			t.Fatalf("hold=%v: auto_land=%v", tc.hold, r.AutoLand)
+		}
+		if _, err := h.m.Cancel(r.ID); err != nil {
+			t.Fatal(err)
+		}
+		h.wait(t, r.ID, api.RoundCancelled)
+	}
+}
+
 // A bead whose close fails stays open with the reason on the round, instead
 // of the failure being dropped.
 func TestAFailedCloseIsRecordedOnTheRound(t *testing.T) {

@@ -50,26 +50,28 @@ type callResult struct {
 	Error  string          `json:"error,omitempty"`
 }
 type record struct {
-	LastCall          *callResult          `json:"last_call,omitempty"`
-	Repo              string               `json:"repo"`
-	Change            Change               `json:"change"`
-	Aliases           []string             `json:"aliases"`
-	ExtraSeeds        []issue              `json:"extra_seeds,omitempty"`
-	PendingPrepared   bool                 `json:"pending_prepared"`
-	Seed              issue                `json:"seed"`
-	Stage             string               `json:"stage"`
-	Feedback          string               `json:"feedback"`
-	Inventory         inventory            `json:"inventory"`
-	Baseline          map[string]string    `json:"baseline"`
-	PendingAuthor     *authorResult        `json:"pending_author,omitempty"`
-	Generated         map[string]generated `json:"generated"`
-	Planned           map[string]generated `json:"planned"`
-	ActionCost        float64              `json:"action_cost"`
-	ReservedCost      float64              `json:"reserved_cost"`
-	ReviewCalls       int                  `json:"review_calls"`
-	Pass              int                  `json:"pass"`
-	RunAfterApproval  bool                 `json:"run_after_approval,omitempty"`
-	PromotionRevision string               `json:"promotion_revision,omitempty"`
+	LastCall         *callResult          `json:"last_call,omitempty"`
+	Repo             string               `json:"repo"`
+	Change           Change               `json:"change"`
+	Aliases          []string             `json:"aliases"`
+	ExtraSeeds       []issue              `json:"extra_seeds,omitempty"`
+	PendingPrepared  bool                 `json:"pending_prepared"`
+	Seed             issue                `json:"seed"`
+	Stage            string               `json:"stage"`
+	Feedback         string               `json:"feedback"`
+	Inventory        inventory            `json:"inventory"`
+	Baseline         map[string]string    `json:"baseline"`
+	PendingAuthor    *authorResult        `json:"pending_author,omitempty"`
+	Generated        map[string]generated `json:"generated"`
+	Planned          map[string]generated `json:"planned"`
+	ActionCost       float64              `json:"action_cost"`
+	ReservedCost     float64              `json:"reserved_cost"`
+	ReviewCalls      int                  `json:"review_calls"`
+	Pass             int                  `json:"pass"`
+	RunAfterApproval bool                 `json:"run_after_approval,omitempty"`
+	// RunHold: the round run after approval stops before finishing the epic.
+	RunHold           bool   `json:"run_hold,omitempty"`
+	PromotionRevision string `json:"promotion_revision,omitempty"`
 	// PendingFound are found beads whose notes the current revision carries;
 	// they are closed once it is approved and synchronized.
 	PendingFound []string `json:"pending_found,omitempty"`
@@ -569,6 +571,7 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.Change.Phase = "promoting"
 		r.Stage = "promote"
 		r.RunAfterApproval = a.Run
+		r.RunHold = a.Run && a.Hold
 		r.PromotionRevision = a.Revision
 		history(r, "approval", "Owner approved revision "+a.Revision+". Synchronizing the epic and section beads.")
 	} else if a.Action == "resume" {

@@ -312,6 +312,9 @@ func (c *Config) AssistBoardsDir() string { return filepath.Join(c.dataDir(), "a
 // ChatsDir holds the app's Chat records, event logs and images.
 func (c *Config) ChatsDir() string { return filepath.Join(c.dataDir(), "chats") }
 
+// DecisionsDir holds owner decisions, one JSON file each.
+func (c *Config) DecisionsDir() string { return filepath.Join(c.dataDir(), "decisions") }
+
 func (c *Config) dataDir() string {
 	d := c.DataDir
 	if d == "" {

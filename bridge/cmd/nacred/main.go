@@ -34,6 +34,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
 	"github.com/ryderdavid/nacre/bridge/internal/config"
 	"github.com/ryderdavid/nacre/bridge/internal/daemonupdate"
+	"github.com/ryderdavid/nacre/bridge/internal/decisions"
 	"github.com/ryderdavid/nacre/bridge/internal/discovery"
 	"github.com/ryderdavid/nacre/bridge/internal/gates"
 	"github.com/ryderdavid/nacre/bridge/internal/launchd"
@@ -101,7 +102,8 @@ func main() {
 	case "pair":
 		err = pair(cfg, *listen)
 	case "token":
-		fmt.Println(cfg.Token)
+		// Inside a chat turn this is the chat's own scoped token.
+		fmt.Println(clientToken(cfg))
 	case "install":
 		cp := cfg.Path()
 		if cp == config.DefaultPath() {
@@ -119,6 +121,15 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+}
+
+// clientToken is the token the nacred command calls the API with: the chat's
+// scoped token inside a chat turn (NACRE_CHAT_TOKEN), else the device token.
+func clientToken(cfg *config.Config) string {
+	if tok := os.Getenv(chat.EnvChatToken); tok != "" {
+		return tok
+	}
+	return cfg.Token
 }
 
 func fatal(err error) {
@@ -206,14 +217,14 @@ func serve(cfg *config.Config, listenFlag string) error {
 	}
 	changes, err := specflow.New(specflow.Options{
 		Dir: cfg.ChangesDir(), Beads: client, Headless: assistant,
-		RunEpic: func(ctx context.Context, path, epic string) (string, error) {
+		RunEpic: func(ctx context.Context, path, epic string, finish bool) (string, error) {
 			mgr := roundsRef.Load()
 			if mgr == nil {
 				return "", fmt.Errorf("rounds are unavailable on this computer")
 			}
 			for _, ref := range registry.Refs() {
 				if sameRepoPath(ref.Path, path) {
-					r, err := mgr.Create(rounds.CreateRequest{RepoID: ref.ID, Epic: epic, Finish: true, LandWhenReady: true})
+					r, err := mgr.Create(rounds.CreateRequest{RepoID: ref.ID, Epic: epic, Finish: finish, LandWhenReady: true})
 					return r.ID, err
 				}
 			}
@@ -326,7 +337,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 			}
 			return out
 		},
-		Logger: logger,
+		// Turns get a chat-scoped token, never the device token.
+		ChatToken: server.ChatTokenFor(cfg.Token),
+		Logger:    logger,
 	})
 	if err != nil {
 		return fmt.Errorf("load chats: %w", err)
@@ -336,6 +349,12 @@ func serve(cfg *config.Config, listenFlag string) error {
 	// Cancelled on shutdown so long-lived SSE handlers return promptly.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
+	owner, err := decisions.Open(cfg.DecisionsDir(), nil, logger)
+	if err != nil {
+		return fmt.Errorf("load decisions: %w", err)
+	}
+	srv.UseDecisions(owner)
+	srv.StartDecisions(baseCtx)
 	if cfg.AdoptSessions {
 		w := adoptSessions(cfg, registry, manager, logger)
 		srv.Sessions = w // POST /v1/sessions nudges it (NAC-j5z.10)

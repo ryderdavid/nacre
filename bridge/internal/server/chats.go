@@ -50,7 +50,21 @@ func (s *Server) listChats(w http.ResponseWriter, r *http.Request) {
 	if m == nil {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"chats": m.List()})
+	list := m.Listings(r.URL.Query().Get("repo"))
+	if s.Decisions != nil {
+		// Waiting counts the chat's pending permission requests and the
+		// decisions it raised that wait on Ryder.
+		waiting := map[string]int{}
+		for _, rec := range s.Decisions.List() {
+			if d := rec.Decision; d.ChatID != nil && d.Waiting() {
+				waiting[*d.ChatID]++
+			}
+		}
+		for i := range list {
+			list[i].Waiting += waiting[list[i].ID]
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chats": list})
 }
 
 func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {

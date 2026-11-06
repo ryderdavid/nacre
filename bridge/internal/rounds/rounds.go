@@ -293,6 +293,9 @@ type CreateRequest struct {
 	LandWhenReady bool
 	// Finish finishes the epic into the landing target after its children land.
 	Finish bool
+	// HoldLanding ignores nacre.yaml's land.auto, so the round waits for
+	// Ryder at ready_to_land: rounds a chat starts never land on their own.
+	HoldLanding bool
 }
 
 // Create validates the request, makes the integration workspace and starts
@@ -448,7 +451,7 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 		ID: id, RepoID: req.RepoID, RepoName: name, RepoPath: path, Epic: epic,
 		State: api.RoundPlanning, Target: target, Base: ws.Base, Branch: ws.Branch, Workspace: ws.Path,
 		Beads: beads, BudgetUSD: budget, TimeLimitMinutes: limit, Mode: m.opts.Mode, Model: m.opts.Model,
-		AutoLand: req.LandWhenReady || (cfg.Land.Auto && len(contracts) == 0), CreatedAt: now, UpdatedAt: now,
+		AutoLand: req.LandWhenReady || (!req.HoldLanding && cfg.Land.Auto && len(contracts) == 0), CreatedAt: now, UpdatedAt: now,
 		SpecContracts: contracts,
 	}
 	dir := filepath.Join(m.opts.Dir, id)
