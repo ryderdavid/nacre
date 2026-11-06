@@ -96,6 +96,7 @@ func assessChangeEvidence(path string, c specflow.Change, history []api.Round, s
 				}
 				e.BuildVerified = e.Verified && b.State == api.BeadIntegrated && r.FinalCommit != "" &&
 					(r.State == api.RoundReadyToLand || r.State == api.RoundLanded)
+				e.Merged = r.State == api.RoundLanded && r.LandedCommit != "" && b.State == api.BeadIntegrated && b.MergeCommit != ""
 				e.Landed = e.BuildVerified && r.State == api.RoundLanded && r.LandedCommit != "" && b.MergeCommit != ""
 				if e.HumanCheck {
 					e.Note += " Human acceptance is still required: " + b.HumanCheck

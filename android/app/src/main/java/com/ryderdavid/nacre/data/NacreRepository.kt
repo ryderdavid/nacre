@@ -430,6 +430,9 @@ class NacreRepository(
 
     suspend fun change(key: String, id: String): ChangeEnvelope = clientFor(key).change(Keys.id(key), id)
 
+    /** An untracked change of the checkout, by its folder name. */
+    suspend fun untrackedChange(key: String, name: String): ChangeEnvelope = clientFor(key).untrackedChange(Keys.id(key), name)
+
     suspend fun changeAction(key: String, id: String, action: ChangeAction): ChangeEnvelope =
         clientFor(key).changeAction(Keys.id(key), id, action).also { env ->
             env.change?.takeIf { it.isWorking }?.let { c -> working.update { it + Keys.of(Keys.host(key), c.id) } }

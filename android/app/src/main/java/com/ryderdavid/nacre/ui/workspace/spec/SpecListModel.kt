@@ -11,14 +11,20 @@ enum class SpecGroup(val label: String) {
     READY_TO_ARCHIVE("Ready to archive"),
 }
 
-/** How far a change's approved sections have come, from beads and rounds. */
-data class SectionProgress(val landed: Int, val verified: Int, val working: Int, val failed: Int, val total: Int) {
+/**
+ * How far a change's approved sections have come, from beads and rounds. [done] names a finished section:
+ * "landed" from rounds, "done" for an untracked change, where it means every task is checked.
+ */
+data class SectionProgress(val landed: Int, val verified: Int, val working: Int, val failed: Int, val total: Int, val done: String = "landed") {
     val waiting get() = (total - landed - verified - working - failed).coerceAtLeast(0)
+
+    /** "3 of 5 sections landed" */
+    val headline get() = "$landed of $total sections $done"
 
     /** The progress in words, so it never depends on the bar's colors. */
     val text: String
         get() = buildList {
-            add("$landed of $total sections landed")
+            add(headline)
             if (failed > 0) add("$failed failed")
             if (working > 0) add("$working in a round")
             if (verified > 0) add("$verified verified")
@@ -120,11 +126,13 @@ object SpecList {
                 s.evidence == "in_round" -> working++
             }
         }
-        return SectionProgress(landed, verified, working, failed, c.sections.size)
+        return SectionProgress(landed, verified, working, failed, c.sections.size, done = if (c.untracked) "done" else "landed")
     }
 
     /** The one-line status, in words. */
     fun status(c: ChangeSummary, group: SpecGroup, progress: SectionProgress?): String = when {
+        c.untracked -> untrackedStatus(c, group)
+        c.missing -> "Its folder is gone from the checkout"
         c.draft?.failed == true -> "Drafting failed" + c.draft.message.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
         c.draft?.pending == true -> "Author writing the proposal"
         c.phase == "drafting" -> "Author writing"
@@ -139,6 +147,15 @@ object SpecList {
         progress != null -> progress.text
         c.phase == "ready" -> "Approved, no sections yet"
         else -> "Phase \"${c.phase}\": check the workflow on the computer"
+    }
+
+    /** An untracked change's status: what its files say, and that Nacre doesn't track it. */
+    fun untrackedStatus(c: ChangeSummary, group: SpecGroup): String = when {
+        c.archivedAs.isNotBlank() -> "A copy of archived ${c.archivedAs}; not tracked by Nacre"
+        c.phase == "drafting" -> if (c.tasksTotal == 0) "Not tracked by Nacre · no tasks yet" else "Not tracked by Nacre · no proposal yet"
+        c.phase == "awaiting_approval" -> "Written outside Nacre, nothing started" + if (c.hasReview) " · has its own review" else ""
+        group == SpecGroup.READY_TO_ARCHIVE -> "Every task checked · not tracked by Nacre"
+        else -> "Not tracked by Nacre · ${c.tasksDone} of ${c.tasksTotal} tasks done"
     }
 
     fun shortRevision(revision: String) = if (revision.length > 8) revision.take(7) else revision

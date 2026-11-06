@@ -56,7 +56,7 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
     val changes = board.data?.changes
     val inventories by repo.currentSpecs.collectAsState()
     // Every current spec, read again whenever the changes do (an archive changes both).
-    LaunchedEffect(changes) { changes?.let { vm.prefetch(it.changes); repo.refreshSpecs(vm.repoKey) } }
+    LaunchedEffect(changes) { changes?.let { vm.prefetch(it.forSpec); repo.refreshSpecs(vm.repoKey) } }
     val current = inventories[vm.repoKey]
     val failed = remember(rounds) { failedBeads(rounds, vm.repoKey) }
     val specPaths = remember(envelopes) { envelopes.mapValues { e -> e.value.data?.change?.artifacts?.map { it.path }.orEmpty() } }
@@ -64,7 +64,7 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
     val deltas = remember(envelopes) {
         envelopes.mapValues { e -> e.value.data?.change?.artifacts.orEmpty().mapNotNull { a -> SpecList.capabilityOf(a.path)?.let { SpecDeltas.parse(it, a.content) } } }
     }
-    val model = remember(changes, specPaths, accepted, failed, query, deltas, current) { SpecList.build(changes?.changes.orEmpty(), specPaths, accepted, failed, query, deltas, current) }
+    val model = remember(changes, specPaths, accepted, failed, query, deltas, current) { SpecList.build(changes?.forSpec.orEmpty(), specPaths, accepted, failed, query, deltas, current) }
 
     Column(modifier.fillMaxSize()) {
         PaneTopBar("Spec", if (changes == null) "" else model.countsText, onBack = null) {

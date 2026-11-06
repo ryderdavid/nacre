@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
@@ -140,6 +142,27 @@ func TestSpecEvidenceCountsSectionsFinishedBeforeAdoption(t *testing.T) {
 	c.Phase, c.ApprovedRevision = "ready", "r0"
 	if got = assessChangeEvidence("/repo", c, nil, states, nil, read); got[0].Landed {
 		t.Fatal("evidence counted without a current approval")
+	}
+}
+
+// NAC-pjq.8: a section whose round landed with its work merged says so even
+// once the change went stale, so its progress agrees with the round; it
+// still isn't Landed (accepted) without a current approval.
+func TestSpecEvidenceSaysTheRoundMergedAStaleChangesSection(t *testing.T) {
+	path := t.TempDir()
+	c := specflow.Change{ID: "c", Phase: "stale", Revision: "r", ApprovedRevision: "r", Sections: []specflow.Section{{ID: "s", BeadID: "N-1"}, {ID: "t", BeadID: "N-2"}}}
+	v := &api.Verification{OK: true, At: "2026-10-28T01:01:00Z"}
+	r := api.Round{ID: "rdtn", RepoPath: path, State: api.RoundLanded, FinalCommit: "final", LandedCommit: "landed", Beads: []api.RoundBead{
+		{ID: "N-1", SpecChangeID: "c", SpecRevision: "r", SpecSectionID: "s", State: api.BeadIntegrated, MergeCommit: "merge", Verification: v},
+		{ID: "N-2", SpecChangeID: "c", SpecRevision: "r", SpecSectionID: "t", State: api.BeadParked},
+	}}
+	read := func(string) (api.Run, error) { return api.Run{}, errors.New("gone") }
+	got := assessChangeEvidence(path, c, []api.Round{r}, nil, nil, read)
+	if !got[0].Merged || got[0].Landed || specflow.EvidenceState(got[0]) == api.EvidenceLanded || !strings.Contains(got[0].Note, "Round rdtn: landed") {
+		t.Fatalf("merged section of a stale change: %+v", got[0])
+	}
+	if got[1].Merged {
+		t.Fatalf("a parked bead wasn't merged: %+v", got[1])
 	}
 }
 

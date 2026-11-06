@@ -543,6 +543,11 @@ func TestRunEpicDoesNotFinishWithOpenChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// NAC-pjq.8: the round says where finishing merges the epic's branch
+	// (nacre.yaml's landing target), not only the branch it lands on.
+	if r.Target != "epic/t-p" || r.FinishTarget != "main" {
+		t.Fatalf("target %q, finish target %q", r.Target, r.FinishTarget)
+	}
 	h.wait(t, r.ID, api.RoundLanded, api.RoundPaused)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

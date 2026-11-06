@@ -194,4 +194,34 @@ class SpecListModelTest {
         assertEquals("NAC-c", SpecList.openId(c))
         assertEquals("NAC-epic", SpecList.openId(c.copy(seedIds = emptyList(), epicId = "NAC-epic")))
     }
+
+    // NAC-pjq.3: the Spec panel lists the checkout's changes nacred has no record for, by phase.
+    @Test
+    fun `the checkout's untracked changes are listed by phase`() {
+        val list = com.ryderdavid.nacre.data.model.ChangesList(
+            changes = listOf(change("chat-image-attachments", "stale", revision = "r1").copy(missing = true)),
+            untracked = listOf(
+                ChangeSummary(id = "chat-first-harness", changeName = "chat-first-harness", phase = "ready", untracked = true, tasksDone = 38, tasksTotal = 40,
+                    sections = sections("landed", "none").map { it.copy(beadId = "") }),
+                ChangeSummary(id = "set-up-gates", changeName = "set-up-gates", phase = "ready", untracked = true, tasksDone = 4, tasksTotal = 4,
+                    sections = sections("landed").map { it.copy(beadId = "") }),
+                ChangeSummary(id = "drafting-settles-its-findings", changeName = "drafting-settles-its-findings", phase = "awaiting_approval", untracked = true, tasksTotal = 5, hasReview = true),
+                ChangeSummary(id = "pending-proposal-placeholders", changeName = "pending-proposal-placeholders", phase = "awaiting_approval", untracked = true, tasksTotal = 13,
+                    archivedAs = "2026-11-02-pending-proposal-placeholders"),
+            ),
+        )
+        val model = SpecList.build(list.forSpec)
+        assertEquals("5 changes", model.countsText)
+        val byName = model.rows.associateBy { it.name }
+        assertEquals(SpecGroup.IN_PROGRESS, byName.getValue("chat-first-harness").group)
+        assertEquals("1 of 2 sections done", byName.getValue("chat-first-harness").progress!!.headline)
+        assertEquals(SpecGroup.READY_TO_ARCHIVE, byName.getValue("set-up-gates").group)
+        assertEquals("Every task checked · not tracked by Nacre", byName.getValue("set-up-gates").status)
+        assertEquals(SpecGroup.WAITING, byName.getValue("drafting-settles-its-findings").group)
+        assertEquals("Written outside Nacre, nothing started · has its own review", byName.getValue("drafting-settles-its-findings").status)
+        assertTrue(byName.getValue("pending-proposal-placeholders").status.startsWith("A copy of archived 2026-11-02-pending-proposal-placeholders"))
+        assertEquals("Its folder is gone from the checkout", byName.getValue("chat-image-attachments").status)
+        // The board's own list stays the recorded changes.
+        assertEquals(listOf("chat-image-attachments"), list.changes.map { it.id })
+    }
 }

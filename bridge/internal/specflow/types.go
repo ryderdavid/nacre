@@ -91,7 +91,12 @@ type Evidence struct {
 	Verified      bool   `json:"verified"`
 	HumanCheck    bool   `json:"human_check"`
 	Landed        bool   `json:"landed"`
-	Note          string `json:"note"`
+	// Merged: the round holding the section's bead landed with the bead's
+	// work merged into its target. Unlike Landed it holds whether or not the
+	// approval is still current, so progress can say what the round did
+	// while the change waits for a new review.
+	Merged bool   `json:"merged,omitempty"`
+	Note   string `json:"note"`
 }
 type Change struct {
 	ID               string           `json:"id"`
@@ -131,6 +136,9 @@ type Change struct {
 	// revision is never reported as a draft.
 	CreatedAt string `json:"created_at,omitempty"`
 	UpdatedAt string `json:"updated_at"`
+	// Untracked: read from the checkout's openspec/changes for the Spec
+	// panel; no workflow record tracks it (see Manager.UntrackedChange).
+	Untracked bool `json:"untracked,omitempty"`
 }
 type Beads interface {
 	Get(context.Context, string, string) (api.Issue, error)

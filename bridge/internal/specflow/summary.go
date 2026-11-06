@@ -1,7 +1,11 @@
 package specflow
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -176,6 +180,7 @@ func (m *Manager) summary(r *record, stamp string) api.ChangeSummary {
 		ApprovedRevision: c.ApprovedRevision, EpicID: c.EpicID, SeedIDs: c.seedIDs(r.Aliases), AsApproved: c.AsApproved,
 		Sections: []api.SectionSummary{}, Error: c.Error, StaleReason: c.StaleReason, PendingFound: r.PendingFound, UpdatedAt: c.UpdatedAt,
 		CreatedAt: c.CreatedAt, StartedAt: startedAt(c), Draft: draftOf(r)}
+	s.Missing = missingFolder(repo, c, s.Draft)
 	if g := c.Guide; g != nil && g.For == guideKey(c) {
 		s.Status, s.Recommended = g.Status, g.Recommended.Label
 	}
@@ -223,4 +228,15 @@ func OpenSpecReady(repo string) bool {
 	}
 	_, e = collect(repo)
 	return e == nil
+}
+
+// missingFolder reports whether a change whose proposal was written, and
+// which isn't archived, no longer has its folder in the checkout. A change
+// still being drafted has none yet; an unreadable folder isn't missing.
+func missingFolder(repo string, c Change, draft *api.ChangeDraft) bool {
+	if c.ChangeName == "" || c.Revision == "" || c.Phase == "archived" || draft != nil || !slugPattern.MatchString(c.ChangeName) {
+		return false
+	}
+	_, e := os.Lstat(filepath.Join(repo, "openspec", "changes", c.ChangeName))
+	return errors.Is(e, fs.ErrNotExist)
 }

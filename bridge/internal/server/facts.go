@@ -37,15 +37,18 @@ type Facts interface {
 
 // BeadFacts is what decisions read of a bead.
 type BeadFacts struct {
-	ID          string         `json:"id"`
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	Status      string         `json:"status"`
-	Parent      string         `json:"parent"`
-	Type        string         `json:"issue_type"`
-	Labels      []string       `json:"labels"`
-	Metadata    map[string]any `json:"metadata"`
-	UpdatedAt   string         `json:"updated_at"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	// AcceptanceCriteria and Notes say what a human check is for.
+	AcceptanceCriteria string         `json:"acceptance_criteria"`
+	Notes              string         `json:"notes"`
+	Status             string         `json:"status"`
+	Parent             string         `json:"parent"`
+	Type               string         `json:"issue_type"`
+	Labels             []string       `json:"labels"`
+	Metadata           map[string]any `json:"metadata"`
+	UpdatedAt          string         `json:"updated_at"`
 }
 
 // HasLabel reports whether the bead carries label.
