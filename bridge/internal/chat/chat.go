@@ -141,6 +141,9 @@ type Record struct {
 	// TurnIDs are the turns this chat has started, newest last, so a resend
 	// is recognised.
 	TurnIDs []string `json:"turn_ids,omitempty"`
+	// LastLine is the first line of the newest message, Ryder's or the
+	// agent's, for chat lists.
+	LastLine string `json:"last_line"`
 }
 
 // Event is one entry in a chat's log.
@@ -614,6 +617,9 @@ func (m *Manager) appendLocked(c *chatState, ev Event) Event {
 		m.opts.Logger.Printf("chat %s: append event: %v", c.rec.ID, err)
 	}
 	c.events = append(c.events, ev)
+	if line := lastLineOf(ev); line != "" {
+		c.rec.LastLine = line
+	}
 	if m.countLocked(c) > MaxEvents {
 		m.truncateLocked(c)
 	}
