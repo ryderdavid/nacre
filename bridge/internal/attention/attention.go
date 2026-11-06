@@ -41,9 +41,14 @@ type Builder struct {
 	Working func(repoID, beadID string) bool
 	// Now is replaced in tests.
 	Now func() time.Time
+	// StaleFor lets a request take a repository's items up to this long past
+	// RefreshAfter while one background read refreshes them, so a slow bd
+	// read never holds up Needs you. Zero always reads in the request.
+	StaleFor time.Duration
 
-	mu    sync.Mutex
-	cache map[string]cached
+	mu         sync.Mutex
+	cache      map[string]cached
+	refreshing map[string]bool
 }
 
 type cached struct {
@@ -130,10 +135,35 @@ func (b *Builder) repoItems(ctx context.Context, ref repos.Ref) []api.AttentionI
 		b.cache = map[string]cached{}
 	}
 	c, ok := b.cache[ref.Path]
-	b.mu.Unlock()
-	if ok && b.now().Sub(c.at) < RefreshAfter {
+	age := b.now().Sub(c.at)
+	if ok && age < RefreshAfter {
+		b.mu.Unlock()
 		return c.items
 	}
+	if ok && b.StaleFor > 0 && age < RefreshAfter+b.StaleFor {
+		// Serve what is known and refresh once in the background.
+		if b.refreshing == nil {
+			b.refreshing = map[string]bool{}
+		}
+		if !b.refreshing[ref.Path] {
+			b.refreshing[ref.Path] = true
+			go func() {
+				b.readRepo(context.Background(), ref, c)
+				b.mu.Lock()
+				delete(b.refreshing, ref.Path)
+				b.mu.Unlock()
+			}()
+		}
+		b.mu.Unlock()
+		return c.items
+	}
+	b.mu.Unlock()
+	return b.readRepo(ctx, ref, c)
+}
+
+// readRepo reads a repository's bead and change items and caches them; c is
+// what was cached before, kept when a read fails.
+func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.AttentionItem {
 	outer := ctx
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

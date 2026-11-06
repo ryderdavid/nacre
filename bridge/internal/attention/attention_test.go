@@ -170,6 +170,45 @@ func TestItemsAreStableCachedAndDisappearWhenAnswered(t *testing.T) {
 	}
 }
 
+// With StaleFor, a request past the refresh window gets the last list at
+// once and one background read refreshes it.
+func TestStaleItemsServedWhileRefreshing(t *testing.T) {
+	f := newFixture(t)
+	f.b.StaleFor = time.Minute
+	f.beads = issues(t, map[string]any{"id": "N-1", "title": "Decide", "status": "open", "issue_type": "decision"})
+	f.b.Items(context.Background())
+	release := make(chan struct{})
+	read := make(chan struct{}, 4)
+	f.b.Issues = func(context.Context, string) ([]api.Issue, error) {
+		read <- struct{}{}
+		<-release
+		return issues(t, map[string]any{"id": "N-2", "title": "Next", "status": "open", "issue_type": "decision"}), nil
+	}
+	f.now = f.now.Add(RefreshAfter + time.Second)
+	if got := f.b.Items(context.Background()); len(got) != 1 || got[0].BeadID != "N-1" {
+		t.Fatalf("stale list not served: %+v", got)
+	}
+	<-read
+	f.b.Items(context.Background()) // a second request doesn't start another read
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		f.b.mu.Lock()
+		busy := f.b.refreshing["/src/nacre"]
+		f.b.mu.Unlock()
+		if !busy {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(read) != 0 {
+		t.Fatalf("%d extra reads started", len(read))
+	}
+	if got := f.b.Items(context.Background()); len(got) != 1 || got[0].BeadID != "N-2" {
+		t.Fatalf("refreshed list not served: %+v", got)
+	}
+}
+
 func TestUnreadableRepositoryContributesNothing(t *testing.T) {
 	f := newFixture(t)
 	f.b.Issues = func(context.Context, string) ([]api.Issue, error) { return nil, context.DeadlineExceeded }
