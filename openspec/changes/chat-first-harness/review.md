@@ -1,6 +1,6 @@
 # Independent design review
 
-An independent Codex reviewer, working read-only, reviewed this change in six rounds. It used a
+An independent Codex reviewer, working read-only, reviewed this change in nine rounds. It used a
 design-critique method and an accessibility pass. The reviewer read the repository at 85c1e84, the plan,
 the 15 mockup artboards (as source, with contrast computed from the tokens) and this change.
 
@@ -12,6 +12,9 @@ the 15 mockup artboards (as source, with contrast computed from the tokens) and 
 | 4 | REVISE | Remaining: conversation scrolling, lanes in the wide pane, two targets, and three spec conflicts (where the strip leads, the approval options, found-work ordering). |
 | 5 | REVISE | Two small Majors: two targets under 48dp, and the strip missing in focus and the reader. |
 | 6 | PASS | Both resolved. No new Critical or Major issues. |
+| 7 | REVISE | After Ryder said the mockups "look like old Android", this round ran an M3 Expressive pass and a conformance audit. It found five Majors: baseline navigation geometry, drop-tile and outline contrast, composer focus and Settings access, overlapping chip targets, and a clipped work inspector. |
+| 8 | REVISE | One Major remained: a static selected style on option rows could show two selections at once. There were also pane-margin and drawer-rail gaps. |
+| 9 | PASS | All resolved. No new Critical or Major issues. |
 
 **Not verified by the review:** rendering (browser policy blocked local previews), TalkBack, Switch Access,
 keyboard operation and dynamic color. These are checked on the device in task 12.

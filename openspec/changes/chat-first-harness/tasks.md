@@ -32,7 +32,7 @@ The gates named below:
 - [ ] 4.1 Add a "Chat-first layout" setting (on in debug builds) that switches between the old shell and the new one. Verify with a JVM test of the route choice. Gates: app.
 - [ ] 4.2 Build Projects: grouped by computer, connection state with "last checked", project rows with status, count and change, the All / Needs you / Working filter, search, Settings in the overflow, and the "New Claude chat" split button with its project choice. Verify with JVM tests of grouping, filtering and offline state. Gates: app.
 - [ ] 4.3 Build the workspace scaffold: Chat, Spec and Beads, the short navigation bar on compact widths, the rail with the project switcher on wider ones, and Back to Projects. Verify with a JVM test of the layout choice by width class. Gates: app.
-- [ ] 4.4 Build the supporting pane: minimum widths, the 680dp threshold, divider presets computed from usable width, Reset as clamp(W/2, 360, W − 320) (with accessibility actions), clamped dragging, and Focus with the one-line chat bar. Verify with JVM tests at 744dp, 690dp, 680dp and 600dp. Gates: app.
+- [ ] 4.4 Build the supporting pane: minimum widths, the 680dp threshold, divider presets computed from usable width, Reset as clamp(W/2, 360, W − 320) (with accessibility actions), clamped dragging, and Focus with the one-line chat bar. Verify with JVM tests at 728dp, 690dp, 680dp and 600dp. Gates: app.
 - [ ] 4.5 Handle posture and state: hinge split through PaneLayout, tabletop, and compact height. Keep the thread, draft, selection and scroll across fold, unfold and resize. Verify with JVM tests of the saved state. Gates: app.
 
 ## 5. App: Chat

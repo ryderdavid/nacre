@@ -30,6 +30,15 @@ is open.
 - **WHEN** Ryder focuses the composer on the cover screen
 - **THEN** the navigation bar hides until the keyboard closes
 
+### Requirement: Navigation follows Material 3 Expressive sizes
+The short navigation bar SHALL be 64dp tall, with a 56dp by 32dp indicator. The navigation rail SHALL be
+96dp wide, with each destination at least 64dp tall. The selected destination SHALL show a filled icon on
+the indicator, and its label in the secondary color.
+
+#### Scenario: Selected destination
+- **WHEN** Beads is selected on the cover screen
+- **THEN** the Beads icon is filled on its indicator, and its label is in the secondary color
+
 ### Requirement: Wide workspace layout
 At wider widths, a navigation rail SHALL show a project switcher, and Chat, Spec and Beads below it. The
 rail chooses Chat alone, or Chat beside Spec or Beads:
@@ -39,7 +48,7 @@ rail chooses Chat alone, or Chat beside Spec or Beads:
 - Focus gives Spec or Beads the whole content area, with chat collapsed to a one-line chat bar.
 
 #### Scenario: Unfolded with Beads
-- **WHEN** Ryder chooses Beads in the rail on the unfolded screen (about 744dp usable)
+- **WHEN** Ryder chooses Beads in the rail on the unfolded screen (about 728dp usable)
 - **THEN** Chat and Beads show side by side
 
 ### Requirement: Pane divider presets
@@ -48,9 +57,9 @@ hiding any preset that would break a pane's minimum, and Reset. Reset SHALL give
 clamp(W/2, 360dp, W − 320dp) of the usable width W, and the pane the rest. Dragging the divider SHALL
 clamp to the minimums. Each preset SHALL also be an accessibility action on the divider.
 
-#### Scenario: Presets at 744dp
-- **WHEN** the usable width is 744dp
-- **THEN** Chat wide sets the pane to 320dp, Even sets each pane to 372dp, and Pane wide sets Chat to 360dp
+#### Scenario: Presets at 728dp
+- **WHEN** the usable width is 728dp
+- **THEN** Chat wide sets the pane to 320dp, Even sets each pane to 364dp, and Pane wide sets Chat to 360dp
 
 #### Scenario: Reset at 680dp
 - **WHEN** the usable width is 680dp and Ryder taps Reset

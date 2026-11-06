@@ -14,7 +14,7 @@ See proposal.md for why. What shapes the approach:
 - **Repositories are grouped across computers by git remote**, while ids stay scoped to their host.
 - **Hinge handling already exists**: the app's PaneLayout helper.
 - **The target device is a Galaxy Z Fold.** The cover screen is compact width. The inner screen is about
-  840dp wide, which leaves about 744dp after the rail and the divider.
+  840dp wide, which leaves about 728dp after the 96dp rail and the divider.
 
 The plan was reviewed in three rounds by an independent Codex design review, using a design-critique
 method and an accessibility pass. Its findings shaped decisions 1, 2, 4, 5, 6 and 8 below.
@@ -58,7 +58,7 @@ method and an accessibility pass. Its findings shaped decisions 1, 2, 4, 5, 6 an
    - *Alternative:* keep four tabs and add panels. Rejected: it keeps the button-heavy model the change exists to remove.
 4. **Geometry by usable width.**
    - The divider presets are computed from usable width and the pane minimums (Chat 360dp, pane
-     320dp), not from fractions. At 744dp, a one-third preset would break both minimums.
+     320dp), not from fractions. At 728dp, a one-third preset would break both minimums.
    - Below 680dp of usable width, one pane shows at a time.
    - Focus is the way to see a full kanban.
 5. **Keep the compact board.**
