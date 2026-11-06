@@ -203,7 +203,14 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 }
             }
 
-            if (d.pending) {
+            if (d.pending && d.options.isEmpty() && !d.allowReject) {
+                // Nothing to answer here (an older nacred's item): its links above, or ask the agent about it.
+                val ask = com.ryderdavid.nacre.ui.workspace.LocalAskAbout.current
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { ask(com.ryderdavid.nacre.ui.workspace.ChatReference("decision", d.id, d.title, d.body)) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Ask about this") }
+            } else if (d.pending) {
                 if (draft.rejecting || draft.note.isNotEmpty()) OutlinedTextField(
                     value = draft.note, onValueChange = { set(draft.copy(note = it)) },
                     label = { Text(if (draft.rejecting) "Why? (sent with the rejection)" else "Note (optional)") },

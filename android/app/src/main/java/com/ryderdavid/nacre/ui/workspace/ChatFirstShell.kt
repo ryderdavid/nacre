@@ -1,6 +1,7 @@
 package com.ryderdavid.nacre.ui.workspace
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -168,40 +169,40 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         },
     )
 
-    ModalNavigationDrawer(
-        drawerState = drawer, gesturesEnabled = drawer.isOpen,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(Modifier.statusBarsPadding().padding(horizontal = 12.dp)) {
-                    Text("Projects", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(16.dp))
-                    ProjectsDrawerList(current = repoKey) { key -> scope.launch { drawer.close() }; if (key != repoKey) onOpenProject(key) }
-                    OutlinedButton(onClick = { scope.launch { drawer.close() }; onProjects() }, modifier = Modifier.padding(16.dp)) { Text("All projects") }
-                }
+    CompositionLocalProvider(
+        LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT; queue = false; inspecting = null },
+        LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
+        LocalOpenEvidence provides { e ->
+            when (e.kind) {
+                "review", "changes" -> destination = Destination.SPEC
+                "bead" -> destination = Destination.BEADS
+                else -> (work?.takeIf { it.id == e.ref || e.ref.isBlank() } ?: com.ryderdavid.nacre.data.model.WorkSummary(kind = if (e.kind == "run") "run" else "round", id = e.ref, title = e.label)).let { inspecting = it }
             }
         },
     ) {
-        CompositionLocalProvider(
-            LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT },
-            LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
-            LocalOpenEvidence provides { e ->
-                when (e.kind) {
-                    "review", "changes" -> destination = Destination.SPEC
-                    "bead" -> destination = Destination.BEADS
-                    else -> (work ?: com.ryderdavid.nacre.data.model.WorkSummary(kind = e.kind, id = e.ref, title = e.label)).let { inspecting = it }
+        ModalNavigationDrawer(
+            drawerState = drawer, gesturesEnabled = drawer.isOpen,
+            drawerContent = {
+                ModalDrawerSheet {
+                    Column(Modifier.statusBarsPadding().padding(horizontal = 12.dp)) {
+                        Text("Projects", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(16.dp))
+                        ProjectsDrawerList(current = repoKey) { key -> scope.launch { drawer.close() }; if (key != repoKey) onOpenProject(key) }
+                        OutlinedButton(onClick = { scope.launch { drawer.close() }; onProjects() }, modifier = Modifier.padding(16.dp)) { Text("All projects") }
+                    }
                 }
             },
         ) {
             Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
         }
-    }
 
-    inspecting?.let { w ->
-        ModalBottomSheet(onDismissRequest = { inspecting = null }) {
-            com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, w, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
+        inspecting?.let { w ->
+            ModalBottomSheet(onDismissRequest = { inspecting = null }) {
+                com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, w, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
+            }
         }
-    }
-    if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
-        DecisionQueue(repoKey, onClose = { queue = false })
+        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
+            DecisionQueue(repoKey, onClose = { queue = false })
+        }
     }
 }
 
@@ -252,6 +253,13 @@ private fun ChatSlot(repoKey: String, thread: String?, onThread: (String) -> Uni
         if (thread != null) {
             ChatPane(repoKey, thread, onThread = onThread, onProjects = onProjects)
         } else {
+            val name = container.repository.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }?.name ?: Keys.id(repoKey)
+            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600) androidx.compose.material3.IconButton(onClick = onProjects) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, "Back to projects")
+                }
+                Text(name, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(horizontal = 8.dp))
+            }
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("No chats in this project yet", style = MaterialTheme.typography.titleLargeEmphasized)
                 Text("Start one with Claude Code or Codex on this computer.", color = MaterialTheme.colorScheme.onSurfaceVariant)

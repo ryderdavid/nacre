@@ -64,7 +64,7 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
                     }
                 }
             } else {
-                Text("$projectName", Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge)
+                Text("Nothing running", Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (needsYou > 0) {
                 Surface(

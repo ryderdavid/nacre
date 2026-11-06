@@ -91,6 +91,14 @@ object ChatFirstData {
         options = item.options.filter { it.type == "action" && it.disabled.isBlank() }.mapIndexed { i, o ->
             DecisionOption(id = i.toString(), label = o.label, recommended = o.recommended)
         },
+        evidence = item.options.filter { it.type != "action" && it.target != null }.map { o ->
+            val t = o.target!!
+            com.ryderdavid.nacre.data.model.DecisionEvidence(
+                label = o.label,
+                kind = when (t.kind) { "change" -> "changes"; "bead" -> "bead"; "round" -> "round"; else -> t.kind },
+                ref = t.id.ifBlank { t.change },
+            )
+        },
         allowDefer = false,
         allowReject = false,
         hostId = item.hostId,
