@@ -63,6 +63,8 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** The chosen palette, or null for the default (Wallpaper where available, else Pearl). */
     val palette: Palette? = null,
+    /** The chat-first layout (Projects, then Chat · Spec · Beads); off shows the classic tabs. */
+    val chatFirstLayout: Boolean = true,
     val pinnedRepos: Set<String> = emptySet(),
     val hiddenRepos: Set<String> = emptySet(),
     val detailPaneDp: Int = 440,
@@ -117,6 +119,7 @@ class SettingsStore(private val context: Context) {
         val runGoal = stringPreferencesKey("run_goal_json")
         val theme = stringPreferencesKey("theme_mode")
         val palette = stringPreferencesKey("palette")
+        val chatFirst = booleanPreferencesKey("chat_first_layout")
         val pinned = stringSetPreferencesKey("pinned_repos")
         val hidden = stringSetPreferencesKey("hidden_repos")
         val pane = intPreferencesKey("detail_pane_dp")
@@ -154,6 +157,7 @@ class SettingsStore(private val context: Context) {
             runGoal = p[K.runGoal]?.let { runCatching { json.decodeFromString<GoalOptions>(it).normalized() }.getOrNull() } ?: GoalOptions(),
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             palette = Palette.parse(p[K.palette]),
+            chatFirstLayout = p[K.chatFirst] ?: true,
             pinnedRepos = p[K.pinned].orEmpty(),
             hiddenRepos = p[K.hidden].orEmpty(),
             detailPaneDp = p[K.pane] ?: 440,
@@ -232,6 +236,7 @@ class SettingsStore(private val context: Context) {
             it[K.runGoal] = json.encodeToString(next.runGoal.normalized())
             it[K.theme] = next.themeMode.name
             next.palette?.let { pal -> it[K.palette] = pal.name } ?: it.remove(K.palette)
+            it[K.chatFirst] = next.chatFirstLayout
             it[K.pinned] = next.pinnedRepos
             it[K.hidden] = next.hiddenRepos
             it[K.pane] = next.detailPaneDp

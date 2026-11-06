@@ -322,6 +322,40 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         val error: String = "",
     )
 
+    /** This computer's projects for the Projects screen, or null from a nacred without them. */
+    suspend fun projects(): List<com.ryderdavid.nacre.data.model.ProjectSummary>? = try {
+        get<com.ryderdavid.nacre.data.model.ProjectList>("/v1/projects").projects
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
+    /** A repository's open and recent rounds and runs, or null from a nacred without work summaries. */
+    suspend fun work(repo: String): List<com.ryderdavid.nacre.data.model.WorkSummary>? = try {
+        get<com.ryderdavid.nacre.data.model.WorkList>("/v1/repos/${enc(repo)}/work").work
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
+    /** A repository's open decisions, or null from a nacred without decisions. */
+    suspend fun decisions(repo: String): List<com.ryderdavid.nacre.data.model.Decision>? = try {
+        get<com.ryderdavid.nacre.data.model.DecisionList>("/v1/decisions?repo=${enc(repo)}&state=open").decisions
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
+    suspend fun decision(id: String): com.ryderdavid.nacre.data.model.Decision = get("/v1/decisions/${enc(id)}")
+
+    /** Answers a decision: nacred revalidates, executes once and returns the decision's new state. */
+    suspend fun answerDecision(id: String, body: com.ryderdavid.nacre.data.model.DecisionAnswer): com.ryderdavid.nacre.data.model.Decision =
+        send("POST", "/v1/decisions/${enc(id)}/answer", body)
+
+    /** Ask again: a fresh decision from the current state. */
+    suspend fun renewDecision(id: String): com.ryderdavid.nacre.data.model.Decision =
+        send<Map<String, String>, com.ryderdavid.nacre.data.model.Decision>("POST", "/v1/decisions/${enc(id)}/renew", emptyMap())
+
+    /** One checkout's chats. */
+    suspend fun chats(repo: String): List<com.ryderdavid.nacre.data.model.ChatRecord> = get<ChatList>("/v1/chats?repo=${enc(repo)}").chats
+
     /** Every chat on this computer, newest first. */
     suspend fun chats(): List<com.ryderdavid.nacre.data.model.ChatRecord> = get<ChatList>("/v1/chats").chats
     suspend fun createChat(body: com.ryderdavid.nacre.data.model.CreateChat): com.ryderdavid.nacre.data.model.ChatRecord =

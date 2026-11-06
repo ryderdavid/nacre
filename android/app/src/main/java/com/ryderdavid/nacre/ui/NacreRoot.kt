@@ -89,10 +89,14 @@ fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: (
     val prefs by container.settings.settings.collectAsState(initial = null)
     NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM, palette = prefs?.palette) {
         androidx.compose.runtime.CompositionLocalProvider(LocalContainer provides container) {
-            AppShell(container, deepLink, onDeepLinkHandled)
+            if (useChatFirst(prefs)) com.ryderdavid.nacre.ui.workspace.ChatFirstShell(container, deepLink, onDeepLinkHandled)
+            else AppShell(container, deepLink, onDeepLinkHandled)
         }
     }
 }
+
+/** The chat-first shell unless the setting turns it off; before settings load, chat-first. */
+fun useChatFirst(prefs: com.ryderdavid.nacre.data.settings.AppSettings?): Boolean = prefs?.chatFirstLayout ?: true
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

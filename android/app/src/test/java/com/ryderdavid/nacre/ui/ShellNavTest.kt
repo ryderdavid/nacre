@@ -132,3 +132,12 @@ class ShellNavTest {
         assertEquals(BoardRoute("mac~nacre"), nav.current)
     }
 }
+
+class ChatFirstChoiceTest {
+    @org.junit.Test
+    fun `chat first is on by default and before settings load`() {
+        org.junit.Assert.assertTrue(com.ryderdavid.nacre.ui.useChatFirst(null))
+        org.junit.Assert.assertTrue(com.ryderdavid.nacre.ui.useChatFirst(com.ryderdavid.nacre.data.settings.AppSettings()))
+        org.junit.Assert.assertFalse(com.ryderdavid.nacre.ui.useChatFirst(com.ryderdavid.nacre.data.settings.AppSettings(chatFirstLayout = false)))
+    }
+}

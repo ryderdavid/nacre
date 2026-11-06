@@ -90,6 +90,10 @@ data class ChatRecord(
     @SerialName("last_seq") val lastSeq: Long = 0,
     @SerialName("image_count") val imageCount: Int = 0,
     @SerialName("image_bytes") val imageBytes: Long = 0,
+    /** Pending permission requests and decisions raised in this chat (chat-first nacred). */
+    @SerialName("waiting") val waitingCount: Int = 0,
+    /** The chat's last line, for the thread switcher (chat-first nacred). */
+    @SerialName("last_line") val lastLine: String = "",
     /** Set by the app: which paired computer this chat is on. */
     @Transient val hostId: String = "",
     @Transient val hostName: String = "",

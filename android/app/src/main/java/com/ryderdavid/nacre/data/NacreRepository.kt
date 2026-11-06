@@ -309,6 +309,7 @@ class NacreRepository(
                 connections.update { it + (id to Connection.Connecting) }
                 val health = p.client.health()
                 connections.update { it + (id to Connection.Online(health)) }
+                seen.update { it + (id to System.currentTimeMillis()) }
                 if (com.ryderdavid.nacre.data.chat.servesChat(health)) scope.launch {
                     runCatching { p.client.chats() }.onSuccess { list -> chatLists.update { it + (id to list) } }
                 }
@@ -338,6 +339,7 @@ class NacreRepository(
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                if (connections.value[id] is Connection.Online) seen.update { it + (id to System.currentTimeMillis()) }
                 connections.update { it + (id to Connection.Offline(e.friendly())) }
             }
             delay(backoff)
@@ -493,6 +495,91 @@ class NacreRepository(
     }
 
     /** Optimistic drag-and-drop move with undo. */
+    // ---- Chat first: projects, work and decisions ----
+
+    private val seen = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** When each computer was last heard from (epoch millis), for "Last checked 12 min ago". */
+    val lastSeen: StateFlow<Map<String, Long>> = seen
+
+    private val projectLists = MutableStateFlow<Map<String, List<com.ryderdavid.nacre.data.model.ProjectSummary>?>>(emptyMap())
+
+    /** Each computer's projects by host id; null for a computer whose nacred predates `/projects`. */
+    val projectsByHost: StateFlow<Map<String, List<com.ryderdavid.nacre.data.model.ProjectSummary>?>> = projectLists
+
+    fun refreshProjects() = scope.launch {
+        paired.value.values.forEach { h ->
+            launch {
+                val list = runCatching { h.client.projects() }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
+                projectLists.update { it + (h.host.id to list) }
+            }
+        }
+    }
+
+    private val workLists = MutableStateFlow<Map<String, List<com.ryderdavid.nacre.data.model.WorkSummary>>>(emptyMap())
+
+    /** Open work by repository key, as nacred reports it, or from its rounds on an older nacred. */
+    val work: StateFlow<Map<String, List<com.ryderdavid.nacre.data.model.WorkSummary>>> = combine(workLists, rounds) { reported, rs ->
+        val fromRounds = rs.groupBy { Keys.of(it.hostId, it.repoId) }.mapValues { (_, list) -> list.map(ChatFirstData::work).filter { it.open } }
+        fromRounds + reported
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    fun refreshWork(key: String) = scope.launch {
+        val list = runCatching { clientFor(key).work(Keys.id(key)) }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; return@launch } ?: return@launch
+        workLists.update { it + (key to list.map { w -> w }) }
+    }
+
+    private val decisionLists = MutableStateFlow<Map<String, List<com.ryderdavid.nacre.data.model.Decision>?>>(emptyMap())
+
+    /**
+     * Open decisions by repository key. A computer without decisions shows its attention items as
+     * decisions instead, answered by performing the item's own action.
+     */
+    val decisions: StateFlow<Map<String, List<com.ryderdavid.nacre.data.model.Decision>>> = combine(decisionLists, attention) { reported, items ->
+        val legacy = items.groupBy { it.repoKey }
+        val keys = reported.keys + legacy.keys
+        keys.associateWith { k -> reported[k] ?: legacy[k].orEmpty().map(ChatFirstData::decision) }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    fun refreshDecisions(key: String) = scope.launch {
+        val host = Keys.host(key)
+        val list = runCatching { clientFor(key).decisions(Keys.id(key)) }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
+        decisionLists.update { it + (key to list?.map { d -> d.copy(hostId = host) }) }
+    }
+
+    /** Records a decision that changed (from an answer or a chat event) without waiting for a refresh. */
+    fun learnDecision(d: com.ryderdavid.nacre.data.model.Decision) {
+        val key = Keys.of(d.hostId, d.repo)
+        decisionLists.update { m ->
+            val list = m[key] ?: return@update m
+            val next = if (list.any { it.id == d.id }) list.map { if (it.id == d.id) d else it } else list + d
+            m + (key to next.filter { it.open })
+        }
+    }
+
+    /**
+     * Answers a decision. An attention-derived decision from an older nacred performs the item's own
+     * action; otherwise nacred revalidates and executes, and the decision's new state is returned.
+     */
+    suspend fun answerDecision(d: com.ryderdavid.nacre.data.model.Decision, answer: com.ryderdavid.nacre.data.model.DecisionAnswer): com.ryderdavid.nacre.data.model.Decision {
+        if (d.id.startsWith("att_")) {
+            val item = attention.value.firstOrNull { "att_" + it.id == d.id && it.hostId == d.hostId } ?: throw BridgeException("That item is no longer waiting")
+            val actions = item.options.filter { it.type == "action" && it.disabled.isBlank() }
+            val option = answer.option?.toIntOrNull()?.let { actions.getOrNull(it) } ?: throw BridgeException("Pick an answer")
+            perform(item, option)
+            return d.copy(state = "done")
+        }
+        val out = clientFor(Keys.of(d.hostId, d.repo)).answerDecision(d.id, answer).copy(hostId = d.hostId)
+        learnDecision(out)
+        return out
+    }
+
+    suspend fun renewDecision(d: com.ryderdavid.nacre.data.model.Decision): com.ryderdavid.nacre.data.model.Decision {
+        val out = clientFor(Keys.of(d.hostId, d.repo)).renewDecision(d.id).copy(hostId = d.hostId)
+        learnDecision(out)
+        return out
+    }
+
     fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {
         val before = issue
         val optimistic = when (action) {

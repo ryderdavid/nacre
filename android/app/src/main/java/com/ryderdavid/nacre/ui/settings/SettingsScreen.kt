@@ -301,6 +301,7 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit, onBack: 
                     )
                 }
             }
+            item { SwitchRow(Icons.Rounded.Notifications, "Chat-first layout", "Projects, then Chat · Spec · Beads. Off shows the classic tabs.", p.chatFirstLayout) { v -> vm.update { it.copy(chatFirstLayout = v) } } }
             item {
                 Labeled("Theme") {
                     Segmented(ThemeMode.entries.map { it.name to it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, p.themeMode.name) { v ->
