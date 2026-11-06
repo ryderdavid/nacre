@@ -22,10 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import com.google.android.material.color.MaterialColors
 import com.ryderdavid.nacre.data.board.Lane
+import com.ryderdavid.nacre.data.settings.Palette
 import com.ryderdavid.nacre.data.settings.ThemeMode
 
 // Fallback palette (no dynamic color): a cool mother-of-pearl teal with lilac and warm accents.
-private val LightScheme = lightColorScheme(
+internal val PearlLight = lightColorScheme(
     primary = Color(0xFF00696E), onPrimary = Color.White,
     primaryContainer = Color(0xFF9CF0F5), onPrimaryContainer = Color(0xFF004F53),
     secondary = Color(0xFF615B7E), onSecondary = Color.White,
@@ -41,7 +42,7 @@ private val LightScheme = lightColorScheme(
     outline = Color(0xFF6F797A), outlineVariant = Color(0xFFBEC8C9),
 )
 
-private val DarkScheme = darkColorScheme(
+internal val PearlDark = darkColorScheme(
     primary = Color(0xFF80D4D9), onPrimary = Color(0xFF00373A),
     primaryContainer = Color(0xFF004F53), onPrimaryContainer = Color(0xFF9CF0F5),
     secondary = Color(0xFFCBC2EA), onSecondary = Color(0xFF322D4D),
@@ -136,17 +137,18 @@ val MonoFamily = FontFamily.Monospace
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, palette: Palette? = null, content: @Composable () -> Unit) {
     val dark = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
     val context = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> DarkScheme
-        else -> LightScheme
+    val chosen = Palettes.resolve(palette, Palettes.dynamicAvailable)
+    val scheme = if (chosen == Palette.WALLPAPER) {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        Palettes.scheme(chosen, dark)
     }
     val extra = remember(scheme, dark) { nacreColors(scheme, dark) }
     CompositionLocalProvider(LocalNacreColors provides extra) {

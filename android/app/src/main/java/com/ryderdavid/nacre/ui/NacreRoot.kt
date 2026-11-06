@@ -87,7 +87,7 @@ sealed interface DeepLink {
 @Composable
 fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
     val prefs by container.settings.settings.collectAsState(initial = null)
-    NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM) {
+    NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM, palette = prefs?.palette) {
         androidx.compose.runtime.CompositionLocalProvider(LocalContainer provides container) {
             AppShell(container, deepLink, onDeepLinkHandled)
         }

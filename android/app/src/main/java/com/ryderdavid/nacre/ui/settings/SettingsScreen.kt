@@ -293,6 +293,15 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit, onBack: 
 
             item { Header("Appearance") }
             item {
+                Labeled("Color", "Wallpaper follows your phone's colors. The others are fixed palettes, each with a light and a dark version.") {
+                    PalettePicker(
+                        current = com.ryderdavid.nacre.ui.theme.Palettes.resolve(p.palette, com.ryderdavid.nacre.ui.theme.Palettes.dynamicAvailable),
+                        dynamicAvailable = com.ryderdavid.nacre.ui.theme.Palettes.dynamicAvailable,
+                        onPick = { pal -> vm.update { it.copy(palette = pal) } },
+                    )
+                }
+            }
+            item {
                 Labeled("Theme") {
                     Segmented(ThemeMode.entries.map { it.name to it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, p.themeMode.name) { v ->
                         vm.update { it.copy(themeMode = ThemeMode.valueOf(v)) }

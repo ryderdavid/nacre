@@ -30,6 +30,19 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /**
+ * The app's colors. [WALLPAPER] is the phone's dynamic color (Android 12 and later); the others are fixed
+ * Material 3 palettes. [PEARL] is Nacre's own, and the default when dynamic color isn't available.
+ */
+enum class Palette(val label: String) {
+    WALLPAPER("Wallpaper"), PEARL("Pearl"), OCEAN("Ocean"), SAGE("Sage"), EMBER("Ember"), ORCHID("Orchid");
+
+    companion object {
+        /** A stored name, or null for none; an unknown name falls back to null so the default applies. */
+        fun parse(name: String?): Palette? = name?.let { n -> entries.firstOrNull { it.name == n } }
+    }
+}
+
+/**
  * A paired computer running nacred. [id] is our own stable local id (used in repo and
  * run keys); [hostId] is the id the computer reports, used to recognise re-pairing.
  */
@@ -48,6 +61,8 @@ data class AppSettings(
     val claudeEffort: String = "medium",
     val runGoal: GoalOptions = GoalOptions(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** The chosen palette, or null for the default (Wallpaper where available, else Pearl). */
+    val palette: Palette? = null,
     val pinnedRepos: Set<String> = emptySet(),
     val hiddenRepos: Set<String> = emptySet(),
     val detailPaneDp: Int = 440,
@@ -101,6 +116,7 @@ class SettingsStore(private val context: Context) {
         val effort = stringPreferencesKey("claude_effort")
         val runGoal = stringPreferencesKey("run_goal_json")
         val theme = stringPreferencesKey("theme_mode")
+        val palette = stringPreferencesKey("palette")
         val pinned = stringSetPreferencesKey("pinned_repos")
         val hidden = stringSetPreferencesKey("hidden_repos")
         val pane = intPreferencesKey("detail_pane_dp")
@@ -137,6 +153,7 @@ class SettingsStore(private val context: Context) {
             claudeEffort = p[K.effort] ?: "medium",
             runGoal = p[K.runGoal]?.let { runCatching { json.decodeFromString<GoalOptions>(it).normalized() }.getOrNull() } ?: GoalOptions(),
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            palette = Palette.parse(p[K.palette]),
             pinnedRepos = p[K.pinned].orEmpty(),
             hiddenRepos = p[K.hidden].orEmpty(),
             detailPaneDp = p[K.pane] ?: 440,
@@ -214,6 +231,7 @@ class SettingsStore(private val context: Context) {
             it[K.effort] = next.claudeEffort
             it[K.runGoal] = json.encodeToString(next.runGoal.normalized())
             it[K.theme] = next.themeMode.name
+            next.palette?.let { pal -> it[K.palette] = pal.name } ?: it.remove(K.palette)
             it[K.pinned] = next.pinnedRepos
             it[K.hidden] = next.hiddenRepos
             it[K.pane] = next.detailPaneDp
