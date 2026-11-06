@@ -13,7 +13,6 @@ import com.ryderdavid.nacre.data.model.IntakeDraft
 import com.ryderdavid.nacre.data.model.IntakeVerdict
 import com.ryderdavid.nacre.data.model.NewEffortPrefill
 import com.ryderdavid.nacre.data.model.ScreenContext
-import com.ryderdavid.nacre.ui.bead.TYPES
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +26,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+private val TYPES = listOf("task", "bug", "feature", "chore", "epic", "decision", "spike", "story")
 
 /** New effort drafts in Chat: the chat it opens, the Draft card's Continue, and what replaced DraftChat. */
 class NewEffortTest {
@@ -135,10 +136,6 @@ class NewEffortTest {
     @Test fun noDraftChatRemains() {
         val src = File("src/main/java/com/ryderdavid/nacre")
         assertTrue(src.isDirectory, "run from the app module")
-        val sheet = File(src, "ui/board/NewBeadSheet.kt").readText()
-        assertFalse("DraftChat" in sheet)
-        assertFalse("Draft with Claude" in sheet, "the sheet has no AI draft step")
-        assertFalse("reviseDraft" in sheet || ".draft(repoKey" in sheet, "the sheet calls no draft endpoint")
         val offenders = src.walkTopDown().filter { it.isFile && it.extension == "kt" && Regex("""\bDraftChat\b""").containsMatchIn(it.readText()) }.toList()
         assertEquals(emptyList(), offenders)
     }

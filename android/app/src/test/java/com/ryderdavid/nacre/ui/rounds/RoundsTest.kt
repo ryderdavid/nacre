@@ -46,23 +46,6 @@ class RoundsTest {
         assertEquals("$1.30", usd(1.3))
     }
 
-    @Test fun aRoundNeedsGates() {
-        val repo = Repo(id = "r", name = "Nacre", path = "/x")
-        assertTrue(roundUnavailable(repo)!!.contains("nacre.yaml"))
-        assertTrue(roundUnavailable(repo.copy(gatesError = "nacre.yaml line 2: run is required"))!!.contains("line 2"))
-        assertNull(roundUnavailable(repo.copy(gates = listOf("bridge"))))
-    }
-
-    @Test fun candidatesAreOpenWorkReadyFirst() {
-        val ix = BoardIndex(listOf(
-            Issue("A", "blocked one", status = "open", dependencies = listOf(com.ryderdavid.nacre.data.model.Dependency("A", "B", "blocks"))),
-            Issue("B", "ready one", status = "open", priority = 3),
-            Issue("C", "done", status = "closed"),
-            Issue("D", "an epic", status = "open", type = "epic"),
-            Issue("E", "urgent", status = "open", priority = 0),
-        ))
-        assertEquals(listOf("E", "B", "A"), roundCandidates(ix).map { it.id })
-    }
     @kotlin.test.Test fun automaticLandingAndFinishingDecodeWithoutRequestingAMerge() {
         val round = com.ryderdavid.nacre.data.bridge.BridgeClient.json.decodeFromString<com.ryderdavid.nacre.data.model.Round>(
             """{"id":"r1","state":"ready_to_land","land_when_ready":true,"finish":true}""",

@@ -197,95 +197,6 @@ private fun NeedsYouChip() {
     }
 }
 
-/** One round: its state, decisions, beads, plan and log, with what Ryder can do about it. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
-    val vm = nacreViewModel(key = "round:$roundKey") { RoundViewModel(it.repository, roundKey) }
-    val round by vm.round.collectAsState()
-    val events by vm.events.collectAsState()
-    round?.let { r -> if (!inPane) com.ryderdavid.nacre.ui.chat.PublishScreen(com.ryderdavid.nacre.ui.ScreenOrigin.Round(roundKey), com.ryderdavid.nacre.data.chat.ScreenSummaries.round(r)) }
-    val error by vm.error.collectAsState()
-    val busy by vm.busy.collectAsState()
-    var menu by remember { mutableStateOf(false) }
-    var confirmCancel by remember { mutableStateOf(false) }
-    var found by remember { mutableStateOf(false) }
-    var foundPrefill by remember { mutableStateOf<com.ryderdavid.nacre.data.model.NewEffortPrefill?>(null) }
-    // A spec round can report work found outside its sections, while it runs and after.
-    val specBeads = round?.beads?.filter { it.specChangeId.isNotBlank() }.orEmpty()
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = { if (!inPane) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
-                title = {
-                    Column {
-                        Text(round?.let { "Round in ${it.repoName}" } ?: "Round", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        round?.let {
-                            Text(
-                                listOfNotNull(it.hostName.ifBlank { null }, it.id).joinToString(" · "),
-                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = MonoFamily,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    if (round?.isActive == true || specBeads.isNotEmpty()) {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Round options") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            if (specBeads.isNotEmpty()) DropdownMenuItem(text = { Text("Found something") }, onClick = { menu = false; found = true })
-                            if (round?.isActive == true) DropdownMenuItem(text = { Text("Cancel round") }, onClick = { menu = false; confirmCancel = true })
-                        }
-                    }
-                },
-            )
-        },
-    ) { pad ->
-        val r = round
-        when {
-            r == null && error != null -> MessageState(Icons.Rounded.Error, "Couldn't load the round", error, modifier = Modifier.padding(pad))
-            r == null -> LoadingState("Loading the round…", Modifier.padding(pad))
-            else -> LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item("status") {
-                    StatusCard(r, busy, onBudget = vm::setBudget, onChoose = vm::choose, onCancel = { confirmCancel = true })
-                }
-                if (error != null) item("error") { Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (r.state == ROUND_NEEDS_DECISION || r.openQuestions.isNotEmpty()) items(r.openQuestions, key = { "q:" + it.id }) { q ->
-                    QuestionCard(q, busy) { vm.answer(q.id, it) }
-                }
-                if (r.state == ROUND_READY && !r.mergesAutomatically) item("land") { LandCard(r, busy, onLand = vm::land) }
-                if (r.state == ROUND_LANDED) item("landed") { LandedCard(r) }
-                item("beads-h") { SectionHeader("Beads") }
-                items(r.beads, key = { "b:" + it.id }) { b ->
-                    BeadRow(
-                        r, b, busy,
-                        onOpenBead = { onOpenBead(r.repoKey, b.id) },
-                        onOpenRun = { if (b.runId.isNotBlank()) onOpenRun(r.runKey(b.runId)) },
-                        onRetry = { vm.retry(b.id) },
-                    )
-                }
-                r.plan?.let { plan ->
-                    item("plan-h") { SectionHeader("Plan") }
-                    item("plan") { PlanCard(r) }
-                }
-                item("log-h") { SectionHeader("What happened") }
-                items(events.asReversed(), key = { "e:" + it.seq }) { e -> EventRow(e) }
-            }
-        }
-    }
-
-    if (confirmCancel) AlertDialog(
-        onDismissRequest = { confirmCancel = false },
-        title = { Text("Cancel this round?") },
-        text = { Text("Running work stops. Each bead's branch stays, so nothing done so far is lost.") },
-        confirmButton = { TextButton(onClick = { confirmCancel = false; vm.cancel() }) { Text("Cancel round") } },
-        dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text("Keep it running") } },
-    )
-    val r = round
-    if (found && r != null) RoundFoundSheet(r, specBeads.map { it.id }, onDismiss = { found = false }, onOutOfScope = { found = false; foundPrefill = it })
-    foundPrefill?.let { p -> if (r != null) RoundEffortSheet(r.repoKey, p, onDone = { foundPrefill = null }) }
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun StatusCard(
@@ -456,117 +367,6 @@ internal fun BudgetDialog(current: Double, onDismiss: () -> Unit, onSet: (Double
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun QuestionCard(q: Question, busy: Boolean, onAnswer: (String) -> Unit) {
-    var custom by rememberSaveable(q.id) { mutableStateOf("") }
-    Surface(color = Nacre.colors.needsYouContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                when (q.kind) {
-                    "contradiction" -> "These beads disagree"
-                    "unmerged-work" -> "Work outside the round"
-                    else -> "This needs your call"
-                },
-                style = MaterialTheme.typography.labelLarge, color = Nacre.colors.needsYou,
-            )
-            Text(q.text, style = MaterialTheme.typography.bodyLarge)
-            if (q.problem.isNotBlank()) Text(q.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { q.beads.forEach { LabelChip(it) } }
-            q.options.forEach { opt ->
-                OutlinedButton(onClick = { onAnswer(opt) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(opt, modifier = Modifier.fillMaxWidth())
-                }
-            }
-            if (q.kind != "unmerged-work") Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = custom, onValueChange = { custom = it }, placeholder = { Text("Or answer in your own words") },
-                    modifier = Modifier.weight(1f), singleLine = false, maxLines = 4,
-                )
-                Spacer(Modifier.width(8.dp))
-                FilledTonalButton(onClick = { onAnswer(custom.trim()) }, enabled = !busy && custom.isNotBlank()) { Text("Answer") }
-            }
-        }
-    }
-}
-
-/** What landing [target] does about pushing, resolved from nacre.yaml; null [landPush] is an older nacred that doesn't say. */
-data class LandWording(val note: String, val confirm: String, val body: String)
-
-fun landWording(target: String, commit: String, landPush: Boolean?): LandWording {
-    val moved = "If $target moved since the round started, nacred merges those changes in and runs the gates and build again first."
-    return when (landPush) {
-        true -> LandWording(
-            note = "Merging pushes $target to origin.",
-            confirm = "Merge and push",
-            body = "nacred moves $target to $commit and pushes it to origin. $moved",
-        )
-        false -> LandWording(
-            note = "Merging doesn't push: nacre.yaml sets land.push to false.",
-            confirm = "Merge, don't push",
-            body = "nacred moves $target to $commit on this computer only. It doesn't push, because the repository's nacre.yaml sets land.push to false. $moved",
-        )
-        null -> LandWording(
-            note = "",
-            confirm = "Merge",
-            body = "nacred moves $target to $commit and pushes it if the repository's nacre.yaml says to. $moved",
-        )
-    }
-}
-
-@Composable
-private fun LandCard(r: Round, busy: Boolean, onLand: () -> Unit) {
-    var confirm by remember { mutableStateOf(false) }
-    var reviewing by rememberSaveable(r.finalCommit) { mutableStateOf(false) }
-    val container = LocalContainer.current
-    val closing = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isBlank() }
-    val checks = r.beads.filter { it.state == BEAD_INTEGRATED && it.humanCheck.isNotBlank() }
-    val parked = r.beads.filter { it.state == BEAD_PARKED || it.state == BEAD_SKIPPED }
-    val wording = landWording(r.target, r.finalCommit.take(7), r.landPush)
-    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("One commit, every gate and the build pass", style = MaterialTheme.typography.titleMedium)
-            // Selectable so the commit and the build's path on the computer can be copied.
-            SelectionContainer {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        listOfNotNull("Commit ${r.finalCommit.take(7)}", r.version.ifBlank { null }?.let { "version $it" }).joinToString(" · "),
-                        style = MaterialTheme.typography.bodyMedium, fontFamily = MonoFamily,
-                    )
-                    r.artifacts.forEach { a ->
-                        Text("Build on ${r.hostName.ifBlank { "the computer" }}: $a", style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily)
-                    }
-                }
-            }
-            if (closing.isNotEmpty()) Text("Closed: " + closing.joinToString(", ") { it.id }, style = MaterialTheme.typography.bodyMedium)
-            checks.forEach { Text("${it.id} stays open for you to verify: ${it.humanCheck}", style = MaterialTheme.typography.bodyMedium) }
-            if (parked.isNotEmpty()) Text("Not in this round: " + parked.joinToString(", ") { "${it.id} (${it.reason})" }, style = MaterialTheme.typography.bodyMedium)
-            if (wording.note.isNotEmpty()) Text(wording.note, style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(onClick = { reviewing = !reviewing }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (reviewing) "Hide the changes" else "Review the changes")
-            }
-            if (reviewing) {
-                val changes by produceState<Result<RoundChanges>?>(null, r.key, r.finalCommit) {
-                    value = runCatching { container.repository.roundChanges(r.key) }
-                }
-                RoundChangesList(changes)
-            }
-            Button(onClick = { confirm = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.RocketLaunch, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Merge into ${r.target}")
-            }
-        }
-    }
-    if (confirm) AlertDialog(
-        onDismissRequest = { confirm = false },
-        title = { Text("Merge into ${r.target}?") },
-        text = { Text(wording.body) },
-        confirmButton = { TextButton(onClick = { confirm = false; onLand() }) { Text(wording.confirm) } },
-        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Not yet") } },
-    )
-}
-
 /** The commits and files a round adds, loaded on demand. */
 @Composable
 internal fun RoundChangesList(changes: Result<RoundChanges>?) {
@@ -590,17 +390,6 @@ internal fun RoundChangesList(changes: Result<RoundChanges>?) {
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun LandedCard(r: Round) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("${r.target} is at ${r.landedCommit.take(7)}${if (r.pushed) " and pushed" else ""}", style = MaterialTheme.typography.titleMedium)
-            if (r.version.isNotBlank()) Text("Version ${r.version}", style = MaterialTheme.typography.bodyMedium)
-            r.artifacts.forEach { Text(it.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, fontFamily = MonoFamily) }
         }
     }
 }
@@ -658,28 +447,6 @@ private fun BeadStateIcon(state: String) {
     Icon(icon, beadStateLabel(state), tint = tint, modifier = Modifier.size(20.dp))
 }
 
-@Composable
-private fun PlanCard(r: Round) {
-    val plan = r.plan ?: return
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (plan.summary.isNotBlank()) Text(plan.summary, style = MaterialTheme.typography.bodyMedium)
-            if (plan.findings.isEmpty()) Text("The beads don't get in each other's way.", style = MaterialTheme.typography.bodyMedium)
-            plan.findings.forEach { f ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        "${findingLabel(f.kind)} · ${f.beads.joinToString(", ")}${if (f.branch.isNotBlank()) " · ${f.branch}" else ""}",
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(f.text, style = MaterialTheme.typography.bodySmall)
-                    if (f.kind == FINDING_OVERLAP && f.unlinked) Text("You said these can run side by side.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Text("Review cost ${usd(plan.costUsd)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
 fun findingLabel(kind: String): String = when (kind) {
     "contradiction" -> "Contradiction"
     "ambiguity" -> "Unclear"
@@ -718,33 +485,4 @@ internal fun EventRow(e: RoundEvent) {
             }
         }
     }
-}
-
-/** Shown when no round is picked in the wide layout. */
-@Composable
-fun NoRoundSelected() = Box(Modifier.fillMaxSize()) { MessageState(Icons.Rounded.RocketLaunch, "Pick a round", null) }
-
-/** Found something from a spec round: asks which of its section beads the work was found in. */
-@Composable
-private fun RoundFoundSheet(r: Round, beads: List<String>, onDismiss: () -> Unit, onOutOfScope: (com.ryderdavid.nacre.data.model.NewEffortPrefill) -> Unit) {
-    val container = LocalContainer.current
-    val snapshot by produceState<com.ryderdavid.nacre.data.BoardSnapshot?>(null, r.repoKey) { value = runCatching { container.repository.awaitBoard(r.repoKey) }.getOrNull() }
-    val changeId = r.beads.firstOrNull { it.specChangeId.isNotBlank() }?.specChangeId ?: return
-    val change = snapshot?.changesById?.get(changeId) ?: return
-    // Default to the bead whose run is open, else the first section bead.
-    val running = r.beads.firstOrNull { it.id in beads && it.state == BEAD_RUNNING }?.id
-    com.ryderdavid.nacre.ui.bead.FoundSomethingSheet(
-        r.repoKey, change, foundIn = running ?: beads.firstOrNull(), onDismiss = onDismiss, onOutOfScope = onOutOfScope, roundBeads = beads,
-    )
-}
-
-@Composable
-private fun RoundEffortSheet(repoKey: String, prefill: com.ryderdavid.nacre.data.model.NewEffortPrefill, onDone: () -> Unit) {
-    val container = LocalContainer.current
-    val snapshot by produceState<com.ryderdavid.nacre.data.BoardSnapshot?>(null, repoKey) { value = runCatching { container.repository.awaitBoard(repoKey) }.getOrNull() }
-    val s = snapshot ?: return
-    com.ryderdavid.nacre.ui.board.NewEffortEntry(
-        repoKey, s.repo.name, s.index, defaultParent = null, openspec = s.changes?.openspec == true,
-        onDismiss = onDone, onCreated = { onDone() }, prefill = prefill,
-    )
 }

@@ -6,7 +6,6 @@ import com.ryderdavid.nacre.data.model.ChatWire
 import com.ryderdavid.nacre.data.model.Features
 import com.ryderdavid.nacre.data.model.Health
 import com.ryderdavid.nacre.data.model.ScreenContext
-import com.ryderdavid.nacre.ui.chat.chatRowLine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,20 +14,6 @@ import kotlin.test.assertTrue
 
 /** 8.7: the Chat list across computers, the older-bridge message, the badge and the New chat sheet's agents. */
 class ChatListingTest {
-    @Test fun `lists from every paired computer merge newest first, each tagged with its computer`() {
-        val hosts = listOf(host("a", "studio", *CHAT), host("b", "laptop", *CHAT))
-        val lists = mapOf(
-            "a" to listOf(ChatRecord("c1", title = "Old", updatedAt = "2026-11-01T10:00:00Z"), ChatRecord("c3", title = "Newest", updatedAt = "2026-11-05T09:00:00Z")),
-            "b" to listOf(ChatRecord("c2", title = "Middle", repo = "nacre", updatedAt = "2026-11-03T10:00:00Z")),
-        )
-        val merged = mergeChatLists(hosts, lists)
-        assertEquals(listOf("Newest", "Middle", "Old"), merged.chats.map { it.title })
-        assertEquals(listOf("a~c3", "b~c2", "a~c1"), merged.chats.map { it.key })
-        assertEquals("laptop", merged.chats[1].hostName)
-        assertTrue(merged.notices.isEmpty())
-        assertEquals("laptop · nacre · Idle", chatRowLine(merged.chats[1]) { null })
-        assertEquals("studio · all boards · Idle", chatRowLine(merged.chats[0]) { null })
-    }
 
     @Test fun `a computer whose nacred predates Chat says to update it, and its old list is ignored`() {
         val hosts = listOf(host("a", "studio", *CHAT), host("b", "laptop", Features.CLAUDE))

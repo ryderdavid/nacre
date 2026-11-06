@@ -121,7 +121,6 @@ import com.ryderdavid.nacre.ui.common.formatDuration
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
-import com.ryderdavid.nacre.ui.rounds.RoundDetail
 import com.ryderdavid.nacre.ui.rounds.RoundRow
 import com.ryderdavid.nacre.ui.theme.MonoFamily
 import com.ryderdavid.nacre.ui.theme.Nacre
@@ -146,128 +145,6 @@ fun RunStatusIcon(status: String, modifier: Modifier = Modifier, stalled: Boolea
         "cancelled" -> Icon(Icons.Rounded.Block, "Cancelled", tint = MaterialTheme.colorScheme.outline, modifier = modifier)
         else -> Icon(Icons.Rounded.Error, "Failed", tint = MaterialTheme.colorScheme.error, modifier = modifier)
     }
-}
-
-/** Marks a round's key in the Runs screen's selection, which otherwise holds a run key. */
-private const val ROUND_PREFIX = "round:"
-
-/** Width each run-screen pane keeps at minimum, and where the divider starts, in dp. */
-private const val MIN_LIST_PANE_DP = 280f
-private const val MIN_DETAIL_PANE_DP = 320f
-private const val DEFAULT_LIST_PANE_DP = 400f
-
-/** Clamp a dragged list-pane width so both panes keep their minimum inside [totalDp]. */
-internal fun clampListPaneWidth(widthDp: Float, totalDp: Float): Float =
-    widthDp.coerceIn(MIN_LIST_PANE_DP, (totalDp - MIN_DETAIL_PANE_DP).coerceAtLeast(MIN_LIST_PANE_DP))
-
-/** Runs list; on a wide screen the selected run's transcript sits beside it, behind a draggable divider. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun RunsScreen(onOpenRun: (String) -> Unit, onOpenRound: (String) -> Unit, onOpenBead: (repoKey: String, beadId: String) -> Unit) {
-    val vm = nacreViewModel { RunsViewModel(it.repository) }
-    val runs by vm.runs.collectAsState()
-    val rounds by vm.rounds.collectAsState()
-    val showComputer = vm.hosts.collectAsState().value.size > 1
-    val refreshing by vm.refreshing.collectAsState()
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    com.ryderdavid.nacre.ui.chat.PublishScreen(
-        com.ryderdavid.nacre.ui.ScreenOrigin.AllBoards("activity"),
-        com.ryderdavid.nacre.data.chat.ScreenSummaries.allBoards(
-            "activity",
-            rounds.take(10).map { "round ${it.id} on ${it.repoName}: ${it.state}" } +
-                runs.take(20).map { "run ${it.id} of ${it.issueId} on ${it.repoName}: ${it.status}" } +
-                listOfNotNull(selected?.let { "Selected: $it" }),
-        ),
-    )
-    var listPaneDp by rememberSaveable { mutableStateOf(DEFAULT_LIST_PANE_DP) }
-
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = com.ryderdavid.nacre.ui.common.isPaneWide(maxWidth)
-        val density = LocalDensity.current.density
-        val totalDp = maxWidth.value
-        val listPane = clampListPaneWidth(listPaneDp, totalDp)
-        Row(Modifier.fillMaxSize()) {
-            val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-            Scaffold(
-                modifier = Modifier.then(if (wide) Modifier.width(listPane.dp) else Modifier.weight(1f)).nestedScroll(scroll.nestedScrollConnection),
-                topBar = {
-                    LargeTopAppBar(
-                        title = { Text("Activity") },
-                        actions = {
-                            IconButton(onClick = vm::refresh, enabled = !refreshing) {
-                                Icon(Icons.Rounded.Refresh, "Refresh the list of runs")
-                            }
-                        },
-                        scrollBehavior = scroll,
-                    )
-                },
-            ) { pad ->
-                Box(Modifier.padding(pad).fillMaxSize()) {
-                    if (runs.isEmpty() && rounds.isEmpty()) MessageState(
-                        Icons.Rounded.Terminal, "No runs yet",
-                        "Open a bead and tap “Implement…” to send it to your Mac, or pick several on a board with “Work several beads until done”.",
-                    ) else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                        val shownRounds = rounds.filter { it.isActive } + rounds.filterNot { it.isActive }.take(3)
-                        if (shownRounds.isNotEmpty()) {
-                            item { GroupLabel("Rounds") }
-                            items(shownRounds, key = { "round:" + it.key }) { r ->
-                                RoundRow(r, ROUND_PREFIX + r.key == selected, showComputer) { if (wide) selected = ROUND_PREFIX + r.key else onOpenRound(r.key) }
-                            }
-                        }
-                        val active = runs.filter { it.isActive }
-                        val done = runs.filterNot { it.isActive }
-                        if (active.isNotEmpty()) {
-                            item { GroupLabel("Active") }
-                            items(active, key = { it.key }) { r -> RunRow(r, r.key == selected, showComputer) { if (wide) selected = r.key else onOpenRun(r.key) } }
-                        }
-                        if (done.isNotEmpty()) {
-                            item { GroupLabel("Recent") }
-                            items(done, key = { it.key }) { r -> RunRow(r, r.key == selected, showComputer) { if (wide) selected = r.key else onOpenRun(r.key) } }
-                        }
-                    }
-                }
-            }
-            if (wide) {
-                // start from the width on screen so a drag still moves after the window changed size
-                PaneDivider { dx -> listPaneDp = clampListPaneWidth(clampListPaneWidth(listPaneDp, totalDp) + dx / density, totalDp) }
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    val sel = selected ?: rounds.firstOrNull { it.needsYou }?.let { ROUND_PREFIX + it.key } ?: runs.firstOrNull()?.key
-                    // Keep the first pick: a round that stops needing you shouldn't swap the pane.
-                    LaunchedEffect(sel) { if (selected == null && sel != null) selected = sel }
-                    when {
-                        sel == null -> MessageState(Icons.Rounded.Terminal, "Pick a run", null)
-                        sel.startsWith(ROUND_PREFIX) -> RoundDetail(
-                            sel.removePrefix(ROUND_PREFIX), inPane = true, onBack = {},
-                            onOpenRun = { selected = it }, onOpenBead = onOpenBead,
-                        )
-                        else -> RunDetail(sel, inPane = true, onBack = {}, onOpenBead = onOpenBead)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** The divider between the runs list and the transcript; drag it to re-split the width. */
-@Composable
-private fun PaneDivider(onDrag: (Float) -> Unit) {
-    val drag = rememberUpdatedState(onDrag)
-    Box(
-        Modifier
-            .fillMaxHeight()
-            .width(16.dp)
-            .draggable(rememberDraggableState { drag.value(it) }, Orientation.Horizontal)
-            .semantics { contentDescription = "Resize panes" },
-        contentAlignment = Alignment.Center,
-    ) {
-        VerticalDivider()
-        Box(Modifier.size(width = 4.dp, height = 36.dp).background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
-    }
-}
-
-@Composable
-private fun GroupLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
 }
 
 /** How an adopted session is doing, in the app's words; null for a run Nacre dispatched. */
@@ -300,45 +177,6 @@ fun AgentChip(r: Run, modifier: Modifier = Modifier) {
             Text(listOfNotNull("Agent", activityLabel(r.activity)).joinToString(" · "), style = MaterialTheme.typography.labelSmall)
         }
     }
-}
-
-/** Marks a running job that has gone quiet for longer than the Mac's stall window. */
-@Composable
-fun StalledChip(modifier: Modifier = Modifier) {
-    Surface(color = Nacre.colors.needsYouContainer, shape = RoundedCornerShape(8.dp), modifier = modifier) {
-        Text("May be stuck", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
-    }
-}
-
-@Composable
-private fun RunRow(r: Run, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
-    ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        leadingContent = { RunStatusIcon(r.status, stalled = r.stalled) },
-        overlineContent = {
-            Text(
-                listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, r.issueId.ifBlank { null }).joinToString(" · "),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        },
-        headlineContent = { Text(runTitle(r), maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        trailingContent = {
-            when {
-                r.isAdopted -> AgentChip(r)
-                r.stalled -> StalledChip()
-            }
-        },
-        supportingContent = {
-            Column {
-                if (r.lastText.isNotBlank()) Text(r.lastText, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOfNotNull(relativeTime(r.createdAt), r.mode, RunNotifier.cost(r), r.toolCalls.takeIf { it > 0 }?.let { "$it tools" }).joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        },
-    )
 }
 
 /** Live transcript of one run, by Claude Code or Codex. */
@@ -394,7 +232,7 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
                 val tabletopMin = posture.hingeList.firstOrNull { !it.isVertical && it.isSeparating }?.let { with(density) { it.bounds.top.toDp() } }
                 Column(Modifier.then(if (posture.isTabletop && tabletopMin != null) Modifier.heightIn(min = 240.dp) else Modifier)) {
                     if (posture.isTabletop) RunHeader(r, Modifier.padding(horizontal = 16.dp))
-                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp, onSendLive = vm::sendLive)
+                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp)
                 }
             }
         },
@@ -463,8 +301,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
             )
             if (r.error.isNotBlank()) Text(r.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
             if (r.isAdopted) Text(
-                if (r.showsSendLive) "An agent started this session on the Mac. Nacre is watching it, not running it: it can't be stopped from here, but you can send it a message."
-                else "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
+                "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
             )
             if (r.isAdopted) LiveMessages(r)
@@ -482,7 +319,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit, onSendLive: (String) -> Unit) {
+private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding().imePadding().padding(12.dp)) {
             if (r.isActive) {
@@ -497,8 +334,7 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                         OutlinedButton(onClick = onCancel) { Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel") }
                     }
                 }
-                if (r.showsSendLive) LiveSendControls(r, sending, onSendLive)
-                else if (r.isAdopted) ReadOnlyNote()
+                if (r.isAdopted) ReadOnlyNote()
             } else if (r.showsFollowUp) {
                 var text by rememberSaveable(r.key) { mutableStateOf("") }
                 var mode by rememberSaveable(r.key) { mutableStateOf(r.mode.ifBlank { "auto" }) }
@@ -523,44 +359,6 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
         }
     }
 }
-
-/**
- * "Send to live session": an explicit, two-step action, because the message lands in someone's
- * open terminal on the Mac. The copy says what it is (a peer message) and what it can't do.
- */
-@Composable
-private fun ColumnScope.LiveSendControls(r: Run, sending: Boolean, onSend: (String) -> Unit) {
-    var open by rememberSaveable(r.key) { mutableStateOf(false) }
-    var text by rememberSaveable(r.key) { mutableStateOf("") }
-    if (!open) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send to live session")
-        }
-        return
-    }
-    Text(
-        LIVE_SEND_NOTE,
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-    )
-    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
-        OutlinedTextField(
-            text, { text = it }, placeholder = { Text("Message the live session") }, maxLines = 5,
-            shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        FilledIconButton(
-            onClick = { onSend(text.trim()); text = ""; open = false },
-            enabled = text.isNotBlank() && !sending, modifier = Modifier.size(52.dp),
-        ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send to live session") }
-    }
-    TextButton(onClick = { open = false }, modifier = Modifier.align(Alignment.End)) { Text("Not now") }
-}
-
-/** What a live send is, shown before it is sent. */
-internal const val LIVE_SEND_NOTE =
-    "This arrives in the terminal on the Mac as a peer message from another session, not as you typing there. " +
-        "Claude runs it under that session's own permissions. It can't approve a waiting prompt or run slash commands."
 
 /** The live messages sent to this session and where each one stands. */
 @Composable

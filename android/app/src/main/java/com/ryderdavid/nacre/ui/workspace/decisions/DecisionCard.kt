@@ -187,7 +187,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
             }
             Column {
                 Text(d.title, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
-                val sub = listOf(d.subtitle, facts.joinToString(" · ")).filter { it.isNotBlank() }.distinct().joinToString(" · ")
+                val sub = (listOf(d.subtitle).filter { it.isNotBlank() } + facts.filterNot { f -> d.subtitle.contains(f) }).joinToString(" · ")
                 if (sub.isNotBlank()) SelectionContainer { Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (d.body.isNotBlank()) {

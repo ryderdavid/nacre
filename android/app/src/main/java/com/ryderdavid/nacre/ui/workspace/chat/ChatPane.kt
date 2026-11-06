@@ -219,10 +219,13 @@ private fun Composer(
     val attach = rememberImageAttacher(thread, gate.remaining)
     val scope = rememberCoroutineScope()
     var sending by remember(thread) { mutableStateOf(false) }
+    // The agent may later need an OK while the app is closed, so notifications are asked for on the first send.
+    val askNotifications = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
 
     // References are spent only once nacred accepts the message; a failed send keeps the draft as written.
     val send: () -> Unit = send@{
         if (!gate.canSend || sending) return@send
+        askNotifications()
         val original = draft
         val repoId = record?.repo ?: Keys.id(repoKey)
         val ctx = ChatSend.context(repoId, refs.viewing, refs.viewingDropped)

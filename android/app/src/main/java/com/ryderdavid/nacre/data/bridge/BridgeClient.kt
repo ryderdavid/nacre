@@ -120,7 +120,6 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     @Serializable private data class NewComment(val text: String, @SerialName("from_claude") val fromClaude: Boolean = false)
     @Serializable private data class Dep(val issue_id: String, val depends_on_id: String, val type: String)
     @Serializable private data class FollowUp(val message: String, val mode: String? = null)
-    @Serializable private data class LiveMessage(val message: String)
     @Serializable private data class ErrorBody(val error: String = "", val detail: String = "")
 
     suspend fun health(): Health = get("/v1/health")
@@ -224,7 +223,6 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun run(id: String): RunDetail = get("/v1/runs/$id")
     suspend fun cancel(id: String): Run = send<Reason, Run>("POST", "/v1/runs/$id/cancel", Reason())
     suspend fun followUp(id: String, message: String, mode: String?): Run = send("POST", "/v1/runs/$id/followup", FollowUp(message, mode))
-    suspend fun sendLive(id: String, message: String): Run = send("POST", "/v1/runs/$id/live", LiveMessage(message))
 
     // ---- rounds ----
 

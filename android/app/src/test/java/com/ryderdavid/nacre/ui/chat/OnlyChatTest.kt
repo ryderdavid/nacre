@@ -53,10 +53,5 @@ class OnlyChatTest {
             listOf("ClaudeBackend", "ApiBackend", "BeadChatItem", "ChatMode.", "DraftChat", "AssistantSession").any { it in text }
         }.keys
         assertEquals(emptySet(), reaching)
-        // The bead composer, the change box and the round-question box hand questions to Chat.
-        val handOff = listOf("ui/bead/ThreadComposer.kt", "ui/bead/OwnAnswer.kt")
-        for (f in handOff) assertTrue(outside.getValue(f).let { "onOpenChat" in it || "rememberChatOpener" in it }, f)
-        assertTrue("OwnAnswer(" in outside.getValue("ui/bead/ChangeGuide.kt"))
-        assertTrue("OwnAnswer(" in outside.getValue("ui/repos/RoundQuestions.kt"))
     }
 }

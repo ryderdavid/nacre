@@ -8,13 +8,7 @@ import com.ryderdavid.nacre.data.model.RoundStop
 import com.ryderdavid.nacre.data.model.Run
 import com.ryderdavid.nacre.data.model.ScreenContext
 import com.ryderdavid.nacre.data.model.StopChoice
-import com.ryderdavid.nacre.ui.BeadRoute
-import com.ryderdavid.nacre.ui.BoardsRoute
-import com.ryderdavid.nacre.ui.ChatsRoute
-import com.ryderdavid.nacre.ui.InboxRoute
-import com.ryderdavid.nacre.ui.RoundRoute
 import com.ryderdavid.nacre.ui.ScreenOrigin
-import com.ryderdavid.nacre.ui.rememberedOrigin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -114,30 +108,6 @@ class ScreenContextTest {
         holder.show(ScreenOrigin.Bead("a~nacre", "NAC-9"))
         assertEquals("NAC-9", holder.atSend().context.beadId)
         assertEquals("a~nacre", holder.atSend().repoKey)
-    }
-
-    @Test fun `the Chat tab uses the screen last shown before it, or all boards`() {
-        val holder = ScreenContextHolder()
-        var origin: ScreenOrigin? = null
-        fun go(route: Any) {
-            origin = rememberedOrigin(origin, route)
-            holder.show(origin)
-        }
-        go(ChatsRoute)
-        assertEquals(ScreenContext.BOARDS, holder.atSend().context.screen)
-        assertEquals("all boards", holder.atSend().label)
-
-        go(BoardsRoute)
-        go(RoundRoute("a~r-12"))
-        holder.publish(ScreenOrigin.Round("a~r-12"), ScreenSummaries.round(round))
-        go(ChatsRoute)
-        assertEquals("r-12", holder.atSend().context.roundId)
-
-        go(InboxRoute)
-        go(BeadRoute("a~nacre", "NAC-48p.5"))
-        go(ChatsRoute)
-        assertEquals("NAC-48p.5", holder.atSend().context.beadId)
-        assertEquals("About: NAC-48p.5", aboutChip(holder.current.value.label))
     }
 
     private val groups = listOf(

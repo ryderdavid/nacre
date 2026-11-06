@@ -20,10 +20,4 @@ class WalkthroughBoardTest {
         assertNull(laneWithMatches(cols.map { col(it.key, 0) }, 1), "nothing matches anywhere")
     }
 
-    @Test fun acceptanceAndDesignCanBeOpenedByHand() {
-        assertFalse(showDetailFields(adding = false, acceptance = "", design = ""))
-        assertTrue(showDetailFields(adding = true, acceptance = "", design = ""))
-        assertTrue(showDetailFields(adding = false, acceptance = "Works", design = ""))
-        assertTrue(showDetailFields(adding = false, acceptance = " ", design = "Use X"))
-    }
 }

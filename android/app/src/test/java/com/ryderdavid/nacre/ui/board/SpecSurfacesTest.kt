@@ -43,20 +43,4 @@ class SpecSurfacesTest {
         assertTrue(isSpecLabel("specflow:c1") && isSpecLabel("found-amend") && !isSpecLabel("ux"))
     }
 
-    @Test fun intakeRouting() {
-        val amend = IntakeVerdict("amend", changeName = "rounds", rationale = "Changes retry.", activeChanges = listOf("rounds", "chat"))
-        assertEquals(EffortRoute.Amend("rounds"), EffortRoute.of(amend))
-        assertEquals("Create and develop", EffortRoute.of(amend).confirmLabel())
-        assertEquals("Intake: amend rounds, because Changes retry.", EffortRoute.of(amend).feedback(amend))
-        assertEquals("Intake: a new change, chosen by Ryder over intake's verdict", EffortRoute.NewChange.feedback(amend))
-        assertEquals("amend", EffortRoute.Amend("rounds").hint()!!.verdict)
-        assertNull(EffortRoute.Bead.hint())
-        assertEquals("Create bead", EffortRoute.Bead.confirmLabel())
-        assertEquals(EffortRoute.NewChange, EffortRoute.of(IntakeVerdict("amend")), "an amend without a change becomes new")
-        assertEquals(EffortRoute.Covered, EffortRoute.of(IntakeVerdict("covered")))
-        assertNull(EffortRoute.Amend("rounds").blockedBy(amend))
-        val busy = amend.copy(targetActive = "Round R1 is still active.", targetTracked = true)
-        assertTrue(EffortRoute.Amend("rounds").blockedBy(busy)!!.contains("Round R1 is still active"))
-        assertNull(EffortRoute.Amend("chat").blockedBy(busy), "only the busy change waits")
-    }
 }

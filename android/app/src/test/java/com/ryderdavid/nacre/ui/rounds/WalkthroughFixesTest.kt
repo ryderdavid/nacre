@@ -21,33 +21,6 @@ class WalkthroughFixesTest {
             Issue("C", "Search again elsewhere"),
         ),
     )
-    private val candidates = roundCandidates(index)
-
-    @Test fun startRoundKeepsTheBoardsSearch() {
-        val f = BoardFilter(query = "search")
-        assertEquals(listOf("A", "C"), scopedCandidates(candidates, index, f, f.query, keepBoardFilter = true).map { it.id }.sorted())
-        // Clearing the sheet's search shows everything again.
-        assertEquals(listOf("A", "B", "C"), scopedCandidates(candidates, index, f, "", keepBoardFilter = true).map { it.id }.sorted())
-    }
-
-    @Test fun startRoundKeepsTheBoardsEpicUntilTurnedOff() {
-        val f = BoardFilter(epic = "E", query = "search")
-        assertEquals("under Search epic", boardScopeLabel(index, f))
-        assertEquals(listOf("A"), scopedCandidates(candidates, index, f, "search", keepBoardFilter = true).map { it.id })
-        assertEquals(listOf("A", "C"), scopedCandidates(candidates, index, f, "search", keepBoardFilter = false).map { it.id }.sorted())
-        assertNull(boardScopeLabel(index, BoardFilter(query = "x")))
-    }
-
-    @Test fun landingSaysWhetherItPushes() {
-        val push = landWording("main", "abc1234", true)
-        assertEquals("Merge and push", push.confirm)
-        assertTrue("pushes it to origin" in push.body)
-        val local = landWording("main", "abc1234", false)
-        assertEquals("Merge, don't push", local.confirm)
-        assertTrue("doesn't push" in local.body && "land.push" in local.body)
-        // An older nacred doesn't say; the dialog stays conditional rather than guessing.
-        assertTrue("if the repository's nacre.yaml says to" in landWording("main", "abc1234", null).body)
-    }
 
     @Test fun landPushAndChangesDecode() {
         val r = BridgeClient.json.decodeFromString<Round>("""{"id":"r1","state":"ready_to_land","land_push":false}""")

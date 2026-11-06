@@ -95,26 +95,4 @@ class RunViewModel(private val repo: NacreRepository, val runKey: String) : View
         sending.value = false
     }
 
-    fun sendLive(message: String) = viewModelScope.launch {
-        sending.value = true
-        runCatching { repo.sendLive(runKey, message) }
-            .onSuccess { run.value = it }
-            .onFailure { repo.notify("Couldn't send to the live session: ${it.friendly()}") }
-        sending.value = false
-    }
-}
-
-class RunsViewModel(private val repo: NacreRepository) : ViewModel() {
-    val runs: StateFlow<List<Run>> = repo.runs.map { list -> list.filter { it.inRunsList } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, repo.runs.value.filter { it.inRunsList })
-    val rounds = repo.rounds
-    val hosts = repo.hosts
-    val refreshing = MutableStateFlow(false)
-
-    fun refresh() = viewModelScope.launch {
-        refreshing.value = true
-        repo.refreshRounds()
-        repo.refreshRuns().join()
-        refreshing.value = false
-    }
 }

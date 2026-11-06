@@ -279,9 +279,6 @@ data class Run(
     /** A follow-up needs a finished run with a session to resume, and the bridge's permission. */
     val showsFollowUp get() = !isActive && sessionId.isNotBlank() && canFollowup != false
 
-    /** "Send to live session" is offered on a live adopted run the bridge says passes its guard. */
-    val showsSendLive get() = isAdopted && isActive && canSendLive
-
     /** The `cd … && claude --resume …` line to pick this session up by hand, when there is one. */
     val takeoverCommand get() = resumeCommand.takeIf { it.isNotBlank() && sessionId.isNotBlank() }
 }

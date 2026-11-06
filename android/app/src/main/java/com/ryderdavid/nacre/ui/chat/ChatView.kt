@@ -20,9 +20,3 @@ fun rememberChatList(key: String): LazyListState {
     }
     return list
 }
-
-@Composable
-fun chatDraft(key: String): String {
-    val views by LocalContainer.current.chatStack.views.collectAsState()
-    return views[key]?.draft.orEmpty()
-}

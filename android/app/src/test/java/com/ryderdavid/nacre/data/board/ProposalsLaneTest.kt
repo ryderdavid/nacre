@@ -4,7 +4,6 @@ import com.ryderdavid.nacre.data.model.ChangeDraft
 import com.ryderdavid.nacre.data.model.ChangeSummary
 import com.ryderdavid.nacre.data.model.ChangesList
 import com.ryderdavid.nacre.data.model.Issue
-import com.ryderdavid.nacre.ui.rounds.roundCandidates
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -55,13 +54,6 @@ class ProposalsLaneTest {
     @Test fun proposalsAreNotADropTargetAndOtherCallersKeepLaneOf() {
         assertNull(moveActionFor(Lane.PROPOSED.key))
         assertEquals(Lane.READY, board.laneOf(board.byId["S1"]!!))
-    }
-
-    @Test fun roundsLeaveOutProposalsAndPendingAmendments() {
-        val ids = roundCandidates(board, changes).map { it.id }
-        assertFalse("S1" in ids || "A" in ids, "beads being planned aren't work yet")
-        assertFalse("F" in ids, "a pending amendment is not runnable")
-        assertTrue("X" in ids)
     }
 
     // ---- Draft placeholders (pending-proposal-placeholders §3) ----

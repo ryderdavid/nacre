@@ -67,205 +67,11 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import kotlinx.coroutines.launch
 
-/** How a conversation is framed: full screen in the Chat tab, or in the docked pane or the sheet. */
-enum class ConversationFrame { Tab, Pane, Sheet }
-
-/**
- * One chat: the conversation, its cards and the composer. In the Chat tab [onBack] goes to the
- * list; in the pane or sheet it closes the view, and [onCollapse] leaves the edge tab. Bead links
- * call [onOpenBead].
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ConversationScreen(
-    key: String,
-    onBack: () -> Unit,
-    onNew: (NewChatRequest) -> Unit,
-    frame: ConversationFrame = ConversationFrame.Tab,
-    onCollapse: (() -> Unit)? = null,
-    onOpenBead: ((String, String) -> Unit)? = null,
-) {
-    val container = LocalContainer.current
-    val hub = container.chats
-    val conv = remember(key) { hub.conversation(key) }
-    LaunchedEffect(key) { conv.open() }
-    val state by conv.state.collectAsState()
-    val listing by container.repository.chats.collectAsState()
-    val record = listing.chat(key) ?: state.chat
-    val computer = container.repository.hostName(Keys.host(key)).ifBlank { record?.hostName ?: "the computer" }
-    val shown by hub.screens.current.collectAsState()
-    val send = contextForChat(shown, Keys.host(key), container.repository.groups.collectAsState().value, container.repository::hostName)
-    val focus by hub.focus.collectAsState()
-    val list = com.ryderdavid.nacre.ui.chat.rememberChatList(key)
-    // Bead links point into the chat's own repository.
-    val startRepo = record?.repo?.let { Keys.of(Keys.host(key), it) }
-    val knownBeads = startRepo?.let { container.repository.board(it).collectAsState().value.data?.index?.byId?.keys }.orEmpty()
-    val scope = rememberCoroutineScope()
-    var menu by remember { mutableStateOf(false) }
-    var continuing by remember(key) { mutableStateOf<com.ryderdavid.nacre.data.chat.DraftContinuation?>(null) }
-    val onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = { d ->
-        val c = hub.continueDraft(key, record, d)
-        if (c != null) continuing = c else container.repository.notify("This chat isn't about a board. Start New effort on a board to continue a draft.")
-    }
-
-    LaunchedEffect(state.items.size, focus) {
-        val target = focus?.let { f -> state.items.indexOfFirst { it is ChatItem.Permission && it.card.requestId == f } }?.takeIf { it >= 0 }
-        when {
-            target != null -> { list.animateScrollToItem(target); hub.focus.value = null }
-            state.items.isNotEmpty() -> list.animateScrollToItem(state.items.lastIndex)
-        }
-    }
-
-    Scaffold(
-        contentWindowInsets = if (frame == ConversationFrame.Tab) androidx.compose.material3.ScaffoldDefaults.contentWindowInsets else androidx.compose.foundation.layout.WindowInsets(0),
-        containerColor = if (frame == ConversationFrame.Pane) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
-        topBar = {
-            TopAppBar(
-                windowInsets = if (frame == ConversationFrame.Tab) androidx.compose.material3.TopAppBarDefaults.windowInsets else androidx.compose.foundation.layout.WindowInsets(0),
-                colors = if (frame == ConversationFrame.Pane) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
-                title = {
-                    Column {
-                        Text(record?.title?.ifBlank { null } ?: "Chat", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(computer, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        if (frame == ConversationFrame.Tab) Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Chats")
-                        else Icon(Icons.Rounded.Close, "Close chat")
-                    }
-                },
-                actions = {
-                    onCollapse?.let { IconButton(onClick = it) { Icon(Icons.Rounded.ChevronRight, "Collapse chat") } }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("New chat") }, onClick = { menu = false; onNew(NewChatRequest()) })
-                            DropdownMenuItem(text = { Text("Delete") }, onClick = {
-                                menu = false
-                                scope.launch {
-                                    runCatching { hub.delete(key) }.onFailure { container.repository.notify("Couldn't delete the chat: ${it.friendly()}") }
-                                }
-                            })
-                        }
-                    }
-                },
-            )
-        },
-    ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.items, key = { it.key }) { item ->
-                    Box(Modifier.padding(horizontal = 16.dp)) {
-                        Column {
-                            ChatItemView(item, onAnswer = { req, allow, note -> conv.answer(req, allow, note) }, onContinue = onContinue, chatKey = key)
-                            if (onOpenBead != null && startRepo != null && item is ChatItem.Assistant) {
-                                val mentioned = beadMentions(item.text, knownBeads)
-                                if (mentioned.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    mentioned.forEach { id -> TextButton(onClick = { onOpenBead(startRepo, id) }) { Text("Open $id") } }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (state.reconnecting) StatusLine("Reconnecting to $computer…")
-            state.error?.let { StatusLine(it, error = true, onDismiss = conv::dismissError) }
-            state.limitReason?.let { reason ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(reason, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = { onNew(NewChatRequest(record?.repo?.let { Keys.of(Keys.host(key), it) }, carry = "Carrying on from “${record?.title.orEmpty()}”: ")) }) { Text("New") }
-                }
-            }
-            send.elsewhere?.let { e ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(elsewhereHint(computer, e), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { onNew(NewChatRequest(forceRepoKey = e.repoKey)) }) { Text("New chat on ${e.computer}") }
-                }
-            }
-            continuing?.let { c -> com.ryderdavid.nacre.ui.board.DraftContinueSheet(c, onDone = { continuing = null }) }
-            Composer(
-                chatKey = key,
-                about = aboutChip(send.label),
-                running = state.turnRunning,
-                canSend = state.canSend,
-                chat = state.chat ?: record,
-                onSend = {
-                    // The context is read at the moment Send is pressed.
-                    val at = contextForChat(hub.screens.atSend(), Keys.host(key), container.repository.groups.value, container.repository::hostName)
-                    conv.sendDraft(at.context)
-                },
-                onStop = conv::stop,
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatusLine(text: String, error: Boolean = false, onDismiss: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        onDismiss?.let { TextButton(onClick = it) { Text("Dismiss") } }
-    }
-}
-
-/**
- * The composer: the About chip, the pending images as removable thumbnails, Attach image, the
- * message field and Send (or Stop while a turn runs). The draft and the pending images live with
- * the chat in its view state, so they follow it between the pane, the sheet and the tab, and stay
- * until nacred accepts the message.
- */
-@Composable
-private fun Composer(
-    chatKey: String,
-    about: String,
-    running: Boolean,
-    canSend: Boolean,
-    chat: com.ryderdavid.nacre.data.model.ChatRecord?,
-    onSend: () -> Unit,
-    onStop: () -> Unit,
-) {
-    val stack = LocalContainer.current.chats.stack
-    val views by stack.views.collectAsState()
-    val view = views[chatKey]
-    val text = view?.draft.orEmpty()
-    val pending = view?.images.orEmpty()
-    val gate = com.ryderdavid.nacre.data.chat.chatComposerGate(text, pending, chat, canSend)
-    val attach = com.ryderdavid.nacre.ui.common.rememberImageAttacher(chatKey, gate.remaining)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        AssistChip(onClick = {}, label = { Text(about, maxLines = 1, overflow = TextOverflow.Ellipsis) })
-        com.ryderdavid.nacre.ui.common.PendingImageRow(pending, onRemove = { id -> stack.removePending(chatKey, id) }, Modifier.padding(vertical = 4.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            com.ryderdavid.nacre.ui.common.AttachImageButton(gate, attach)
-            OutlinedTextField(
-                value = text,
-                onValueChange = { v -> stack.updateView(chatKey) { it.copy(draft = v) } },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message") },
-                maxLines = 6,
-            )
-            if (running) {
-                FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 8.dp)) { Icon(Icons.Rounded.Stop, "Stop") }
-            } else {
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = gate.canSend,
-                    modifier = Modifier.padding(start = 8.dp),
-                ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
-            }
-        }
-        com.ryderdavid.nacre.ui.common.ComposerReason(gate, Modifier.padding(start = 8.dp, top = 2.dp))
-    }
-}
-
 @Composable
 internal fun ChatItemView(
     item: ChatItem,
     onAnswer: (String, Boolean, String?) -> Unit,
-    onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit = {},
+    onContinue: ((com.ryderdavid.nacre.data.model.ChatDraft) -> Unit)? = null,
     chatKey: String = "",
 ) {
     when (item) {
@@ -292,9 +98,9 @@ internal fun ChatItemView(
     }
 }
 
-/** The newest New effort draft: its fields, and Continue into the New effort sheet. */
+/** The newest New effort draft: its fields, and Continue when a screen can take it further. */
 @Composable
-internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onContinue: (com.ryderdavid.nacre.data.model.ChatDraft) -> Unit) {
+internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onContinue: ((com.ryderdavid.nacre.data.model.ChatDraft) -> Unit)?) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Draft" + draft.type.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), style = MaterialTheme.typography.labelLarge)
@@ -308,7 +114,7 @@ internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onC
                 Text("Design", style = MaterialTheme.typography.labelMedium)
                 Text(draft.design, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            if (onContinue != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(onClick = { onContinue(draft) }) { Text("Continue") }
             }
         }

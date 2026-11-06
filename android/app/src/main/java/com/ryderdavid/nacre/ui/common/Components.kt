@@ -190,7 +190,6 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, trailing: @Compos
 }
 
 val AiIcon = Icons.Rounded.AutoAwesome
-val DoneIcon = Icons.Rounded.CheckCircle
 
 /** "3 min ago" style text for an RFC 3339 timestamp. */
 fun relativeTime(ts: String): String {
@@ -207,5 +206,3 @@ fun formatDuration(ms: Long): String {
         else -> "${s / 3600}h ${(s % 3600) / 60}m"
     }
 }
-
-val ListPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
