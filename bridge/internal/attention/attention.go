@@ -49,6 +49,9 @@ type Builder struct {
 	mu         sync.Mutex
 	cache      map[string]cached
 	refreshing map[string]bool
+	// incomplete are the repositories (by id) whose last read failed with
+	// nothing known to fall back on.
+	incomplete map[string]bool
 }
 
 type cached struct {
@@ -58,9 +61,36 @@ type cached struct {
 }
 
 // Invalidate drops the cached items of the repository at path.
+// The next request reads it again; what it held is kept only as the
+// fallback for a read that fails.
 func (b *Builder) Invalidate(path string) {
 	b.mu.Lock()
-	delete(b.cache, path)
+	if c, ok := b.cache[path]; ok {
+		c.at = time.Time{}
+		b.cache[path] = c
+	}
+	b.mu.Unlock()
+}
+
+// Complete reports whether the repository's items were last read in full.
+// Until then, an item missing from the list may only be unread, not
+// answered.
+func (b *Builder) Complete(repoID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return !b.incomplete[repoID]
+}
+
+func (b *Builder) setComplete(repoID string, complete bool) {
+	b.mu.Lock()
+	if b.incomplete == nil {
+		b.incomplete = map[string]bool{}
+	}
+	if complete {
+		delete(b.incomplete, repoID)
+	} else {
+		b.incomplete[repoID] = true
+	}
 	b.mu.Unlock()
 }
 
@@ -173,6 +203,9 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 		// contributes nothing) rather than failing the whole list; its board
 		// already shows the error. Dropping known items would make Needs you
 		// flicker whenever one read is slow.
+		if c.items == nil {
+			b.setComplete(ref.ID, false)
+		}
 		return c.items
 	}
 	beads := parseBeads(raw)
@@ -187,6 +220,7 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 			if c.items != nil {
 				return c.items
 			}
+			b.setComplete(ref.ID, false)
 			return items
 		}
 		items = append(items, epicItems(ref, beads, changes)...)
@@ -197,6 +231,7 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 	b.mu.Lock()
 	b.cache[ref.Path] = cached{b.now(), items, beads}
 	b.mu.Unlock()
+	b.setComplete(ref.ID, true)
 	return items
 }
 

@@ -633,3 +633,18 @@ func TestFoundWorkUnderASectionBeadFindsItsChange(t *testing.T) {
 		t.Fatalf("raise: %d %+v %v", code, d, raw)
 	}
 }
+
+// Approving is bound to where the work lands: the same revision with a
+// different landing target expires the card.
+func TestApprovalIsBoundToWhereItLands(t *testing.T) {
+	rg := newDecisionRig(t)
+	rg.facts.setChange("N-1", awaitingChange("rev4aaaaaaa"))
+	_, d, _ := rg.raise(t, `{"kind":"approve","target":{"bead":"N-1"}}`)
+	rg.facts.mu.Lock()
+	rg.facts.target = "release"
+	rg.facts.mu.Unlock()
+	code, got := rg.answer(t, d.ID, `{"option":"run_land"}`)
+	if code != 200 || got.State != "expired" || !strings.Contains(got.Reason, "where the change lands changed") || len(rg.executed()) != 0 {
+		t.Fatalf("landing changed: %d %+v", code, got)
+	}
+}

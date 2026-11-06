@@ -244,3 +244,24 @@ func TestNewNeedsYouDecisionsAreAnnounced(t *testing.T) {
 		t.Fatalf("announced %v", got)
 	}
 }
+
+// A deferred Needs you card isn't expired by a list that couldn't be read:
+// after a restart (nothing cached) with bd failing, it stays deferred.
+func TestAnUnreadableListDoesntExpireWaitingCards(t *testing.T) {
+	rg, _ := attentionRig(t)
+	old := revalidateEvery
+	revalidateEvery = 0
+	defer func() { revalidateEvery = old }()
+	sign := byKind(rg.queueList(t, "/v1/decisions"))["signoff"][0]
+	if code, _ := rg.answer(t, sign.ID, `{"defer":true}`); code != 200 {
+		t.Fatalf("defer %d", code)
+	}
+	rg.s.Attention = &attention.Builder{
+		Repos:  rg.s.Repos.Refs,
+		Issues: func(context.Context, string) ([]api.Issue, error) { return nil, context.DeadlineExceeded },
+	}
+	rg.queueList(t, "/v1/decisions")
+	if got := rg.get(t, sign.ID); got.State != "deferred" {
+		t.Fatalf("expired on an unreadable list: %+v", got)
+	}
+}

@@ -570,3 +570,24 @@ func TestABeadLeftForYourCheckAsksYouToSignOff(t *testing.T) {
 		t.Errorf("options: %+v", it.Options)
 	}
 }
+
+// A repository read that fails with nothing known is incomplete until a read
+// succeeds, and invalidating keeps what was known as the fallback.
+func TestIncompleteReadsAreReported(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t, map[string]any{"id": "N-1", "title": "Decide", "status": "open", "issue_type": "decision"})
+	f.b.Changes = func(string) ([]api.ChangeSummary, error) { return nil, context.DeadlineExceeded }
+	f.b.Items(context.Background())
+	if f.b.Complete("r1") {
+		t.Fatal("a failed changes read on a cold cache counted as complete")
+	}
+	f.b.Changes = func(string) ([]api.ChangeSummary, error) { return nil, nil }
+	if got := f.b.Items(context.Background()); len(got) != 1 || !f.b.Complete("r1") {
+		t.Fatalf("after a good read: %+v complete=%v", got, f.b.Complete("r1"))
+	}
+	f.b.Invalidate("/src/nacre")
+	f.b.Issues = func(context.Context, string) ([]api.Issue, error) { return nil, context.DeadlineExceeded }
+	if got := f.b.Items(context.Background()); len(got) != 1 || !f.b.Complete("r1") {
+		t.Fatalf("invalidated then unreadable: %+v complete=%v", got, f.b.Complete("r1"))
+	}
+}

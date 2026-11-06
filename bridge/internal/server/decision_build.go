@@ -269,7 +269,9 @@ func (s *Server) buildApprove(ctx context.Context, ref repos.Ref, t decisions.Ta
 			"run_hold": approve(true, true), "run_land": approve(true, false), "approve_only": approve(false, false),
 		},
 		Reject: &decisions.Action{Method: "POST", Path: path, Body: map[string]any{"action": "revise"}, NoteField: "feedback"},
-		Bound:  c.Revision, Key: "approve:" + ref.ID + ":" + seed, Follow: true,
+		// Bound to the revision and to where and how its work lands: approving
+		// "run and land to main" is not approval to land somewhere else.
+		Bound: c.Revision + landingSep + landPolicy(target, push), Key: "approve:" + ref.ID + ":" + seed, Follow: true,
 	}
 	if blocking > 0 {
 		rec.Decision.Consequences = append(rec.Decision.Consequences, plural(blocking, "blocking finding is", "blocking findings are")+" still open")
@@ -594,7 +596,12 @@ func (s *Server) buildLimit(t decisions.Target) (decisions.Record, error) {
 func expiryReason(d decisions.Decision, old, fresh string) string {
 	switch d.Kind {
 	case decisions.KindApprove:
-		return "Expired: it was for revision " + short(old) + ", and revision " + short(fresh) + " is current. Ask again to decide on that."
+		oldRev, oldLand, _ := strings.Cut(old, landingSep)
+		freshRev, freshLand, _ := strings.Cut(fresh, landingSep)
+		if oldRev == freshRev && oldLand != freshLand {
+			return "Expired: where the change lands changed since this was raised (" + landText(oldLand) + ", now " + landText(freshLand) + "). Ask again to decide on that."
+		}
+		return "Expired: it was for revision " + short(oldRev) + ", and revision " + short(freshRev) + " is current. Ask again to decide on that."
 	case decisions.KindLand:
 		return "Expired: it was for commit " + short(old) + ", and commit " + short(fresh) + " is current. Ask again to decide on that."
 	case decisions.KindLimit:
@@ -657,4 +664,30 @@ func beadErr(id string, err error) error {
 		return noTarget("%s: %v", id, err)
 	}
 	return err
+}
+
+// landingSep separates a binding from the landing policy bound with it.
+const landingSep = "|land="
+
+// landPolicy is nacre.yaml's landing target and push as one binding value.
+func landPolicy(target string, push *bool) string {
+	switch {
+	case push == nil:
+		return target + ":unknown"
+	case *push:
+		return target + ":push"
+	}
+	return target + ":local"
+}
+
+// landText says a landing policy in words.
+func landText(policy string) string {
+	target, how, _ := strings.Cut(policy, ":")
+	switch how {
+	case "push":
+		return target + ", pushed"
+	case "local":
+		return target + ", not pushed"
+	}
+	return target
 }

@@ -146,14 +146,13 @@ func (s *Server) queue(ctx context.Context) []decisions.Record {
 		}
 	}
 	virtual := s.attentionDecisions(ctx)
-	s.announce(virtual)
 	live := map[string]bool{}
 	for _, rec := range virtual {
 		live[rec.AttentionID] = true
 	}
 	out := stored[:0:0]
 	for _, rec := range stored {
-		if rec.AttentionID != "" && rec.Decision.Answerable() && s.Attention != nil && !live[rec.AttentionID] {
+		if rec.AttentionID != "" && rec.Decision.Answerable() && s.Attention != nil && !live[rec.AttentionID] && s.Attention.Complete(rec.Decision.Repo) {
 			// Its item no longer waits: a deferred or held card goes with it.
 			if upd, err := s.Decisions.Update(rec.Decision.ID, func(r *decisions.Record) bool {
 				if !r.Decision.Answerable() {
@@ -168,12 +167,17 @@ func (s *Server) queue(ctx context.Context) []decisions.Record {
 		}
 		out = append(out, rec)
 	}
+	var shown []decisions.Record
 	for _, rec := range virtual {
 		if byID[rec.Decision.ID] || (rec.Key != "" && openKeys[rec.Key]) {
 			continue
 		}
 		out = append(out, rec)
+		shown = append(shown, rec)
 	}
+	// Announced as the queue shows them: a card covered by an open stored
+	// decision isn't news.
+	s.announce(shown)
 	sort.SliceStable(out, func(i, j int) bool {
 		gi, gj := kindGroup(out[i].Decision.Kind), kindGroup(out[j].Decision.Kind)
 		if gi != gj {
@@ -519,7 +523,12 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 		}
 		return rec, refuse(http.StatusConflict, "This decision is %s.", rec.Decision.State)
 	}
-	if reason := s.revalidate(ctx, rec); reason != "" {
+	reason, sure := s.stale(ctx, rec)
+	if reason != "" && !sure && rec.AttentionID != "" {
+		// The list couldn't be read in full: neither act nor expire on a guess.
+		return rec, refuse(http.StatusServiceUnavailable, "Couldn't check that this still waits on you; try again in a moment.")
+	}
+	if reason != "" {
 		out, err := s.Decisions.Update(rec.Decision.ID, func(rec *decisions.Record) bool {
 			if !rec.Decision.Answerable() {
 				return false
@@ -745,7 +754,9 @@ func (s *Server) stale(ctx context.Context, rec decisions.Record) (string, bool)
 	d := rec.Decision
 	if rec.AttentionID != "" {
 		if !s.attentionStill(ctx, rec.AttentionID) {
-			return "This is no longer waiting on you: its state changed. Refresh to see what is.", true
+			// Missing from a list that couldn't be read in full isn't an answer.
+			sure := s.Attention == nil || s.Attention.Complete(d.Repo)
+			return "This is no longer waiting on you: its state changed. Refresh to see what is.", sure
 		}
 		if rec.Bound == "" {
 			return "", false
@@ -941,13 +952,14 @@ func (s *Server) followCheck(ctx context.Context, rec decisions.Record, resp []b
 			return settled{}, false
 		}
 		c := env.Change
+		rev, _, _ := strings.Cut(rec.Bound, landingSep)
 		switch c.Phase {
 		case "ready":
-			if c.ApprovedRevision != rec.Bound {
+			if c.ApprovedRevision != rev {
 				return settled{decisions.StateFailed, "Revision " + short(c.ApprovedRevision) + " was approved instead"}, true
 			}
 			if d.Answer == nil || d.Answer.Option == "approve_only" {
-				return settled{decisions.StateDone, "Approved revision " + short(rec.Bound) + "; its beads are ready"}, true
+				return settled{decisions.StateDone, "Approved revision " + short(rev) + "; its beads are ready"}, true
 			}
 			for i := len(c.History) - 1; i >= 0; i-- {
 				h := c.History[i]
@@ -958,7 +970,7 @@ func (s *Server) followCheck(ctx context.Context, rec decisions.Record, resp []b
 							s.Decisions.LinkWork(beadLink(d.Repo, c.EpicID), *d.ChatID)
 						}
 					}
-					return settled{decisions.StateDone, "Approved revision " + short(rec.Bound) + "; round " + h.RoundID + " started"}, true
+					return settled{decisions.StateDone, "Approved revision " + short(rev) + "; round " + h.RoundID + " started"}, true
 				}
 				if h.Kind == "run_error" {
 					return settled{decisions.StateFailed, h.Text}, true
@@ -1074,7 +1086,7 @@ func (s *Server) announceNeedsYou(ctx context.Context) {
 	if s.Attention == nil {
 		return
 	}
-	s.announce(s.attentionDecisions(ctx))
+	s.queue(ctx)
 }
 
 // announce publishes each derived decision the first time it is seen. The
@@ -1086,18 +1098,27 @@ func (s *Server) announce(virtual []decisions.Record) {
 		s.announced = map[string]bool{}
 	}
 	var fresh []decisions.Decision
+	now := map[string]bool{}
 	for _, rec := range virtual {
 		id := rec.Decision.ID
+		now[id] = true
 		if s.announced[id] {
 			continue
 		}
-		s.announced[id] = true
 		if _, stored := s.Decisions.Get(id); !first && !stored {
 			fresh = append(fresh, rec.Decision)
 		}
 	}
+	// Only what the queue shows now is remembered: the set stays as small as
+	// the queue, and a card that comes back later is news again.
+	s.announced = now
 	s.announceMu.Unlock()
 	for _, d := range fresh {
+		// Answered in the meantime: its own event says so; a stale pending
+		// one would undo it on the phone.
+		if _, stored := s.Decisions.Get(d.ID); stored {
+			continue
+		}
 		s.decisionChanged(d)
 	}
 }
