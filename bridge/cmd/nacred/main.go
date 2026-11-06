@@ -101,7 +101,8 @@ func main() {
 	case "pair":
 		err = pair(cfg, *listen)
 	case "token":
-		fmt.Println(cfg.Token)
+		// Inside a chat turn this is the chat's own scoped token.
+		fmt.Println(clientToken(cfg))
 	case "install":
 		cp := cfg.Path()
 		if cp == config.DefaultPath() {
@@ -119,6 +120,15 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+}
+
+// clientToken is the token the nacred command calls the API with: the chat's
+// scoped token inside a chat turn (NACRE_CHAT_TOKEN), else the device token.
+func clientToken(cfg *config.Config) string {
+	if tok := os.Getenv(chat.EnvChatToken); tok != "" {
+		return tok
+	}
+	return cfg.Token
 }
 
 func fatal(err error) {
@@ -326,7 +336,9 @@ func serve(cfg *config.Config, listenFlag string) error {
 			}
 			return out
 		},
-		Logger: logger,
+		// Turns get a chat-scoped token, never the device token.
+		ChatToken: server.ChatTokenFor(cfg.Token),
+		Logger:    logger,
 	})
 	if err != nil {
 		return fmt.Errorf("load chats: %w", err)

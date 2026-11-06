@@ -225,6 +225,9 @@ type Options struct {
 	RouterTimeout time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// ChatToken mints a chat's scoped token, given to its turns as
+	// NACRE_CHAT_TOKEN; nil gives turns no token.
+	ChatToken func(chatID string) string
 }
 
 var idRe = regexp.MustCompile(`^ch_[a-f0-9]{24}$`)

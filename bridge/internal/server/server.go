@@ -178,12 +178,17 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !CheckToken(r.Header.Get("Authorization"), want) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="nacred"`)
-			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token", "")
+		header := r.Header.Get("Authorization")
+		if CheckToken(header, want) {
+			next.ServeHTTP(w, r.WithContext(withScope(r.Context(), Scope{})))
 			return
 		}
-		next.ServeHTTP(w, r)
+		if id := chatTokenChat(s.Config.Token, bearer(header)); id != "" && s.Chats != nil && s.Chats.Exists(id) {
+			next.ServeHTTP(w, r.WithContext(withScope(r.Context(), Scope{ChatID: id})))
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="nacred"`)
+		writeError(w, http.StatusUnauthorized, "missing or invalid bearer token", "")
 	})
 }
 
@@ -191,11 +196,11 @@ func (s *Server) auth(next http.Handler) http.Handler {
 // sha256 is want. Hashing first makes the comparison constant-time regardless
 // of the presented token's length.
 func CheckToken(header string, want [32]byte) bool {
-	const prefix = "bearer "
-	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+	tok := bearer(header)
+	if tok == "" {
 		return false
 	}
-	got := sha256.Sum256([]byte(strings.TrimSpace(header[len(prefix):])))
+	got := sha256.Sum256([]byte(tok))
 	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 

@@ -197,6 +197,7 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	if c.rec.Agent == AgentCodex {
 		env = CodexEnv(m.opts.NacredURL)
 	}
+	env = m.withChatToken(env, c.rec.ID)
 	m.mu.Unlock()
 
 	go m.run(ctx, c, t, cwd, env, plan)
