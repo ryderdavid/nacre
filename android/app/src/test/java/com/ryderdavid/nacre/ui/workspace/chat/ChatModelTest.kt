@@ -40,9 +40,19 @@ class ChatModelTest {
     }
 
     @Test
+    fun `a document under openspec names its change and keeps its path`() {
+        val c = ChatSend.context("r1", ChatReference("document", "openspec/changes/foo/proposal.md", "foo · Proposal"), false)
+        assertEquals("foo", c.changeId)
+        assertEquals("openspec/changes/foo/proposal.md · foo · Proposal", c.selection)
+        assertEquals("bar", ChatSend.changeIdOf("openspec/changes/archive/bar/design.md"))
+        assertEquals(null, ChatSend.changeIdOf("openspec/specs/agent-chat/spec.md"))
+        assertEquals("run-7", ChatSend.context("r1", ChatReference("run", "run-7", "run · x"), false).runId)
+    }
+
+    @Test
     fun `references are named first and quotes kept`() {
         val t = ChatSend.text("Why?", listOf(bead, ChatReference("requirement", "agent-chat", "Chats resume", text = "SHALL NOT show an event twice")))
-        assertTrue(t.startsWith("About: NAC-7 (bead); Chats resume (requirement)"))
+        assertTrue(t.startsWith("About: NAC-7 (bead); Chats resume (requirement agent-chat)"))
         assertTrue(t.contains("> SHALL NOT show an event twice"))
         assertTrue(t.endsWith("Why?"))
         assertEquals("plain", ChatSend.text(" plain ", emptyList()))

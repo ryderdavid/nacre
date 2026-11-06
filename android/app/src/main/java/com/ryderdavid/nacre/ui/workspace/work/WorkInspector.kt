@@ -111,7 +111,8 @@ fun WorkInspector(repoKey: String, target: InspectTarget, onClose: () -> Unit, o
     val busy by vm.busy.collectAsState()
     var cancelling by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(false) }
-    var reviewing by remember { mutableStateOf(false) }
+    // A land card's "Review the changes" opens the inspector with them already showing.
+    var reviewing by remember(target.key) { mutableStateOf(target.review) }
     val r = round
     val landed = r?.beads?.count { it.state == com.ryderdavid.nacre.data.model.BEAD_INTEGRATED } ?: work.landed
     val total = r?.beads?.size ?: work.total

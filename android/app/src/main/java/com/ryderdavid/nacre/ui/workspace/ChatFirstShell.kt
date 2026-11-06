@@ -136,7 +136,7 @@ fun ChatFirstShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandl
 }
 
 /** A round or run for the work inspector, with the computer it runs on. */
-data class InspectTarget(val hostId: String, val kind: String, val id: String, val label: String) {
+data class InspectTarget(val hostId: String, val kind: String, val id: String, val label: String, val review: Boolean = false) {
     val key get() = Keys.of(hostId, id)
 }
 
@@ -152,6 +152,14 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     var destination by rememberSaveable(repoKey) { mutableStateOf(startDestination) }
     var thread by rememberSaveable(repoKey) { mutableStateOf(startChat) }
     if (thread == null) mostRecentThread(listing.chats, repoKey)?.let { thread = it }
+    // Each thread keeps the panel shown beside it: returning to a thread restores it.
+    LaunchedEffect(thread) {
+        val t = thread ?: return@LaunchedEffect
+        container.chatStack.view(t).panel?.let { p -> Destination.entries.firstOrNull { it.name == p } }?.let { destination = it }
+    }
+    LaunchedEffect(thread, destination) {
+        thread?.let { t -> container.chatStack.updateView(t) { it.copy(panel = destination.name) } }
+    }
     var inspecting by remember { mutableStateOf<InspectTarget?>(null) }
     var queue by remember { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -202,7 +210,13 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         com.ryderdavid.nacre.ui.workspace.beads.LocalOpenChange provides { changeId -> container.chats.references.openSpec(repoKey, changeId); destination = Destination.SPEC },
         LocalOpenEvidence provides { e ->
             when (e.kind) {
-                "review", "changes" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; queue = false; inspecting = null }
+                // A round's changes are reviewed in its inspector; a change's review in the Spec panel.
+                "changes" -> {
+                    val h = if (e.ref.contains('~')) Keys.host(e.ref) else host
+                    val id = Keys.id(e.ref).ifBlank { work?.id.orEmpty() }
+                    if (id.isNotBlank()) { queue = false; inspecting = InspectTarget(h, "round", id, e.label, review = true) }
+                }
+                "review" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; queue = false; inspecting = null }
                 "bead" -> { if (e.ref.isNotBlank()) container.chats.references.openBead(repoKey, Keys.id(e.ref)); destination = Destination.BEADS; queue = false; inspecting = null }
                 else -> {
                     val h = if (e.ref.contains('~')) Keys.host(e.ref) else host

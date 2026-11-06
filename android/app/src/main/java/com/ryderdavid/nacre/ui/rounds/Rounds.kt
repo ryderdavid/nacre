@@ -171,32 +171,6 @@ private fun stateIcon(state: String): ImageVector = when (state) {
     else -> Icons.Rounded.Block
 }
 
-/** A round in the Runs list. */
-@Composable
-fun RoundRow(r: Round, selected: Boolean, showComputer: Boolean, onClick: () -> Unit) {
-    ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        leadingContent = { Icon(stateIcon(r.state), roundStateLabel(r.state), tint = stateColor(r.state)) },
-        overlineContent = { Text(listOfNotNull(r.hostName.takeIf { showComputer }, r.repoName, "round").joinToString(" · "), maxLines = 1) },
-        headlineContent = { Text(r.beads.joinToString(", ") { it.id }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Text(
-                listOf(roundStateLabel(r.state), beadSummary(r), "${usd(r.spentUsd)} of ${usd(r.budgetUsd)}").joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        },
-        trailingContent = { if (r.needsYou) NeedsYouChip() },
-    )
-}
-
-@Composable
-private fun NeedsYouChip() {
-    Surface(color = Nacre.colors.needsYouContainer, contentColor = Nacre.colors.needsYou, shape = RoundedCornerShape(8.dp)) {
-        Text("Needs you", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
-    }
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun StatusCard(

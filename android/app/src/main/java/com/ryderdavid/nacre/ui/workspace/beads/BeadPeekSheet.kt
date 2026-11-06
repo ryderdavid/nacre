@@ -65,7 +65,6 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.MarkdownText
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
-import com.ryderdavid.nacre.ui.rounds.GatesSetupSheet
 import com.ryderdavid.nacre.ui.rounds.needsGateSetup
 import com.ryderdavid.nacre.ui.workspace.LocalAskAbout
 import kotlinx.coroutines.launch
@@ -103,7 +102,6 @@ fun BeadPeekSheet(
     val dismiss: () -> Unit = { scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() } }
     val repository = LocalContainer.current.repository
     // Starting work in a repository without gates sets them up first, then goes on.
-    var gatesFirst by remember { mutableStateOf(false) }
     val start = { vm.startWork { r -> onInspect(PeekRun.Kind.ROUND, r.id, "Round ${r.id}") } }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -156,7 +154,11 @@ fun BeadPeekSheet(
                         onClick = {
                             val round = start.opensRound
                             if (round != null) onInspect(PeekRun.Kind.ROUND, round, "Round $round")
-                            else if (needsGateSetup(repository.repo(repoKey))) gatesFirst = true
+                            // No gates yet: setting them up is a conversation, so it moves to Chat with this bead attached.
+                            else if (needsGateSetup(repository.repo(repoKey))) {
+                                dismiss()
+                                ask(peek.reference.copy(text = GATES_FIRST.format(issue.id)))
+                            }
                             else start()
                         },
                         enabled = !busy,
@@ -172,9 +174,6 @@ fun BeadPeekSheet(
                 }
             }
         }
-    }
-    if (gatesFirst) repository.repo(repoKey)?.let { r ->
-        GatesSetupSheet(r, onDismiss = { gatesFirst = false }, onSaved = { gatesFirst = false; start() })
     }
 }
 
@@ -298,3 +297,7 @@ private fun DepRow(relation: String, dep: PeekDependency, onOpenBead: (String) -
         }
     }
 }
+
+/** What Chat is asked when work can't start because the project has no gates yet. */
+internal const val GATES_FIRST =
+    "This project has no gates in nacre.yaml yet, so %s can't start. Propose gates for it (build, tests, lint), and once I agree, set them up."

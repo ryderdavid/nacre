@@ -12,13 +12,15 @@ data class ChatPresentation(val shown: Boolean = false, val collapsed: Boolean =
 
 /**
  * What a chat's composer and list hold while the chat is away: the draft, the images pending
- * with it (in memory only), and the scroll position.
+ * with it (in memory only), the scroll position and the panel shown beside it.
  */
 data class ChatViewState(
     val draft: String = "",
     val firstVisibleIndex: Int = 0,
     val firstVisibleOffset: Int = 0,
     val images: List<ImagePayload> = emptyList(),
+    /** The panel (Chat, Spec or Beads destination name) last shown with this chat, restored on return. */
+    val panel: String? = null,
 )
 
 /**

@@ -1,5 +1,9 @@
 package com.ryderdavid.nacre.ui.workspace.chat
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -162,7 +166,15 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             )
         }
 
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+        // Tabletop: the conversation ends at the fold and the composer sits on the lower half.
+        val posture = androidx.compose.material3.adaptive.currentWindowAdaptiveInfo().windowPosture
+        val fold = posture.hingeList.firstOrNull { !it.isVertical && it.isSeparating }?.takeIf { posture.isTabletop }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        var listTop by remember { mutableStateOf<Float?>(null) }
+        val aboveFold = fold?.let { f -> listTop?.let { top -> with(density) { (f.bounds.top - top).coerceAtLeast(0f).toDp() } } }
+        val listModifier = if (aboveFold != null && aboveFold > 120.dp) Modifier.height(aboveFold) else Modifier.weight(1f)
+        LazyColumn(
+            listModifier.fillMaxWidth().onGloballyPositioned { listTop = it.positionInWindow().y }, state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             items(state.items, key = { it.key }) { item ->
                 when (item) {
                     is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
@@ -192,7 +204,11 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             }
         }
 
-        Composer(repoKey, thread, record, state, refs, draft, work, needsYou)
+        if (aboveFold != null && aboveFold > 120.dp) {
+            Spacer(Modifier.height(with(density) { fold.bounds.height.toDp() }))
+            Composer(repoKey, thread, record, state, refs, draft, work, needsYou)
+            Spacer(Modifier.weight(1f))
+        } else Composer(repoKey, thread, record, state, refs, draft, work, needsYou)
     }
 
     if (switching) ThreadSwitcher(repoKey, current = thread, onPick = { switching = false; onThread(it) }, onDismiss = { switching = false })

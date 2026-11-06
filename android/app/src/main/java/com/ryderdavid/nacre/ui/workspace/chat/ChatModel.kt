@@ -16,17 +16,36 @@ object ChatSend {
             null -> ScreenContext(ScreenContext.BOARD, repo = repoId)
             "bead" -> ScreenContext(ScreenContext.BEAD, repo = repoId, beadId = v.id, summary = com.ryderdavid.nacre.data.chat.trimUtf8(v.text).ifBlank { null })
             "round" -> ScreenContext(ScreenContext.ROUND, repo = repoId, roundId = v.id)
+            "run" -> ScreenContext(ScreenContext.RUN, repo = repoId, runId = v.id)
             else -> ScreenContext(
-                ScreenContext.CHANGE, repo = repoId, changeId = v.id.substringBefore('/'),
-                pane = v.kind, selection = v.label, summary = com.ryderdavid.nacre.data.chat.trimUtf8(v.text).ifBlank { null },
+                ScreenContext.CHANGE, repo = repoId, changeId = changeIdOf(v.id),
+                pane = v.kind,
+                // A document or requirement names its file, so the agent can open exactly what Ryder sees.
+                selection = if ('/' in v.id) "${v.id} · ${v.label}" else v.label,
+                summary = com.ryderdavid.nacre.data.chat.trimUtf8(v.text).ifBlank { null },
             )
         }
+    }
+
+    /**
+     * The change a Spec reference belongs to: a change name as is, the change folder of a path under
+     * openspec/changes/ (archived ones included), or the first segment of a change-relative path.
+     * A current spec under openspec/specs/ belongs to none.
+     */
+    fun changeIdOf(id: String): String? {
+        if ('/' !in id) return id.ifBlank { null }
+        val parts = id.split('/')
+        if (parts[0] != "openspec") return parts[0].ifBlank { null }
+        if (parts.size >= 3 && parts[1] == "changes") {
+            return if (parts[2] == "archive") parts.getOrNull(3) else parts[2]
+        }
+        return null
     }
 
     /** The message text with the attached references named first, and quoted text where there is some. */
     fun text(draft: String, refs: List<ChatReference>): String {
         if (refs.isEmpty()) return draft.trim()
-        val head = "About: " + refs.joinToString("; ") { "${it.label} (${it.kind})" }
+        val head = "About: " + refs.joinToString("; ") { r -> if (r.id.isBlank() || r.id == r.label) "${r.label} (${r.kind})" else "${r.label} (${r.kind} ${r.id})" }
         val quotes = refs.filter { it.text.isNotBlank() }.joinToString("\n") { r -> r.text.trim().lines().joinToString("\n") { "> $it" } }
         return listOf(head, quotes, draft.trim()).filter { it.isNotBlank() }.joinToString("\n\n")
     }

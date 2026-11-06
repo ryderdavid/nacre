@@ -121,7 +121,6 @@ import com.ryderdavid.nacre.ui.common.formatDuration
 import com.ryderdavid.nacre.ui.common.nacreViewModel
 import com.ryderdavid.nacre.ui.common.relativeTime
 import com.ryderdavid.nacre.ui.common.sendOnHardwareEnter
-import com.ryderdavid.nacre.ui.rounds.RoundRow
 import com.ryderdavid.nacre.ui.theme.MonoFamily
 import com.ryderdavid.nacre.ui.theme.Nacre
 import kotlinx.coroutines.launch
@@ -188,7 +187,6 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
     val entries by vm.transcript.collectAsState()
     run?.let { r -> if (!inPane) com.ryderdavid.nacre.ui.chat.PublishScreen(com.ryderdavid.nacre.ui.ScreenOrigin.Run(runKey), com.ryderdavid.nacre.data.chat.ScreenSummaries.run(r)) }
     val error by vm.error.collectAsState()
-    val sending by vm.sending.collectAsState()
     val list = rememberLazyListState()
     var follow by remember { mutableStateOf(true) }
     val posture = currentWindowAdaptiveInfo().windowPosture
@@ -232,7 +230,7 @@ fun RunDetail(runKey: String, inPane: Boolean, onBack: () -> Unit, onOpenBead: (
                 val tabletopMin = posture.hingeList.firstOrNull { !it.isVertical && it.isSeparating }?.let { with(density) { it.bounds.top.toDp() } }
                 Column(Modifier.then(if (posture.isTabletop && tabletopMin != null) Modifier.heightIn(min = 240.dp) else Modifier)) {
                     if (posture.isTabletop) RunHeader(r, Modifier.padding(horizontal = 16.dp))
-                    RunControls(r, sending, onCancel = vm::cancel, onFollowUp = vm::followUp)
+                    RunControls(r, onCancel = vm::cancel)
                 }
             }
         },
@@ -304,7 +302,6 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
                 "An agent started this session on the Mac. Nacre is watching it, not running it, so it can't be steered or stopped from here.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
             )
-            if (r.isAdopted) LiveMessages(r)
             r.takeoverCommand?.let { command ->
                 val label = if (r.isAdopted) "Copy “take over on Mac” command" else "Copy “resume on Mac” command"
                 FilledTonalButton(
@@ -319,7 +316,7 @@ private fun RunHeader(r: Run, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollowUp: (String, String?) -> Unit) {
+private fun RunControls(r: Run, onCancel: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding().imePadding().padding(12.dp)) {
             if (r.isActive) {
@@ -336,56 +333,14 @@ private fun RunControls(r: Run, sending: Boolean, onCancel: () -> Unit, onFollow
                 }
                 if (r.isAdopted) ReadOnlyNote()
             } else if (r.showsFollowUp) {
-                var text by rememberSaveable(r.key) { mutableStateOf("") }
-                var mode by rememberSaveable(r.key) { mutableStateOf(r.mode.ifBlank { "auto" }) }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    RUN_MODES.forEach { (key, label, _) -> FilterChip(selected = mode == key, onClick = { mode = key }, label = { Text(label) }) }
-                }
-                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
-                    val canSend = text.isNotBlank() && !sending
-                    val send = { onFollowUp(text.trim(), mode); text = "" }
-                    OutlinedTextField(
-                        text, { text = it }, placeholder = { Text("Follow up with ${r.agentName}") }, maxLines = 5,
-                        shape = RoundedCornerShape(24.dp), modifier = Modifier.weight(1f).sendOnHardwareEnter(canSend, send),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    FilledIconButton(onClick = send, enabled = canSend, modifier = Modifier.size(52.dp)) {
-                        Icon(Icons.AutoMirrored.Rounded.Send, "Send follow-up")
-                    }
-                }
+                // Follow-ups go through the project's chat, carrying this run as the reference.
+                val askAbout = com.ryderdavid.nacre.ui.workspace.LocalAskAbout.current
+                FilledTonalButton(
+                    onClick = { askAbout(com.ryderdavid.nacre.ui.workspace.ChatReference("run", r.id, "run · " + runTitle(r))) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Follow up in Chat") }
             } else if (r.isAdopted) {
                 ReadOnlyNote()
-            }
-        }
-    }
-}
-
-/** The live messages sent to this session and where each one stands. */
-@Composable
-private fun LiveMessages(r: Run) {
-    if (r.peerMessages.isEmpty()) return
-    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Sent to the live session", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        r.peerMessages.takeLast(3).forEach { pm ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    when {
-                        pm.confirmed -> Icons.Rounded.CheckCircle
-                        pm.failed -> Icons.Rounded.Error
-                        else -> Icons.AutoMirrored.Rounded.Send
-                    },
-                    null, Modifier.size(16.dp),
-                    tint = if (pm.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(pm.text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(pm.label, pm.reason.ifBlank { null }).joinToString(" · "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (pm.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
