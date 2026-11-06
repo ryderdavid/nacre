@@ -162,10 +162,18 @@ be expanded.
 
 ### Requirement: Expiry and supersession
 A decision SHALL expire when its revision changes, or after 24 hours if the agent raised it. The card
-SHALL say why, and offer Ask again, which builds a fresh decision from the current state. A newer
+SHALL say why, and offer Ask again, which builds a fresh decision from the current state; a chat's
+intake or found card, which nacred can't rebuild without the chat, SHALL instead offer to ask that chat
+to raise it again, as a message Ryder sends himself. A newer
 decision for the same target SHALL supersede the old one, and the old card SHALL link to it. Work left
 unresolved SHALL stay listed with its reason and next action.
 
 #### Scenario: Ask again
 - **WHEN** an approval card expired because revision 5 was written
 - **THEN** Ask again shows a new card for revision 5
+
+#### Scenario: Ask the chat again
+- **WHEN** a chat's intake card expired unanswered
+- **THEN** the card offers Ask the chat again, which opens that chat with the card attached and a
+  message asking it to raise the card again that says intake runs again and what it cost; nothing is
+  sent or spent until Ryder sends it

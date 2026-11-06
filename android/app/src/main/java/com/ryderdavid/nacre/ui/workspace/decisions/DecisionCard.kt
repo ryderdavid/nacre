@@ -72,6 +72,7 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.theme.LocalReducedMotion
 import com.ryderdavid.nacre.ui.workspace.ChatReference
 import com.ryderdavid.nacre.ui.workspace.LocalAskAbout
+import com.ryderdavid.nacre.ui.workspace.LocalAskChatAgain
 import com.ryderdavid.nacre.ui.workspace.LocalOpenQueue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -133,6 +134,8 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
     val reduced = LocalReducedMotion.current
     val ask = LocalAskAbout.current
     val openQueue = LocalOpenQueue.current
+    // A chat's expired intake or found card goes back to its chat instead of Ask again.
+    val askChat = LocalAskChatAgain.current?.takeIf { DecisionModel.canAskChat(d) }
     val line = DecisionModel.stateLine(d)
     val facts = decisionFacts(d)
     val stateText = line ?: "Waiting for your answer"
@@ -166,6 +169,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 if (DecisionModel.canRenew(d)) TextButton(onClick = {
                     scope.launch { runCatching { container.repository.renewDecision(d) }.onFailure { container.repository.notify("Couldn't ask again: ${it.message}") } }
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask again") }
+                if (askChat != null) TextButton(onClick = { askChat(d) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask the chat again") }
                 if (d.state == "superseded") TextButton(onClick = openQueue, modifier = Modifier.heightIn(min = 48.dp)) { Text("See the newer one") }
             }
         }
@@ -274,6 +278,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                         if (d.target.round.isNotBlank()) OutlinedButton(onClick = { container.repository.cancelRoundQuietly(Keys.of(d.hostId, d.target.round)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel round") }
                     }
                     if (DecisionModel.canRenew(d)) TextButton(onClick = { scope.launch { runCatching { container.repository.renewDecision(d) } } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask again") }
+                    if (askChat != null) TextButton(onClick = { askChat(d) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask the chat again") }
                     if (d.state == "superseded") TextButton(onClick = openQueue, modifier = Modifier.heightIn(min = 48.dp)) { Text("See the newer one") }
                     if (DecisionModel.canAcknowledge(d)) TextButton(onClick = { submit(DecisionAnswer(acknowledge = true), false) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Got it") }
                     TextButton(onClick = { expanded = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Collapse") }

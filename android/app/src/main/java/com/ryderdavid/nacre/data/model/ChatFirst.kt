@@ -113,7 +113,7 @@ data class Decision(
     /**
      * Listed in the queue: everything that waits, is deferred or still running, and an outcome Ryder
      * hasn't acknowledged: failed, unknown, and expired when the agent raised it (Ask again builds a
-     * fresh one). An expired Needs you item no longer waits; nacred raises the next one itself.
+     * fresh one; a chat's intake or found card is raised again from its chat). An expired Needs you item no longer waits; nacred raises the next one itself.
      */
     val open get() = when (state) {
         "pending", "deferred", "held", "executing" -> true
