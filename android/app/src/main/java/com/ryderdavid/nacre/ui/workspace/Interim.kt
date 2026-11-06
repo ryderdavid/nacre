@@ -17,16 +17,13 @@ import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.WorkSummary
 import com.ryderdavid.nacre.ui.board.BoardScreen
-import com.ryderdavid.nacre.ui.chat.ConversationFrame
-import com.ryderdavid.nacre.ui.chat.ConversationScreen
 import com.ryderdavid.nacre.ui.common.LocalContainer
-import com.ryderdavid.nacre.ui.rounds.RoundDetail
 
 // Interim pane contents for the chat-first shell; sections 5 to 9 replace each of them.
 
 @Composable
 fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProjects: () -> Unit) {
-    ConversationScreen(thread, onBack = onProjects, onNew = {}, frame = ConversationFrame.Pane)
+    com.ryderdavid.nacre.ui.workspace.chat.ChatPaneM3(repoKey, thread, onThread, onProjects, onEvidence = LocalOpenEvidence.current)
 }
 
 @Composable
@@ -47,19 +44,17 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
     }
 }
 
-@Composable
-fun WorkInspector(repoKey: String, work: WorkSummary, onClose: () -> Unit) {
-    Column(Modifier.fillMaxWidth().fillMaxSize(0.9f)) {
-        RoundDetail(Keys.of(Keys.host(repoKey), work.id), inPane = true, onBack = onClose, onOpenRun = {}, onOpenBead = { _, _ -> })
-    }
-}
 
+/** The project's Needs-you queue: every open decision, pending first, then held, failed and deferred. */
 @Composable
 fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     val repo = LocalContainer.current.repository
     val decisions by repo.decisions.collectAsState()
-    LazyColumn(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("Needs you", style = MaterialTheme.typography.titleLargeEmphasized) }
-        items(decisions[repoKey].orEmpty()) { d -> Text(d.title, style = MaterialTheme.typography.bodyLarge) }
+    val list = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queueOrder(decisions[repoKey].orEmpty())
+    val open = LocalOpenEvidence.current
+    LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
+        item { Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(bottom = 4.dp)) }
+        if (list.isEmpty()) item { Text("Nothing needs you in this project.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(list, key = { it.key }) { d -> com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard(d, onEvidence = { onClose(); open(it) }) }
     }
 }

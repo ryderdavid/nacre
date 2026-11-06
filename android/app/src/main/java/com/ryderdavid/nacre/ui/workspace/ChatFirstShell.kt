@@ -183,6 +183,13 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         CompositionLocalProvider(
             LocalAskAbout provides { ref -> container.chats.references.add(repoKey, ref); destination = Destination.CHAT },
             LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
+            LocalOpenEvidence provides { e ->
+                when (e.kind) {
+                    "review", "changes" -> destination = Destination.SPEC
+                    "bead" -> destination = Destination.BEADS
+                    else -> (work ?: com.ryderdavid.nacre.data.model.WorkSummary(kind = e.kind, id = e.ref, title = e.label)).let { inspecting = it }
+                }
+            },
         ) {
             Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
         }
@@ -190,7 +197,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
 
     inspecting?.let { w ->
         ModalBottomSheet(onDismissRequest = { inspecting = null }) {
-            WorkInspector(repoKey, w, onClose = { inspecting = null })
+            com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, w, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
         }
     }
     if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {

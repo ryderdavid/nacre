@@ -125,3 +125,6 @@ val LocalAskAbout = androidx.compose.runtime.staticCompositionLocalOf<(ChatRefer
 
 /** What the Spec or Beads pane is showing, published as the next message's Viewing context. */
 val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatReference?) -> Unit> { {} }
+
+/** Opens a decision's evidence: review and changes in Spec, a bead in Beads, a round, run or gates in the work inspector. */
+val LocalOpenEvidence = androidx.compose.runtime.staticCompositionLocalOf<(com.ryderdavid.nacre.data.model.DecisionEvidence) -> Unit> { {} }

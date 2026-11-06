@@ -288,7 +288,7 @@ fun RoundDetail(roundKey: String, inPane: Boolean, onBack: () -> Unit, onOpenRun
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun StatusCard(
+internal fun StatusCard(
     r: Round,
     busy: Boolean,
     onBudget: (Double) -> Unit,
@@ -355,7 +355,7 @@ private fun StatusCard(
  * button per choice with what it would do.
  */
 @Composable
-private fun StopChoices(stop: RoundStop, busy: Boolean, onChoose: (String) -> Unit) {
+internal fun StopChoices(stop: RoundStop, busy: Boolean, onChoose: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         stop.diagnosis?.takeIf { it.summary.isNotBlank() }?.let { d ->
             Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
@@ -438,7 +438,7 @@ private fun ExtraBudgetDialog(onDismiss: () -> Unit, onSet: (Double) -> Unit) {
 }
 
 @Composable
-private fun BudgetDialog(current: Double, onDismiss: () -> Unit, onSet: (Double) -> Unit) {
+internal fun BudgetDialog(current: Double, onDismiss: () -> Unit, onSet: (Double) -> Unit) {
     var text by rememberSaveable { mutableStateOf(String.format(Locale.US, "%.0f", current + 10)) }
     val value = text.toDoubleOrNull()
     AlertDialog(
@@ -607,7 +607,7 @@ private fun LandedCard(r: Round) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Unit, onOpenRun: () -> Unit, onRetry: () -> Unit) {
+internal fun BeadRow(r: Round, b: RoundBead, busy: Boolean, onOpenBead: () -> Unit, onOpenRun: () -> Unit, onRetry: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onOpenBead),
@@ -693,7 +693,7 @@ fun findingLabel(kind: String): String = when (kind) {
 private val timeFmt = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
 @Composable
-private fun EventRow(e: RoundEvent) {
+internal fun EventRow(e: RoundEvent) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Text(
             runCatching { timeFmt.format(Instant.parse(e.ts)) }.getOrDefault(""),

@@ -574,6 +574,11 @@ class NacreRepository(
         return out
     }
 
+    /** Cancels a round from a work card, reporting the outcome as a notice. */
+    fun cancelRoundQuietly(roundKey: String) = scope.launch {
+        runCatching { cancelRound(roundKey) }.onSuccess { notify("Round cancelled; its branches are kept") }.onFailure { notify("Couldn't cancel the round: ${it.message}") }
+    }
+
     suspend fun renewDecision(d: com.ryderdavid.nacre.data.model.Decision): com.ryderdavid.nacre.data.model.Decision {
         val out = clientFor(Keys.of(d.hostId, d.repo)).renewDecision(d.id).copy(hostId = d.hostId)
         learnDecision(out)
