@@ -476,6 +476,8 @@ func TestBriefing(t *testing.T) {
 		"`bd prime`", "openspec validate <change> --strict",
 		"\"On screen:\" note", "\"This\", \"this one\" and \"here\" mean what the note names",
 		"`nacred` command", "$NACRED_URL (http://100.64.0.7:7420)", "`nacred token`", "docs/API.md",
+		"$NACRE_CHAT_TOKEN", "403 `needs_decision`", "POST $NACRED_URL/v1/chats/$NACRE_CHAT_ID/decisions",
+		"\"approve\" | \"land\" | \"finish\" | \"signoff\" | \"limit\" | \"adopt\"", "never land on their own",
 		"GET /v1/attention", "Needs you", "only for work that changes behaviour", "chore, a small fix, or a bead already linked to a change",
 		"nacred round start", "ask Ryder which answer applies", "/found", "signoff",
 		"lands rounds, commits `nacre.yaml` and finishes epics", "on a branch or in a git worktree (`git worktree add`)",

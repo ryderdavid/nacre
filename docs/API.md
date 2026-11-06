@@ -7,7 +7,8 @@ user's own subscription login.
 
 - Base URL: `http://<tailscale-ip>:7420` (default listen address is the Mac's Tailscale IPv4).
 - Auth: every `/v1/*` route except `/v1/ping` requires `Authorization: Bearer <token>`.
-  401 on a missing or wrong token. Token comparison is constant-time.
+  401 on a missing or wrong token. Token comparison is constant-time. There are two scopes of token;
+  see [Token scopes](#token-scopes).
 - Content type: `application/json; charset=utf-8` both ways. Field names are snake_case.
 - Errors: non-2xx with body `{"error": "human readable message", "detail": "optional stderr/tail"}`.
   400 bad input, 401 auth, 404 unknown repo/issue/run, 409 conflict (e.g. follow-up while running),
@@ -18,6 +19,49 @@ user's own subscription login.
   body`), except `POST /v1/repos/{repo}/claude/json` and `POST /v1/repos/{repo}/claude/stream`, which
   accept up to 32 MiB so a turn can carry images and answer 413 above that, and so does
   `POST /v1/chats/{id}/messages` (see [Chat](#chat-v1chats)).
+
+## Token scopes
+
+| Token | Who holds it | Accepted on |
+|---|---|---|
+| **Device token** (`token` in nacred's config, shown by `nacred pair`) | paired phones and the owner's own tools | every route, as before |
+| **Chat token** (`NACRE_CHAT_TOKEN`) | one chat's turns | every route **except the protected ones** |
+
+- **Minting.** nacred mints one chat token per chat: `nct_<chat id>.<mac>`, where the mac is an
+  HMAC-SHA256 of the chat id keyed by the device token. Nothing is stored; the token stops working
+  when the chat is deleted or the device token changes. Every chat turn (Claude or Codex) gets it as
+  `NACRE_CHAT_TOKEN`, with `NACRE_CHAT_ID` naming the chat. A turn never gets the device token, and
+  inherited `NACRE_CHAT_TOKEN`, `NACRE_CHAT_ID` and `NACRED_TOKEN` variables are dropped from its
+  environment. The `nacred` command (`nacred token`, `nacred round …`) uses `NACRE_CHAT_TOKEN` when
+  it is set, so inside a chat it speaks with the chat's scope.
+- **Protected routes** refuse the chat token with
+  `403 {"error":"needs_decision","message":"Ask Ryder: raise a decision with POST /v1/chats/<id>/decisions","kinds":["land"]}`.
+  `kinds` names the [decision](#decisions-v1decisions) kinds that would authorize the request:
+
+  | Route | Protected when | `kinds` |
+  |---|---|---|
+  | `POST /v1/repos/{repo}/issues/{id}/change` | `action` is `approve` (with or without `run`) | `approve` |
+  | `POST /v1/repos/{repo}/issues/{id}/change` | `action` is `adopt` | `adopt` |
+  | `POST /v1/rounds/{round}/land` | always | `land` |
+  | `POST /v1/repos/{repo}/epics/{id}/finish` | always | `finish` |
+  | `POST /v1/repos/{repo}/issues/{id}/signoff` | always (sign off and send back) | `signoff` |
+  | `POST /v1/rounds/{round}/limits` | always | `limit` |
+  | `POST /v1/rounds/{round}/choose` | `choice` is `retry-with-budget` or `raise-limits` | `limit` |
+  | `POST /v1/rounds/{round}/choose`, `POST /v1/rounds/{round}/resume` | the round is paused at its landing step (`stop.phase` `land`), so continuing lands | `land` |
+  | `POST /v1/repos/{repo}/rounds` | `land_when_ready`, `finish`, or a `budget_usd` above the default round budget (`round_budget_usd`, 25 when unset) | `land`, `finish`, `limit` (each that applies) |
+
+- **Paired-device answers.** `POST /v1/chats/{id}/permissions/{req}` and
+  `POST /v1/decisions/{id}/answer` refuse the chat token with 403 "Answer from a paired device", as
+  they refuse requests from the computer's own addresses.
+- **Everything else stays open to chats**: reading, creating, editing and closing beads, comments,
+  dependencies, developing and revising proposals, starting runs, starting rounds that don't land,
+  answering round questions, retrying, stopping and cancelling, found work, and raising decisions.
+- **Rounds a chat starts never land on their own**: nacred ignores `land.auto` in `nacre.yaml` for
+  them, so they wait at `ready_to_land` for a `land` decision.
+- **What this does not claim.** The agent runs as the owner on the Mac. The chat token bounds what
+  it can do *through nacred*; its own git and filesystem actions remain governed by Claude Code's or
+  Codex's permission system and the repository's branch protections, and nothing stops a process on
+  the Mac from reading the device token from nacred's config file.
 
 ## Types
 
@@ -798,8 +842,9 @@ nacred with an event log, so it survives the app closing, connection drops and n
 app holds no other AI chat. nacred still serves the assist endpoints (`/v1/repos/{repo}/claude/*`,
 `/v1/claude/stream`, `/v1/assist/*`) for older apps.
 
-All chat routes use the owner's bearer token like every other route. With Chat not set up on the
-computer, they answer 503 "Chat isn't available on this computer."
+The app calls the chat routes with its device token like every other route; a chat's own turns use
+the chat token (see [Token scopes](#token-scopes)). With Chat not set up on the computer, they answer
+503 "Chat isn't available on this computer."
 
 ### Chat routes
 
@@ -1013,11 +1058,12 @@ is in the background it posts one "Chat needs your OK" notification per request.
 
 ### Chat uses nacred like any session on the Mac
 
-The agent reaches nacred through the `nacred` command (which uses nacred's config and token) or the
-API at `NACRED_URL` with the token from `nacred token`, exactly like any Claude Code session on the
-Mac. There are no chat tokens and no guarded-endpoint table. Developing and approving proposals,
-starting rounds, landing, finishing an epic and raising limits get **no extra card before
-spending**. What bounds them is:
+The agent reaches nacred through the `nacred` command or the API at `NACRED_URL` with its chat token
+(`NACRE_CHAT_TOKEN`, which `nacred token` also prints inside a turn). The chat token works on every
+route except the protected ones (see [Token scopes](#token-scopes)): for approving, adopting,
+landing, finishing, signing off and raising limits the agent raises a
+[decision](#decisions-v1decisions), which Ryder answers from a paired device and nacred executes.
+Everything else (developing proposals, starting rounds that don't land, beads work) is bounded by:
 
 - the auto classifier and its host permission prompts
 - the chat's $50 runaway ceiling
@@ -1106,10 +1152,14 @@ developer instructions. It is fixed text in nacred, pinned by Go tests, and cove
 
 - `bd` (starting with `bd prime`) and OpenSpec changes with `openspec validate <change> --strict`
 - the "On screen" note, and that "this" means what it names
-- the `nacred` command and the API at `NACRED_URL`, pointing at this document: Needs you first
-  (`GET /v1/attention`) when asked what to work on; develop proposals only for behaviour changes, not
-  chores, small fixes or beads already linked to a change; rounds; found work (ask which of the
-  three answers applies before recording it); and sign-off
+- the `nacred` command and the API at `NACRED_URL` with `NACRE_CHAT_TOKEN`, pointing at this
+  document: Needs you first (`GET /v1/attention`) when asked what to work on; develop proposals only
+  for behaviour changes, not chores, small fixes or beads already linked to a change; rounds; found
+  work (ask which of the three answers applies before recording it); and sign-off as a decision
+- **decisions**: the protected actions answer 403 `needs_decision` to the chat token, so the agent
+  raises a decision with `POST $NACRED_URL/v1/chats/$NACRE_CHAT_ID/decisions` (`kind` and `target`),
+  tells Ryder, and reports nacred's own result once he answers; rounds it starts never land on their
+  own
 - **working in a checkout**: repository checkouts are shared with nacred, which lands rounds, commits
   `nacre.yaml` and finishes epics there. The agent makes code changes on a branch or in a git
   worktree (`git worktree add`), never on the checkout's current branch, and before ending a turn
@@ -1124,7 +1174,9 @@ developer instructions. It is fixed text in nacred, pinned by Go tests, and cove
 `<address>` is nacred's own listen address from `config.ResolveListen`: the address the server bound
 and the one the `nacred` command uses. On a normal install that is the Mac's Tailscale address and
 port, not 127.0.0.1 (which is used only when Tailscale is down), so API calls from a chat reach
-nacred even when nothing listens on loopback.
+nacred even when nothing listens on loopback. It also gets `NACRE_CHAT_ID` (the chat's id) and
+`NACRE_CHAT_TOKEN` (the chat's scoped token; see [Token scopes](#token-scopes)), and never the
+device token.
 
 ### Concurrency and maintenance
 
