@@ -37,6 +37,26 @@ func (m *Manager) withChatToken(env []string, chatID string) []string {
 	return out
 }
 
+// KindDecision is an owner decision raised in the chat, created or changed;
+// its decision field holds the decision as clients see it.
+const KindDecision = "decision"
+
+// AppendDecision records a decision raised in a chat, each time it is
+// created or changes state, so the chat's stream carries it. A deleted or
+// unknown chat is skipped.
+func (m *Manager) AppendDecision(chatID string, decision []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.chats[chatID]
+	if c == nil || c.deleted {
+		return
+	}
+	m.appendLocked(c, Event{Kind: KindDecision, Decision: append([]byte{}, decision...)})
+	if err := m.saveLocked(c); err != nil {
+		m.opts.Logger.Printf("chat %s: save: %v", chatID, err)
+	}
+}
+
 // Exists reports whether id names a chat on this computer, for checking a
 // chat-scoped token.
 func (m *Manager) Exists(id string) bool {

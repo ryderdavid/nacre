@@ -170,6 +170,9 @@ type Event struct {
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	// Draft is a New effort draft the agent wrote (kind draft).
 	Draft *Draft `json:"draft,omitempty"`
+	// Decision is an owner decision raised in this chat, as it was created
+	// or changed (kind decision).
+	Decision json.RawMessage `json:"decision,omitempty"`
 }
 
 // chatState is a loaded chat.
