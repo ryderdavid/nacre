@@ -132,6 +132,9 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request) {
 	if err := s.afterCreate(r.Context(), path, id, req); err != nil {
 		s.Log.Printf("created %s but couldn't link it: %v", id, err)
 	}
+	if sc := scopeOf(r.Context()); sc.Chat() && s.Decisions != nil {
+		s.Decisions.LinkWork(beadLink(repoID, id), sc.ChatID)
+	}
 	s.changed(repoID)
 	s.respondIssue(w, r, path, id, http.StatusCreated)
 }

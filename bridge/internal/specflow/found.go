@@ -48,6 +48,9 @@ type FoundRequest struct {
 	BeforeSection string   `json:"before_section,omitempty"`
 	CommentID     string   `json:"comment_id,omitempty"`
 	FoundBeads    []string `json:"found_beads,omitempty"`
+	// Create, with out_of_scope, files the work now as a bead related to the
+	// epic (not under it) instead of only returning the prefill.
+	Create bool `json:"create,omitempty"`
 }
 
 // FoundComment identifies a `Found:` comment by the bead it is on.
@@ -119,7 +122,19 @@ func (m *Manager) Found(ctx context.Context, repo, changeID string, req FoundReq
 		if req.CommentID != "" {
 			p.FoundComment = &FoundComment{Bead: req.FoundIn, CommentID: req.CommentID}
 		}
-		return FoundResult{Prefill: p}, nil
+		if !req.Create {
+			return FoundResult{Prefill: p}, nil
+		}
+		if note == "" {
+			return FoundResult{}, fmt.Errorf("%w: say what was found", ErrConflict)
+		}
+		id, e := m.createOutOfScope(ctx, r, req, note)
+		if e != nil {
+			return FoundResult{BeadID: id}, e
+		}
+		// The comment is answered already; the prefill only carries the effort on.
+		p.FoundComment = nil
+		return FoundResult{BeadID: id, Prefill: p}, nil
 	case FoundHowOrder, FoundAmend:
 		if note == "" {
 			return FoundResult{}, fmt.Errorf("%w: say what was found", ErrConflict)
@@ -183,6 +198,38 @@ func (m *Manager) createFound(ctx context.Context, r *record, req FoundRequest, 
 	if req.FoundIn != "" && req.FoundIn != r.Change.EpicID {
 		if e = m.opts.Beads.DepAdd(ctx, r.Repo, id, req.FoundIn, "discovered-from"); e != nil {
 			return id, fmt.Errorf("%s was created but its discovered-from link failed: %w", id, e)
+		}
+	}
+	return id, nil
+}
+
+// createOutOfScope files out-of-scope found work as a bead of its own,
+// related to the change's epic but not under it, and answers its `Found:`
+// comment.
+func (m *Manager) createOutOfScope(ctx context.Context, r *record, req FoundRequest, note string) (string, error) {
+	desc := note + "\n\nOut of scope of " + r.Change.ChangeName + "."
+	if req.FoundIn != "" {
+		desc += " Found in: " + req.FoundIn
+		if req.CommentID != "" {
+			desc += "; source comment: " + req.CommentID
+		}
+		desc += "."
+	}
+	id, e := m.opts.Beads.Create(ctx, r.Repo, bd.CreateParams{Title: firstLine(note, 80), Description: desc, IssueType: "task"})
+	if e != nil {
+		return "", e
+	}
+	if e = m.opts.Beads.DepAdd(ctx, r.Repo, id, r.Change.EpicID, "related"); e != nil {
+		return id, fmt.Errorf("%s was created but couldn't be related to %s: %w", id, r.Change.EpicID, e)
+	}
+	if req.FoundIn != "" && req.FoundIn != r.Change.EpicID {
+		if e = m.opts.Beads.DepAdd(ctx, r.Repo, id, req.FoundIn, "discovered-from"); e != nil {
+			return id, fmt.Errorf("%s was created but its discovered-from link failed: %w", id, e)
+		}
+	}
+	if req.CommentID != "" {
+		if e = m.markFound(ctx, r.Repo, req.FoundIn, req.CommentID, "answered: out of scope → "+id); e != nil {
+			return id, e
 		}
 	}
 	return id, nil

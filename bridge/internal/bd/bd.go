@@ -190,6 +190,15 @@ func (c *Client) Get(ctx context.Context, repo, id string) (api.Issue, error) {
 	return nil, &Error{Message: fmt.Sprintf("no issue found matching %q", id), NotFound: true}
 }
 
+// Children lists the beads under parent, closed ones included.
+func (c *Client) Children(ctx context.Context, repo, parent string) ([]api.Issue, error) {
+	out, err := c.run(ctx, repo, false, "list", "--all", "--limit", "0", "--parent="+parent, "--json")
+	if err != nil {
+		return nil, err
+	}
+	return decodeIssues(out)
+}
+
 func decodeIssues(out []byte) ([]api.Issue, error) {
 	out = bytes.TrimSpace(out)
 	if len(out) == 0 || bytes.Equal(out, []byte("null")) {

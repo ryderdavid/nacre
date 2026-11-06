@@ -31,6 +31,10 @@ type fakeFacts struct {
 	beads     map[string]BeadFacts
 	target    string
 	push      *bool
+	// verdict and intakeErr answer Intake; intakes counts its calls.
+	verdict   specflow.IntakeVerdict
+	intakeErr error
+	intakes   int
 }
 
 func newFacts() *fakeFacts {
@@ -65,6 +69,35 @@ func (f *fakeFacts) Bead(_ context.Context, _, id string) (BeadFacts, error) {
 	}
 	return b, nil
 }
+func (f *fakeFacts) Children(_ context.Context, _, id string) ([]BeadFacts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []BeadFacts
+	for _, b := range f.beads {
+		if b.Parent == id {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+func (f *fakeFacts) RoundsOf(repo string) []api.Round {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []api.Round
+	for _, r := range f.rounds {
+		if repo == "" || r.RepoID == repo {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+func (f *fakeFacts) Intake(context.Context, string, specflow.IntakeDraft) (specflow.IntakeVerdict, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.intakes++
+	return f.verdict, f.intakeErr
+}
+func (f *fakeFacts) setBead(b BeadFacts) { f.mu.Lock(); f.beads[b.ID] = b; f.mu.Unlock() }
 func (f *fakeFacts) Land(string) (string, *bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

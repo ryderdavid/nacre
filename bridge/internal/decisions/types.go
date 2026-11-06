@@ -20,6 +20,9 @@ type Decision struct {
 	// Body is longer text: a question, a failure excerpt, a human check.
 	Body    string   `json:"body,omitempty"`
 	Options []Option `json:"options"`
+	// Ask is asked whatever option is chosen (which round bead found work
+	// was found in); nil when there is nothing to ask.
+	Ask *Input `json:"ask,omitempty"`
 
 	AllowDefer      bool   `json:"allow_defer"`
 	AllowReject     bool   `json:"allow_reject"`
@@ -88,13 +91,15 @@ const (
 
 // Input is what an option asks for besides the choice itself.
 type Input struct {
-	Kind     string   `json:"kind"`
-	Label    string   `json:"label,omitempty"`
-	Min      *float64 `json:"min,omitempty"`
-	Max      *float64 `json:"max,omitempty"`
-	Unit     string   `json:"unit,omitempty"`
-	Choices  []Choice `json:"choices,omitempty"`
-	Required bool     `json:"required"`
+	Kind    string   `json:"kind"`
+	Label   string   `json:"label,omitempty"`
+	Min     *float64 `json:"min,omitempty"`
+	Max     *float64 `json:"max,omitempty"`
+	Unit    string   `json:"unit,omitempty"`
+	Choices []Choice `json:"choices,omitempty"`
+	// Default is the value an answer that leaves the input empty gets.
+	Default  string `json:"default,omitempty"`
+	Required bool   `json:"required"`
 }
 
 // Choice is one value of a choice input.
@@ -115,13 +120,15 @@ type Answer struct {
 	Option string `json:"option,omitempty"`
 	Note   string `json:"note,omitempty"`
 	Input  string `json:"input,omitempty"`
+	// Ask is the answer to the decision's Ask.
+	Ask    string `json:"ask,omitempty"`
 	Defer  bool   `json:"defer,omitempty"`
 	Reject bool   `json:"reject,omitempty"`
 }
 
 // Same reports whether two answers ask for the same thing.
 func (a Answer) Same(b Answer) bool {
-	return a.Option == b.Option && a.Input == b.Input && a.Defer == b.Defer && a.Reject == b.Reject
+	return a.Option == b.Option && a.Input == b.Input && a.Ask == b.Ask && a.Defer == b.Defer && a.Reject == b.Reject
 }
 
 // Action is the exact request an answer executes, kept server side.
@@ -134,7 +141,25 @@ type Action struct {
 	InputField string `json:"input_field,omitempty"`
 	// NoteField is the body field the answer's note fills.
 	NoteField string `json:"note_field,omitempty"`
+	// AskField is the body field the answer to the decision's Ask fills.
+	AskField string `json:"ask_field,omitempty"`
+	// Then runs once this action succeeded, with "{id}" in its path and in
+	// its string body values replaced by the id this action's response
+	// names (a bead it created). If Then fails, what this action did stays
+	// done and the decision says so.
+	Then *Action `json:"then,omitempty"`
+	// Label names what the action does, for saying it didn't happen
+	// ("development", "the new effort").
+	Label string `json:"label,omitempty"`
+	// Done is the result message when the chain this action ends succeeds,
+	// with "{id}" replaced as for Then.
+	Done string `json:"done,omitempty"`
 }
+
+// MethodEffort is an action that starts a new effort in a chat instead of
+// sending a request: body "text" is sent as a message to body "chat", or to
+// a new chat in body "repo" when that chat is busy or gone.
+const MethodEffort = "EFFORT"
 
 // Record is a stored decision: what clients see plus what only nacred
 // keeps, the actions and the revision they are bound to.

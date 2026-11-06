@@ -20,7 +20,8 @@ const questionCheck = "question:"
 // stable id derived from its item (or, for a round question, from the round
 // and the question). Items for an action a chat can raise (an approval, a
 // land, a finish, a sign-off) are built like the chat's, so one decision
-// serves the queue and the chat.
+// serves the queue and the chat. Each names the chat its work came from,
+// when one did, so its card shows in that chat too.
 func (s *Server) attentionDecisions(ctx context.Context) []decisions.Record {
 	if s.Attention == nil {
 		return nil
@@ -29,9 +30,10 @@ func (s *Server) attentionDecisions(ctx context.Context) []decisions.Record {
 	for _, ref := range s.Repos.Refs() {
 		refs[ref.ID] = ref
 	}
+	chatOf := s.itemChats()
 	var out []decisions.Record
 	for _, it := range s.Attention.Items(ctx) {
-		out = append(out, s.fromAttention(ctx, refs[it.Repo], it)...)
+		out = append(out, s.fromAttention(ctx, refs[it.Repo], it, chatOf(it))...)
 	}
 	return out
 }
@@ -88,10 +90,11 @@ func digestID(parts ...string) string {
 	return "dc_" + hex.EncodeToString(h[:12])
 }
 
-// fromAttention turns one Needs you item into decisions.
-func (s *Server) fromAttention(ctx context.Context, ref repos.Ref, it api.AttentionItem) []decisions.Record {
+// fromAttention turns one Needs you item into decisions, in chatID's chat
+// when it has one.
+func (s *Server) fromAttention(ctx context.Context, ref repos.Ref, it api.AttentionItem, chatID *string) []decisions.Record {
 	if it.Kind == api.AttentionRoundQuestion {
-		return s.questionDecisions(ref, it)
+		return s.questionDecisions(ref, it, chatID)
 	}
 	kind := attentionKind(it.Kind)
 	var rec decisions.Record
@@ -115,11 +118,11 @@ func (s *Server) fromAttention(ctx context.Context, ref repos.Ref, it api.Attent
 	if !built {
 		rec = s.genericDecision(ref, it, kind)
 		if it.Kind == api.AttentionFoundWork {
-			s.foundOptions(ref, it, &rec)
+			s.foundOptions(ref, it, &rec, chatID)
 		}
 	}
 	d := &rec.Decision
-	d.ID, d.Source, d.ChatID = "dc_"+it.ID, decisions.SourceAttention, nil
+	d.ID, d.Source, d.ChatID = "dc_"+it.ID, decisions.SourceAttention, chatID
 	d.Repo, d.RepoName = it.Repo, it.RepoName
 	d.State, d.CreatedAt, d.ExpiresAt = decisions.StatePending, it.CreatedAt, nil
 	d.AllowDefer = true
@@ -224,8 +227,9 @@ func evidenceOf(o api.AttentionOption) (decisions.Evidence, bool) {
 
 // foundOptions answers a Found: comment on the card itself: how or order
 // (optionally before a section), what done means, out of scope (a new bead
-// related to the epic), or dismiss.
-func (s *Server) foundOptions(ref repos.Ref, it api.AttentionItem, rec *decisions.Record) {
+// related to the epic, not under it, and a new effort for it in the chat the
+// work came from, or a new chat), or dismiss.
+func (s *Server) foundOptions(ref repos.Ref, it api.AttentionItem, rec *decisions.Record, chatID *string) {
 	var t *api.AttentionTarget
 	for _, o := range it.Options {
 		if o.Type == "open" && o.Target != nil && o.Target.Kind == "found_something" {
@@ -235,17 +239,15 @@ func (s *Server) foundOptions(ref repos.Ref, it api.AttentionItem, rec *decision
 	if t == nil || ref.ID == "" {
 		return
 	}
-	epic := ""
+	epic, name := "", t.Change
 	var choices []decisions.Choice
 	if list, err := s.facts().Changes(ref.Path); err == nil {
 		for _, c := range list {
 			if c.ID != t.Change {
 				continue
 			}
-			epic = c.EpicID
-			for i, sec := range c.Sections {
-				choices = append(choices, decisions.Choice{ID: sec.ID, Label: itoa(i+1) + ". " + sec.Title})
-			}
+			epic, name = c.EpicID, c.ChangeName
+			choices = openSections(c)
 		}
 	}
 	found := "/v1/repos/" + ref.ID + "/changes/" + t.Change + "/found"
@@ -260,17 +262,26 @@ func (s *Server) foundOptions(ref repos.Ref, it api.AttentionItem, rec *decision
 	if len(choices) > 0 {
 		how.Input = &decisions.Input{Kind: decisions.InputChoice, Label: "Required before which section?", Choices: choices}
 	}
+	where := "its chat"
+	chat := ""
+	if chatID != nil {
+		chat = *chatID
+	} else {
+		where = "a new chat"
+	}
+	oos := body("out_of_scope")
+	oos["create"] = true
+	effort := effortAction(ref.ID, chat, name, or(epic, "the epic"), t.Note)
 	opts := []decisions.Option{how,
 		{ID: "amend", Label: "Changes what done means", Detail: "A pending amendment: the change needs a revision before it runs again"},
-		{ID: "out_of_scope", Label: "Out of scope", Detail: "A new bead related to the epic, outside this change"},
+		{ID: "out_of_scope", Label: "Out of scope", Detail: "A new bead related to the epic, not under it, and a new effort for it starts in " + where + ", prefilled"},
 	}
 	actions := map[string]decisions.Action{
-		"how_order": {Method: "POST", Path: found, Body: body("how_order"), InputField: "before_section"},
-		"amend":     {Method: "POST", Path: found, Body: body("amend")},
-		"out_of_scope": {Method: "POST", Path: "/v1/repos/" + ref.ID + "/issues", Body: map[string]any{
-			"title": firstLine(t.Note, 80), "description": t.Note, "issue_type": "task", "related": nonEmpty(epic),
-			"found_comment": map[string]any{"bead": t.FoundIn, "comment_id": t.CommentID},
-		}},
+		"how_order": {Method: "POST", Path: found, Body: body("how_order"), InputField: "before_section",
+			Done: "Filed {id} under the epic; the approved plan stays as it is"},
+		"amend": {Method: "POST", Path: found, Body: body("amend"),
+			Done: "Filed {id} as a pending amendment; Needs you offers to revise the change with it"},
+		"out_of_scope": {Method: "POST", Path: found, Body: oos, Then: &effort},
 	}
 	for _, o := range d.Options {
 		if a, ok := rec.Actions[o.ID]; ok && o.ID == "dismiss" {
@@ -279,16 +290,6 @@ func (s *Server) foundOptions(ref repos.Ref, it api.AttentionItem, rec *decision
 		}
 	}
 	d.Options, rec.Actions = opts, actions
-}
-
-func nonEmpty(xs ...string) []string {
-	out := []string{}
-	for _, x := range xs {
-		if x != "" {
-			out = append(out, x)
-		}
-	}
-	return out
 }
 
 func firstLine(s string, n int) string {
@@ -311,14 +312,14 @@ func itoa(n int) string {
 
 // questionDecisions makes one question decision per unanswered question of
 // a round: its suggested answers, recommended first, and In my own words.
-func (s *Server) questionDecisions(ref repos.Ref, it api.AttentionItem) []decisions.Record {
+func (s *Server) questionDecisions(ref repos.Ref, it api.AttentionItem, chatID *string) []decisions.Record {
 	var out []decisions.Record
 	for _, q := range it.Questions {
 		used := map[string]bool{}
 		rec := decisions.Record{
 			Decision: decisions.Decision{
 				ID: digestID("question", it.RoundID, q.ID), Repo: it.Repo, RepoName: it.RepoName,
-				Source: decisions.SourceAttention, Kind: decisions.KindQuestion,
+				Source: decisions.SourceAttention, Kind: decisions.KindQuestion, ChatID: chatID,
 				Title: it.Title, Subtitle: s.subtitle(it.RepoName, it.RoundID),
 				Target:       decisions.Target{Round: it.RoundID, Question: q.ID},
 				Consequences: []string{},
