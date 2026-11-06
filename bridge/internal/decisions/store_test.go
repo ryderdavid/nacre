@@ -106,6 +106,30 @@ func TestExpiryAfterADay(t *testing.T) {
 	}
 }
 
+// A chat's intake and found cards expire asking the chat to raise them
+// again: nacred can't rebuild them itself, so Ask again would be refused.
+func TestChatIntakeAndFoundExpireAskingTheChat(t *testing.T) {
+	c := &clock{t: time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)}
+	s := openStore(t, t.TempDir(), c)
+	var ids []string
+	for _, kind := range []string{KindIntake, KindFound} {
+		rec := landRecord("rd-" + kind)
+		rec.Decision.Kind, rec.Key = kind, kind+":r1:x"
+		created, err := s.Create(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, created.Decision.ID)
+	}
+	c.add(24 * time.Hour)
+	for _, id := range ids {
+		got, _ := s.Get(id)
+		if got.Decision.State != StateExpired || got.Decision.Reason != ReasonNoAnswerChat {
+			t.Fatalf("%s: %+v", got.Decision.Kind, got.Decision)
+		}
+	}
+}
+
 func TestDeferEndsAfterADayAndExpiryStillApplies(t *testing.T) {
 	c := &clock{t: time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)}
 	s := openStore(t, t.TempDir(), c)

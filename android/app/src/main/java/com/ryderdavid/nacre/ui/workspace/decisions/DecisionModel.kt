@@ -118,9 +118,33 @@ object DecisionModel {
         else -> d.state
     }
 
-    /** Whether the card can be asked again (expired). */
     /** Whether Ask again is offered: an expired card nacred can raise again. A chat's intake and found cards are raised again from the chat. */
-    fun canRenew(d: Decision) = d.state == "expired" && !(d.source == "agent" && d.kind in setOf("intake", "found"))
+    fun canRenew(d: Decision) = d.state == "expired" && !raisedFromChat(d)
+
+    /**
+     * Whether "Ask the chat again" is offered instead: an expired intake or found card a chat raised. nacred
+     * can't rebuild it (it is built from what the chat sent, and intake is a paid model call), so the card
+     * opens its chat with a message asking it to raise the card again, which Ryder reads and sends himself.
+     */
+    fun canAskChat(d: Decision) = d.state == "expired" && raisedFromChat(d) && !d.chatId.isNullOrBlank()
+
+    private fun raisedFromChat(d: Decision) = d.source == "agent" && d.kind in setOf("intake", "found")
+
+    /**
+     * The message "Ask the chat again" puts in the chat's composer (the card itself goes with it as a
+     * reference). Raising intake again runs intake again, so that message says so, with what it cost last time.
+     */
+    fun askChatText(d: Decision): String {
+        val cost = d.consequences.firstNotNullOfOrNull { INTAKE_COST.find(it)?.groupValues?.get(1) }
+        val spend = when {
+            d.kind != "intake" -> ""
+            cost != null -> " That runs intake again, which cost $cost last time."
+            else -> " That runs intake again, which is a paid call."
+        }
+        return "This card expired before I answered it. Please raise it again so I can decide.$spend"
+    }
+
+    private val INTAKE_COST = Regex("""Intake cost (\$[0-9.,]+)""")
 
     /** Whether "Got it" is offered: a failed, unknown or expired outcome not yet acknowledged. */
     fun canAcknowledge(d: Decision) = d.acknowledgeable

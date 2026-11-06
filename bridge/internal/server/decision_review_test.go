@@ -3,11 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
@@ -391,6 +395,46 @@ func TestIntakeForAnExistingBeadAndRefusals(t *testing.T) {
 	rg.facts.intakeErr = specflow.ErrUnavailable
 	if code, _, raw := rg.raise(t, `{"kind":"intake","draft":{"title":"x"}}`); code != http.StatusServiceUnavailable {
 		t.Fatalf("unavailable: %d %v", code, raw)
+	}
+}
+
+// A chat's intake card left unanswered expires asking the chat to raise it
+// again, and nacred refuses Ask again: it would re-run paid intake on a draft
+// it doesn't keep. Raised again from the chat (Ryder's message there), the
+// fresh card replaces the expired one, which leaves the queue.
+func TestExpiredIntakeIsRaisedAgainFromTheChat(t *testing.T) {
+	rg := newDecisionRig(t)
+	var mu sync.Mutex
+	now := time.Now()
+	store, err := decisions.Open(filepath.Join(t.TempDir(), "clocked"), func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.OnChange = rg.s.decisionChanged
+	rg.s.Decisions = store
+	rg.facts.verdict = intakeVerdict(specflow.VerdictNew, "")
+	const draft = `{"kind":"intake","draft":{"title":"Export chats"}}`
+	_, d, _ := rg.raise(t, draft)
+	mu.Lock()
+	now = now.Add(decisions.AgentExpiry)
+	mu.Unlock()
+	if got := rg.get(t, d.ID); got.State != "expired" || got.Reason != decisions.ReasonNoAnswerChat {
+		t.Fatalf("expired: %+v", got)
+	}
+	code, body := rg.do(t, "POST", "/v1/decisions/"+d.ID+"/renew", ``)
+	if code != http.StatusConflict || !strings.Contains(body["error"].(string), "Ask the chat to raise this again") || rg.facts.intakes != 1 {
+		t.Fatalf("renew: %d %v, intakes %d", code, body, rg.facts.intakes)
+	}
+	code, fresh, raw := rg.raise(t, draft)
+	if code != 201 || fresh.State != "pending" || fresh.ID == d.ID || rg.facts.intakes != 2 {
+		t.Fatalf("raised again: %d %v, intakes %d", code, raw, rg.facts.intakes)
+	}
+	if old := rg.get(t, d.ID); old.State != "expired" || old.SupersededBy != fresh.ID || !old.Acknowledged {
+		t.Fatalf("old after raising again: %+v", old)
 	}
 }
 

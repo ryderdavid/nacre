@@ -27,7 +27,19 @@ const keepEnded = 30 * 24 * time.Hour
 // Reasons nacred gives for states it sets itself.
 const (
 	ReasonNoAnswer = "No answer within 24 hours. Ask again to raise it from the current state."
+	// ReasonNoAnswerChat is a chat's intake or found card unanswered: nacred
+	// can't raise it again itself (it is built from what the chat sent, and
+	// intake is a paid model call), so the chat raises it again.
+	ReasonNoAnswerChat = "No answer within 24 hours. Ask the chat to raise it again."
 )
+
+// noAnswer is why a decision expired unanswered.
+func noAnswer(d Decision) string {
+	if d.Source == SourceAgent && !Protected(d.Kind) {
+		return ReasonNoAnswerChat
+	}
+	return ReasonNoAnswer
+}
 
 var (
 	// ErrNotFound is an unknown decision.
@@ -278,7 +290,7 @@ func (s *Store) tickLocked(r *Record) bool {
 	}
 	if (d.State == StatePending || d.State == StateDeferred) && d.ExpiresAt != nil {
 		if t, err := time.Parse(time.RFC3339, *d.ExpiresAt); err == nil && !now.Before(t) {
-			d.State, d.Reason, d.DeferredUntil = StateExpired, ReasonNoAnswer, nil
+			d.State, d.Reason, d.DeferredUntil = StateExpired, noAnswer(*d), nil
 			changed = true
 		}
 	}

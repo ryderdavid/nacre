@@ -197,4 +197,25 @@ class DecisionModelTest {
         assertFalse(DecisionModel.canRenew(Decision(id = "f", kind = "found", source = "agent", state = "expired")))
         assertTrue(DecisionModel.canRenew(Decision(id = "a", kind = "approve", source = "agent", state = "expired")))
     }
+
+    @Test
+    fun `a chat's expired intake or found card is asked again from its chat`() {
+        val intake = Decision(id = "i", kind = "intake", source = "agent", state = "expired", chatId = "ch_1",
+            consequences = listOf("Intake says: New change", "Intake cost $0.04; nothing develops until you choose"))
+        val found = Decision(id = "f", kind = "found", source = "agent", state = "expired", chatId = "ch_1")
+        assertTrue(DecisionModel.canAskChat(intake))
+        assertTrue(DecisionModel.canAskChat(found))
+        // Not while it still waits, not for what nacred raises again itself, and not without a chat to ask.
+        assertFalse(DecisionModel.canAskChat(intake.copy(state = "pending")))
+        assertFalse(DecisionModel.canAskChat(Decision(id = "a", kind = "approve", source = "agent", state = "expired", chatId = "ch_1")))
+        assertFalse(DecisionModel.canAskChat(found.copy(chatId = null)))
+        assertFalse(DecisionModel.canAskChat(found.copy(chatId = "")))
+        // Raising intake again is a paid call, so the message Ryder sends says what it cost last time.
+        assertEquals(
+            "This card expired before I answered it. Please raise it again so I can decide. That runs intake again, which cost $0.04 last time.",
+            DecisionModel.askChatText(intake),
+        )
+        assertTrue(DecisionModel.askChatText(intake.copy(consequences = emptyList())).endsWith("That runs intake again, which is a paid call."))
+        assertEquals("This card expired before I answered it. Please raise it again so I can decide.", DecisionModel.askChatText(found))
+    }
 }

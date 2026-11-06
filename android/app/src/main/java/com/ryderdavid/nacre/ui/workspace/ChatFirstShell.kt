@@ -225,8 +225,21 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         }
     }
 
+    // Ask the chat again: the chat that raised the expired card, with the card attached and a message to send.
+    val askChatAgain: (com.ryderdavid.nacre.data.model.Decision) -> Unit = askAgain@{ d ->
+        val chatId = d.chatId?.ifBlank { null } ?: return@askAgain
+        val key = Keys.of(d.hostId.ifBlank { host }, chatId)
+        if (oneWide) destination = Destination.CHAT
+        queue = false; inspecting = null
+        pickThread(key)
+        container.chats.references.add(key, ChatReference("decision", d.id, d.title, d.body))
+        // What Ryder is already writing there is kept; the reference still goes with it.
+        container.chatStack.updateView(key) { v -> if (v.draft.isBlank()) v.copy(draft = com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.askChatText(d)) else v }
+    }
+
     CompositionLocalProvider(
         LocalAskAbout provides askAbout,
+        LocalAskChatAgain provides askChatAgain,
         LocalOpenQueue provides { inspecting = null; queue = true },
         LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
         com.ryderdavid.nacre.ui.workspace.beads.LocalOpenChange provides { changeId -> container.chats.references.openSpec(repoKey, changeId); destination = Destination.SPEC },

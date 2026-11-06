@@ -203,6 +203,13 @@ data class ChatReference(
  */
 val LocalAskAbout = androidx.compose.runtime.staticCompositionLocalOf<(ChatReference) -> Unit> { {} }
 
+/**
+ * Ask the chat again: opens the chat that raised an expired intake or found card, with the card attached
+ * and the composer prefilled asking it to raise the card again; Ryder sends it. Null outside a workspace,
+ * where the card doesn't offer it.
+ */
+val LocalAskChatAgain = androidx.compose.runtime.staticCompositionLocalOf<((com.ryderdavid.nacre.data.model.Decision) -> Unit)?> { null }
+
 /** What the Spec or Beads pane is showing, published as the next message's Viewing context. */
 val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatReference?) -> Unit> { {} }
 
