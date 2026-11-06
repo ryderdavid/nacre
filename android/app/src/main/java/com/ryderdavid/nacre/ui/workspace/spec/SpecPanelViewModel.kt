@@ -97,7 +97,8 @@ class SpecPanelViewModel(private val repository: NacreRepository, val repoKey: S
         envelopes.update { it + (id to (current ?: Loadable()).copy(loading = true)) }
         viewModelScope.launch {
             try {
-                val env = repository.change(repoKey, SpecList.openId(summary))
+                val env = if (summary.untracked) repository.untrackedChange(repoKey, summary.changeName.ifBlank { summary.id })
+                else repository.change(repoKey, SpecList.openId(summary))
                 envelopes.update { it + (id to Loadable(env)) }
             } catch (e: CancellationException) {
                 throw e

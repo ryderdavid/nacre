@@ -89,6 +89,8 @@ data class ChangeEvidence(
     @SerialName("build_verified") val buildVerified: Boolean = false,
     @SerialName("human_check") val humanCheck: Boolean = false,
     val landed: Boolean = false,
+    /** Its round landed with the bead's work merged, whether or not the approval still holds. */
+    val merged: Boolean = false,
     val note: String = "",
 )
 
@@ -124,6 +126,8 @@ data class SpecChange(
     val draft: ChangeDraft? = null,
     /** Plain summary and recommended next step while the change waits on Ryder; null until written. */
     val guide: ChangeGuide? = null,
+    /** Read from the checkout: no workflow record tracks it. */
+    val untracked: Boolean = false,
 ) {
     val isWorking get() = phase in setOf("drafting", "reviewing", "promoting")
     val hasCurrentApproval get() = phase == "ready" && revision.isNotBlank() && revision == approvedRevision
@@ -188,6 +192,15 @@ data class ChangeSummary(
     @SerialName("started_at") val startedAt: String = "",
     /** Set only while the proposal hasn't been created yet; null on older bridges. */
     val draft: ChangeDraft? = null,
+    /** Its proposal was written, it isn't archived, and its folder is gone from the checkout. */
+    val missing: Boolean = false,
+    /** An active change in the checkout that no workflow record tracks; its phase comes from its files. */
+    val untracked: Boolean = false,
+    @SerialName("tasks_done") val tasksDone: Int = 0,
+    @SerialName("tasks_total") val tasksTotal: Int = 0,
+    @SerialName("has_review") val hasReview: Boolean = false,
+    /** An archived folder of the same change: this active one may be a leftover copy. */
+    @SerialName("archived_as") val archivedAs: String = "",
 ) {
     /** Still being planned: no epic yet, or (for an amending seed) a revision before approval. */
     val planning get() = phase in PLANNING_PHASES && (phase != "stale" || epicId.isBlank())
@@ -226,7 +239,12 @@ data class ChangesList(
     val total: Int = 0,
     /** The repository's OpenSpec setup is valid: New effort, intake and the Proposals lane apply. */
     val openspec: Boolean = false,
-)
+    /** The checkout's other active changes, which no workflow record tracks: the Spec panel's, not the board's. */
+    val untracked: List<ChangeSummary> = emptyList(),
+) {
+    /** Every change the Spec panel lists: the recorded ones, then the checkout's untracked ones. */
+    val forSpec get() = changes + untracked.filter { u -> changes.none { it.id == u.id } }
+}
 
 @Serializable
 data class IntakeDraft(

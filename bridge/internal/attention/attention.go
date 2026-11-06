@@ -223,6 +223,7 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 			b.setComplete(ref.ID, false)
 			return items
 		}
+		changes = current(changes, beads)
 		items = append(items, epicItems(ref, beads, changes)...)
 		items = append(items, changeItems(ref, changes, beads)...)
 		items = append(items, foundBeadItems(ref, changes, beads)...)
@@ -233,6 +234,23 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 	b.mu.Unlock()
 	b.setComplete(ref.ID, true)
 	return items
+}
+
+// current leaves out changes proven given up (see api.ChangeSummary.Withdrawn):
+// a proposal superseded and removed from the checkout, whose seed and epic
+// are closed, is no longer Ryder's to review, approve or resume.
+func current(changes []api.ChangeSummary, beads map[string]bead) []api.ChangeSummary {
+	closed := func(id string) bool {
+		b, ok := beads[id]
+		return ok && b.Status == "closed"
+	}
+	out := changes[:0:0]
+	for _, c := range changes {
+		if !c.Withdrawn(closed) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 type bead struct {
@@ -280,21 +298,24 @@ func action(label, method, path string, body map[string]any) api.AttentionOption
 	return api.AttentionOption{Type: "action", Label: label, Method: method, Path: path, Body: body}
 }
 
-// beadItems lists open beads already marked as needing Ryder: the human label
-// or the decision type, the board's own "Needs you".
+// beadItems lists open beads already marked as needing Ryder: a sign-off or
+// human check, or the decision type, the board's own "Needs you".
 func beadItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
 	var out []api.AttentionItem
 	for _, b := range beads {
-		if b.Status != "closed" && has(b.Labels, api.SignoffLabel) {
+		if b.Status == "closed" {
+			continue
+		}
+		if has(b.Labels, api.SignoffLabel) || api.HumanCheck(b.Labels, b.Type) {
 			out = append(out, signoffItem(ref, b))
 			continue
 		}
-		if b.Status == "closed" || (!has(b.Labels, "human") && b.Type != "decision") {
+		if b.Type != "decision" && !has(b.Labels, api.HumanLabel) {
 			continue
 		}
-		why := b.ID + " is labelled human: only you can do or check it."
-		if b.Type == "decision" {
-			why = b.ID + " is a decision waiting on you."
+		why := b.ID + " is a decision waiting on you."
+		if b.Type != "decision" {
+			why = b.ID + " is labelled human: only you can do or check it."
 		}
 		out = append(out, api.AttentionItem{
 			ID: digest(api.AttentionBeadDecision, ref.ID, b.ID, b.Status), Kind: api.AttentionBeadDecision,
@@ -305,10 +326,14 @@ func beadItems(ref repos.Ref, beads map[string]bead) []api.AttentionItem {
 	return out
 }
 
-// signoffItem asks Ryder for the one check left on a finished bead.
+// signoffItem asks Ryder for his check: the one left on a finished bead, or
+// a bead labelled human.
 func signoffItem(ref repos.Ref, b bead) api.AttentionItem {
 	check, _ := b.Metadata[api.SignoffKey].(string)
 	why := b.ID + " is built and merged; only your check is left"
+	if !has(b.Labels, api.SignoffLabel) {
+		why = b.ID + " is labelled human: only you can check it"
+	}
 	if check = strings.TrimSpace(check); check != "" {
 		why += ": " + check
 	} else {

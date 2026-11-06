@@ -514,8 +514,12 @@ type Round struct {
 	// for a person's check; it runs once they are closed.
 	FinishWaiting bool   `json:"finish_waiting,omitempty"`
 	FinishRoundID string `json:"finish_round_id,omitempty"`
-	Epic          string `json:"epic,omitempty"`
-	State         string `json:"state"`
+	// FinishTarget is where finishing the epic merges its branch: nacre.yaml's
+	// landing target, resolved like LandPush; empty when unknown or not
+	// finishing.
+	FinishTarget string `json:"finish_target,omitempty"`
+	Epic         string `json:"epic,omitempty"`
+	State        string `json:"state"`
 	// PausedFrom is the state a paused round resumes to; PauseReason says why
 	// (the same text as Stop.Reason, kept for older clients).
 	PausedFrom  string `json:"paused_from,omitempty"`

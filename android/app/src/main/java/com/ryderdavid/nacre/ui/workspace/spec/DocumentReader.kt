@@ -98,7 +98,7 @@ internal fun DocumentReaderPane(vm: SpecPanelViewModel, screen: SpecScreen.Docum
     val repo = LocalContainer.current.repository
     val board by repo.board(vm.repoKey).collectAsState()
     val envelopes by vm.envelopes.collectAsState()
-    val summary = board.data?.changes?.changes?.firstOrNull { it.id == screen.changeId }
+    val summary = board.data?.changes?.forSpec?.firstOrNull { it.id == screen.changeId }
     val loaded = envelopes[screen.changeId]
     val change = loaded?.data?.change
     LaunchedEffect(summary?.updatedAt) { summary?.let { vm.load(it) } }

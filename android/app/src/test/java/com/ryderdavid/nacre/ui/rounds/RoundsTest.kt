@@ -57,4 +57,15 @@ class RoundsTest {
         kotlin.test.assertFalse(round.copy(landWhenReady = false).mergesAutomatically)
     }
 
+    // NAC-pjq.8: the finish line names the epic's branch and where it merges, so it can't read as the
+    // round's own target.
+    @Test fun finishLineNamesTheEpicBranchAndItsTarget() {
+        val r = Round(id = "rdtn", epic = "NAC-48p", target = "epic/nac-48p", finish = true, finishTarget = "main")
+        assertEquals("Then epic/nac-48p merges into main", finishLine(r))
+        assertEquals("Then epic/nac-48p merges into the landing target", finishLine(r.copy(finishTarget = "")))
+        assertEquals("Then epic/nac-48p merges into main, once you sign off the checks left", finishLine(r.copy(finishWaiting = true)))
+        assertEquals("Finishing: epic/nac-48p merges into main in round rdfin", finishLine(r.copy(finishRoundId = "rdfin")))
+        assertEquals("epic/nac-48p wasn't merged into main after landing: see the log", finishLine(r.copy(finishChecked = true)))
+        assertNull(finishLine(r.copy(finish = false)))
+    }
 }

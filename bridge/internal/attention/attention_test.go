@@ -88,7 +88,7 @@ func TestItemsCoverBeadsRoundsAndChangesInOrder(t *testing.T) {
 	items := f.b.Items(context.Background())
 	got := kinds(items)
 	want := []string{
-		api.AttentionRoundQuestion, api.AttentionBeadDecision, api.AttentionBeadDecision,
+		api.AttentionRoundQuestion, api.AttentionBeadDecision, api.AttentionBeadSignoff,
 		api.AttentionBeadParked, api.AttentionReviewBlocked, api.AttentionWorkflowInterrupted,
 		api.AttentionProposalReady, api.AttentionApprovalStale, api.AttentionRoundReady,
 	}
@@ -568,6 +568,61 @@ func TestABeadLeftForYourCheckAsksYouToSignOff(t *testing.T) {
 	}
 	if len(it.Options) == 0 || it.Options[0].Label != "Sign off" || it.Options[0].Path != "/v1/repos/r1/issues/N-1/signoff" {
 		t.Errorf("options: %+v", it.Options)
+	}
+}
+
+// NAC-pjq.4: a bead labelled human is a human check, signed off like a bead a
+// round left for Ryder's check, not a generic question; a human-labelled
+// decision stays a decision.
+func TestAHumanBeadIsAHumanCheck(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t,
+		map[string]any{"id": "N-12", "title": "12. Device checks (human)", "status": "open", "issue_type": "task", "labels": []string{"app", "human"}},
+		map[string]any{"id": "N-13", "title": "Which palette?", "status": "open", "issue_type": "decision", "labels": []string{"human"}},
+		map[string]any{"id": "N-14", "title": "Checked", "status": "closed", "issue_type": "task", "labels": []string{"human"}},
+		map[string]any{"id": "N-15", "title": "Device work", "status": "open", "issue_type": "epic", "labels": []string{"human"}},
+	)
+	items := f.b.Items(context.Background())
+	byBead := map[string]api.AttentionItem{}
+	for _, it := range items {
+		byBead[it.BeadID] = it
+	}
+	// An epic isn't signed off (that would close its children's parent): it stays a question.
+	if len(items) != 3 || byBead["N-12"].Kind != api.AttentionBeadSignoff || byBead["N-13"].Kind != api.AttentionBeadDecision || byBead["N-15"].Kind != api.AttentionBeadDecision {
+		t.Fatalf("%+v", items)
+	}
+	it := byBead["N-12"]
+	if !strings.Contains(it.Why, "labelled human") || it.Options[0].Label != "Sign off" || it.Options[0].Path != "/v1/repos/r1/issues/N-12/signoff" {
+		t.Fatalf("human check: %+v", it)
+	}
+}
+
+// NAC-niv: a proposal superseded and removed from the checkout, whose seed and
+// epic are closed, no longer asks for a review; one whose folder is gone
+// while its seed is still open, or whose folder is still there though its
+// seed was closed, stays actionable.
+func TestWithdrawnChangesLeaveNeedsYou(t *testing.T) {
+	f := newFixture(t)
+	f.beads = issues(t,
+		map[string]any{"id": "N-48", "title": "Chat images", "status": "closed", "issue_type": "epic"},
+		map[string]any{"id": "N-50", "title": "Live", "status": "open", "issue_type": "feature"},
+		map[string]any{"id": "N-51", "title": "Closed by accident", "status": "closed", "issue_type": "feature"},
+	)
+	f.change = []api.ChangeSummary{
+		{ID: "sfold", ChangeName: "chat-image-attachments", Phase: "stale", Revision: "r1", SeedIDs: []string{"N-48"}, EpicID: "N-48", Missing: true},
+		{ID: "sflive", ChangeName: "still-live", Phase: "stale", Revision: "r2", SeedIDs: []string{"N-50"}, Missing: true},
+		{ID: "sfacc", ChangeName: "on-disk", Phase: "awaiting_approval", Revision: "r3", SeedIDs: []string{"N-51"}},
+		{ID: "sfunread", ChangeName: "unknown-seed", Phase: "stale", Revision: "r4", SeedIDs: []string{"N-99"}, Missing: true},
+	}
+	got := map[string]string{}
+	for _, it := range f.b.Items(context.Background()) {
+		got[it.ChangeID] = it.Kind
+	}
+	if _, ok := got["sfold"]; ok {
+		t.Fatalf("withdrawn change still offered: %v", got)
+	}
+	if got["sflive"] != api.AttentionApprovalStale || got["sfacc"] != api.AttentionProposalReady || got["sfunread"] != api.AttentionApprovalStale {
+		t.Fatalf("legitimate changes must stay actionable: %v", got)
 	}
 }
 

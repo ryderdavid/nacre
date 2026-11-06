@@ -33,6 +33,26 @@ const (
 	SignoffKey   = "signoff"
 )
 
+// HumanLabel marks a bead only a person can check. An open one that isn't a
+// decision or an epic is a human check, shown like a sign-off: Sign off
+// closes it, Not right adds the note as a comment and leaves it open.
+const HumanLabel = "human"
+
+// HumanCheck reports whether a bead with these labels and type is a human
+// check (see HumanLabel). A decision is answered, and an epic finished, not
+// signed off.
+func HumanCheck(labels []string, issueType string) bool {
+	if issueType == "decision" || issueType == "epic" {
+		return false
+	}
+	for _, l := range labels {
+		if l == HumanLabel {
+			return true
+		}
+	}
+	return false
+}
+
 // FoundMarker is posted in a reply to a `Found:` comment once it is answered
 // or dismissed, so it never raises a Needs you item again.
 func FoundMarker(commentID string) string { return "[nacre-found:" + commentID + "]" }
@@ -144,6 +164,49 @@ type ChangeSummary struct {
 	// the owner: how it went, and the label of the recommended next step.
 	Status      string `json:"status,omitempty"`
 	Recommended string `json:"recommended,omitempty"`
+	// Missing: the change's proposal was written, it isn't archived, and its
+	// folder is gone from the checkout's openspec/changes.
+	Missing bool `json:"missing,omitempty"`
+
+	// The rest describe an untracked change: an active change folder in the
+	// checkout that no workflow record tracks, listed in GET .../changes
+	// under "untracked" (never in "changes", nor in Needs you). Its phase
+	// comes from its files and tasks.md, and a section whose every task is
+	// checked reads as landed.
+	Untracked  bool `json:"untracked,omitempty"`
+	TasksDone  int  `json:"tasks_done,omitempty"`
+	TasksTotal int  `json:"tasks_total,omitempty"`
+	HasReview  bool `json:"has_review,omitempty"`
+	// ArchivedAs names an archived folder of the same change, when one
+	// exists: the active folder may be a leftover copy.
+	ArchivedAs string `json:"archived_as,omitempty"`
+}
+
+// Withdrawn reports whether a change was proven given up: its folder is gone
+// from the checkout and every bead that owns it (seeds and epic) is closed.
+// closed reports a bead's state; it returns false for a bead it doesn't know,
+// so an unread board never withdraws anything. A change whose folder is gone
+// while one of its beads is still open stays listed: that may be an accident
+// with live work.
+func (c ChangeSummary) Withdrawn(closed func(id string) bool) bool {
+	if !c.Missing || c.Phase == "archived" {
+		return false
+	}
+	owners := append([]string{}, c.SeedIDs...)
+	if c.EpicID != "" {
+		owners = append(owners, c.EpicID)
+	}
+	owned := false
+	for _, id := range owners {
+		if id == "" {
+			continue
+		}
+		if !closed(id) {
+			return false
+		}
+		owned = true
+	}
+	return owned
 }
 
 // Draft kinds: a proposal still being drafted, or drafting that stopped

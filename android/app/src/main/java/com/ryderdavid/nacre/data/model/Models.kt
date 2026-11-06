@@ -519,6 +519,14 @@ data class Round(
     @SerialName("land_when_ready") val landWhenReady: Boolean = false,
     /** Finish the epic into main after its children land. */
     val finish: Boolean = false,
+    /** Where finishing merges the epic's branch (nacre.yaml's landing target); empty when nacred didn't say. */
+    @SerialName("finish_target") val finishTarget: String = "",
+    /** The automatic finish ran (it may have left the epic open). */
+    @SerialName("finish_checked") val finishChecked: Boolean = false,
+    /** The automatic finish waits for beads left for a person's check. */
+    @SerialName("finish_waiting") val finishWaiting: Boolean = false,
+    /** The round finishing the epic, once one started. */
+    @SerialName("finish_round_id") val finishRoundId: String = "",
     /** The epic whose branch this round merges into [target]; such a round has no beads. */
     @SerialName("finish_epic") val finishEpic: String = "",
     val error: String = "",
@@ -549,6 +557,8 @@ data class RoundBead(
     val id: String,
     /** Set on a spec section bead: the change its pinned contract belongs to. */
     @SerialName("spec_change_id") val specChangeId: String = "",
+    /** The change revision the bead's pinned contract was approved at. */
+    @SerialName("spec_revision") val specRevision: String = "",
     val title: String = "",
     val type: String = "",
     val priority: Int = 2,

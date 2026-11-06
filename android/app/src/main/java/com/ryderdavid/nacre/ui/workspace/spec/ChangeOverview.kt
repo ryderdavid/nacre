@@ -85,7 +85,7 @@ internal fun ChangeOverviewPane(vm: SpecPanelViewModel, screen: SpecScreen.Chang
     val board by repo.board(vm.repoKey).collectAsState()
     val rounds by repo.rounds.collectAsState()
     val envelopes by vm.envelopes.collectAsState()
-    val summary = board.data?.changes?.changes?.firstOrNull { it.id == screen.changeId }
+    val summary = board.data?.changes?.forSpec?.firstOrNull { it.id == screen.changeId }
     val loaded = envelopes[screen.changeId]
     val change = loaded?.data?.change
     LaunchedEffect(summary?.updatedAt) { summary?.let { vm.load(it) } }
@@ -169,8 +169,8 @@ private fun OverviewContent(
 
         if (o.plan.isNotEmpty()) {
             item(key = "plan-head") {
-                PaneHeading(o.planTitle, trailing = { if (o.approved) Text("Progress from beads", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant) })
-                if (!o.approved) Text("Progress shows here from the beads once the plan is approved.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
+                PaneHeading(o.planTitle, trailing = { o.progressLabel?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant) } })
+                o.planNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp)) }
             }
             itemsIndexed(o.plan, key = { _, r -> "section:${r.sectionId}" }) { i, row ->
                 PlanRowView(row, segmentShape(i, o.plan.size), onOpen = { row.link?.let(onEvidence) }, onAsk = { onAskSection(row) })
@@ -302,7 +302,7 @@ private fun PlanRowView(row: PlanRow, shape: Shape, onOpen: () -> Unit, onAsk: (
 private fun StatePill(state: SectionState) {
     val c = MaterialTheme.colorScheme
     when (state) {
-        SectionState.LANDED -> SpecPill(state.label, c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.Check)
+        SectionState.LANDED, SectionState.DONE -> SpecPill(state.label, c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.Check)
         SectionState.VERIFIED -> SpecPill(state.label, c.secondaryContainer, c.onSecondaryContainer, Icons.Rounded.Verified)
         SectionState.WORKING -> SpecPill(state.label, c.tertiaryContainer, c.onTertiaryContainer, Icons.Rounded.Sync)
         SectionState.FAILED -> SpecPill(state.label, c.errorContainer, c.onErrorContainer, Icons.Rounded.Close)

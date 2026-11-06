@@ -613,11 +613,15 @@ func (s *Subscription) Close() {
 func (r *round) setCfg(cfg *repoconfig.Config) {
 	r.cfg = cfg
 	if cfg == nil {
-		r.meta.LandPush = nil
+		r.meta.LandPush, r.meta.FinishTarget = nil, ""
 		return
 	}
 	push := cfg.Land.Push
 	r.meta.LandPush = &push
+	r.meta.FinishTarget = ""
+	if r.meta.Finish && r.meta.Epic != "" {
+		r.meta.FinishTarget = cfg.Land.Target
+	}
 }
 
 // ---- persistence and notification (callers hold r.mu) ----
