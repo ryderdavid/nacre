@@ -157,6 +157,13 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun changeAction(repo: String, id: String, action: ChangeAction): ChangeEnvelope =
         send("POST", "/v1/repos/$repo/issues/${enc(id)}/change", action)
 
+    /** An active change of the checkout that no workflow record tracks, by its folder name. */
+    suspend fun untrackedChange(repo: String, name: String): ChangeEnvelope = try {
+        get("/v1/repos/$repo/changes/${enc(name)}")
+    } catch (e: BridgeException) {
+        if (e.code == 405 || e.code == 501) ChangeEnvelope(reason = "Update nacred on this computer to read changes it doesn't track.") else throw e
+    }
+
     /** The repository's changes, or null on a bridge without the summary. */
     suspend fun changes(repo: String): ChangesList? = try {
         get("/v1/repos/$repo/changes")

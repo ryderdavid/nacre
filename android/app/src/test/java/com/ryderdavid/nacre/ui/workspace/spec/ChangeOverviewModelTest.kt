@@ -1,5 +1,6 @@
 package com.ryderdavid.nacre.ui.workspace.spec
 
+import com.ryderdavid.nacre.data.model.BEAD_INTEGRATED
 import com.ryderdavid.nacre.data.model.BEAD_PARKED
 import com.ryderdavid.nacre.data.model.BEAD_RUNNING
 import com.ryderdavid.nacre.data.model.ChangeArtifact
@@ -163,5 +164,60 @@ class ChangeOverviewModelTest {
         val o = ChangeOverviewModel.build(change(evidence = evidence), null)
         assertEquals(SectionState.LANDED, o.plan[0].state)
         assertEquals(SectionState.WAITING, o.plan[1].state)
+    }
+
+    @Test
+    fun `the headline is the summary's first sentence without markdown`() {
+        val summary = "Let users attach **images** to `bead` chats. More detail follows.\n\n- **Storage:** on the phone"
+        kotlin.test.assertEquals("Let users attach images to bead chats.", headlineOf(summary))
+        kotlin.test.assertTrue(headlineOf("x".repeat(400)).length <= 110)
+    }
+
+    // NAC-pjq.8: a stale change whose round landed shows its sections landed, as the round says, not Waiting.
+    @Test
+    fun `sections a landed round merged count as landed while the change is stale`() {
+        val note = "Review and approve the current revision before its implementation can be verified. Round rdtn: landed."
+        val evidence = sections.map { s -> ChangeEvidence(s.id, s.beadId, roundId = "rdtn", roundState = "landed", merged = s.id != "s4", note = note) }
+        val stale = change(phase = "stale", evidence = evidence)
+        val o = ChangeOverviewModel.build(stale, summary("none", "none", "none", "none").copy(phase = "stale"))
+        assertEquals(listOf(SectionState.LANDED, SectionState.LANDED, SectionState.LANDED, SectionState.WAITING), o.plan.map { it.state })
+        assertEquals(3, o.progress!!.landed)
+        assertTrue(o.summaryLine, o.summaryLine.startsWith("3 of 4 sections landed"))
+    }
+
+    @Test
+    fun `an older nacred's landed round still counts from the round list`() {
+        val landed = Round(
+            id = "rdtn", state = ROUND_LANDED, createdAt = "2026-11-03T07:09:27Z", landedCommit = "e5ebe5a",
+            beads = sections.map { RoundBead(it.beadId, specChangeId = "chg-1", specRevision = "rev4abcdef01", state = BEAD_INTEGRATED, mergeCommit = "m" + it.id) },
+        )
+        val o = ChangeOverviewModel.build(change(phase = "stale"), summary("none", "none", "none", "none").copy(phase = "stale"), listOf(landed))
+        assertTrue(o.plan.all { it.state == SectionState.LANDED })
+        assertEquals("4 of 4 sections landed", o.progress!!.headline)
+        // A round for an older revision of the change doesn't count.
+        val older = landed.copy(beads = landed.beads.map { it.copy(specRevision = "rev3") })
+        val o2 = ChangeOverviewModel.build(change(phase = "stale"), summary("none", "none", "none", "none").copy(phase = "stale"), listOf(older))
+        assertTrue(o2.plan.none { it.state == SectionState.LANDED })
+    }
+
+    // NAC-pjq.3: an untracked change's plan and progress come from its tasks.
+    @Test
+    fun `an untracked change shows progress from its tasks`() {
+        val tasks = listOf(ChangeSection("tasks-1", "1. First", "- [x] 1.1 a"), ChangeSection("tasks-2", "2. Device checks", "- [ ] 2.1 b"))
+        val c = SpecChange(id = "chat-first-harness", seedId = "", changeName = "chat-first-harness", phase = "ready", revision = "abc", sections = tasks, untracked = true)
+        val s = ChangeSummary(
+            id = "chat-first-harness", changeName = "chat-first-harness", phase = "ready", untracked = true, tasksDone = 1, tasksTotal = 2, hasReview = true,
+            sections = listOf(SectionSummary("tasks-1", "1. First", evidence = "landed"), SectionSummary("tasks-2", "2. Device checks", evidence = "none")),
+        )
+        val o = ChangeOverviewModel.build(c, s)
+        assertFalse(o.approved)
+        assertEquals("Plan, from tasks.md", o.planTitle)
+        assertEquals("Progress from tasks.md", o.progressLabel)
+        assertEquals(listOf(SectionState.DONE, SectionState.WAITING), o.plan.map { it.state })
+        assertEquals("1 of 2 sections done", o.progress!!.headline)
+        assertEquals(SpecGroup.IN_PROGRESS, o.group)
+        assertEquals("Not tracked by Nacre · 1 of 2 tasks done", o.status)
+        assertEquals("Not reviewed by Nacre", o.review.verdict)
+        assertEquals(ReviewTone.NONE, o.review.tone)
     }
 }

@@ -151,6 +151,7 @@ func (s *Server) routes() []route {
 		{"GET", "/v1/repos/{repo}/issues/{id}/change", s.getChange},
 		{"POST", "/v1/repos/{repo}/issues/{id}/change", s.actOnChange},
 		{"GET", "/v1/repos/{repo}/changes", s.listChanges},
+		{"GET", "/v1/repos/{repo}/changes/{change}", s.getUntrackedChange},
 		{"POST", "/v1/repos/{repo}/intake", s.intake},
 		{"POST", "/v1/repos/{repo}/changes/{change}/found", s.found},
 		{"POST", "/v1/repos/{repo}/changes/{change}/draft/dismiss", s.dismissDraft},

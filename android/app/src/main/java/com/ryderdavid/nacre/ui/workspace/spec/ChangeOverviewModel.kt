@@ -1,11 +1,13 @@
 package com.ryderdavid.nacre.ui.workspace.spec
 
+import com.ryderdavid.nacre.data.model.BEAD_INTEGRATED
 import com.ryderdavid.nacre.data.model.BEAD_INTEGRATING
 import com.ryderdavid.nacre.data.model.BEAD_PARKED
 import com.ryderdavid.nacre.data.model.BEAD_RUNNING
 import com.ryderdavid.nacre.data.model.BEAD_VERIFYING
 import com.ryderdavid.nacre.data.model.ChangeEvidence
 import com.ryderdavid.nacre.data.model.ChangeSummary
+import com.ryderdavid.nacre.data.model.ROUND_LANDED
 import com.ryderdavid.nacre.data.model.Round
 import com.ryderdavid.nacre.data.model.SectionSummary
 import com.ryderdavid.nacre.data.model.SpecChange
@@ -19,6 +21,8 @@ enum class SectionState(val label: String) {
     FAILED("Failed"),
     CHECK("Needs your check"),
     WAITING("Waiting"),
+    /** An untracked change's section whose every task is checked. */
+    DONE("Done"),
 }
 
 enum class EvidenceKind(val label: String) { ROUND("Round"), RUN("Run"), BEAD("Bead") }
@@ -76,6 +80,8 @@ data class ChangeOverview(
     val name: String,
     /** The change's summary, or its name when it has none yet. */
     val headline: String,
+    /** The change's full summary, markdown; the headline is its first sentence. */
+    val about: String = "",
     val group: SpecGroup?,
     /** The workflow step in words, e.g. "Reviewed, waiting for your approval". */
     val status: String,
@@ -92,21 +98,44 @@ data class ChangeOverview(
     val review: ReviewSummary,
     val evidence: List<EvidenceLink>,
     val documents: List<DocKind>,
+    /** Read from the checkout: no workflow record tracks it, so progress comes from its tasks. */
+    val untracked: Boolean = false,
 ) {
+    /** Where the plan's progress comes from, beside its heading; null while there is none. */
+    val progressLabel: String?
+        get() = when {
+            untracked -> if (progress != null) "Progress from tasks.md" else null
+            approved -> "Progress from beads"
+            else -> null
+        }
+
+    /** A line under the plan's heading, when it needs saying where progress will come from. */
+    val planNote: String?
+        get() = when {
+            untracked -> "Nacre doesn't track this change: a section is done when every task in it is checked."
+            !approved -> "Progress shows here from the beads once the plan is approved."
+            else -> null
+        }
+
     val revisionText: String
         get() = when {
             revision.isBlank() -> "No revision yet"
             approvedCurrent -> "Approved revision $revision"
+            approvedRevision.isNotBlank() && approvedRevision == revision -> "Approved revision $revision"
             approvedRevision.isNotBlank() -> "Revision $revision · approved $approvedRevision before it changed"
             else -> "Revision $revision, not approved yet"
         }
 
-    val planTitle get() = if (approved) "Plan, as approved" else "Plan, as proposed"
+    val planTitle get() = when {
+        untracked -> "Plan, from tasks.md"
+        approved -> "Plan, as approved"
+        else -> "Plan, as proposed"
+    }
 
     /** "3 of 5 sections landed · review passed, 2 notes" */
     val summaryLine: String
         get() = buildList {
-            progress?.let { add("${it.landed} of ${it.total} sections landed" + if (it.failed > 0) ", ${it.failed} failed" else "") }
+            progress?.let { add(it.headline + if (it.failed > 0) ", ${it.failed} failed" else "") }
             add(review.verdict.replaceFirstChar { it.lowercase() }.let { v -> if (review.tone == ReviewTone.PASSED || review.tone == ReviewTone.CHANGES) "review $v" else v } +
                 review.detail.takeIf { it.isNotBlank() }?.let { ", $it" }.orEmpty())
         }.joinToString(" · ")
@@ -137,7 +166,10 @@ object ChangeOverviewModel {
         error = change.error, staleReason = change.staleReason, updatedAt = change.updatedAt,
     )
 
-    fun review(change: SpecChange): ReviewSummary {
+    fun review(change: SpecChange, summary: ChangeSummary? = null): ReviewSummary {
+        if (change.untracked || summary?.untracked == true) {
+            return ReviewSummary("Not reviewed by Nacre", ReviewTone.NONE, if (summary?.hasReview == true) "it has its own review.md" else "", emptyList())
+        }
         val findings = change.findings.map { f ->
             FindingRow(
                 id = f.id, severity = severityLabel(f.severity), summary = f.summary, detail = f.detail,
@@ -190,7 +222,10 @@ object ChangeOverviewModel {
     fun build(change: SpecChange, summary: ChangeSummary?, rounds: List<Round> = emptyList()): ChangeOverview {
         val list = summary ?: summaryOf(change)
         val group = SpecList.group(list)
-        val approved = change.approvedRevision.isNotBlank() && change.phase in setOf("promoting", "ready", "stale", "archived")
+        val untracked = change.untracked || list.untracked
+        val approved = !untracked && change.approvedRevision.isNotBlank() && change.phase in setOf("promoting", "ready", "stale", "archived")
+        // An untracked change's progress is its checked tasks, once any is checked.
+        val fromTasks = untracked && list.phase == "ready"
         val evidenceById = list.sections.associate { it.id to it.evidence }
         // The newest round per bead, active ones first: the round that says what the bead is doing now.
         val roundOf = rounds.sortedWith(compareByDescending<Round> { it.isActive }.thenByDescending { it.createdAt })
@@ -202,8 +237,18 @@ object ChangeOverviewModel {
             val inRound = roundOf[s.beadId]?.takeIf { s.beadId.isNotBlank() }
             val activeRound = inRound?.takeIf { it.first.isActive }
             val ev = evidenceById[s.id] ?: "none"
-            val state = if (!approved) null else when {
-                ev == "landed" -> SectionState.LANDED
+            // The round holding the bead landed with its work merged: nacred says so (merged), or the
+            // round list shows it. That holds even while the approval is stale, so progress agrees with
+            // the round that landed it.
+            val merged = observed.any { it.merged } || inRound?.let { (r, b) ->
+                r.state == ROUND_LANDED && b.state == BEAD_INTEGRATED && b.mergeCommit.isNotBlank() &&
+                    (b.specChangeId.isBlank() || b.specChangeId == change.id) &&
+                    (b.specRevision.isBlank() || b.specRevision == change.revision) && observed.none { it.roundId.isNotBlank() && it.roundId != r.id }
+            } == true
+            val state = if (fromTasks) {
+                if (ev == "landed") SectionState.DONE else SectionState.WAITING
+            } else if (!approved) null else when {
+                ev == "landed" || merged -> SectionState.LANDED
                 activeRound?.second?.state == BEAD_PARKED -> SectionState.FAILED
                 ev == "verified" && observed.any { it.humanCheck } -> SectionState.CHECK
                 ev == "verified" -> SectionState.VERIFIED
@@ -222,12 +267,13 @@ object ChangeOverviewModel {
             PlanRow(i + 1, s.id, s.title, taskCount(s.body), s.beadId, state, link, note)
         }
 
-        val progress = if (!approved || plan.isEmpty()) null else SectionProgress(
-            landed = plan.count { it.state == SectionState.LANDED },
+        val progress = if (!(approved || fromTasks) || plan.isEmpty()) null else SectionProgress(
+            landed = plan.count { it.state == SectionState.LANDED || it.state == SectionState.DONE },
             verified = plan.count { it.state == SectionState.VERIFIED || it.state == SectionState.CHECK },
             working = plan.count { it.state == SectionState.WORKING },
             failed = plan.count { it.state == SectionState.FAILED },
             total = plan.size,
+            done = if (untracked) "done" else "landed",
         )
 
         val evidence = buildList {
@@ -240,7 +286,8 @@ object ChangeOverviewModel {
         return ChangeOverview(
             id = change.id,
             name = change.changeName.ifBlank { list.name.ifBlank { change.id } },
-            headline = change.summary.ifBlank { change.changeName.ifBlank { "A change being drafted" } },
+            headline = headlineOf(change.summary).ifBlank { change.changeName.ifBlank { "A change being drafted" } },
+            about = change.summary.trim(),
             group = group,
             status = group?.let { SpecList.status(list, it, progress) } ?: "Archived: its requirements are in the project's specs",
             revision = SpecList.shortRevision(change.revision),
@@ -252,9 +299,23 @@ object ChangeOverviewModel {
             approved = approved,
             plan = plan,
             progress = progress,
-            review = review(change),
+            review = review(change, list),
             evidence = evidence,
             documents = change.artifacts.mapNotNull { DocKind.of(it.path) }.distinct().sorted(),
+            untracked = untracked,
         )
     }
+}
+
+/**
+ * A change's headline: the first sentence of its summary's first paragraph, without markdown marks, at most
+ * [max] characters. The summary itself renders below as markdown.
+ */
+internal fun headlineOf(summary: String, max: Int = 110): String {
+    val para = summary.trim().lineSequence().map { it.trim() }.dropWhile { it.isEmpty() || it.startsWith("#") }
+        .takeWhile { it.isNotEmpty() }.joinToString(" ")
+    val plain = para.removePrefix("- ").removePrefix("* ")
+        .replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1").replace("**", "").replace("__", "").replace("`", "")
+    val sentence = Regex("^(.+?[.!?])(\\s|$)").find(plain)?.groupValues?.get(1) ?: plain
+    return if (sentence.length <= max) sentence else sentence.take(max - 1).trimEnd() + "\u2026"
 }

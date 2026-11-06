@@ -121,12 +121,27 @@ fun NacreTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, palette: Palette? = null
     }
     val extra = remember(scheme, dark) { nacreColors(scheme, dark) }
     val reduced = remember { reducedMotion(context) }
+    // uiMode changes don't recreate the activity, so the system bars' icons follow the theme from here.
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        var c = view.context
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        (c as? android.app.Activity)?.window?.let { w ->
+            androidx.core.view.WindowCompat.getInsetsController(w, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
     CompositionLocalProvider(LocalNacreColors provides extra, LocalReducedMotion provides reduced) {
         MaterialExpressiveTheme(
             colorScheme = scheme,
             motionScheme = if (reduced) MotionScheme.standard() else MotionScheme.expressive(),
-            typography = NacreTypography, content = content,
-        )
+            typography = NacreTypography,
+        ) {
+            // Text outside any Surface (screen titles, section labels) takes the scheme's colour, not black.
+            CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides scheme.onSurface, content = content)
+        }
     }
 }
 

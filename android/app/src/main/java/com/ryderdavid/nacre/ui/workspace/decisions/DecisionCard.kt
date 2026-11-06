@@ -49,7 +49,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,7 +128,8 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
     val set: (DecisionDraft) -> Unit = { DecisionDrafts.set(d.key, it) }
     val sending = d.key in inFlight
     var expanded by remember(d.key) { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    // An answer outlives the card: it can be re-keyed or scrolled away while the request is in flight.
+    val scope = container.scope
     val reduced = LocalReducedMotion.current
     val ask = LocalAskAbout.current
     val openQueue = LocalOpenQueue.current
@@ -191,10 +191,8 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 if (sub.isNotBlank()) SelectionContainer { Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (d.body.isNotBlank()) {
-                if (d.kind == "recovery") Text(
-                    d.body, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp)).padding(10.dp),
-                ) else com.ryderdavid.nacre.ui.common.MarkdownText(d.body)
+                // Prose for every kind; a recovery's log or command arrives as a fenced block and renders as code.
+                com.ryderdavid.nacre.ui.common.MarkdownText(d.body)
             }
             if (d.consequences.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 d.consequences.forEach { c ->
@@ -238,7 +236,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
 
             val askable = d.kind in setOf("question", "intake", "found", "recovery") || (d.options.isEmpty() && !d.allowReject)
             if (d.pending) {
-                if (draft.rejecting || draft.note.isNotEmpty()) OutlinedTextField(
+                if (draft.rejecting || draft.noting || draft.note.isNotEmpty()) OutlinedTextField(
                     value = draft.note, onValueChange = { set(draft.copy(note = it)) },
                     label = { Text(if (draft.rejecting) "Why? (sent with the rejection)" else "Note (optional)") },
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
@@ -255,7 +253,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     }
                     if (!draft.rejecting) {
                         if (d.allowDefer) TextButton(onClick = { submit(DecisionAnswer(defer = true), false) }, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text("Defer") }
-                        if (draft.note.isEmpty() && d.options.isNotEmpty()) TextButton(onClick = { set(draft.copy(note = " ")) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a note") }
+                        if (draft.note.isEmpty() && !draft.noting && d.options.isNotEmpty()) TextButton(onClick = { set(draft.copy(noting = true)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a note") }
                         if (askable) FilledTonalButton(onClick = { ask(ChatReference("decision", d.id, d.title, d.body)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask about this") }
                         if (d.allowReject) TextButton(onClick = { set(draft.copy(rejecting = true, note = draft.note.trim())) }, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) {
                             Text(d.rejectLabel.ifBlank { "Reject" } + "…", color = MaterialTheme.colorScheme.error)

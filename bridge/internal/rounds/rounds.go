@@ -458,6 +458,9 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return api.Round{}, err
 	}
+	if meta.Finish && epic != "" {
+		meta.FinishLand = &api.LandPolicy{Target: cfg.Land.Target, Push: cfg.Land.Push}
+	}
 	r := m.newRound(meta, dir)
 	r.setCfg(cfg)
 	r.mu.Lock()
@@ -613,11 +616,15 @@ func (s *Subscription) Close() {
 func (r *round) setCfg(cfg *repoconfig.Config) {
 	r.cfg = cfg
 	if cfg == nil {
-		r.meta.LandPush = nil
+		r.meta.LandPush, r.meta.FinishTarget = nil, ""
 		return
 	}
 	push := cfg.Land.Push
 	r.meta.LandPush = &push
+	r.meta.FinishTarget = ""
+	if r.meta.Finish && r.meta.Epic != "" {
+		r.meta.FinishTarget = cfg.Land.Target
+	}
 }
 
 // ---- persistence and notification (callers hold r.mu) ----

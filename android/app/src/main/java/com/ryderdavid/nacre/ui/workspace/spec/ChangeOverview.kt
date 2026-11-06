@@ -85,7 +85,7 @@ internal fun ChangeOverviewPane(vm: SpecPanelViewModel, screen: SpecScreen.Chang
     val board by repo.board(vm.repoKey).collectAsState()
     val rounds by repo.rounds.collectAsState()
     val envelopes by vm.envelopes.collectAsState()
-    val summary = board.data?.changes?.changes?.firstOrNull { it.id == screen.changeId }
+    val summary = board.data?.changes?.forSpec?.firstOrNull { it.id == screen.changeId }
     val loaded = envelopes[screen.changeId]
     val change = loaded?.data?.change
     LaunchedEffect(summary?.updatedAt) { summary?.let { vm.load(it) } }
@@ -169,8 +169,8 @@ private fun OverviewContent(
 
         if (o.plan.isNotEmpty()) {
             item(key = "plan-head") {
-                PaneHeading(o.planTitle, trailing = { if (o.approved) Text("Progress from beads", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant) })
-                if (!o.approved) Text("Progress shows here from the beads once the plan is approved.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
+                PaneHeading(o.planTitle, trailing = { o.progressLabel?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant) } })
+                o.planNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp)) }
             }
             itemsIndexed(o.plan, key = { _, r -> "section:${r.sectionId}" }) { i, row ->
                 PlanRowView(row, segmentShape(i, o.plan.size), onOpen = { row.link?.let(onEvidence) }, onAsk = { onAskSection(row) })
@@ -202,12 +202,20 @@ private fun Hero(o: ChangeOverview) {
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 SpecPill(o.group?.label ?: "Archived", c.primary, c.onPrimary)
-                Text(o.revisionText, style = MaterialTheme.typography.bodySmall)
             }
-            Text(o.headline, style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.semantics { heading() })
+            // A short headline gets display type; a long first sentence reads as a title.
+            Text(o.headline, style = if (o.headline.length <= 60) MaterialTheme.typography.headlineSmallEmphasized else MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
             Text(o.status, style = MaterialTheme.typography.bodyMedium)
             o.progress?.let { ProgressTrack(it, height = 8) }
             Text(o.summaryLine, style = MaterialTheme.typography.bodyMedium)
+            // The full summary is markdown body text, folded so the plan stays near the top.
+            if (o.about.isNotBlank() && o.about != o.headline) {
+                var more by androidx.compose.runtime.saveable.rememberSaveable(o.id) { androidx.compose.runtime.mutableStateOf(false) }
+                if (more) MarkdownText(o.about)
+                androidx.compose.material3.TextButton(onClick = { more = !more }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (more) "Less" else "What this change does", color = c.onPrimaryContainer)
+                }
+            }
         }
     }
 }
@@ -294,7 +302,7 @@ private fun PlanRowView(row: PlanRow, shape: Shape, onOpen: () -> Unit, onAsk: (
 private fun StatePill(state: SectionState) {
     val c = MaterialTheme.colorScheme
     when (state) {
-        SectionState.LANDED -> SpecPill(state.label, c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.Check)
+        SectionState.LANDED, SectionState.DONE -> SpecPill(state.label, c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.Check)
         SectionState.VERIFIED -> SpecPill(state.label, c.secondaryContainer, c.onSecondaryContainer, Icons.Rounded.Verified)
         SectionState.WORKING -> SpecPill(state.label, c.tertiaryContainer, c.onTertiaryContainer, Icons.Rounded.Sync)
         SectionState.FAILED -> SpecPill(state.label, c.errorContainer, c.onErrorContainer, Icons.Rounded.Close)
@@ -345,7 +353,7 @@ private fun FindingView(f: FindingRow, shape: Shape) {
                 }
                 Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
             }
-            Text(f.summary, style = MaterialTheme.typography.bodyLarge)
+            MarkdownText(f.summary)
             if (open) {
                 MarkdownText(f.detail.ifBlank { "No more detail." })
                 if (f.choices.isNotEmpty()) {

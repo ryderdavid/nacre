@@ -85,6 +85,16 @@ func attentionKind(kind string) string {
 	return decisions.KindQuestion
 }
 
+// questionDecisionID names one asking of a round question: a question handed
+// back after its answer failed is a new decision, since the earlier one is
+// stored as done and the queue would hide it.
+func questionDecisionID(roundID string, q api.AttentionQuestion) string {
+	if q.Reopened == 0 {
+		return digestID("question", roundID, q.ID)
+	}
+	return digestID("question", roundID, q.ID, itoa(q.Reopened))
+}
+
 func digestID(parts ...string) string {
 	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return "dc_" + hex.EncodeToString(h[:12])
@@ -324,7 +334,7 @@ func (s *Server) questionDecisions(ref repos.Ref, it api.AttentionItem, chatID *
 		used := map[string]bool{}
 		rec := decisions.Record{
 			Decision: decisions.Decision{
-				ID: digestID("question", it.RoundID, q.ID), Repo: it.Repo, RepoName: it.RepoName,
+				ID: questionDecisionID(it.RoundID, q), Repo: it.Repo, RepoName: it.RepoName,
 				Source: decisions.SourceAttention, Kind: decisions.KindQuestion, ChatID: chatID,
 				Title: it.Title, Subtitle: s.subtitle(it.RepoName, it.RoundID),
 				Target:       decisions.Target{Round: it.RoundID, Question: q.ID},

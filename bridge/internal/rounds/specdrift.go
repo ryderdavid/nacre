@@ -117,6 +117,7 @@ func (r *round) applySpecDrift() {
 				}
 				if problem, ok := refused[j.qid]; ok {
 					q.Answer, q.AnsweredAt, q.Problem = "", "", problem
+					q.Reopened++
 					r.event("state", j.bead, problem)
 					reopened = true
 					continue

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -136,7 +137,8 @@ fun ChatFirstShell(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandl
             }
         }
         overlay.content?.invoke()
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 80.dp))
+        // Above the navigation bar and the chat composer, and above the keyboard when it is up.
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 152.dp))
     }
 }
 
@@ -157,10 +159,20 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     var destination by rememberSaveable(repoKey) { mutableStateOf(startDestination) }
     var thread by rememberSaveable(repoKey) { mutableStateOf(startChat) }
     if (thread == null) mostRecentThread(listing.chats, repoKey)?.let { thread = it }
-    // Each thread keeps the panel shown beside it: returning to a thread restores it.
+    // Each thread keeps the panel shown beside it: switching back to a thread restores it. Opening the
+    // project itself starts on the destination it was opened with (Chat unless a link said otherwise).
+    var shownThread by rememberSaveable(repoKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(thread) {
         val t = thread ?: return@LaunchedEffect
-        container.chatStack.view(t).panel?.let { p -> Destination.entries.firstOrNull { it.name == p } }?.let { destination = it }
+        val switched = shownThread != null && shownThread != t
+        shownThread = t
+        if (switched) container.chatStack.view(t).panel?.let { p -> Destination.entries.firstOrNull { it.name == p } }?.let { destination = it }
+    }
+    // Folding to one pane while a message is being written shows Chat with the message (spec "Fold while typing").
+    val oneWide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+    LaunchedEffect(oneWide) {
+        val t = thread
+        if (oneWide && t != null && container.chatStack.view(t).draft.isNotBlank()) destination = Destination.CHAT
     }
     LaunchedEffect(thread, destination) {
         thread?.let { t -> container.chatStack.updateView(t) { it.copy(panel = destination.name) } }
@@ -199,9 +211,14 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
 
     // Ask about this attaches to the current thread; with none yet, a Claude chat starts in this checkout.
     val askAbout: (ChatReference) -> Unit = { ref ->
-        destination = Destination.CHAT; queue = false; inspecting = null
+        // One pane: go to Chat. Side by side, Chat is already showing beside the pane, so the split stays.
+        if (oneWide) destination = Destination.CHAT
+        queue = false; inspecting = null
         val t = thread
-        if (t != null) container.chats.references.add(t, ref) else scope.launch {
+        val viewing = container.chats.references.viewingAll.value[repoKey]?.first
+        // Asking about what the pane already shows sends it as Viewing rather than a second chip.
+        if (t != null && viewing != null && viewing.kind == ref.kind && viewing.id == ref.id && ref.text.isEmpty()) container.chats.references.dropViewing(repoKey, false)
+        else if (t != null) container.chats.references.add(t, ref) else scope.launch {
             runCatching { container.chats.link.createChat(host, CreateChat(ChatWire.AGENT_CLAUDE, Keys.id(repoKey), null)).copy(hostId = host).key }
                 .onSuccess { k -> thread = k; container.chats.references.add(k, ref) }
                 .onFailure { repo.notify("Couldn't start a chat: ${it.message}") }
@@ -236,11 +253,13 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
             }
         },
     ) {
+        // Back closes the project drawer before it leaves the workspace.
+        androidx.activity.compose.BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
         ModalNavigationDrawer(
             drawerState = drawer, gesturesEnabled = drawer.isOpen,
             drawerContent = {
                 ModalDrawerSheet {
-                    Column(Modifier.statusBarsPadding().padding(horizontal = 12.dp)) {
+                    Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
                         Text("Projects", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(16.dp))
                         ProjectsDrawerList(current = repoKey) { key -> scope.launch { drawer.close() }; if (key != repoKey) onOpenProject(key, null) }
                         OutlinedButton(onClick = { scope.launch { drawer.close() }; onProjects() }, modifier = Modifier.padding(16.dp)) { Text("All projects") }
@@ -256,7 +275,8 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, t, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
             }
         }
-        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
+        // One Back closes the queue: no half-open step in between.
+        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             DecisionQueue(repoKey, onClose = { queue = false })
         }
     }

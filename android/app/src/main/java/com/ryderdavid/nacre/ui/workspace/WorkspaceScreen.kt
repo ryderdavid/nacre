@@ -65,7 +65,10 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
             if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onQueue()
         }
     }
-    if (work == null && needsYou == 0 && inQueue == 0) return
+    // Rounds and runs are the project's work; a chat that is replying is shown too, so "Nothing running" is true.
+    val listing by repo.chats.collectAsState()
+    val replying = key?.let { k -> listing.chats.count { c -> c.repo != null && Keys.of(c.hostId, c.repo) == k && c.state == com.ryderdavid.nacre.data.model.ChatWire.RUNNING } } ?: 0
+    if (work == null && needsYou == 0 && inQueue == 0 && replying == 0) return
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.heightIn(min = 52.dp).padding(start = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (work != null) {
@@ -85,7 +88,10 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
                     }
                 }
             } else {
-                Text("Nothing running", Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    when (replying) { 0 -> "Nothing running"; 1 -> "A chat is replying"; else -> "$replying chats replying" },
+                    Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (needsYou > 0) {
                 Surface(

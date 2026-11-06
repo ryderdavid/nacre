@@ -150,6 +150,23 @@ fun beadSummary(r: Round): String {
     }.joinToString(" · ")
 }
 
+/**
+ * What finishing the round's epic does once the round lands, naming the epic's branch and where it merges
+ * (nacre.yaml's landing target), so it reads apart from the round's own target; null when the round
+ * doesn't finish an epic.
+ */
+fun finishLine(r: Round): String? {
+    if (!r.finish) return null
+    val branch = if (r.epic.isNotBlank()) com.ryderdavid.nacre.data.model.epicBranch(r.epic) else "the epic's branch"
+    val into = r.finishTarget.ifBlank { "the landing target" }
+    return when {
+        r.finishRoundId.isNotBlank() -> "Finishing: $branch merges into $into in round ${r.finishRoundId}"
+        r.finishWaiting -> "Then $branch merges into $into, once you sign off the checks left"
+        r.finishChecked -> "$branch wasn't merged into $into after landing: see the log"
+        else -> "Then $branch merges into $into"
+    }
+}
+
 fun usd(v: Double): String = String.format(Locale.US, "$%.2f", v)
 
 @Composable
@@ -193,7 +210,7 @@ internal fun StatusCard(
                     Text(beadSummary(r), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (r.finish) Text("Then merges into main", style = MaterialTheme.typography.bodyMedium)
+            finishLine(r)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             if (r.state == ROUND_READY && r.mergesAutomatically) Text("Merging automatically…", style = MaterialTheme.typography.bodyMedium)
             if (r.pauseReason.isNotBlank()) Text(r.pauseReason, style = MaterialTheme.typography.bodyMedium)
             if (r.error.isNotBlank()) Text(r.error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)

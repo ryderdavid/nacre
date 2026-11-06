@@ -137,7 +137,8 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
         when (layout) {
             is WorkspaceLayout.Single -> if (!layout.rail) {
                 Column(Modifier.fillMaxSize()) {
-                    if (!tabletop) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    // While typing the strip steps aside so the conversation and composer keep the room.
+                    if (!tabletop && !WindowInsets.isImeVisible) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     Box(Modifier.weight(1f).fillMaxWidth().focusRequester(chatFocus).focusGroup()) { content(slots, destination, Modifier.fillMaxSize()) }
                     if (tabletop) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     if (!WindowInsets.isImeVisible) {

@@ -18,6 +18,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/decisions"
+	"github.com/ryderdavid/nacre/bridge/internal/gitinfo"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
 	"github.com/ryderdavid/nacre/bridge/internal/specflow"
@@ -524,10 +525,15 @@ func (s *Server) buildSignoff(ctx context.Context, ref repos.Ref, t decisions.Ta
 	if err != nil {
 		return decisions.Record{}, beadErr(t.Bead, err)
 	}
-	if b.Status == "closed" || !b.HasLabel(api.SignoffLabel) {
+	signoff := b.HasLabel(api.SignoffLabel)
+	human := api.HumanCheck(b.Labels, b.Type)
+	if b.Status == "closed" || (!signoff && !human) {
 		return decisions.Record{}, notNow("%s isn't waiting for your sign-off", t.Bead)
 	}
 	check, _ := b.Metadata[api.SignoffKey].(string)
+	if !signoff {
+		return s.humanCheck(ctx, ref, b, strings.TrimSpace(check)), nil
+	}
 	// Bound to what Ryder is asked to check: the bead's title, description
 	// and check text.
 	bound := hashOf("signoff", b.Title, b.Description, check)
@@ -549,6 +555,134 @@ func (s *Server) buildSignoff(ctx context.Context, ref repos.Ref, t decisions.Ta
 		Reject:  &decisions.Action{Method: "POST", Path: path, Body: map[string]any{"approve": false}, NoteField: "note"},
 		Bound:   bound, Key: "signoff:" + ref.ID + ":" + t.Bead,
 	}, nil
+}
+
+// humanCheck is the card for a bead labelled human (owner-decisions:
+// Human-check cards): the exact check, the build and how to try it, with Sign
+// off (closes it) and Not right with a required note (adds the note as a
+// comment and leaves it open). check is the bead's own sign-off text, if any.
+func (s *Server) humanCheck(ctx context.Context, ref repos.Ref, b BeadFacts, check string) decisions.Record {
+	what, how := check, strings.TrimSpace(b.Description)
+	if what == "" {
+		what = tasksSection(ref.Path, b.Description)
+	}
+	acceptance := strings.TrimSpace(b.AcceptanceCriteria)
+	if what == "" && acceptance != "" {
+		what, acceptance = acceptance, ""
+	}
+	if what == "" {
+		what, how = how, ""
+	}
+	if what == "" {
+		what = b.Title
+	}
+	if acceptance != "" {
+		how = strings.TrimSpace(how + "\n\nDone when: " + acceptance)
+	}
+	if how == "" {
+		how = "Try it on the build above as the check says, then sign off, or say what isn't right."
+	}
+	build := s.checkBuild(ctx, ref, b.ID)
+	body := "**What to check**\n\n" + what + "\n\n**The build:** " + build + "\n\n**How to try it**\n\n" + how
+	// Bound to what Ryder is asked to check, not to the build: a new commit
+	// doesn't change the check, an edit to the bead or its tasks does.
+	bound := hashOf("human", b.Title, b.Description, b.AcceptanceCriteria, b.Notes, what)
+	path := "/v1/repos/" + ref.ID + "/issues/" + b.ID + "/signoff"
+	return decisions.Record{
+		Decision: decisions.Decision{
+			Repo: ref.ID, RepoName: ref.Name, Kind: decisions.KindSignoff,
+			Title: "Check " + b.ID + ": " + b.Title, Subtitle: s.subtitle(ref.Name, b.ID),
+			Target: decisions.Target{Bead: b.ID, Revision: bound},
+			Consequences: []string{"Sign off closes " + b.ID + " as checked",
+				"Not right adds your note to " + b.ID + " as a comment and leaves it open"},
+			Evidence: []decisions.Evidence{{Label: b.ID, Kind: "bead", Ref: b.ID, Repo: ref.ID}},
+			Body:     body,
+			Options: []decisions.Option{{ID: "signoff", Label: "Sign off", Detail: "Closes " + b.ID,
+				Recommended: true, Protected: true}},
+			AllowDefer: true, AllowReject: true, RejectLabel: "Not right", RejectNeedsNote: true,
+		},
+		Actions: map[string]decisions.Action{"signoff": {Method: "POST", Path: path, Body: map[string]any{"approve": true}, NoteField: "note"}},
+		Reject:  &decisions.Action{Method: "POST", Path: path, Body: map[string]any{"approve": false}, NoteField: "note"},
+		Bound:   bound, Key: "signoff:" + ref.ID + ":" + b.ID,
+	}
+}
+
+// checkBuild says which build a human check is for: the newest round that
+// merged the bead, else the checkout's branch and commit.
+func (s *Server) checkBuild(ctx context.Context, ref repos.Ref, bead string) string {
+	var round api.Round
+	var built api.RoundBead
+	for _, r := range s.facts().RoundsOf(ref.ID) {
+		for _, b := range r.Beads {
+			if b.ID == bead && b.State == api.BeadIntegrated && (round.ID == "" || r.CreatedAt > round.CreatedAt) {
+				round, built = r, b
+			}
+		}
+	}
+	if round.ID != "" {
+		line := "round " + round.ID
+		if built.MergeCommit != "" {
+			line += ", merge " + short(built.MergeCommit)
+		}
+		if round.State == api.RoundLanded && round.LandedCommit != "" {
+			line += ", landed on " + round.Target + " at " + short(round.LandedCommit)
+		} else if round.Branch != "" {
+			line += ", on " + round.Branch
+		}
+		if round.Version != "" {
+			line += " (version " + round.Version + ")"
+		}
+		return line
+	}
+	if branch := gitinfo.Read(ctx, ref.Path).Branch; branch != "" {
+		if head := s.facts().Head(ctx, ref.Path, branch); head != "" {
+			where := ""
+			if h := s.hostName(); h != "" {
+				where = " on " + h
+			}
+			return "no round built it; the checkout is on " + branch + " at " + short(head) + where
+		}
+	}
+	return "no round built it; use the project's current build"
+}
+
+// sectionRef finds "Section 12 of openspec/changes/<name>/tasks.md" in a
+// bead's description.
+var sectionRef = regexp.MustCompile(`Section ([0-9]+(?:\.[0-9]+)*) of (openspec/changes/[a-z0-9][a-z0-9-]*/tasks\.md)`)
+
+// tasksSection is the tasks.md section a bead's description names, heading
+// and tasks, or "" when it names none or it can't be read.
+func tasksSection(repoPath, description string) string {
+	m := sectionRef.FindStringSubmatch(description)
+	if m == nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(repoPath, filepath.FromSlash(m[2])))
+	if err != nil || len(data) > 512<<10 {
+		return ""
+	}
+	var out []string
+	in := false
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, "## ") {
+			if in {
+				break
+			}
+			heading := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			if rest, ok := strings.CutPrefix(heading, m[1]); ok && (strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, " ")) {
+				in = true
+			}
+			continue
+		}
+		if in {
+			out = append(out, line)
+		}
+	}
+	text := strings.TrimSpace(strings.Join(out, "\n"))
+	if r := []rune(text); len(r) > 4000 {
+		text = string(r[:3999]) + "…"
+	}
+	return text
 }
 
 func (s *Server) buildLimit(t decisions.Target) (decisions.Record, error) {

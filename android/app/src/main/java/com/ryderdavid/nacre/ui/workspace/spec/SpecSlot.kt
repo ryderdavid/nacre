@@ -38,7 +38,7 @@ fun SpecSlot(repoKey: String, modifier: Modifier) {
     val boardLoaded = board.data != null
     LaunchedEffect(target, boardLoaded) {
         if (target == null || (!boardLoaded && board.loading)) return@LaunchedEffect
-        val changes = board.data?.changes?.changes.orEmpty()
+        val changes = board.data?.changes?.forSpec.orEmpty()
         if (target.startsWith("openspec/")) {
             // A cited file: a change's document opens in the reader; a current spec shows in the list.
             val change = com.ryderdavid.nacre.ui.workspace.chat.ChatSend.changeIdOf(target)

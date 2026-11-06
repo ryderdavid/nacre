@@ -138,6 +138,14 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
         val widthDp = maxWidth.value.toInt()
         val columns = BeadsLayout.usesColumns(widthDp)
         val row = rememberLazyListState()
+        // A filter that leaves the lanes in view empty scrolls to the nearest lane with matches.
+        LaunchedEffect(filter, columns, ui?.columns?.map { it.total }) {
+            val cols = ui?.columns ?: return@LaunchedEffect
+            if (!columns || !filter.isActive) return@LaunchedEffect
+            val inView = row.layoutInfo.visibleItemsInfo.map { it.index }
+            if (inView.any { cols.getOrNull(it)?.let { c -> c.total > 0 } == true }) return@LaunchedEffect
+            com.ryderdavid.nacre.ui.board.laneWithMatches(cols, row.firstVisibleItemIndex)?.let { row.animateScrollToItem(it) }
+        }
         Column(Modifier.fillMaxSize()) {
             Header(ui, columns, widthDp, row, searching, onSearch = { searching = !searching; if (!searching) vm.setQuery("") })
             if (searching) SearchField(filter.query, vm::setQuery)
@@ -197,14 +205,21 @@ private fun Header(
         if (columns && ui != null) {
             val fit = BeadsLayout.columnsThatFit(widthDp)
             val total = ui.columns.size
-            val first by remember(row) { derivedStateOf { row.firstVisibleItemIndex } }
-            val label = BeadsLayout.rangeLabel(first, fit, total)
+            // Lanes fully in view, not the partly scrolled one at the edge.
+            val shownLanes by remember(row) { derivedStateOf {
+                val info = row.layoutInfo
+                val full = info.visibleItemsInfo.filter { it.offset >= info.viewportStartOffset - 1 && it.offset + it.size <= info.viewportEndOffset + 1 }
+                (full.ifEmpty { info.visibleItemsInfo }).let { v -> (v.firstOrNull()?.index ?: 0) to (v.lastOrNull()?.index ?: 0) }
+            } }
+            val first = shownLanes.first
+            val last = shownLanes.second
+            val label = BeadsLayout.rangeLabel(first, last - first + 1, total)
             if (label.isNotEmpty()) {
                 Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
                 IconButton(onClick = { scope.launch { row.animateScrollToItem((first - fit).coerceAtLeast(0)) } }, enabled = first > 0) {
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous lanes")
                 }
-                IconButton(onClick = { scope.launch { row.animateScrollToItem((first + fit).coerceAtMost(total - 1)) } }, enabled = first + fit < total) {
+                IconButton(onClick = { scope.launch { row.animateScrollToItem((first + fit).coerceAtMost(total - 1)) } }, enabled = last < total - 1) {
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next lanes")
                 }
             }
