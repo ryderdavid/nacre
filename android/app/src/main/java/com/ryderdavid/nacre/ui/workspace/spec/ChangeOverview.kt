@@ -208,6 +208,14 @@ private fun Hero(o: ChangeOverview) {
             Text(o.status, style = MaterialTheme.typography.bodyMedium)
             o.progress?.let { ProgressTrack(it, height = 8) }
             Text(o.summaryLine, style = MaterialTheme.typography.bodyMedium)
+            // The full summary is markdown body text, folded so the plan stays near the top.
+            if (o.about.isNotBlank() && o.about != o.headline) {
+                var more by androidx.compose.runtime.saveable.rememberSaveable(o.id) { androidx.compose.runtime.mutableStateOf(false) }
+                if (more) MarkdownText(o.about)
+                androidx.compose.material3.TextButton(onClick = { more = !more }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (more) "Less" else "What this change does", color = c.onPrimaryContainer)
+                }
+            }
         }
     }
 }
@@ -345,7 +353,7 @@ private fun FindingView(f: FindingRow, shape: Shape) {
                 }
                 Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
             }
-            Text(f.summary, style = MaterialTheme.typography.bodyLarge)
+            MarkdownText(f.summary)
             if (open) {
                 MarkdownText(f.detail.ifBlank { "No more detail." })
                 if (f.choices.isNotEmpty()) {

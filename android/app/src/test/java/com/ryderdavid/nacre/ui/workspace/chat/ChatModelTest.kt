@@ -98,4 +98,12 @@ class ChatModelTest {
         assertEquals(listOf("New", "Old", "Elsewhere"), rows.map { it.title })
         assertEquals(listOf(true, true, false), rows.map { it.here })
     }
+
+    @Test
+    fun `a thread waits on the decisions its chat raised, and its preview drops markdown marks`() {
+        val chats = listOf(ChatRecord("a", repo = "r1", title = "Bugs", lastLine = "Raised (`dc_6fd7`) for **you**", hostId = "h1"))
+        val row = threadsFor(chats, "h1~r1", setOf("h1~r1"), openDecisions = mapOf("a" to 2)).single()
+        assertEquals(2, row.waiting)
+        assertEquals("Raised (dc_6fd7) for you", row.lastLine)
+    }
 }

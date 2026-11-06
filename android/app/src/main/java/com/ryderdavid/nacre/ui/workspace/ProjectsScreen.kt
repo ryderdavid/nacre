@@ -137,6 +137,9 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                         modifier = Modifier.weight(1f).heightIn(min = 56.dp),
                         placeholder = { Text("Search projects") },
                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = if (query.isEmpty()) null else ({
+                            androidx.compose.material3.IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear search") }
+                        }),
                         singleLine = true,
                         shape = RoundedCornerShape(28.dp),
                         colors = TextFieldDefaults.colors(
@@ -184,6 +187,19 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                     }
                 }
             }
+            if (computers.isNotEmpty() && sections.all { it.rows.isEmpty() } && filter != ProjectFilter.ALL) item(key = "nomatch") {
+                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        when {
+                            query.isNotBlank() -> "No project matches \u201c${query.trim()}\u201d"
+                            filter == ProjectFilter.NEEDS_YOU -> "Nothing needs you"
+                            else -> "Nothing is working right now"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { query = ""; filter = ProjectFilter.ALL }) { Text("Show all projects") }
+                }
+            }
             if (computers.isEmpty()) item {
                 Text("Pair a computer in Settings to see its projects.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -198,7 +214,7 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                 if (section.rows.isEmpty()) item(key = "e:" + section.hostId) {
                     if (section.online && repos.data.isNullOrEmpty()) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                         androidx.compose.material3.LoadingIndicator(Modifier.semantics { contentDescription = "Loading projects" })
-                    } else Text(if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else Text(if (section.online && query.isNotBlank()) "No project here matches \u201c${query.trim()}\u201d." else if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(section.rows.size, key = { section.rows[it].key }) { i ->
                     ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online) {
@@ -227,7 +243,8 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
     }
 
     newChatAgent?.let { agent ->
-        val choices = sections.filter { it.online }.flatMap { s -> s.rows.map { s.name to it } }
+        // Every online project, whatever the list is filtered to.
+        val choices = ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, ProjectFilter.ALL, "", now).filter { it.online }.flatMap { s -> s.rows.map { s.name to it } }
         AlertDialog(
             onDismissRequest = { newChatAgent = null },
             title = { Text(if (agent == ChatWire.AGENT_CODEX) "New Codex chat in…" else "New Claude chat in…") },

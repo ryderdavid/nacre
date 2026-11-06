@@ -54,7 +54,10 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
     val repo = container.repository
     val listing by repo.chats.collectAsState()
     val name = repo.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }?.name ?: Keys.id(repoKey)
-    val rows = threadsFor(listing.chats, repoKey, repo.siblingKeys(repoKey))
+    val decisions by repo.decisions.collectAsState()
+    val open = repo.siblingKeys(repoKey).plus(repoKey).flatMap { decisions[it].orEmpty() }.filter { it.pending && !it.chatId.isNullOrBlank() }
+        .groupingBy { it.chatId.orEmpty() }.eachCount()
+    val rows = threadsFor(listing.chats, repoKey, repo.siblingKeys(repoKey), open)
     var menu by remember { mutableStateOf(false) }
     val scope = container.scope
     val start: (String) -> Unit = { agent ->

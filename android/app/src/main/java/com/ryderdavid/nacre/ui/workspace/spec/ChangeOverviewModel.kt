@@ -76,6 +76,8 @@ data class ChangeOverview(
     val name: String,
     /** The change's summary, or its name when it has none yet. */
     val headline: String,
+    /** The change's full summary, markdown; the headline is its first sentence. */
+    val about: String = "",
     val group: SpecGroup?,
     /** The workflow step in words, e.g. "Reviewed, waiting for your approval". */
     val status: String,
@@ -97,6 +99,7 @@ data class ChangeOverview(
         get() = when {
             revision.isBlank() -> "No revision yet"
             approvedCurrent -> "Approved revision $revision"
+            approvedRevision.isNotBlank() && approvedRevision == revision -> "Approved revision $revision"
             approvedRevision.isNotBlank() -> "Revision $revision · approved $approvedRevision before it changed"
             else -> "Revision $revision, not approved yet"
         }
@@ -240,7 +243,8 @@ object ChangeOverviewModel {
         return ChangeOverview(
             id = change.id,
             name = change.changeName.ifBlank { list.name.ifBlank { change.id } },
-            headline = change.summary.ifBlank { change.changeName.ifBlank { "A change being drafted" } },
+            headline = headlineOf(change.summary).ifBlank { change.changeName.ifBlank { "A change being drafted" } },
+            about = change.summary.trim(),
             group = group,
             status = group?.let { SpecList.status(list, it, progress) } ?: "Archived: its requirements are in the project's specs",
             revision = SpecList.shortRevision(change.revision),
@@ -257,4 +261,17 @@ object ChangeOverviewModel {
             documents = change.artifacts.mapNotNull { DocKind.of(it.path) }.distinct().sorted(),
         )
     }
+}
+
+/**
+ * A change's headline: the first sentence of its summary's first paragraph, without markdown marks, at most
+ * [max] characters. The summary itself renders below as markdown.
+ */
+internal fun headlineOf(summary: String, max: Int = 140): String {
+    val para = summary.trim().lineSequence().map { it.trim() }.dropWhile { it.isEmpty() || it.startsWith("#") }
+        .takeWhile { it.isNotEmpty() }.joinToString(" ")
+    val plain = para.removePrefix("- ").removePrefix("* ")
+        .replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1").replace("**", "").replace("__", "").replace("`", "")
+    val sentence = Regex("^(.+?[.!?])(\\s|$)").find(plain)?.groupValues?.get(1) ?: plain
+    return if (sentence.length <= max) sentence else sentence.take(max - 1).trimEnd() + "\u2026"
 }

@@ -92,13 +92,18 @@ data class ThreadRow(val key: String, val title: String, val agent: String, val 
  * The threads of a project: this checkout's first, then the project's checkouts on other computers
  * ([siblings] are the repository keys of the same project), each newest first.
  */
-fun threadsFor(chats: List<ChatRecord>, repoKey: String, siblings: Set<String>): List<ThreadRow> =
+/** [openDecisions] counts the pending decisions each chat raised (by chat id); a thread waits on those too. */
+fun threadsFor(chats: List<ChatRecord>, repoKey: String, siblings: Set<String>, openDecisions: Map<String, Int> = emptyMap()): List<ThreadRow> =
     chats.filter { c -> c.repo != null && Keys.of(c.hostId, c.repo) in (siblings + repoKey) }
         .sortedWith(compareByDescending<ChatRecord> { Keys.of(it.hostId, it.repo.orEmpty()) == repoKey }.thenByDescending { it.updatedAt.ifBlank { it.createdAt } })
         .map { c ->
             ThreadRow(
                 key = c.key, title = c.title.ifBlank { "Untitled chat" }, agent = c.agent,
-                waiting = maxOf(c.waitingCount, if (c.waiting) 1 else 0), lastLine = c.lastLine,
+                waiting = maxOf(c.waitingCount, if (c.waiting) 1 else 0) + (openDecisions[Keys.id(c.key)] ?: 0), lastLine = plainInline(c.lastLine),
                 hostId = c.hostId, here = Keys.of(c.hostId, c.repo.orEmpty()) == repoKey,
             )
         }
+
+/** A one-line preview without inline markdown marks (backticks, bold, italics, links' brackets). */
+fun plainInline(s: String): String =
+    s.replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1").replace("**", "").replace("__", "").replace("`", "")

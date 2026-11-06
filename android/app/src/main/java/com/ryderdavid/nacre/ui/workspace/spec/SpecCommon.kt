@@ -101,7 +101,8 @@ internal fun PaneTopBar(
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, backLabel) }
         Column(Modifier.weight(1f).padding(horizontal = if (onBack == null) 16.dp else 8.dp, vertical = 6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
+            // A change id is one word: it ellipsizes rather than breaking mid-word.
+            Text(title, style = MaterialTheme.typography.titleLargeEmphasized, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
             if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         actions()

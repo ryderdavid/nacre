@@ -27,8 +27,11 @@ sealed interface DeepLink {
 fun NacreRoot(container: AppContainer, deepLink: DeepLink?, onDeepLinkHandled: () -> Unit) {
     val prefs by container.settings.settings.collectAsState(initial = null)
     NacreTheme(themeMode = prefs?.themeMode ?: com.ryderdavid.nacre.data.settings.ThemeMode.SYSTEM, palette = prefs?.palette) {
-        CompositionLocalProvider(LocalContainer provides container) {
-            ChatFirstShell(container, deepLink, onDeepLinkHandled)
+        // The window's background follows the theme, including a light/dark switch while the app is open.
+        androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
+            CompositionLocalProvider(LocalContainer provides container) {
+                ChatFirstShell(container, deepLink, onDeepLinkHandled)
+            }
         }
     }
 }

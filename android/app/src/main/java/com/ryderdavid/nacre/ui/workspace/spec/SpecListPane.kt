@@ -110,6 +110,7 @@ private fun SpecListContent(model: SpecListModel, onOpen: (SpecScreen) -> Unit) 
                 PaneHeading("Specs", trailing = { model.acceptedSpecs?.let { Text("$it in the project", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } })
                 Text(
                     when {
+                        model.allSpecs && model.specs.isEmpty() && model.query.isNotBlank() -> "No spec matches \"${model.query.trim()}\"."
                         model.allSpecs && model.specs.isEmpty() -> "This project has no OpenSpec specs yet."
                         model.allSpecs -> "The project's current specs. One an open change touches opens at its requirement changes."
                         model.specs.isEmpty() -> "No open change touches a spec right now."

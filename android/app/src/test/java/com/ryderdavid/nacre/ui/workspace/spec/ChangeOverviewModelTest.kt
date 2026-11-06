@@ -164,4 +164,11 @@ class ChangeOverviewModelTest {
         assertEquals(SectionState.LANDED, o.plan[0].state)
         assertEquals(SectionState.WAITING, o.plan[1].state)
     }
+
+    @Test
+    fun `the headline is the summary's first sentence without markdown`() {
+        val summary = "Let users attach **images** to `bead` chats. More detail follows.\n\n- **Storage:** on the phone"
+        kotlin.test.assertEquals("Let users attach images to bead chats.", headlineOf(summary))
+        kotlin.test.assertTrue(headlineOf("x".repeat(400)).length <= 140)
+    }
 }

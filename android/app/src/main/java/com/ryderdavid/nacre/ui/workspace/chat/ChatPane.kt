@@ -184,14 +184,15 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             items(state.items, key = { it.key }) { item ->
                 when (item) {
                     is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
-                    is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth(0.84f)) {
+                    // The bubble fits its text, up to 84% of the width.
+                    is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { Box(Modifier.fillMaxWidth(0.84f), contentAlignment = Alignment.CenterEnd) {
+                        Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                                 if (item.images.isNotEmpty()) com.ryderdavid.nacre.ui.common.ChatSentImages(thread, item.images, Modifier.padding(bottom = 4.dp))
                                 Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                             }
                         }
-                    }
+                    } }
                     else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
                 }
             }

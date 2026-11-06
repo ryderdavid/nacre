@@ -13,6 +13,8 @@ data class DecisionDraft(
     val note: String = "",
     /** Rejecting: the note field is for the rejection. */
     val rejecting: Boolean = false,
+    /** Add a note was tapped: the note field shows, empty. */
+    val noting: Boolean = false,
 )
 
 /**

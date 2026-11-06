@@ -238,57 +238,9 @@ fun SettingsScreen(pending: PairRequest?, onPendingHandled: () -> Unit, onBack: 
                 }
             }
 
-            item { Header("Refine, Draft and the assistant") }
-            item {
-                Labeled("Run Claude on", runnerHint(p)) {
-                    Segmented(
-                        listOf(AppSettings.RUNNER_MAC to "My Mac", AppSettings.RUNNER_API to "API key"),
-                        p.claudeRunner,
-                    ) { v -> vm.update { it.copy(claudeRunner = v) } }
-                }
-            }
-            item {
-                ListItem(
-                    leadingContent = { Icon(Icons.Rounded.Key, null) },
-                    headlineContent = { Text("API key") },
-                    supportingContent = {
-                        Text(
-                            when {
-                                p.apiKeyConfigured -> "sk-ant-…" + p.anthropicKey.takeLast(4) + " · stored encrypted on this phone"
-                                p.onMac -> "Optional while Claude runs on your Mac; a fallback when it is offline"
-                                else -> "Needed for Refine, Draft and the board assistant"
-                            }
-                        )
-                    },
-                    trailingContent = { Icon(Icons.Rounded.Edit, "Change key") },
-                    modifier = Modifier.clickable { editKey = true },
-                )
-            }
-            if (p.apiKeyConfigured) item {
-                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalButton(onClick = vm::testKey) { Text("Test key") }
-                    keyStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 12.dp)) }
-                }
-            }
-            item {
-                var open by remember { mutableStateOf(false) }
-                ListItem(
-                    headlineContent = { Text("Model") },
-                    supportingContent = { Text(CLAUDE_MODELS.firstOrNull { it.first == p.claudeModel }?.second ?: p.claudeModel) },
-                    modifier = Modifier.clickable { open = true },
-                    trailingContent = {
-                        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                            CLAUDE_MODELS.forEach { (id, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { open = false; vm.update { it.copy(claudeModel = id) } }) }
-                        }
-                    },
-                )
-            }
-            item {
-                Labeled("Effort") {
-                    Segmented(listOf("low" to "Low", "medium" to "Medium", "high" to "High"), p.claudeEffort) { v -> vm.update { it.copy(claudeEffort = v) } }
-                }
-            }
-
+            // Refine, Draft and the board assistant were removed by chat-first: chat runs the agents on the computer,
+            // so the old runner, API key, model and effort settings are gone from here.
+            item { Header("Notifications") }
             item { SwitchRow(Icons.Rounded.Notifications, "Notify when runs finish", "While Nacre is in the background", p.notifyRuns) { v -> vm.update { it.copy(notifyRuns = v) } } }
 
             item { Header("Appearance") }
