@@ -50,10 +50,15 @@ data class SpecRow(
     val changeId: String,
 )
 
+/** A requirement change whose name matches the search. */
+data class RequirementHit(val changeId: String, val changeName: String, val capability: String, val requirement: String, val kind: DeltaKind?)
+
 /** The Spec destination's list: changes by group, the specs they touch, and the counts for the header. */
 data class SpecListModel(
     val groups: List<Pair<SpecGroup, List<ChangeRow>>>,
     val specs: List<SpecRow>,
+    /** Requirement changes matching the search; empty without one. */
+    val requirements: List<RequirementHit>,
     /** Specs accepted in openspec/specs, when the computer reported it. */
     val acceptedSpecs: Int?,
     /** Changes shown before search narrows them. */
@@ -61,7 +66,7 @@ data class SpecListModel(
     val query: String,
 ) {
     val rows get() = groups.flatMap { it.second }
-    val isEmpty get() = groups.isEmpty() && specs.isEmpty()
+    val isEmpty get() = groups.isEmpty() && specs.isEmpty() && requirements.isEmpty()
 
     /** "4 changes · 18 specs" for the header. */
     val countsText: String
@@ -151,7 +156,8 @@ object SpecList {
 
     /**
      * Builds the list. [specPaths] maps a change id to its artifact paths (from the changes loaded so
-     * far); [failedBeads] are beads parked in a round, which make their section Failed.
+     * far); [failedBeads] are beads parked in a round, which make their section Failed; [deltas] are the
+     * loaded changes' parsed spec deltas, which search looks through for requirement names.
      */
     fun build(
         changes: List<ChangeSummary>,
@@ -159,6 +165,7 @@ object SpecList {
         acceptedSpecs: Int? = null,
         failedBeads: Set<String> = emptySet(),
         query: String = "",
+        deltas: Map<String, List<SpecDelta>> = emptyMap(),
     ): SpecListModel {
         val rows = changes.mapNotNull { row(it, failedBeads) }.sortedByDescending { it.updatedAt }
         val byId = rows.associateBy { it.id }
@@ -175,6 +182,11 @@ object SpecList {
         val shown = if (q.isEmpty()) rows else rows.filter { r -> listOf(r.name, r.status, r.id, r.group.label).any { q in it.lowercase() } }
         val shownSpecs = if (q.isEmpty()) specs else specs.filter { s -> q in s.capability.lowercase() || s.changes.any { q in it.lowercase() } }
         val groups = SpecGroup.entries.mapNotNull { g -> shown.filter { it.group == g }.takeIf { it.isNotEmpty() }?.let { g to it } }
-        return SpecListModel(groups, shownSpecs, acceptedSpecs, rows.size, query)
+        val requirements = if (q.isEmpty()) emptyList() else rows.flatMap { row ->
+            deltas[row.id].orEmpty().flatMap { d ->
+                d.requirements.filter { q in it.name.lowercase() || q in it.from.lowercase() }.map { RequirementHit(row.id, row.name, d.capability, it.name, it.kind) }
+            }
+        }
+        return SpecListModel(groups, shownSpecs, requirements, acceptedSpecs, rows.size, query)
     }
 }

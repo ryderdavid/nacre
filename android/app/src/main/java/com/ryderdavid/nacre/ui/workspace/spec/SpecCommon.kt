@@ -14,7 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DriveFileRenameOutline
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -46,6 +50,18 @@ internal fun SpecPill(text: String, container: Color, content: Color, icon: Imag
             if (icon != null) Icon(icon, null, Modifier.size(16.dp))
             Text(text, style = MaterialTheme.typography.labelMedium)
         }
+    }
+}
+
+/** A requirement delta's label: Added, Modified, Removed or Renamed, in words with an icon. */
+@Composable
+internal fun DeltaPill(kind: DeltaKind, modifier: Modifier = Modifier) {
+    val c = MaterialTheme.colorScheme
+    when (kind) {
+        DeltaKind.ADDED -> SpecPill(kind.label, c.primaryContainer, c.onPrimaryContainer, Icons.Rounded.Add, modifier)
+        DeltaKind.MODIFIED -> SpecPill(kind.label, c.secondaryContainer, c.onSecondaryContainer, Icons.Rounded.Edit, modifier)
+        DeltaKind.REMOVED -> SpecPill(kind.label, c.errorContainer, c.onErrorContainer, Icons.Rounded.Remove, modifier)
+        DeltaKind.RENAMED -> SpecPill(kind.label, c.tertiaryContainer, c.onTertiaryContainer, Icons.Rounded.DriveFileRenameOutline, modifier)
     }
 }
 

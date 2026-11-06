@@ -52,7 +52,10 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
     val failed = remember(rounds) { failedBeads(rounds, vm.repoKey) }
     val specPaths = remember(envelopes) { envelopes.mapValues { e -> e.value.data?.change?.artifacts?.map { it.path }.orEmpty() } }
     val accepted = remember(envelopes) { envelopes.values.firstNotNullOfOrNull { it.data?.inventory?.acceptedSpecs } }
-    val model = remember(changes, specPaths, accepted, failed, query) { SpecList.build(changes?.changes.orEmpty(), specPaths, accepted, failed, query) }
+    val deltas = remember(envelopes) {
+        envelopes.mapValues { e -> e.value.data?.change?.artifacts.orEmpty().mapNotNull { a -> SpecList.capabilityOf(a.path)?.let { SpecDeltas.parse(it, a.content) } } }
+    }
+    val model = remember(changes, specPaths, accepted, failed, query, deltas) { SpecList.build(changes?.changes.orEmpty(), specPaths, accepted, failed, query, deltas) }
 
     Column(modifier.fillMaxSize()) {
         PaneTopBar("Spec", if (changes == null) "" else model.countsText, onBack = null) {
@@ -85,6 +88,12 @@ private fun SpecListContent(model: SpecListModel, onOpen: (SpecScreen) -> Unit) 
             item(key = "group:${group.name}") { PaneHeading(group.label, trailing = { Text("${rows.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }) }
             itemsIndexed(rows, key = { _, r -> "change:${r.id}" }) { i, row ->
                 ChangeRowView(row, segmentShape(i, rows.size)) { onOpen(SpecScreen.Change(row.id)) }
+            }
+        }
+        if (model.requirements.isNotEmpty()) {
+            item(key = "requirements") { PaneHeading("Requirements") }
+            itemsIndexed(model.requirements, key = { _, r -> "req:${r.changeId}:${r.capability}:${r.requirement}" }) { i, hit ->
+                RequirementRowView(hit, segmentShape(i, model.requirements.size)) { onOpen(SpecScreen.Document(hit.changeId, DocKind.SPECS, anchor = hit.requirement)) }
             }
         }
         if (model.specs.isNotEmpty() || model.acceptedSpecs != null) {
@@ -126,6 +135,22 @@ private fun ChangeRowView(row: ChangeRow, shape: Shape, onOpen: () -> Unit) {
             row.progress?.let { ProgressTrack(it) }
             Text(row.status, style = MaterialTheme.typography.bodySmall, color = if (waiting) c.onTertiaryContainer else c.onSurfaceVariant)
             if (waiting) Text("Waiting for you · open the queue", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun RequirementRowView(hit: RequirementHit, shape: Shape, onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen, shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(hit.requirement, style = MaterialTheme.typography.titleSmall)
+                Text("${hit.capability} · ${hit.changeName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            hit.kind?.let { DeltaPill(it) }
         }
     }
 }

@@ -65,6 +65,15 @@ class SpecPanelViewModel(private val repository: NacreRepository, val repoKey: S
     /** Swaps the document shown without growing the back stack. */
     fun switchTo(screen: SpecScreen) = stack.update { s -> if (s.size > 1 && s.last() is SpecScreen.Document) s.dropLast(1) + screen else s + screen }
 
+    /** From a document, the change's overview: back to it when it is underneath, else in the document's place. */
+    fun showOverview(changeId: String) = stack.update { s ->
+        val below = s.dropLast(1)
+        if (below.lastOrNull() == SpecScreen.Change(changeId)) below else below + SpecScreen.Change(changeId)
+    }
+
+    /** Opens [changeId]'s overview on top of the list, as an Open change link from elsewhere asks. */
+    fun openChange(changeId: String) = stack.update { listOf(SpecScreen.List, SpecScreen.Change(changeId)) }
+
     /** Back: document → change → list. False when already on the list. */
     fun back(): Boolean {
         if (stack.value.size <= 1) return false
