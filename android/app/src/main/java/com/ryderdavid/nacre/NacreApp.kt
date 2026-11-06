@@ -52,6 +52,7 @@ class AppContainer(app: Application) {
 
     init {
         scope.launch { chatStack.restore(settings.settings.first().currentChat) }
+        com.ryderdavid.nacre.data.chat.ChatDrafts.keep(app, chatStack, scope)
     }
     val notifier = RunNotifier(app, repository, settings, scope, chats)
 

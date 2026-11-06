@@ -275,7 +275,8 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, t, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
             }
         }
-        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
+        // One Back closes the queue: no half-open step in between.
+        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             DecisionQueue(repoKey, onClose = { queue = false })
         }
     }

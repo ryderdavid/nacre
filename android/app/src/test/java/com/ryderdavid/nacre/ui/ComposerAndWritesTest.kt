@@ -39,3 +39,12 @@ class ComposerAndWritesTest {
         assertTrue(src("ui/workspace/Workspace.kt").contains("!tabletop && !WindowInsets.isImeVisible"), "the strip steps aside while typing")
     }
 }
+
+class ChatDraftsTest {
+    @Test fun draftsRoundTripAndBadDataIsIgnored() {
+        val d = mapOf("h1~c1" to "half a message", "h1~c2" to "another")
+        kotlin.test.assertEquals(d, com.ryderdavid.nacre.data.chat.ChatDrafts.decode(com.ryderdavid.nacre.data.chat.ChatDrafts.encode(d)))
+        kotlin.test.assertEquals(emptyMap(), com.ryderdavid.nacre.data.chat.ChatDrafts.decode("not json"))
+        kotlin.test.assertEquals(emptyMap(), com.ryderdavid.nacre.data.chat.ChatDrafts.decode(null))
+    }
+}
