@@ -563,7 +563,7 @@ func roundItems(ref repos.Ref, r api.Round) []api.AttentionItem {
 				text += " " + q.Problem
 				problem += q.Problem
 			}
-			aq := api.AttentionQuestion{ID: q.ID, Text: text, Reason: q.Reason}
+			aq := api.AttentionQuestion{ID: q.ID, Text: text, Reason: q.Reason, Reopened: q.Reopened}
 			if q.Recommended != "" {
 				o := action(q.Recommended, "POST", roundPath+"/answers", map[string]any{"question_id": q.ID, "answer": q.Recommended})
 				o.Recommended = true

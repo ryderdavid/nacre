@@ -85,6 +85,9 @@ type AttentionQuestion struct {
 	Text    string            `json:"text"`
 	Reason  string            `json:"reason,omitempty"`
 	Options []AttentionOption `json:"options"`
+	// Reopened counts the times the question came back after its answer
+	// failed; each asking is its own decision.
+	Reopened int `json:"reopened,omitempty"`
 }
 
 // AttentionOption is either an exact API action (Type "action": Method, Path

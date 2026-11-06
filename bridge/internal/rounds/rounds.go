@@ -458,6 +458,9 @@ func (m *Manager) Create(req CreateRequest) (api.Round, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return api.Round{}, err
 	}
+	if meta.Finish && epic != "" {
+		meta.FinishLand = &api.LandPolicy{Target: cfg.Land.Target, Push: cfg.Land.Push}
+	}
 	r := m.newRound(meta, dir)
 	r.setCfg(cfg)
 	r.mu.Lock()

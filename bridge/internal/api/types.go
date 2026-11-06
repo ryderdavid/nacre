@@ -518,8 +518,12 @@ type Round struct {
 	// landing target, resolved like LandPush; empty when unknown or not
 	// finishing.
 	FinishTarget string `json:"finish_target,omitempty"`
-	Epic         string `json:"epic,omitempty"`
-	State        string `json:"state"`
+	// FinishLand is the landing policy in force when a finishing round was
+	// approved; the automatic finish keeps to it, and stops for a new
+	// decision if nacre.yaml has changed it since.
+	FinishLand *LandPolicy `json:"finish_land,omitempty"`
+	Epic       string      `json:"epic,omitempty"`
+	State      string      `json:"state"`
 	// PausedFrom is the state a paused round resumes to; PauseReason says why
 	// (the same text as Stop.Reason, kept for older clients).
 	PausedFrom  string `json:"paused_from,omitempty"`
@@ -578,6 +582,12 @@ type Round struct {
 	FinishEpic string `json:"finish_epic,omitempty"`
 	AutoLand   bool   `json:"auto_land,omitempty"`
 	Error      string `json:"error,omitempty"`
+}
+
+// LandPolicy is where landing merges and whether it pushes.
+type LandPolicy struct {
+	Target string `json:"target"`
+	Push   bool   `json:"push"`
 }
 
 // Active reports whether the round can still change.
@@ -687,6 +697,9 @@ type Question struct {
 	// Problem says why an earlier answer couldn't be carried out, when the
 	// question has come back to be answered again.
 	Problem string `json:"problem,omitempty"`
+	// Reopened counts the times an answer was handed back, so each asking
+	// is a new decision rather than one hidden behind the earlier answer.
+	Reopened int `json:"reopened,omitempty"`
 	// Requirement is what a spec-drift question cites.
 	Requirement *RequirementRef `json:"requirement,omitempty"`
 	// Applied is set once nacred has carried out a spec-drift answer, so it

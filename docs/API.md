@@ -1458,6 +1458,7 @@ is verified; the round reports it as `auto_land`.
   "finish": false,                  // automatically finish the epic after its children land
   "finish_checked": false, "finish_round_id": "", // optional automatic finish result
   "finish_target": "main",          // with finish: where finishing merges the epic's branch (nacre.yaml land.target); empty when unknown
+  "finish_land": {"target":"main","push":true}, // with finish: the landing policy when the round was approved; the automatic finish refuses (round error, Needs you keeps Finish) if nacre.yaml changed it since
   "state": "implementing",          // planning | needs_decision | implementing | integrating | ready_to_land | landed | cancelled | paused
   "paused_from": "", "pause_reason": "",     // pause_reason repeats stop.reason for older clients
   "stop": {                         // only while paused: why, and the ways forward
@@ -1491,7 +1492,7 @@ is verified; the round reports it as `auto_land`.
   "plan": {"summary": "…", "beads": [{"id","areas","files","depends_on","needs","human_check"}],
            "findings": [{"id":"f1","kind":"overlap","beads":["NAC-1","NAC-2"],"branch":"","files":[],"text":"…","accepted":false,"unlinked":false}],
            "cost_usd": 0.4},
-  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"recommended":"…","reason":"…","answer":"","answered_at":"","problem":""}], // problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again. recommended/reason: the option Claude recommends and why, filled in by one cheap call per round once questions are open
+  "questions": [{"id":"q1","finding_id":"f2","kind":"contradiction","beads":[…],"branch":"","text":"…","options":["…"],"recommended":"…","reason":"…","answer":"","answered_at":"","problem":"","reopened":0}], // reopened: times the question came back after its answer failed; each asking is a new decision card. problem: why an earlier answer couldn't be carried out (a merge that conflicted or broke the gates); the question is open again. recommended/reason: the option Claude recommends and why, filled in by one cheap call per round once questions are open
   "integration": {"bead":"NAC-2","phase":"conflict","pre_merge":"…","run_id":"r_…","attempts":1,"problem":"…",
                   "branch":"","rebump":false,"attempted":["fix:version","turn:land-merge×1"]},
                                     // the merge in progress, if any. phase: merge | conflict | gates | final for the

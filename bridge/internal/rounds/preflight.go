@@ -496,6 +496,7 @@ func (r *round) reopen(branch, problem string) {
 		q := &r.meta.Questions[i]
 		if q.Kind == api.FindingUnmergedWork && q.Branch == branch {
 			q.Answer, q.AnsweredAt, q.Problem = "", "", problem
+			q.Reopened++
 		}
 	}
 	r.meta.State = api.RoundNeedsDecision

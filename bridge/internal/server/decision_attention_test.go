@@ -265,3 +265,20 @@ func TestAnUnreadableListDoesntExpireWaitingCards(t *testing.T) {
 		t.Fatalf("expired on an unreadable list: %+v", got)
 	}
 }
+
+// A question handed back after its answer failed must not reuse the id of the
+// answer stored as done, or the queue hides it and the round waits on nothing.
+func TestAReopenedQuestionIsANewDecision(t *testing.T) {
+	q := api.AttentionQuestion{ID: "q1"}
+	first := questionDecisionID("r1", q)
+	q.Reopened = 1
+	again := questionDecisionID("r1", q)
+	q.Reopened = 2
+	third := questionDecisionID("r1", q)
+	if first == again || again == third || first == third {
+		t.Fatalf("reopened question kept an old id: %s %s %s", first, again, third)
+	}
+	if first != digestID("question", "r1", "q1") {
+		t.Fatal("a question asked once keeps its existing id")
+	}
+}

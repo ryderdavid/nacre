@@ -94,6 +94,14 @@ func landsOnTarget(meta api.Round, cfg *repoconfig.Config) bool {
 // removes its branch. An epic whose work is already all on the target is
 // closed straight away (closed is true and no round is made).
 func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool, err error) {
+	return m.finishEpic(repoID, epic, nil)
+}
+
+// finishEpic is FinishEpic held to an approved landing policy when want is
+// set: if nacre.yaml now lands elsewhere or pushes differently, it refuses,
+// so the epic waits for a fresh decision rather than landing where Ryder
+// didn't approve.
+func (m *Manager) finishEpic(repoID, epic string, want *api.LandPolicy) (round api.Round, closed bool, err error) {
 	ctx := m.ctx
 	name, path, err := m.opts.Repo(repoID)
 	if err != nil {
@@ -131,6 +139,9 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 		}
 		m.repoChanged(repoID)
 		return api.Round{}, true, nil
+	}
+	if want != nil && (cfg.Land.Target != want.Target || cfg.Land.Push != want.Push) {
+		return api.Round{}, false, conflict("Where " + epic + " lands changed since you approved it (" + policyText(*want) + ", now " + policyText(api.LandPolicy{Target: cfg.Land.Target, Push: cfg.Land.Push}) + "). Finish the epic to decide on it as it is now")
 	}
 	target := cfg.Land.Target
 	merged := !gitx.BranchExists(ctx, path, branch) || gitx.IsAncestor(ctx, path, "refs/heads/"+branch, "refs/heads/"+target)
@@ -205,6 +216,14 @@ func (m *Manager) FinishEpic(repoID, epic string) (round api.Round, closed bool,
 	return out, false, nil
 }
 
+// policyText says a landing policy in words.
+func policyText(p api.LandPolicy) string {
+	if p.Push {
+		return "merge into " + p.Target + " and push"
+	}
+	return "merge into " + p.Target + " without pushing"
+}
+
 func (m *Manager) openChildren(ctx context.Context, repo, epic string) ([]string, error) {
 	all, err := m.opts.Beads.List(ctx, repo)
 	if err != nil {
@@ -270,7 +289,7 @@ func (r *round) maybeFinishEpic() bool {
 		var next api.Round
 		var closed bool
 		if err == nil && len(open) == 0 {
-			next, closed, err = r.m.FinishEpic(meta.RepoID, meta.Epic)
+			next, closed, err = r.m.finishEpic(meta.RepoID, meta.Epic, meta.FinishLand)
 		}
 		return func() {
 			if err == nil && len(open) > 0 && r.awaitingChecks(open) {

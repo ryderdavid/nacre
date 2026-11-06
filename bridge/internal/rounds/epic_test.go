@@ -545,6 +545,9 @@ func TestRunEpicDoesNotFinishWithOpenChildren(t *testing.T) {
 	}
 	// NAC-pjq.8: the round says where finishing merges the epic's branch
 	// (nacre.yaml's landing target), not only the branch it lands on.
+	if r.FinishLand == nil || r.FinishLand.Target != "main" {
+		t.Fatalf("approved landing policy not recorded: %+v", r.FinishLand)
+	}
 	if r.Target != "epic/t-p" || r.FinishTarget != "main" {
 		t.Fatalf("target %q, finish target %q", r.Target, r.FinishTarget)
 	}
@@ -726,5 +729,21 @@ func TestRunEpicFinishesAfterTheLastHumanCheckCloses(t *testing.T) {
 	done := h.wait(t, got.FinishRoundID, api.RoundLanded, api.RoundPaused)
 	if done.State != api.RoundLanded || beads.bead("T-E").Status != "closed" {
 		t.Fatalf("finish: %+v", done)
+	}
+}
+
+// NAC-c79: an approved round records where finishing lands, and the automatic
+// finish refuses when nacre.yaml has moved it since, so the epic waits for a
+// fresh decision instead of landing somewhere Ryder didn't approve.
+func TestAutomaticFinishKeepsToTheApprovedLandingPolicy(t *testing.T) {
+	beads := newFakeBeads(&fakeBead{ID: "T-E", Title: "Epic", Type: "epic", Status: "open"})
+	h := newHarness(t, beads, emptyPlan)
+	approved := &api.LandPolicy{Target: "release", Push: false}
+	_, _, err := h.m.finishEpic("repo", "T-E", approved)
+	if err == nil || !strings.Contains(err.Error(), "changed since you approved") {
+		t.Fatalf("finish under a changed policy: %v", err)
+	}
+	if beads.bead("T-E").Status != "open" {
+		t.Fatal("epic closed under a policy nobody approved")
 	}
 }
