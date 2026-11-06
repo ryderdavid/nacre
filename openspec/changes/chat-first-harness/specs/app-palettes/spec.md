@@ -20,6 +20,10 @@ Settings › Appearance SHALL offer a palette picker with:
 - **WHEN** Ryder taps the Ocean swatch
 - **THEN** the whole app switches to the Ocean palette at once
 
+#### Scenario: No dynamic color
+- **WHEN** the device doesn't support dynamic color
+- **THEN** Wallpaper isn't offered, and Pearl is selected by default
+
 ### Requirement: Palette swatches
 Each palette SHALL show as a swatch of its primary, secondary and tertiary colors. The selected swatch
 SHALL show a check and a changed shape, and SHALL be announced as selected.
@@ -27,10 +31,6 @@ SHALL show a check and a changed shape, and SHALL be announced as selected.
 #### Scenario: Selected swatch
 - **WHEN** Ocean is the current palette and TalkBack focuses its swatch
 - **THEN** the swatch shows a check and a squarer shape, and Ocean is announced as selected
-
-#### Scenario: No dynamic color
-- **WHEN** the device doesn't support dynamic color
-- **THEN** Wallpaper isn't offered, and Pearl is selected by default
 
 ### Requirement: Palettes are full Material 3 schemes
 Each fixed palette SHALL be generated from HCT tonal palettes, with a hue and chroma for each of primary,
