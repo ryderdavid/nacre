@@ -67,6 +67,12 @@ sealed interface StreamMessage {
     data object Open : StreamMessage
 }
 
+/** Messages from `/v1/events`: the run stream's kinds, plus owner decisions as they are created or change. */
+sealed interface HostEvent {
+    data class Stream(val message: StreamMessage) : HostEvent
+    data class DecisionChanged(val decision: com.ryderdavid.nacre.data.model.Decision) : HostEvent
+}
+
 /** Messages from `/v1/rounds/{id}/stream`. */
 sealed interface RoundMessage {
     data class Event(val event: RoundEvent) : RoundMessage
@@ -343,6 +349,13 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
 
     suspend fun decision(id: String): com.ryderdavid.nacre.data.model.Decision = get("/v1/decisions/${enc(id)}")
 
+    /** The repository's current specs (openspec/specs), or null from a nacred without the inventory. */
+    suspend fun specs(repo: String): List<com.ryderdavid.nacre.data.model.CurrentSpec>? = try {
+        get<com.ryderdavid.nacre.data.model.SpecInventoryList>("/v1/repos/${enc(repo)}/specs").specs
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501) null else throw e
+    }
+
     /** Answers a decision: nacred revalidates, executes once and returns the decision's new state. */
     suspend fun answerDecision(id: String, body: com.ryderdavid.nacre.data.model.DecisionAnswer): com.ryderdavid.nacre.data.model.Decision =
         send("POST", "/v1/decisions/${enc(id)}/answer", body)
@@ -425,10 +438,10 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     }
 
     /** Live transcript of one run; replays events after [after] first. */
-    fun runStream(id: String, after: Long = 0): Flow<StreamMessage> = sse("/v1/runs/$id/stream?after=$after")
+    fun runStream(id: String, after: Long = 0): Flow<StreamMessage> = sse("/v1/runs/$id/stream?after=$after", StreamMessage.Open, ::decodeStream)
 
-    /** Global run + repo notifications. */
-    fun events(): Flow<StreamMessage> = sse("/v1/events")
+    /** Global run, repo, change and decision notifications. */
+    fun events(): Flow<HostEvent> = sse("/v1/events", HostEvent.Stream(StreamMessage.Open), ::decodeHostEvent)
 
     // ---- plumbing ----
 
@@ -460,23 +473,15 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         return text
     }
 
-    private fun sse(path: String): Flow<StreamMessage> = callbackFlow {
+    private fun <T> sse(path: String, opened: T, decode: (type: String?, data: String) -> T): Flow<T> = callbackFlow {
         val req = Request.Builder().url(url(path)).header("Accept", "text/event-stream").build()
         val source = EventSources.createFactory(streamHttp).newEventSource(req, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
-                trySend(StreamMessage.Open)
+                trySend(opened)
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                val msg = runCatching {
-                    when (type) {
-                        "run" -> StreamMessage.RunChanged(json.decodeFromString<Run>(data))
-                        "repo" -> StreamMessage.RepoChanged(json.decodeFromString<JsonObject>(data)["repo_id"]!!.jsonPrimitive.content)
-                        "round" -> StreamMessage.RoundChanged(json.decodeFromString<Round>(data))
-                        "change" -> StreamMessage.ChangeChanged(json.decodeFromString<ChangeEvent>(data))
-                        else -> StreamMessage.Event(json.decodeFromString<RunEvent>(data))
-                    }
-                }.getOrNull() ?: return
+                val msg = runCatching { decode(type, data) }.getOrNull() ?: return
                 trySend(msg)
             }
 
@@ -498,6 +503,21 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         val JSON = "application/json; charset=utf-8".toMediaType()
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = false; coerceInputValues = true }
         private fun enc(id: String) = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20")
+
+        /** One message of a run stream or `/v1/events` by its SSE event type. */
+        fun decodeStream(type: String?, data: String): StreamMessage = when (type) {
+            "run" -> StreamMessage.RunChanged(json.decodeFromString<Run>(data))
+            "repo" -> StreamMessage.RepoChanged(json.decodeFromString<JsonObject>(data)["repo_id"]!!.jsonPrimitive.content)
+            "round" -> StreamMessage.RoundChanged(json.decodeFromString<Round>(data))
+            "change" -> StreamMessage.ChangeChanged(json.decodeFromString<ChangeEvent>(data))
+            else -> StreamMessage.Event(json.decodeFromString<RunEvent>(data))
+        }
+
+        /** One message of `/v1/events`: `decision` carries a Decision, the rest are the run stream's kinds. */
+        fun decodeHostEvent(type: String?, data: String): HostEvent = when (type) {
+            "decision" -> HostEvent.DecisionChanged(json.decodeFromString<com.ryderdavid.nacre.data.model.Decision>(data))
+            else -> HostEvent.Stream(decodeStream(type, data))
+        }
 
         /** Unauthenticated probe used while pairing; null when nothing answers. */
         suspend fun ping(base: OkHttpClient, baseUrl: String): Health? = withContext(Dispatchers.IO) {

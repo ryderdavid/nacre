@@ -1,6 +1,7 @@
 package com.ryderdavid.nacre.ui.workspace.spec
 
 import com.ryderdavid.nacre.data.model.ChangeSummary
+import com.ryderdavid.nacre.data.model.CurrentSpec
 
 /** The Spec panel's change groups, in the order a change moves through them. */
 enum class SpecGroup(val label: String) {
@@ -41,14 +42,20 @@ data class ChangeRow(
     val updatedAt: String,
 )
 
-/** A spec the project's changes touch, from the changes' spec deltas. */
+/** A spec: one of the project's current specs, or one an open change touches (or adds). */
 data class SpecRow(
     val capability: String,
-    /** Names of the changes that touch it, most recent first. */
+    /** Names of the open changes that touch it, most recent first; empty when none does. */
     val changes: List<String>,
-    /** The change opened when the row is tapped (the most recent one). */
-    val changeId: String,
-)
+    /** The change opened when the row is tapped (the most recent one touching it); null when none does. */
+    val changeId: String?,
+    /** Its requirements in order, from openspec/specs; empty for a spec not there yet or an older computer. */
+    val requirements: List<String> = emptyList(),
+    /** Whether it is in openspec/specs; false for a capability an open change adds. */
+    val current: Boolean = true,
+) {
+    val touched get() = changeId != null
+}
 
 /** A requirement change whose name matches the search. */
 data class RequirementHit(val changeId: String, val changeName: String, val capability: String, val requirement: String, val kind: DeltaKind?)
@@ -64,6 +71,8 @@ data class SpecListModel(
     /** Changes shown before search narrows them. */
     val changeCount: Int,
     val query: String,
+    /** Whether [specs] lists every current spec, or (from an older computer) only those open changes touch. */
+    val allSpecs: Boolean = false,
 ) {
     val rows get() = groups.flatMap { it.second }
     val isEmpty get() = groups.isEmpty() && specs.isEmpty() && requirements.isEmpty()
@@ -165,6 +174,10 @@ object SpecList {
      * Builds the list. [specPaths] maps a change id to its artifact paths (from the changes loaded so
      * far); [failedBeads] are beads parked in a round, which make their section Failed; [deltas] are the
      * loaded changes' parsed spec deltas, which search looks through for requirement names.
+     *
+     * [current] is the project's current spec inventory (`GET /v1/repos/{repo}/specs`): every one is
+     * listed, those an open change touches marked with it. Null (a computer without the inventory) lists
+     * only the specs open changes touch.
      */
     fun build(
         changes: List<ChangeSummary>,
@@ -173,27 +186,35 @@ object SpecList {
         failedBeads: Set<String> = emptySet(),
         query: String = "",
         deltas: Map<String, List<SpecDelta>> = emptyMap(),
+        current: List<CurrentSpec>? = null,
     ): SpecListModel {
         val rows = changes.mapNotNull { row(it, failedBeads) }.sortedByDescending { it.updatedAt }
         val byId = rows.associateBy { it.id }
-        val specs = specPaths.entries
+        val touched = specPaths.entries
             .filter { it.key in byId }
             .flatMap { (id, paths) -> paths.mapNotNull(::capabilityOf).distinct().map { it to byId.getValue(id) } }
             .groupBy({ it.first }, { it.second })
-            .map { (cap, touching) ->
-                val recent = touching.sortedByDescending { it.updatedAt }
-                SpecRow(cap, recent.map { it.name }, recent.first().id)
+            .mapValues { (_, touching) -> touching.sortedByDescending { it.updatedAt } }
+        val specs = if (current == null) {
+            touched.map { (cap, recent) -> SpecRow(cap, recent.map { it.name }, recent.first().id) }.sortedBy { it.capability }
+        } else {
+            val inProject = current.filter { it.name.isNotBlank() }.associateBy { it.name }
+            (inProject.keys + touched.keys).sorted().map { cap ->
+                val recent = touched[cap].orEmpty()
+                SpecRow(cap, recent.map { it.name }, recent.firstOrNull()?.id, inProject[cap]?.requirements.orEmpty(), current = cap in inProject)
             }
-            .sortedBy { it.capability }
+        }
         val q = query.trim().lowercase()
         val shown = if (q.isEmpty()) rows else rows.filter { r -> listOf(r.name, r.status, r.id, r.group.label).any { q in it.lowercase() } }
-        val shownSpecs = if (q.isEmpty()) specs else specs.filter { s -> q in s.capability.lowercase() || s.changes.any { q in it.lowercase() } }
+        val shownSpecs = if (q.isEmpty()) specs else specs.filter { s ->
+            q in s.capability.lowercase() || s.changes.any { q in it.lowercase() } || s.requirements.any { q in it.lowercase() }
+        }
         val groups = SpecGroup.entries.mapNotNull { g -> shown.filter { it.group == g }.takeIf { it.isNotEmpty() }?.let { g to it } }
         val requirements = if (q.isEmpty()) emptyList() else rows.flatMap { row ->
             deltas[row.id].orEmpty().flatMap { d ->
                 d.requirements.filter { q in it.name.lowercase() || q in it.from.lowercase() }.map { RequirementHit(row.id, row.name, d.capability, it.name, it.kind) }
             }
         }
-        return SpecListModel(groups, shownSpecs, requirements, acceptedSpecs, rows.size, query)
+        return SpecListModel(groups, shownSpecs, requirements, current?.size ?: acceptedSpecs, rows.size, query, allSpecs = current != null)
     }
 }

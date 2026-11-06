@@ -13,6 +13,15 @@ data class DecisionDraft(
     val rejecting: Boolean = false,
 )
 
+/**
+ * A project's queue as the strip shows it: [needsYou] waits on Ryder (pending or held) and is the badge
+ * count; [inQueue] is the rest still listed (deferred, executing, failed, unknown or expired), which keeps
+ * the queue reachable without counting as needing him.
+ */
+data class QueueCount(val needsYou: Int = 0, val inQueue: Int = 0) {
+    val any get() = needsYou + inQueue > 0
+}
+
 object DecisionModel {
     /** The header a card shows for its kind. */
     fun kindLabel(kind: String): String = "Needs you · " + when (kind) {
@@ -100,6 +109,9 @@ object DecisionModel {
     /** Whether the card can be asked again (expired). */
     fun canRenew(d: Decision) = d.state == "expired"
 
+    /** Whether "Got it" is offered: a failed, unknown or expired outcome not yet acknowledged. */
+    fun canAcknowledge(d: Decision) = d.acknowledgeable
+
     /** Needs-you order within a state: questions and found work first, then approvals, then landing. */
     fun kindRank(kind: String): Int = when (kind) {
         "question", "found", "recovery", "intake" -> 0
@@ -107,12 +119,53 @@ object DecisionModel {
         else -> 2
     }
 
-    /** Ordering in the queue: pending, held, failed, deferred; then by kind; newest first within. */
+    /**
+     * Ordering in the queue: pending, held, then unresolved outcomes (failed, unknown, expired), then work
+     * still executing, then deferred; by kind within each; newest first within that.
+     */
     fun queueOrder(list: List<Decision>): List<Decision> = list.sortedWith(
-        compareBy<Decision> { when (it.state) { "pending" -> 0; "held" -> 1; "failed", "unknown" -> 2; "deferred" -> 3; else -> 4 } }
+        compareBy<Decision> { stateRank(it.state) }
             .thenBy { kindRank(it.kind) }
             .thenByDescending { it.createdAt },
     )
+
+    private fun stateRank(state: String) = when (state) {
+        "pending" -> 0
+        "held" -> 1
+        "failed", "unknown", "expired" -> 2
+        "executing" -> 3
+        "deferred" -> 4
+        else -> 5
+    }
+
+    /**
+     * A project's queue as listed: its open decisions in [queueOrder], with the one the queue was opened
+     * at ([focus], a decision id) first, shown even when it is no longer open so its outcome can be read.
+     */
+    fun queue(all: List<Decision>, focus: String? = null): List<Decision> {
+        val ordered = queueOrder(all.filter { it.open })
+        val focused = focus?.let { id -> all.firstOrNull { it.id == id } } ?: return ordered
+        return listOf(focused) + ordered.filter { it.id != focused.id }
+    }
+
+    /** What a project's strip counts: decisions waiting on Ryder, and the rest of the open queue. */
+    fun counts(all: List<Decision>): QueueCount {
+        val open = all.filter { it.open }
+        val waiting = open.count { it.waitsOnYou }
+        return QueueCount(needsYou = waiting, inQueue = open.size - waiting)
+    }
+
+    /**
+     * The decision a change waiting for Ryder links to: an open one whose target names the change (by
+     * id or name) or one of its seed beads, an approval first, a pending one before others, the newest
+     * otherwise. Null when the project has none for it (yet).
+     */
+    fun forChange(all: List<Decision>, changeId: String, changeName: String, seeds: Collection<String>): Decision? {
+        val names = setOf(changeId, changeName).filter { it.isNotBlank() }
+        return all.filter { d -> d.open && (d.target.change in names || (d.target.bead.isNotBlank() && d.target.bead in seeds)) }
+            .sortedWith(compareBy<Decision> { if (it.kind == "approve") 0 else 1 }.thenBy { stateRank(it.state) }.thenByDescending { it.createdAt })
+            .firstOrNull()
+    }
 
     /** The options as a card shows them: the recommended one first, the rest in nacred's order. */
     fun ordered(d: Decision) = d.options.sortedByDescending { it.recommended }

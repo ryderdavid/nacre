@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,20 +32,41 @@ import com.ryderdavid.nacre.data.model.ChatRecord
 import com.ryderdavid.nacre.data.model.Keys
 import com.ryderdavid.nacre.data.model.WorkSummary
 import com.ryderdavid.nacre.ui.common.LocalContainer
+import com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /** The most recent chat in a checkout, or null when it has none. */
 fun mostRecentThread(chats: List<ChatRecord>, repoKey: String): String? =
     chats.filter { it.repo != null && Keys.of(it.hostId, it.repo) == repoKey }.maxByOrNull { it.updatedAt.ifBlank { it.createdAt } }?.key
 
 /**
- * The project-wide status strip: the work summary (opens the work inspector) and the Needs-you count (always
- * opens the queue) as two separate targets.
+ * The project-wide status strip: the work summary (opens the work inspector) and the queue entry (always
+ * opens the queue) as two separate targets. The entry is "N need you" while something waits on Ryder, and a
+ * quieter "N in queue" while only deferred, running or unresolved outcomes are left, so those stay
+ * reachable without counting as needing him.
+ *
+ * [repoKey] names the project; without it the strip uses the project whose workspace is on screen (the one
+ * [projectStrip] was last read for). It also opens the queue when a notification asked for it.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier) {
-    if (work == null && needsYou == 0) return
+fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null) {
+    val repo = LocalContainer.current.repository
+    val shown by stripProjects.collectAsState()
+    val key = repoKey ?: shown.lastOrNull()
+    val decisions by repo.decisions.collectAsState()
+    val inQueue = key?.let { DecisionModel.counts(decisions[it].orEmpty()).inQueue } ?: 0
+    val focus by repo.queueFocus.collectAsState()
+    LaunchedEffect(focus, key) {
+        val f = focus ?: return@LaunchedEffect
+        if (key != null && f.open && f.repoKey == key) {
+            repo.queueOpened()
+            if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onQueue()
+        }
+    }
+    if (work == null && needsYou == 0 && inQueue == 0) return
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.heightIn(min = 52.dp).padding(start = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (work != null) {
@@ -76,6 +98,16 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
                         Text("$needsYou need${if (needsYou == 1) "s" else ""} you", style = MaterialTheme.typography.labelLarge)
                     }
                 }
+            } else if (inQueue > 0) {
+                Surface(
+                    onClick = onQueue, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$inQueue in the queue, none waiting on you: open the queue" },
+                ) {
+                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                        Text("$inQueue in queue", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
         }
     }
@@ -98,12 +130,26 @@ fun KeepFresh(repoKey: String) {
 fun stripWork(work: List<WorkSummary>): WorkSummary? =
     work.filter { it.open }.sortedWith(compareByDescending<WorkSummary> { it.stopped }.thenByDescending { it.running }).firstOrNull()
 
+/** A notification's request to open the queue is honoured this long after it was made. */
+private const val QUEUE_REQUEST_MS = 60_000L
+
+/**
+ * The projects whose strip state is being read, newest last: the workspace on screen. The shell hands
+ * [StatusStrip] only the project's name, so this is how the strip finds its queue.
+ */
+private val stripProjects = MutableStateFlow<List<String>>(emptyList())
+
+/** A project's strip state: its open work and how many decisions wait on Ryder (pending or held; deferred doesn't count). */
 @Composable
 fun projectStrip(repoKey: String): Pair<WorkSummary?, Int> {
     val repo = LocalContainer.current.repository
     val work by repo.work.collectAsState()
     val decisions by repo.decisions.collectAsState()
-    return stripWork(work[repoKey].orEmpty()) to decisions[repoKey].orEmpty().count { it.pending || it.state == "held" }
+    DisposableEffect(repoKey) {
+        stripProjects.update { it + repoKey }
+        onDispose { stripProjects.update { it - repoKey } }
+    }
+    return stripWork(work[repoKey].orEmpty()) to DecisionModel.counts(decisions[repoKey].orEmpty()).needsYou
 }
 
 /** Something Ryder points Chat at: a bead, a change, a document, a requirement or a selection. */
@@ -129,5 +175,8 @@ val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatRefere
 /** Opens a decision's evidence: review and changes in Spec, a bead in Beads, a round, run or gates in the work inspector. */
 val LocalOpenEvidence = androidx.compose.runtime.staticCompositionLocalOf<(com.ryderdavid.nacre.data.model.DecisionEvidence) -> Unit> { {} }
 
-/** Opens the project's Needs-you queue (from a card that points at a newer request or held work). */
+/**
+ * Opens the project's Needs-you queue (from a card that points at a newer request or held work). To open it
+ * at one decision, point it there first with `repository.focusQueue(repoKey, decisionId)`.
+ */
 val LocalOpenQueue = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }

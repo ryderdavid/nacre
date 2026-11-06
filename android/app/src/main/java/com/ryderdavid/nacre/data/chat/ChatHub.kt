@@ -87,6 +87,7 @@ class ChatConversation(
     private fun take(ev: com.ryderdavid.nacre.data.model.ChatEvent) {
         synchronized(transcript) { transcript.add(ev) }
         if (ev.kind == ChatWire.PERMISSION_ANSWER) notices?.clear(key, ev.requestId)
+        latestDecisions(listOf(ev), Keys.host(key)).forEach(link::learnDecision)
         show()
     }
 
@@ -100,6 +101,7 @@ class ChatConversation(
     suspend fun load() {
         val d = link.chatDetail(key)
         synchronized(transcript) { transcript.addAll(d.events) }
+        latestDecisions(d.events, Keys.host(key)).forEach(link::learnDecision)
         loaded = true
         show(d.chat.withHost()) { it.copy(loading = false, error = null) }
         if (d.chat.active) startFollow()
@@ -297,6 +299,8 @@ class ChatWatch(
         val t = ChatTranscript()
         val d = link.chatDetail(chat.key)
         t.addAll(d.events)
+        // Decisions raised in the chat go to the project's decisions, which announce a newly pending one.
+        latestDecisions(d.events, Keys.host(chat.key)).forEach(link::learnDecision)
         announce(chat, t)
         if (!d.chat.active) return
         followChat(
@@ -305,6 +309,7 @@ class ChatWatch(
             onEvent = { ev ->
                 t.add(ev)
                 if (ev.kind == ChatWire.PERMISSION_ANSWER) notices.clear(chat.key, ev.requestId)
+                latestDecisions(listOf(ev), Keys.host(chat.key)).forEach(link::learnDecision)
                 announce(chat, t)
             },
             backoff = backoff(),

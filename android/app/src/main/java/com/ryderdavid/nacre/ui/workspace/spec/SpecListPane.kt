@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Rule
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.Icon
@@ -25,12 +27,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.ryderdavid.nacre.ui.common.ErrorState
 import com.ryderdavid.nacre.ui.common.LoadingState
@@ -48,14 +54,17 @@ internal fun SpecChangeList(vm: SpecPanelViewModel, modifier: Modifier) {
     val query by vm.query.collectAsState()
     val searching by vm.searching.collectAsState()
     val changes = board.data?.changes
-    LaunchedEffect(changes) { changes?.let { vm.prefetch(it.changes) } }
+    val inventories by repo.currentSpecs.collectAsState()
+    // Every current spec, read again whenever the changes do (an archive changes both).
+    LaunchedEffect(changes) { changes?.let { vm.prefetch(it.changes); repo.refreshSpecs(vm.repoKey) } }
+    val current = inventories[vm.repoKey]
     val failed = remember(rounds) { failedBeads(rounds, vm.repoKey) }
     val specPaths = remember(envelopes) { envelopes.mapValues { e -> e.value.data?.change?.artifacts?.map { it.path }.orEmpty() } }
     val accepted = remember(envelopes) { envelopes.values.firstNotNullOfOrNull { it.data?.inventory?.acceptedSpecs } }
     val deltas = remember(envelopes) {
         envelopes.mapValues { e -> e.value.data?.change?.artifacts.orEmpty().mapNotNull { a -> SpecList.capabilityOf(a.path)?.let { SpecDeltas.parse(it, a.content) } } }
     }
-    val model = remember(changes, specPaths, accepted, failed, query, deltas) { SpecList.build(changes?.changes.orEmpty(), specPaths, accepted, failed, query, deltas) }
+    val model = remember(changes, specPaths, accepted, failed, query, deltas, current) { SpecList.build(changes?.changes.orEmpty(), specPaths, accepted, failed, query, deltas, current) }
 
     Column(modifier.fillMaxSize()) {
         PaneTopBar("Spec", if (changes == null) "" else model.countsText, onBack = null) {
@@ -100,13 +109,18 @@ private fun SpecListContent(model: SpecListModel, onOpen: (SpecScreen) -> Unit) 
             item(key = "specs") {
                 PaneHeading("Specs", trailing = { model.acceptedSpecs?.let { Text("$it in the project", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } })
                 Text(
-                    if (model.specs.isEmpty()) "No open change touches a spec right now." else "The specs open changes touch. Each opens at its requirement changes.",
+                    when {
+                        model.allSpecs && model.specs.isEmpty() -> "This project has no OpenSpec specs yet."
+                        model.allSpecs -> "The project's current specs. One an open change touches opens at its requirement changes."
+                        model.specs.isEmpty() -> "No open change touches a spec right now."
+                        else -> "The specs open changes touch. Each opens at its requirement changes."
+                    },
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
                 )
             }
             itemsIndexed(model.specs, key = { _, s -> "spec:${s.capability}" }) { i, spec ->
-                SpecRowView(spec, segmentShape(i, model.specs.size)) { onOpen(SpecScreen.Document(spec.changeId, DocKind.SPECS, anchor = spec.capability)) }
+                SpecRowView(spec, segmentShape(i, model.specs.size), onOpen = spec.changeId?.let { id -> { onOpen(SpecScreen.Document(id, DocKind.SPECS, anchor = spec.capability)) } })
             }
         }
     }
@@ -155,15 +169,37 @@ private fun RequirementRowView(hit: RequirementHit, shape: Shape, onOpen: () -> 
     }
 }
 
+/**
+ * One spec. One an open change touches opens at that change's requirement changes ([onOpen]); one no
+ * change touches expands to its requirements, read-only.
+ */
 @Composable
-private fun SpecRowView(spec: SpecRow, shape: Shape, onOpen: () -> Unit) {
+private fun SpecRowView(spec: SpecRow, shape: Shape, onOpen: (() -> Unit)?) {
+    var expanded by rememberSaveable(spec.capability) { mutableStateOf(false) }
+    val c = MaterialTheme.colorScheme
+    val line = when {
+        spec.touched && !spec.current -> "New in " + spec.changes.joinToString(", ")
+        spec.touched -> "Changed by " + spec.changes.joinToString(", ")
+        spec.requirements.size == 1 -> "1 requirement"
+        else -> "${spec.requirements.size} requirements"
+    }
+    val canExpand = onOpen == null && spec.requirements.isNotEmpty()
     Surface(
-        onClick = onOpen, shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        onClick = { if (onOpen != null) onOpen() else if (canExpand) expanded = !expanded }, enabled = onOpen != null || canExpand,
+        shape = shape, color = c.surfaceContainerLowest, contentColor = c.onSurface,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics(mergeDescendants = true) {
+            if (canExpand) stateDescription = if (expanded) "Requirements shown" else "Requirements hidden"
+        },
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(spec.capability, style = MaterialTheme.typography.titleSmall)
-            Text("Changed by " + spec.changes.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(spec.capability, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                if (canExpand) Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(20.dp), tint = c.onSurfaceVariant)
+            }
+            Text(line, style = MaterialTheme.typography.bodySmall, color = if (spec.touched) c.primary else c.onSurfaceVariant)
+            if (expanded) Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                spec.requirements.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium) }
+            }
         }
     }
 }

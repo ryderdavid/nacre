@@ -95,16 +95,37 @@ data class Decision(
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("answered_at") val answeredAt: String? = null,
     @SerialName("repo_name") val repoName: String = "",
+    /** While deferred: when it counts as pending again (a day after Defer). */
+    @SerialName("deferred_until") val deferredUntil: String? = null,
+    /** Ryder took this failed, unknown or expired outcome out of the queue ("Got it"). */
+    val acknowledged: Boolean = false,
     /** Set by the app: the computer the decision came from. */
     @kotlinx.serialization.Transient val hostId: String = "",
 ) {
     val key get() = Keys.of(hostId, id)
     val pending get() = state == "pending"
-    val open get() = state in OPEN_STATES
+
+    /** Waits on Ryder and counts in Needs you: pending, or held by him (land or cancel). Deferred doesn't. */
+    val waitsOnYou get() = state == "pending" || state == "held"
+
+    /**
+     * Listed in the queue: everything that waits, is deferred or still running, and an outcome Ryder
+     * hasn't acknowledged: failed, unknown, and expired when the agent raised it (Ask again builds a
+     * fresh one). An expired Needs you item no longer waits; nacred raises the next one itself.
+     */
+    val open get() = when (state) {
+        "pending", "deferred", "held", "executing" -> true
+        "failed", "unknown" -> !acknowledged
+        "expired" -> !acknowledged && source != SOURCE_ATTENTION
+        else -> false
+    }
+
+    /** An outcome "Got it" can take out of the queue. */
+    val acknowledgeable get() = !acknowledged && (state == "failed" || state == "unknown" || (state == "expired" && source != SOURCE_ATTENTION))
     val answered get() = state in setOf("executing", "done", "failed", "unknown", "declined")
 
     companion object {
-        val OPEN_STATES = setOf("pending", "deferred", "held", "executing", "failed", "unknown")
+        const val SOURCE_ATTENTION = "attention"
     }
 }
 
@@ -167,6 +188,18 @@ data class DecisionAnswer(
 /** A chat event carrying a decision raised in that chat. */
 @Serializable
 data class DecisionEvent(val decision: Decision? = null)
+
+/** `GET /v1/repos/{repo}/specs`: the capabilities under openspec/specs. */
+@Serializable
+data class SpecInventoryList(val specs: List<CurrentSpec> = emptyList())
+
+/** One current spec: its capability name, its requirement headings in order, and its path. */
+@Serializable
+data class CurrentSpec(
+    val name: String = "",
+    val requirements: List<String> = emptyList(),
+    val path: String = "",
+)
 
 /** Unused placeholder so older payloads with arbitrary extra fields still decode in tests. */
 @Serializable

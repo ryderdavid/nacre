@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -72,6 +73,8 @@ import com.ryderdavid.nacre.ui.workspace.ChatReference
 import com.ryderdavid.nacre.ui.workspace.LocalAskAbout
 import com.ryderdavid.nacre.ui.workspace.LocalViewing
 import com.ryderdavid.nacre.ui.workspace.LocalOpenEvidence
+import com.ryderdavid.nacre.ui.workspace.LocalOpenQueue
+import com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel
 import com.ryderdavid.nacre.ui.workspace.segmentShape
 
 /** A change's overview: phase, revision, review, the approved plan beside live progress, and evidence. */
@@ -95,6 +98,12 @@ internal fun ChangeOverviewPane(vm: SpecPanelViewModel, screen: SpecScreen.Chang
     // Beads open read-only here; rounds and runs open in the workspace's work inspector.
     var bead by remember { mutableStateOf<String?>(null) }
     val openEvidence = LocalOpenEvidence.current
+    // Waiting for you links to the change's decision card: the queue opens at it.
+    val decisions by repo.decisions.collectAsState()
+    val openQueue = LocalOpenQueue.current
+    val seeds = listOfNotNull(change?.seedId).plus(summary?.seedIds.orEmpty()).filter { it.isNotBlank() }.toSet()
+    val decision = DecisionModel.forChange(decisions[vm.repoKey].orEmpty(), screen.changeId, change?.changeName ?: summary?.changeName.orEmpty(), seeds)
+    val onWaiting: () -> Unit = { repo.focusQueue(vm.repoKey, decision?.id); openQueue() }
     val onEvidence: (EvidenceLink) -> Unit = { link ->
         when (link.kind) {
             EvidenceKind.BEAD -> bead = link.id
@@ -114,6 +123,7 @@ internal fun ChangeOverviewPane(vm: SpecPanelViewModel, screen: SpecScreen.Chang
                 overview, costUsd = change.costUsd, updatedAt = change.updatedAt,
                 onDoc = { vm.open(SpecScreen.Document(screen.changeId, it)) },
                 onEvidence = onEvidence,
+                waitingOn = decision?.title, onWaiting = onWaiting,
                 onAskSection = { row -> ask(ChatReference("bead", row.beadId, "${row.beadId} · ${row.title}")) },
             )
             loaded?.data != null && change == null -> MessageState(
@@ -136,13 +146,22 @@ private fun OverviewContent(
     updatedAt: String,
     onDoc: (DocKind) -> Unit,
     onEvidence: (EvidenceLink) -> Unit,
+    /** The title of the decision the change waits on, when the queue has it. */
+    waitingOn: String?,
+    onWaiting: () -> Unit,
     onAskSection: (PlanRow) -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item(key = "hero") { Hero(o) }
         if (o.waiting) item(key = "waiting") {
-            Banner(Icons.Rounded.HourglassTop, "Waiting for you · open the queue", "Approve, revise or answer it on its decision card. This panel only reads.", c.tertiaryContainer, c.onTertiaryContainer)
+            Banner(
+                Icons.Rounded.HourglassTop,
+                if (waitingOn != null) "Waiting for you · open its decision" else "Waiting for you · open the queue",
+                (waitingOn?.let { "$it. " } ?: "") + "Approve, revise or answer it on its decision card. This panel only reads.",
+                c.tertiaryContainer, c.onTertiaryContainer,
+                onClick = onWaiting,
+            )
         }
         o.stale?.let { item(key = "stale") { Banner(Icons.Rounded.WarningAmber, "Stale", it, c.errorContainer, c.onErrorContainer) } }
         o.error?.let { item(key = "error") { Banner(Icons.Rounded.WarningAmber, "Stopped", it, c.errorContainer, c.onErrorContainer) } }
@@ -194,15 +213,25 @@ private fun Hero(o: ChangeOverview) {
 }
 
 @Composable
-private fun Banner(icon: ImageVector, title: String, text: String, container: Color, content: Color) {
-    Surface(shape = RoundedCornerShape(20.dp), color = container, contentColor = content, modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+private fun Banner(icon: ImageVector, title: String, text: String, container: Color, content: Color, onClick: (() -> Unit)? = null) {
+    val body: @Composable () -> Unit = {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(icon, null, Modifier.size(20.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge)
                 Text(text, style = MaterialTheme.typography.bodyMedium)
             }
+            if (onClick != null) Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(20.dp).align(Alignment.CenterVertically))
         }
+    }
+    if (onClick == null) {
+        Surface(shape = RoundedCornerShape(20.dp), color = container, contentColor = content, modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, content = body)
+    } else {
+        Surface(
+            onClick = onClick, shape = RoundedCornerShape(20.dp), color = container, contentColor = content,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            content = body,
+        )
     }
 }
 
