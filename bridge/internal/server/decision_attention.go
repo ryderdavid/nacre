@@ -122,7 +122,13 @@ func (s *Server) fromAttention(ctx context.Context, ref repos.Ref, it api.Attent
 		}
 	}
 	d := &rec.Decision
+	// A card bound to content carries its binding in its id: when the content
+	// changes, the old card expires and the new one is a different decision
+	// rather than one hidden behind the expired record.
 	d.ID, d.Source, d.ChatID = "dc_"+it.ID, decisions.SourceAttention, chatID
+	if rec.Bound != "" {
+		d.ID += "_" + digestID(rec.Bound)[3:11]
+	}
 	d.Repo, d.RepoName = it.Repo, it.RepoName
 	d.State, d.CreatedAt, d.ExpiresAt = decisions.StatePending, it.CreatedAt, nil
 	d.AllowDefer = true

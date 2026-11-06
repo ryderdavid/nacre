@@ -50,7 +50,10 @@ object DecisionModel {
     }
 
     /** The option preselected on a fresh card: the recommended one, else the only one. */
-    fun initialOption(d: Decision): String? = d.options.firstOrNull { it.recommended }?.id ?: d.options.singleOrNull()?.id
+    fun initialOption(d: Decision): String? {
+        val usable = d.options.filter { it.disabled.isBlank() }
+        return usable.firstOrNull { it.recommended }?.id ?: usable.singleOrNull()?.id
+    }
 
     /** Why the input for [option] isn't acceptable yet, or null when it is. */
     fun inputProblem(option: DecisionOption?, input: String): String? = inputProblem(option?.input, input)
@@ -82,6 +85,7 @@ object DecisionModel {
         if (!d.pending) return "Already answered"
         if (draft.rejecting) return if (d.rejectNeedsNote && draft.note.isBlank()) "Say why in a note" else null
         val option = d.options.firstOrNull { it.id == draft.option } ?: return "Pick an answer"
+        if (option.disabled.isNotBlank()) return option.disabled
         return inputProblem(d.ask, draft.ask) ?: inputProblem(option, draft.input)
     }
 
@@ -113,7 +117,8 @@ object DecisionModel {
     }
 
     /** Whether the card can be asked again (expired). */
-    fun canRenew(d: Decision) = d.state == "expired"
+    /** Whether Ask again is offered: an expired card nacred can raise again. A chat's intake and found cards are raised again from the chat. */
+    fun canRenew(d: Decision) = d.state == "expired" && !(d.source == "agent" && d.kind in setOf("intake", "found"))
 
     /** Whether "Got it" is offered: a failed, unknown or expired outcome not yet acknowledged. */
     fun canAcknowledge(d: Decision) = d.acknowledgeable

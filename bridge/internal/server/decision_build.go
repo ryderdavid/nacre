@@ -469,8 +469,15 @@ func (s *Server) buildFinish(ctx context.Context, ref repos.Ref, t decisions.Tar
 			open++
 		}
 	}
-	bound := hashOf(parts...)
+	// And to what it would merge, where and how: the epic branch's commit and
+	// nacre.yaml's landing target and push.
 	target, push := s.facts().Land(ref.Path)
+	pushes := "unknown"
+	if push != nil {
+		pushes = fmt.Sprint(*push)
+	}
+	parts = append(parts, "head="+s.facts().Head(ctx, ref.Path, rounds.EpicBranch(epic)), "target="+target, "push="+pushes)
+	bound := hashOf(parts...)
 	cons := []string{"Merges " + rounds.EpicBranch(epic) + " into " + target + " with every gate and the build"}
 	title := "Finish " + epic
 	if b.Title != "" {
@@ -595,7 +602,7 @@ func expiryReason(d decisions.Decision, old, fresh string) string {
 	case decisions.KindAdopt:
 		return "Expired: " + d.Target.Change + "'s files changed since this was raised (files " + short(old) + ", now " + short(fresh) + "). Ask again to decide on what they say now."
 	case decisions.KindFinish:
-		return "Expired: the beads under " + d.Target.Bead + " changed since this was raised. Ask again to decide on finishing it as it is now."
+		return "Expired: the beads under " + d.Target.Bead + ", its branch or where it lands changed since this was raised. Ask again to decide on finishing it as it is now."
 	case decisions.KindSignoff:
 		return "Expired: " + d.Target.Bead + "'s check changed since this was raised. Ask again to sign off what it asks now."
 	}

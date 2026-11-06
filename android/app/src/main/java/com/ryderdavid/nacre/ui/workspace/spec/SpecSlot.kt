@@ -38,7 +38,16 @@ fun SpecSlot(repoKey: String, modifier: Modifier) {
     val boardLoaded = board.data != null
     LaunchedEffect(target, boardLoaded) {
         if (target == null || (!boardLoaded && board.loading)) return@LaunchedEffect
-        vm.openChange(com.ryderdavid.nacre.ui.workspace.spec.SpecList.resolveTarget(target, board.data?.changes?.changes.orEmpty()))
+        val changes = board.data?.changes?.changes.orEmpty()
+        if (target.startsWith("openspec/")) {
+            // A cited file: a change's document opens in the reader; a current spec shows in the list.
+            val change = com.ryderdavid.nacre.ui.workspace.chat.ChatSend.changeIdOf(target)
+            if (change != null) {
+                val id = com.ryderdavid.nacre.ui.workspace.spec.SpecList.resolveTarget(change, changes)
+                vm.openChange(id)
+                com.ryderdavid.nacre.ui.workspace.spec.DocKind.of(target)?.let { doc -> vm.open(com.ryderdavid.nacre.ui.workspace.spec.SpecScreen.Document(id, doc, anchor = if (doc == com.ryderdavid.nacre.ui.workspace.spec.DocKind.SPECS) com.ryderdavid.nacre.ui.workspace.spec.SpecList.capabilityOf(target).orEmpty() else "")) }
+            } else vm.stack.value = listOf(com.ryderdavid.nacre.ui.workspace.spec.SpecScreen.List)
+        } else vm.openChange(com.ryderdavid.nacre.ui.workspace.spec.SpecList.resolveTarget(target, changes))
         container.chats.references.specOpened(repoKey)
     }
 

@@ -87,7 +87,7 @@ func TestFinishIsBoundToTheEpicsBeads(t *testing.T) {
 	}
 	rg.facts.setBead(BeadFacts{ID: "N-9.3", Status: "open", Parent: "N-9"})
 	code, got := rg.answer(t, d.ID, `{"option":"finish"}`)
-	if code != 200 || got.State != "expired" || !strings.Contains(got.Reason, "the beads under N-9 changed") || len(rg.executed()) != 0 {
+	if code != 200 || got.State != "expired" || !strings.Contains(got.Reason, "the beads under N-9, its branch or where it lands changed") || len(rg.executed()) != 0 {
 		t.Fatalf("new bead: %d %+v", code, got)
 	}
 	// Reopening one changes the binding as well.
@@ -96,6 +96,21 @@ func TestFinishIsBoundToTheEpicsBeads(t *testing.T) {
 	rg.facts.setBead(BeadFacts{ID: "N-9.1", Status: "open", Parent: "N-9"})
 	if _, got := rg.answer(t, d2.ID, `{"option":"finish"}`); got.State != "expired" {
 		t.Fatalf("reopened: %+v", got)
+	}
+	// So do new commits on the epic branch and a different landing target.
+	rg.facts.setBead(BeadFacts{ID: "N-9.1", Status: "closed", Parent: "N-9"})
+	rg.facts.setHead("epic/n-9", "aaaa1111")
+	_, d3, _ := rg.raise(t, `{"kind":"finish","target":{"bead":"N-9"}}`)
+	rg.facts.setHead("epic/n-9", "bbbb2222")
+	if _, got := rg.answer(t, d3.ID, `{"option":"finish"}`); got.State != "expired" {
+		t.Fatalf("branch moved: %+v", got)
+	}
+	_, d4, _ := rg.raise(t, `{"kind":"finish","target":{"bead":"N-9"}}`)
+	rg.facts.mu.Lock()
+	rg.facts.target = "release"
+	rg.facts.mu.Unlock()
+	if _, got := rg.answer(t, d4.ID, `{"option":"finish"}`); got.State != "expired" {
+		t.Fatalf("target changed: %+v", got)
 	}
 }
 
@@ -603,5 +618,18 @@ func TestDevelopingLinksTheChangeToTheChat(t *testing.T) {
 	}
 	if got := rg.s.itemChats()(api.AttentionItem{Repo: rg.repo, BeadID: "N-1"}); got == nil || *got != rg.chatID {
 		t.Fatalf("by seed: %v", got)
+	}
+}
+
+// Found work in a bead under a section bead, or under a bead under one,
+// belongs to that section's change.
+func TestFoundWorkUnderASectionBeadFindsItsChange(t *testing.T) {
+	rg := newDecisionRig(t)
+	foundSetup(rg)
+	rg.facts.setBead(BeadFacts{ID: "N-3.1", Status: "open", Parent: "N-3"})
+	rg.facts.setBead(BeadFacts{ID: "N-3.1.1", Status: "open", Parent: "N-3.1"})
+	code, d, raw := rg.raise(t, `{"kind":"found","target":{"bead":"N-3.1.1"},"note":"Needs a migration"}`)
+	if code != 201 || d.Target.Change != "offline-chat-resume" {
+		t.Fatalf("raise: %d %+v %v", code, d, raw)
 	}
 }

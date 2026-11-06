@@ -179,4 +179,22 @@ class DecisionModelTest {
         val noDefault = d.copy(ask = ask.copy(default = ""))
         assertEquals("Pick one", DecisionModel.problem(noDefault, draft))
     }
+
+    @Test
+    fun `a disabled option is never preselected or sent`() {
+        val d = Decision(id = "i1", kind = "intake", options = listOf(
+            DecisionOption("amend:c1", "Amends c1", recommended = true, disabled = "Round r1 is working on c1"),
+            DecisionOption("later", "Create the bead, develop later"),
+        ))
+        assertEquals("later", DecisionModel.initialOption(d))
+        assertEquals("Round r1 is working on c1", DecisionModel.problem(d, DecisionDraft(option = "amend:c1")))
+        assertNull(DecisionModel.problem(d, DecisionDraft(option = "later")))
+    }
+
+    @Test
+    fun `a chat's expired intake or found card isn't offered Ask again`() {
+        assertFalse(DecisionModel.canRenew(Decision(id = "i", kind = "intake", source = "agent", state = "expired")))
+        assertFalse(DecisionModel.canRenew(Decision(id = "f", kind = "found", source = "agent", state = "expired")))
+        assertTrue(DecisionModel.canRenew(Decision(id = "a", kind = "approve", source = "agent", state = "expired")))
+    }
 }

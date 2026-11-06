@@ -305,8 +305,29 @@ func (s *Server) foundChange(ctx context.Context, ref repos.Ref, t decisions.Tar
 					pick(func(c api.ChangeSummary) bool { return c.ID == id })
 				}
 			}
-			if b.Parent != "" {
-				pick(func(c api.ChangeSummary) bool { return c.EpicID == b.Parent })
+			// Walk up through section beads and beads under them to the epic.
+			parent := b.Parent
+			for depth := 0; change == nil && parent != "" && depth < 6; depth++ {
+				p := parent
+				pick(func(c api.ChangeSummary) bool {
+					if c.EpicID == p {
+						return true
+					}
+					for _, sec := range c.Sections {
+						if sec.BeadID == p {
+							return true
+						}
+					}
+					return false
+				})
+				if change != nil {
+					break
+				}
+				pb, err := s.facts().Bead(ctx, ref.Path, p)
+				if err != nil {
+					break
+				}
+				parent = pb.Parent
 			}
 		}
 	}

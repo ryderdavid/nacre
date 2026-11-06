@@ -44,7 +44,12 @@ const maxBody = 1 << 20
 type Server struct {
 	// following counts decisions being followed to their outcome in the
 	// background; tests wait on it before their temporary files go.
-	following     sync.WaitGroup
+	following sync.WaitGroup
+	// announced are the Needs you decisions already published as new; nil
+	// until the first sweep, which records what already waits without
+	// announcing it.
+	announceMu    sync.Mutex
+	announced     map[string]bool
 	stopFollow    chan struct{}
 	stopOnce      sync.Once
 	followInit    sync.Once

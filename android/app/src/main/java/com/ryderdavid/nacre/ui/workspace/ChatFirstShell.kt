@@ -222,9 +222,9 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                     if (id.isNotBlank()) { queue = false; inspecting = InspectTarget(h, "round", id, e.label, review = true) }
                 }
                 "review" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; queue = false; inspecting = null }
-                // A requirement or spec file by path: its change when it's under one, else the Spec panel.
+                // A requirement or spec file by path: the change's document in the reader, or a current spec in the list.
                 "spec" -> {
-                    com.ryderdavid.nacre.ui.workspace.chat.ChatSend.changeIdOf(e.ref)?.takeIf { '/' in e.ref }?.let { container.chats.references.openSpec(repoKey, it) }
+                    if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref)
                     destination = Destination.SPEC; queue = false; inspecting = null
                 }
                 "bead" -> { if (e.ref.isNotBlank()) container.chats.references.openBead(repoKey, Keys.id(e.ref)); destination = Destination.BEADS; queue = false; inspecting = null }

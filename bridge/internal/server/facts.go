@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ryderdavid/nacre/bridge/internal/gitx"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
@@ -30,6 +31,8 @@ type Facts interface {
 	// Land is nacre.yaml's landing target and whether landing pushes; push
 	// is nil when nacre.yaml can't be read.
 	Land(repoPath string) (target string, push *bool)
+	// Head is the commit a local branch points at, or "" when it doesn't exist.
+	Head(ctx context.Context, repoPath, branch string) string
 }
 
 // BeadFacts is what decisions read of a bead.
@@ -129,6 +132,14 @@ func (f liveFacts) Intake(ctx context.Context, repoPath string, draft specflow.I
 		return specflow.IntakeVerdict{}, fmt.Errorf("%w: Specification workflows are unavailable on this bridge.", specflow.ErrUnavailable)
 	}
 	return f.s.Changes.Intake(ctx, repoPath, draft)
+}
+
+func (f liveFacts) Head(ctx context.Context, repoPath, branch string) string {
+	sha, err := gitx.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	return sha
 }
 
 func (f liveFacts) Land(repoPath string) (string, *bool) {

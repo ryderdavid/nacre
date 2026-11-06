@@ -35,6 +35,8 @@ type fakeFacts struct {
 	verdict   specflow.IntakeVerdict
 	intakeErr error
 	intakes   int
+	// heads answers Head by branch.
+	heads map[string]string
 }
 
 func newFacts() *fakeFacts {
@@ -98,6 +100,19 @@ func (f *fakeFacts) Intake(context.Context, string, specflow.IntakeDraft) (specf
 	return f.verdict, f.intakeErr
 }
 func (f *fakeFacts) setBead(b BeadFacts) { f.mu.Lock(); f.beads[b.ID] = b; f.mu.Unlock() }
+func (f *fakeFacts) Head(_ context.Context, _, branch string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.heads[branch]
+}
+func (f *fakeFacts) setHead(branch, sha string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.heads == nil {
+		f.heads = map[string]string{}
+	}
+	f.heads[branch] = sha
+}
 func (f *fakeFacts) Land(string) (string, *bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

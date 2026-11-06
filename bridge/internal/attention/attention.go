@@ -179,12 +179,20 @@ func (b *Builder) readRepo(ctx context.Context, ref repos.Ref, c cached) []api.A
 	items := beadItems(ref, beads)
 	items = append(items, b.stuckItems(ref, beads)...)
 	if b.Changes != nil {
-		if changes, err := b.Changes(ref.Path); err == nil {
-			items = append(items, epicItems(ref, beads, changes)...)
-			items = append(items, changeItems(ref, changes, beads)...)
-			items = append(items, foundBeadItems(ref, changes, beads)...)
-			items = append(items, b.foundCommentItems(outer, ref, changes, c.items)...)
+		changes, err := b.Changes(ref.Path)
+		if err != nil {
+			// Without the changes the list is incomplete: change and found
+			// items would look answered. Keep what was known and read again
+			// next time rather than caching a partial list.
+			if c.items != nil {
+				return c.items
+			}
+			return items
 		}
+		items = append(items, epicItems(ref, beads, changes)...)
+		items = append(items, changeItems(ref, changes, beads)...)
+		items = append(items, foundBeadItems(ref, changes, beads)...)
+		items = append(items, b.foundCommentItems(outer, ref, changes, c.items)...)
 	}
 	b.mu.Lock()
 	b.cache[ref.Path] = cached{b.now(), items, beads}

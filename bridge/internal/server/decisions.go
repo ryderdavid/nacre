@@ -146,6 +146,7 @@ func (s *Server) queue(ctx context.Context) []decisions.Record {
 		}
 	}
 	virtual := s.attentionDecisions(ctx)
+	s.announce(virtual)
 	live := map[string]bool{}
 	for _, rec := range virtual {
 		live[rec.AttentionID] = true
@@ -1039,6 +1040,7 @@ func (s *Server) StartDecisions(ctx context.Context) {
 	if s.Decisions == nil {
 		return
 	}
+	s.announceNeedsYou(ctx)
 	for _, rec := range s.Decisions.List() {
 		if rec.Decision.State != decisions.StateExecuting {
 			continue
@@ -1059,8 +1061,43 @@ func (s *Server) StartDecisions(ctx context.Context) {
 				return
 			case <-tick.C:
 				s.Decisions.Sweep()
+				s.announceNeedsYou(ctx)
 				s.revalidateOpen(ctx)
 			}
 		}
 	}()
+}
+
+// announceNeedsYou publishes Needs you decisions that appeared since the
+// last look, so a phone hears about them without listing the queue.
+func (s *Server) announceNeedsYou(ctx context.Context) {
+	if s.Attention == nil {
+		return
+	}
+	s.announce(s.attentionDecisions(ctx))
+}
+
+// announce publishes each derived decision the first time it is seen. The
+// first call only records what already waits: a restart announces nothing.
+func (s *Server) announce(virtual []decisions.Record) {
+	s.announceMu.Lock()
+	first := s.announced == nil
+	if first {
+		s.announced = map[string]bool{}
+	}
+	var fresh []decisions.Decision
+	for _, rec := range virtual {
+		id := rec.Decision.ID
+		if s.announced[id] {
+			continue
+		}
+		s.announced[id] = true
+		if _, stored := s.Decisions.Get(id); !first && !stored {
+			fresh = append(fresh, rec.Decision)
+		}
+	}
+	s.announceMu.Unlock()
+	for _, d := range fresh {
+		s.decisionChanged(d)
+	}
 }

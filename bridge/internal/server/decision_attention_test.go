@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/attention"
 	"github.com/ryderdavid/nacre/bridge/internal/decisions"
+	"github.com/ryderdavid/nacre/bridge/internal/sse"
 )
 
 // attentionRig is a decision rig whose Needs you holds a round ready to
@@ -179,5 +181,66 @@ func TestANeedsYouDecisionExpiresWhenItsItemMoves(t *testing.T) {
 	code, got := rg.answer(t, land.ID, `{"option":"land"}`)
 	if code != http.StatusOK || got.State != "expired" || len(rg.executed()) != 0 {
 		t.Fatalf("moved item: %d %+v", code, got)
+	}
+}
+
+// A deferred Needs you sign-off whose check changes expires, and the card for
+// the new check takes its place under its own id instead of being hidden
+// behind the expired one.
+func TestChangedCheckReplacesADeferredNeedsYouCard(t *testing.T) {
+	rg, _ := attentionRig(t)
+	old := revalidateEvery
+	revalidateEvery = 0
+	defer func() { revalidateEvery = old }()
+	first := byKind(rg.queueList(t, "/v1/decisions"))["signoff"]
+	if len(first) != 1 {
+		t.Fatalf("signoff %+v", first)
+	}
+	if code, _ := rg.answer(t, first[0].ID, `{"defer":true}`); code != 200 {
+		t.Fatalf("defer %d", code)
+	}
+	rg.facts.setBead(BeadFacts{ID: "N-5", Title: "Drafts survive", Status: "open", Labels: []string{"signoff"},
+		Metadata: map[string]any{"signoff": "Kill the app mid-draft, then rotate it"}})
+	var open []decisions.Decision
+	for _, d := range rg.queueList(t, "/v1/decisions") {
+		if d.Kind == "signoff" {
+			open = append(open, d)
+		}
+	}
+	if len(open) != 1 || open[0].ID == first[0].ID || open[0].State != "pending" || open[0].Body != "Kill the app mid-draft, then rotate it" {
+		t.Fatalf("after the check changed: %+v", open)
+	}
+	if got := rg.get(t, first[0].ID); got.State != "expired" {
+		t.Fatalf("old card %+v", got)
+	}
+}
+
+// A Needs you decision is announced on /v1/events the first time it is seen
+// after the first look; what already waited at start is not announced.
+func TestNewNeedsYouDecisionsAreAnnounced(t *testing.T) {
+	rg, _ := attentionRig(t)
+	if rg.s.Broker == nil {
+		rg.s.Broker = sse.NewBroker()
+	}
+	events, stop := rg.s.Broker.Subscribe()
+	defer stop()
+	a := decisions.Record{Decision: decisions.Decision{ID: "dc_a", Kind: "question", State: "pending"}}
+	b := decisions.Record{Decision: decisions.Decision{ID: "dc_b", Kind: "question", State: "pending"}}
+	rg.s.announce([]decisions.Record{a})
+	rg.s.announce([]decisions.Record{a, b})
+	rg.s.announce([]decisions.Record{a, b})
+	var got []string
+	for done := false; !done; {
+		select {
+		case m := <-events:
+			if m.Event == "decision" {
+				got = append(got, string(m.Data))
+			}
+		default:
+			done = true
+		}
+	}
+	if len(got) != 1 || !strings.Contains(got[0], `"dc_b"`) {
+		t.Fatalf("announced %v", got)
 	}
 }
