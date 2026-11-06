@@ -92,6 +92,10 @@ type Server struct {
 	DecisionExec func(ctx context.Context, act decisions.Action) (status int, body []byte)
 	innerOnce    sync.Once
 	innerHandler http.Handler
+	// checked is when each open decision was last revalidated by a list or
+	// sweep.
+	checkedMu sync.Mutex
+	checked   map[string]time.Time
 
 	// signIn is the Claude sign-in the app is part way through.
 	signInMu sync.Mutex

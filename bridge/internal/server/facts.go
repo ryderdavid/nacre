@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/repoconfig"
@@ -19,6 +20,13 @@ type Facts interface {
 	// Changes summarizes a repository's changes.
 	Changes(repoPath string) ([]api.ChangeSummary, error)
 	Bead(ctx context.Context, repoPath, id string) (BeadFacts, error)
+	// Children are the beads under a bead, closed ones included.
+	Children(ctx context.Context, repoPath, id string) ([]BeadFacts, error)
+	// RoundsOf are a repository's rounds, ended ones included.
+	RoundsOf(repoID string) []api.Round
+	// Intake is a New effort draft's intake verdict: one bounded, read-only
+	// model call.
+	Intake(ctx context.Context, repoPath string, draft specflow.IntakeDraft) (specflow.IntakeVerdict, error)
 	// Land is nacre.yaml's landing target and whether landing pushes; push
 	// is nil when nacre.yaml can't be read.
 	Land(repoPath string) (target string, push *bool)
@@ -26,13 +34,15 @@ type Facts interface {
 
 // BeadFacts is what decisions read of a bead.
 type BeadFacts struct {
-	ID        string         `json:"id"`
-	Title     string         `json:"title"`
-	Status    string         `json:"status"`
-	Type      string         `json:"issue_type"`
-	Labels    []string       `json:"labels"`
-	Metadata  map[string]any `json:"metadata"`
-	UpdatedAt string         `json:"updated_at"`
+	ID          string         `json:"id"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Status      string         `json:"status"`
+	Parent      string         `json:"parent"`
+	Type        string         `json:"issue_type"`
+	Labels      []string       `json:"labels"`
+	Metadata    map[string]any `json:"metadata"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 // HasLabel reports whether the bead carries label.
@@ -89,6 +99,36 @@ func (f liveFacts) Bead(ctx context.Context, repoPath, id string) (BeadFacts, er
 	var b BeadFacts
 	err = json.Unmarshal(raw, &b)
 	return b, err
+}
+
+func (f liveFacts) Children(ctx context.Context, repoPath, id string) ([]BeadFacts, error) {
+	raw, err := f.s.BD.Children(ctx, repoPath, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BeadFacts, 0, len(raw))
+	for _, r := range raw {
+		var b BeadFacts
+		if err := json.Unmarshal(r, &b); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+func (f liveFacts) RoundsOf(repoID string) []api.Round {
+	if f.s.Rounds == nil {
+		return nil
+	}
+	return f.s.Rounds.List(repoID, false)
+}
+
+func (f liveFacts) Intake(ctx context.Context, repoPath string, draft specflow.IntakeDraft) (specflow.IntakeVerdict, error) {
+	if f.s.Changes == nil {
+		return specflow.IntakeVerdict{}, fmt.Errorf("%w: Specification workflows are unavailable on this bridge.", specflow.ErrUnavailable)
+	}
+	return f.s.Changes.Intake(ctx, repoPath, draft)
 }
 
 func (f liveFacts) Land(repoPath string) (string, *bool) {

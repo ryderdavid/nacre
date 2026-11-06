@@ -6,7 +6,7 @@
 package decisions
 
 // Decision kinds. The first six are protected actions an agent can raise;
-// the rest come from Needs you.
+// an agent also raises intake and found; the rest come from Needs you.
 const (
 	KindApprove  = "approve"
 	KindLand     = "land"
@@ -23,6 +23,20 @@ const (
 // ProtectedKinds are the actions only Ryder authorizes, in the order docs
 // and refusals name them.
 var ProtectedKinds = []string{KindApprove, KindLand, KindFinish, KindSignoff, KindLimit, KindAdopt}
+
+// AgentKinds are the decisions a chat can raise: the protected actions, a
+// new effort's intake verdict and found work.
+var AgentKinds = append(append([]string{}, ProtectedKinds...), KindIntake, KindFound)
+
+// Protected reports whether kind is a protected action.
+func Protected(kind string) bool {
+	for _, k := range ProtectedKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // Sources of a decision.
 const (

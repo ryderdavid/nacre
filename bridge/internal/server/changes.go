@@ -67,6 +67,14 @@ func (s *Server) actOnChange(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if sc := scopeOf(r.Context()); sc.Chat() && s.Decisions != nil && action.Action == "develop" {
+		// The chat that develops a change is where its decisions show.
+		repoID := r.PathValue("repo")
+		s.Decisions.LinkWork(beadLink(repoID, id), sc.ChatID)
+		if result.Change != nil && result.Change.ID != "" {
+			s.Decisions.LinkWork(changeLink(repoID, result.Change.ID), sc.ChatID)
+		}
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 

@@ -2,14 +2,21 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
+	"github.com/ryderdavid/nacre/bridge/internal/bd"
 	"github.com/ryderdavid/nacre/bridge/internal/decisions"
 	"github.com/ryderdavid/nacre/bridge/internal/repos"
 	"github.com/ryderdavid/nacre/bridge/internal/rounds"
@@ -50,9 +57,9 @@ func (s *Server) buildDecision(ctx context.Context, repoID, kind string, t decis
 		return s.buildLimit(t)
 	case decisions.KindApprove, decisions.KindAdopt, decisions.KindFinish, decisions.KindSignoff:
 	case "":
-		return decisions.Record{}, badDecision("kind required: one of %s", strings.Join(decisions.ProtectedKinds, ", "))
+		return decisions.Record{}, badDecision("kind required: one of %s", strings.Join(decisions.AgentKinds, ", "))
 	default:
-		return decisions.Record{}, badDecision("A chat can raise %s decisions, not %q.", strings.Join(decisions.ProtectedKinds, ", "), kind)
+		return decisions.Record{}, badDecision("A chat can raise %s decisions, not %q.", strings.Join(decisions.AgentKinds, ", "), kind)
 	}
 	ref, err := s.repoRef(repoID)
 	if err != nil {
@@ -296,6 +303,10 @@ func (s *Server) buildAdopt(ctx context.Context, ref repos.Ref, t decisions.Targ
 	if a.Problem != "" {
 		return decisions.Record{}, notNow("%s can't be adopted as it stands: %s", t.Change, a.Problem)
 	}
+	files, err := changeFilesDigest(ref.Path, t.Change)
+	if err != nil {
+		return decisions.Record{}, err
+	}
 	path := "/v1/repos/" + ref.ID + "/issues/" + t.Bead + "/change"
 	opts := []decisions.Option{{ID: "adopt", Label: "Adopt as written",
 		Detail: "Takes the files over as they stand; an independent review runs before you approve", Recommended: true, Protected: true}}
@@ -310,8 +321,8 @@ func (s *Server) buildAdopt(ctx context.Context, ref repos.Ref, t decisions.Targ
 		Decision: decisions.Decision{
 			Repo: ref.ID, RepoName: ref.Name, Kind: decisions.KindAdopt,
 			Title:    "Adopt " + t.Change + " as written",
-			Subtitle: s.subtitle(ref.Name, t.Bead),
-			Target:   decisions.Target{Change: t.Change, Bead: t.Bead},
+			Subtitle: s.subtitle(ref.Name, t.Bead, "files "+short(files)),
+			Target:   decisions.Target{Change: t.Change, Bead: t.Bead, Revision: files},
 			Consequences: []string{
 				fmt.Sprintf("Takes %s over as written: %d of %d tasks already checked", t.Change, a.TasksDone, a.TasksTotal),
 				"Nacre tracks it from here; its sections become beads once you approve it",
@@ -322,7 +333,7 @@ func (s *Server) buildAdopt(ctx context.Context, ref repos.Ref, t decisions.Targ
 			AllowDefer: true, AllowReject: true, RejectLabel: "Not now",
 		},
 		Actions: actions,
-		Bound:   fmt.Sprintf("%d/%d review=%v", a.TasksDone, a.TasksTotal, a.HasReview),
+		Bound:   files,
 		Key:     "adopt:" + ref.ID + ":" + t.Bead,
 	}, nil
 }
@@ -438,11 +449,27 @@ func (s *Server) buildFinish(ctx context.Context, ref repos.Ref, t decisions.Tar
 	}
 	b, err := s.facts().Bead(ctx, ref.Path, epic)
 	if err != nil {
-		return decisions.Record{}, noTarget("%s: %v", epic, err)
+		return decisions.Record{}, beadErr(epic, err)
 	}
 	if b.Status == "closed" {
 		return decisions.Record{}, notNow("%s is already closed", epic)
 	}
+	kids, err := s.facts().Children(ctx, ref.Path, epic)
+	if err != nil {
+		return decisions.Record{}, err
+	}
+	// Bound to the epic's beads as they are: one added, reopened or closed
+	// since makes a different finish.
+	parts := []string{"epic", b.Status}
+	sort.Slice(kids, func(i, j int) bool { return kids[i].ID < kids[j].ID })
+	open := 0
+	for _, k := range kids {
+		parts = append(parts, k.ID+"="+k.Status)
+		if k.Status != "closed" {
+			open++
+		}
+	}
+	bound := hashOf(parts...)
 	target, push := s.facts().Land(ref.Path)
 	cons := []string{"Merges " + rounds.EpicBranch(epic) + " into " + target + " with every gate and the build"}
 	title := "Finish " + epic
@@ -454,11 +481,18 @@ func (s *Server) buildFinish(ctx context.Context, ref repos.Ref, t decisions.Tar
 		title = "Archive " + change + " and merge into " + target
 	}
 	cons = append(cons, s.pushLine(target, push), "Closes "+epic+" and deletes its branch")
+	if len(kids) > 0 {
+		line := "Covers " + plural(len(kids), "bead", "beads") + " under " + epic
+		if open > 0 {
+			line += fmt.Sprintf("; %d still open", open)
+		}
+		cons = append(cons, line)
+	}
 	return decisions.Record{
 		Decision: decisions.Decision{
 			Repo: ref.ID, RepoName: ref.Name, Kind: decisions.KindFinish,
 			Title: title, Subtitle: s.subtitle(ref.Name, epic),
-			Target:       decisions.Target{Bead: epic, Change: change},
+			Target:       decisions.Target{Bead: epic, Change: change, Revision: bound},
 			Consequences: cons,
 			Evidence:     []decisions.Evidence{{Label: "Epic " + epic, Kind: "bead", Ref: epic, Repo: ref.ID}},
 			Options: []decisions.Option{{ID: "finish", Label: mergeLabel(target, push), Detail: "Finishes " + epic,
@@ -466,7 +500,7 @@ func (s *Server) buildFinish(ctx context.Context, ref repos.Ref, t decisions.Tar
 			AllowDefer: true, AllowReject: true, RejectLabel: "Don't land",
 		},
 		Actions:     map[string]decisions.Action{"finish": {Method: "POST", Path: "/v1/repos/" + ref.ID + "/epics/" + epic + "/finish"}},
-		RejectHolds: true, Bound: b.Status, Key: "finish:" + ref.ID + ":" + epic, Follow: true,
+		RejectHolds: true, Bound: bound, Key: "finish:" + ref.ID + ":" + epic, Follow: true,
 	}, nil
 }
 
@@ -479,18 +513,21 @@ func (s *Server) buildSignoff(ctx context.Context, ref repos.Ref, t decisions.Ta
 	}
 	b, err := s.facts().Bead(ctx, ref.Path, t.Bead)
 	if err != nil {
-		return decisions.Record{}, noTarget("%s: %v", t.Bead, err)
+		return decisions.Record{}, beadErr(t.Bead, err)
 	}
 	if b.Status == "closed" || !b.HasLabel(api.SignoffLabel) {
 		return decisions.Record{}, notNow("%s isn't waiting for your sign-off", t.Bead)
 	}
 	check, _ := b.Metadata[api.SignoffKey].(string)
+	// Bound to what Ryder is asked to check: the bead's title, description
+	// and check text.
+	bound := hashOf("signoff", b.Title, b.Description, check)
 	path := "/v1/repos/" + ref.ID + "/issues/" + t.Bead + "/signoff"
 	return decisions.Record{
 		Decision: decisions.Decision{
 			Repo: ref.ID, RepoName: ref.Name, Kind: decisions.KindSignoff,
 			Title: "Sign off " + t.Bead + ": " + b.Title, Subtitle: s.subtitle(ref.Name, t.Bead),
-			Target: decisions.Target{Bead: t.Bead},
+			Target: decisions.Target{Bead: t.Bead, Revision: bound},
 			Consequences: []string{"Closes " + t.Bead + " as signed off",
 				"Not right sends it back with your note; it stays open as ordinary work"},
 			Evidence: []decisions.Evidence{{Label: t.Bead, Kind: "bead", Ref: t.Bead, Repo: ref.ID}},
@@ -501,7 +538,7 @@ func (s *Server) buildSignoff(ctx context.Context, ref repos.Ref, t decisions.Ta
 		},
 		Actions: map[string]decisions.Action{"signoff": {Method: "POST", Path: path, Body: map[string]any{"approve": true}, NoteField: "note"}},
 		Reject:  &decisions.Action{Method: "POST", Path: path, Body: map[string]any{"approve": false}, NoteField: "note"},
-		Bound:   "signoff", Key: "signoff:" + ref.ID + ":" + t.Bead,
+		Bound:   bound, Key: "signoff:" + ref.ID + ":" + t.Bead,
 	}, nil
 }
 
@@ -545,15 +582,72 @@ func (s *Server) buildLimit(t decisions.Target) (decisions.Record, error) {
 	}, nil
 }
 
-// revisionLabel names a bound revision in an expiry reason.
-func revisionLabel(kind, bound string) string {
-	switch kind {
+// expiryReason says why a decision bound to old expired now that fresh is
+// current, naming both where they are revisions.
+func expiryReason(d decisions.Decision, old, fresh string) string {
+	switch d.Kind {
 	case decisions.KindApprove:
-		return "revision " + short(bound)
+		return "Expired: it was for revision " + short(old) + ", and revision " + short(fresh) + " is current. Ask again to decide on that."
 	case decisions.KindLand:
-		return "commit " + short(bound)
+		return "Expired: it was for commit " + short(old) + ", and commit " + short(fresh) + " is current. Ask again to decide on that."
 	case decisions.KindLimit:
-		return "a budget of $" + bound
+		return "Expired: it was for a budget of $" + old + ", and the budget is $" + fresh + " now. Ask again to decide on that."
+	case decisions.KindAdopt:
+		return "Expired: " + d.Target.Change + "'s files changed since this was raised (files " + short(old) + ", now " + short(fresh) + "). Ask again to decide on what they say now."
+	case decisions.KindFinish:
+		return "Expired: the beads under " + d.Target.Bead + " changed since this was raised. Ask again to decide on finishing it as it is now."
+	case decisions.KindSignoff:
+		return "Expired: " + d.Target.Bead + "'s check changed since this was raised. Ask again to sign off what it asks now."
 	}
-	return bound
+	return "Expired: what it was for changed. Ask again to decide on it as it is now."
+}
+
+// hashOf is a short digest of parts, for binding a decision to content.
+func hashOf(parts ...string) string {
+	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(h[:10])
+}
+
+// changeFilesDigest binds an adoption to the change's files as they stand:
+// every file under openspec/changes/<name>/, by path and content. A missing
+// folder digests as empty.
+func changeFilesDigest(repoPath, name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		return "", badDecision("invalid change name")
+	}
+	root := filepath.Join(repoPath, "openspec", "changes", name)
+	h := sha256.New()
+	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if !e.Type().IsRegular() {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(data))
+		h.Write(data)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)[:10]), nil
+}
+
+// beadErr is a bead that couldn't be read: 404 when bd says it doesn't
+// exist, the read's own error otherwise (a failed read isn't a missing bead).
+func beadErr(id string, err error) error {
+	var be *bd.Error
+	if (errors.As(err, &be) && be.NotFound) || strings.Contains(err.Error(), "no issue") {
+		return noTarget("%s: %v", id, err)
+	}
+	return err
 }

@@ -158,3 +158,35 @@ func TestFoundOnTheEpicNeedsNoDiscoveredFromLink(t *testing.T) {
 		}
 	})
 }
+
+// Out of scope, created now: a bead of its own related to the epic, not a
+// child of it, and the comment it answers is marked.
+func TestFoundOutOfScopeCreatesARelatedBead(t *testing.T) {
+	repo, b, _, opts := fixture(t)
+	m := newManager(t, opts)
+	c := approve(t, m, repo, develop(t, m, repo))
+	s := c.Sections[0].BeadID
+	b.mu.Lock()
+	b.comments[s] = append(b.comments[s], api.Comment{ID: "c9", Text: "Found: the export needs a CLI too"})
+	b.mu.Unlock()
+	out, err := m.Found(context.Background(), repo, c.ID, FoundRequest{Answer: FoundOutOfScope, FoundIn: s, CommentID: "c9", Create: true})
+	if err != nil || out.BeadID == "" || out.Prefill == nil || out.Prefill.Related[0] != c.EpicID || out.Prefill.FoundComment != nil {
+		t.Fatalf("out of scope=%+v err=%v", out, err)
+	}
+	p := b.created[len(b.created)-1]
+	if p.Parent != "" || p.Title != "the export needs a CLI too" || !strings.Contains(p.Description, "Out of scope of") || !strings.Contains(p.Description, "Found in: "+s) {
+		t.Fatalf("created %+v", p)
+	}
+	b.edit(out.BeadID, func(is *issue) {
+		if !hasDependency(*is, c.EpicID, "related") || hasDependency(*is, c.EpicID, "parent-child") || !hasDependency(*is, s, "discovered-from") {
+			t.Fatalf("links %+v", is.Dependencies)
+		}
+	})
+	comments, _ := b.Comments(context.Background(), repo, s)
+	if last := comments[len(comments)-1].Text; !strings.HasPrefix(last, FoundMarker("c9")) || !strings.Contains(last, out.BeadID) {
+		t.Fatalf("marker=%q", last)
+	}
+	if _, err := m.Found(context.Background(), repo, c.ID, FoundRequest{Answer: FoundOutOfScope, Create: true}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("no note accepted: %v", err)
+	}
+}

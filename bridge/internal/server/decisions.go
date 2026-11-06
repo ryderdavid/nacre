@@ -15,6 +15,7 @@ import (
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
 	"github.com/ryderdavid/nacre/bridge/internal/decisions"
+	"github.com/ryderdavid/nacre/bridge/internal/specflow"
 )
 
 // Timing of decision execution; tests shorten them.
@@ -43,6 +44,10 @@ type raiseRequest struct {
 	Target decisions.Target `json:"target"`
 	// Repo is the repository key, when the chat isn't in it.
 	Repo string `json:"repo"`
+	// Draft is an intake decision's New effort draft.
+	Draft *specflow.IntakeDraft `json:"draft"`
+	// Note is what found work is.
+	Note string `json:"note"`
 }
 
 // raiseDecision builds a decision an agent asks for and stores it as
@@ -71,7 +76,15 @@ func (s *Server) raiseDecision(w http.ResponseWriter, r *http.Request) {
 	if repo == "" && rec.Repo != nil {
 		repo = *rec.Repo
 	}
-	built, err := s.buildDecision(r.Context(), repo, req.Kind, req.Target)
+	var built decisions.Record
+	switch req.Kind {
+	case decisions.KindIntake:
+		built, err = s.buildIntake(r.Context(), repo, chatID, req.Target, req.Draft)
+	case decisions.KindFound:
+		built, err = s.buildFound(r.Context(), repo, chatID, req.Target, req.Note)
+	default:
+		built, err = s.buildDecision(r.Context(), repo, req.Kind, req.Target)
+	}
 	if err != nil {
 		s.decisionFail(w, err)
 		return
@@ -122,6 +135,7 @@ func (s *Server) listDecisions(w http.ResponseWriter, r *http.Request) {
 // stored and not covered by an open stored decision for the same target,
 // questions first, then approvals, then landing, newest first in each.
 func (s *Server) queue(ctx context.Context) []decisions.Record {
+	s.revalidateOpen(ctx)
 	stored := s.Decisions.List()
 	byID := map[string]bool{}
 	openKeys := map[string]bool{}
@@ -213,6 +227,7 @@ type answerBody struct {
 	Option      string          `json:"option"`
 	Note        string          `json:"note"`
 	Input       json.RawMessage `json:"input"`
+	Ask         string          `json:"ask"`
 	Defer       bool            `json:"defer"`
 	Reject      bool            `json:"reject"`
 	Acknowledge bool            `json:"acknowledge"`
@@ -407,7 +422,11 @@ func (s *Server) chooseOption(ctx context.Context, rec decisions.Record, body an
 		return rec, refuse(http.StatusBadRequest, "unknown option %q", body.Option)
 	}
 	input := body.inputText()
-	ans := decisions.Answer{Option: opt.ID, Note: body.Note, Input: input}
+	ask := strings.TrimSpace(body.Ask)
+	if in := rec.Decision.Ask; in != nil && ask == "" {
+		ask = in.Default
+	}
+	ans := decisions.Answer{Option: opt.ID, Note: body.Note, Input: input, Ask: ask}
 	if d := rec.Decision; d.Answer != nil && d.Answer.Same(ans) && !d.Answerable() {
 		// The same answer again: its result, not a second execution.
 		return rec, nil
@@ -416,6 +435,9 @@ func (s *Server) chooseOption(ctx context.Context, rec decisions.Record, body an
 		return rec, refuse(http.StatusConflict, "%s", opt.Disabled)
 	}
 	if msg := checkInput(opt.Input, input); msg != "" {
+		return rec, refuse(http.StatusBadRequest, "%s", msg)
+	}
+	if msg := checkInput(rec.Decision.Ask, ask); msg != "" {
 		return rec, refuse(http.StatusBadRequest, "%s", msg)
 	}
 	act, ok := rec.Actions[opt.ID]
@@ -524,9 +546,9 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 		}
 		return out, err
 	}
-	act = fill(act, input, ans.Note)
+	act = fill(act, input, ans.Note, ans.Ask)
 	ectx, cancel := context.WithTimeout(ctx, execTimeout)
-	status, resp := s.execAction(ectx, act)
+	status, resp, said := s.execChain(ectx, rec, act)
 	cancel()
 	follow := rec.Follow && !ans.Reject && status/100 == 2 && ans.Option != "cancel"
 	out, err = s.Decisions.Update(rec.Decision.ID, func(r *decisions.Record) bool {
@@ -547,9 +569,17 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 			if ans.Reject {
 				d.State = decisions.StateDeclined
 			}
-			d.Result = &decisions.Result{OK: true, Message: doneMessage(*r, ans, resp)}
-		case status/100 == 4 || status == http.StatusServiceUnavailable:
-			msg := errorMessage(resp, status)
+			msg := said
+			if msg == "" {
+				msg = doneMessage(*r, ans, resp)
+			}
+			d.Result = &decisions.Result{OK: true, Message: msg}
+		case status/100 == 4 || status == http.StatusServiceUnavailable || said != "":
+			// A chain that stopped part way says what it did and what didn't happen.
+			msg := said
+			if msg == "" {
+				msg = errorMessage(resp, status)
+			}
 			d.State, d.Reason, d.Result = decisions.StateFailed, msg, &decisions.Result{OK: false, Message: msg}
 		default:
 			msg := "nacred couldn't tell whether it ran: " + errorMessage(resp, status) + ". Check before answering again."
@@ -571,8 +601,8 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 	return out, err
 }
 
-// fill puts an answer's input and note into an action's body.
-func fill(act decisions.Action, input, note string) decisions.Action {
+// fill puts an answer's input, note and ask into an action's body.
+func fill(act decisions.Action, input, note, ask string) decisions.Action {
 	body := map[string]any{}
 	for k, v := range act.Body {
 		body[k] = v
@@ -587,6 +617,9 @@ func fill(act decisions.Action, input, note string) decisions.Action {
 	if act.NoteField != "" && note != "" {
 		body[act.NoteField] = note
 	}
+	if act.AskField != "" && ask != "" {
+		body[act.AskField] = ask
+	}
 	act.Body = body
 	return act
 }
@@ -596,6 +629,9 @@ func fill(act decisions.Action, input, note string) decisions.Action {
 func (s *Server) execAction(ctx context.Context, act decisions.Action) (int, []byte) {
 	if s.DecisionExec != nil {
 		return s.DecisionExec(ctx, act)
+	}
+	if act.Method == decisions.MethodEffort {
+		return s.startEffort(act)
 	}
 	var rd *bytes.Reader
 	if len(act.Body) > 0 {
@@ -697,19 +733,25 @@ func doneMessage(rec decisions.Record, ans decisions.Answer, resp []byte) string
 // revalidate checks a decision still applies before it runs: the revision it
 // was bound to is current and its action still applies. It returns why not.
 func (s *Server) revalidate(ctx context.Context, rec decisions.Record) string {
+	reason, _ := s.stale(ctx, rec)
+	return reason
+}
+
+// stale says why a decision no longer applies, and whether that is sure: a
+// moved revision or an action that no longer applies is; a read that failed
+// (bd timing out) isn't, and a sweep leaves the decision alone for it.
+func (s *Server) stale(ctx context.Context, rec decisions.Record) (string, bool) {
 	d := rec.Decision
 	if rec.AttentionID != "" {
 		if !s.attentionStill(ctx, rec.AttentionID) {
-			return "This is no longer waiting on you: its state changed. Refresh to see what is."
+			return "This is no longer waiting on you: its state changed. Refresh to see what is.", true
 		}
 		if rec.Bound == "" {
-			return ""
+			return "", false
 		}
 	}
-	switch d.Kind {
-	case decisions.KindApprove, decisions.KindAdopt, decisions.KindLand, decisions.KindFinish, decisions.KindSignoff, decisions.KindLimit:
-	default:
-		return ""
+	if !decisions.Protected(d.Kind) {
+		return "", false
 	}
 	t := d.Target
 	t.Revision, t.Commit = "", ""
@@ -718,12 +760,64 @@ func (s *Server) revalidate(ctx context.Context, rec decisions.Record) string {
 	}
 	fresh, err := s.buildDecision(ctx, d.Repo, d.Kind, t)
 	if err != nil {
-		return "It no longer applies: " + err.Error()
+		var be *buildError
+		return "It no longer applies: " + err.Error(), errors.As(err, &be)
 	}
 	if fresh.Bound != rec.Bound {
-		return "Expired: it was for " + revisionLabel(d.Kind, rec.Bound) + ", and " + revisionLabel(d.Kind, fresh.Bound) + " is current. Ask again to decide on that."
+		return expiryReason(d, rec.Bound, fresh.Bound), true
 	}
-	return ""
+	return "", false
+}
+
+// revalidateEvery is how often one open decision is checked against the
+// current state when the queue is listed or swept; tests shorten it.
+var revalidateEvery = 20 * time.Second
+
+// revalidateOpen expires every open, unanswered decision whose revision
+// moved or whose action no longer applies, so a card for an obsolete
+// revision doesn't stay pending. Each decision is checked at most every
+// revalidateEvery; an expiry is published like any change.
+func (s *Server) revalidateOpen(ctx context.Context) {
+	if s.Decisions == nil {
+		return
+	}
+	now := time.Now()
+	for _, rec := range s.Decisions.List() {
+		d := rec.Decision
+		if !d.Answerable() || rec.Bound == "" || !decisions.Protected(d.Kind) {
+			s.checkedMu.Lock()
+			delete(s.checked, d.ID)
+			s.checkedMu.Unlock()
+			continue
+		}
+		s.checkedMu.Lock()
+		if s.checked == nil {
+			s.checked = map[string]time.Time{}
+		}
+		last, seen := s.checked[d.ID]
+		due := !seen || now.Sub(last) >= revalidateEvery
+		if due {
+			s.checked[d.ID] = now
+		}
+		s.checkedMu.Unlock()
+		if !due {
+			continue
+		}
+		reason, sure := s.stale(ctx, rec)
+		if reason == "" || !sure {
+			continue
+		}
+		_, _ = s.Decisions.Update(d.ID, func(r *decisions.Record) bool {
+			if !r.Decision.Answerable() || r.Bound != rec.Bound {
+				return false
+			}
+			r.Decision.State, r.Decision.Reason, r.Decision.DeferredUntil = decisions.StateExpired, reason, nil
+			return true
+		})
+		s.checkedMu.Lock()
+		delete(s.checked, d.ID)
+		s.checkedMu.Unlock()
+	}
 }
 
 // settled is a followed decision's outcome.
@@ -859,6 +953,9 @@ func (s *Server) followCheck(ctx context.Context, rec decisions.Record, resp []b
 				if h.Kind == "round" && h.RoundID != "" {
 					if d.ChatID != nil {
 						s.Decisions.LinkWork(h.RoundID, *d.ChatID)
+						if c.EpicID != "" {
+							s.Decisions.LinkWork(beadLink(d.Repo, c.EpicID), *d.ChatID)
+						}
 					}
 					return settled{decisions.StateDone, "Approved revision " + short(rec.Bound) + "; round " + h.RoundID + " started"}, true
 				}
@@ -893,8 +990,11 @@ func (s *Server) renewDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "This decision is being carried out.", "")
 		return
 	}
-	switch d.Kind {
-	case decisions.KindApprove, decisions.KindAdopt, decisions.KindLand, decisions.KindFinish, decisions.KindSignoff, decisions.KindLimit:
+	switch {
+	case decisions.Protected(d.Kind):
+	case d.Source == decisions.SourceAgent:
+		writeError(w, http.StatusConflict, "Ask the chat to raise this again: it is built from what the chat sent.", "")
+		return
 	default:
 		writeError(w, http.StatusConflict, "Needs you raises this again while it still waits on you.", "")
 		return
@@ -959,6 +1059,7 @@ func (s *Server) StartDecisions(ctx context.Context) {
 				return
 			case <-tick.C:
 				s.Decisions.Sweep()
+				s.revalidateOpen(ctx)
 			}
 		}
 	}()

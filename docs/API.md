@@ -571,8 +571,8 @@ written by hand is not tracked). A repository without valid OpenSpec answers 503
 out or unreadable call answers 502 with `{error, cost_usd}`.
 
 ### Found work
-`FoundRequest` is `{answer, note?, found_in?, before_section?, comment_id?, found_beads?}` for the
-change `{change}` (its `id`), which must have an epic.
+`FoundRequest` is `{answer, note?, found_in?, before_section?, comment_id?, found_beads?, create?}` for
+the change `{change}` (its `id`), which must have an epic.
 - `how_order`: a bead under the epic labelled `found:<change-id>`, created with
   `--no-inherit-labels`, with a `discovered-from` dependency on `found_in` when given. It is ordinary
   work and leaves the approved plan unchanged. `before_section` (a current section id) also makes that
@@ -586,7 +586,10 @@ change `{change}` (its `id`), which must have an epic.
   and synchronized they are closed with a link to it. A revision started any other way clears
   `pending_found`, so they return to Needs you.
 - `out_of_scope`: creates nothing; returns `prefill: {title, description, related: [epic],
-  found_comment?}` for New effort.
+  found_comment?}` for New effort. With `create: true` (what decision cards send) it files the work
+  now as a task of its own, not under the epic, with a `related` dependency on the epic and a
+  `discovered-from` dependency on `found_in`, posts the answered marker, and returns `bead_id` with
+  the prefill (without `found_comment`, already answered). A note is required.
 - `dismiss`: needs `comment_id` and `found_in`; posts the answered marker.
 With `comment_id` (a `Found:` comment on `found_in`), the note defaults to the comment's text, a
 created bead's description ends "Found in: <bead>; source comment: <id>", and nacred replies on
@@ -854,7 +857,7 @@ approval nacred revalidates the revision, executes the action once and reports i
 {
   "id": "dc_8f2a…",
   "repo": "5b0877e4c7cf", "repo_name": "Nacre",
-  "chat_id": "ch_…",                 // the chat that raised it; null for Needs you items
+  "chat_id": "ch_…",                 // the chat that raised it, or for a Needs you item the chat its work came from; null when none
   "source": "agent",                 // or "attention"
   "kind": "approve",                 // approve | land | finish | signoff | limit | adopt | question | recovery | found | intake
   "title": "Approve offline-chat-resume and run it",
@@ -868,32 +871,36 @@ approval nacred revalidates the revision, executes the action once and reports i
     {"id": "run_hold", "label": "Approve, run, I'll land", "detail": "Runs the sections and stops before main when the gates pass",
      "recommended": true, "protected": true, "input": null, "disabled": "optional: why it can't be chosen yet"}
   ],
+  "ask": null,                       // or an input asked whatever option is chosen (found work from a round: which round bead)
   "allow_defer": true, "allow_reject": true, "reject_label": "Not right", "reject_needs_note": true,
   "state": "pending",                // pending | executing | done | failed | unknown | declined | expired | superseded | deferred | held
   "result": {"ok": true, "message": "Landed at 3f2c1aa and pushed"},   // null until it ran
   "reason": "why it expired, failed or is held",
   "superseded_by": "dc_9b11…",
-  "answer": {"option": "run_hold", "note": "…", "input": "…"},       // or {"defer":true} / {"reject":true,"note":"…"}
+  "answer": {"option": "run_hold", "note": "…", "input": "…", "ask": "…"},   // or {"defer":true} / {"reject":true,"note":"…"}
   "created_at": "RFC3339", "expires_at": "RFC3339 | null", "answered_at": "RFC3339 | null",
   "deferred_until": "RFC3339 (while deferred)", "acknowledged": false
 }
 ```
 `input` is null, or `{"kind":"amount","label","min","max","unit":"usd","required"}` (an answer must be
 more than `min`, what's spent, and at most `max`, the runaway ceiling), `{"kind":"text","label","required"}`,
-or `{"kind":"choice","label","choices":[{"id","label"}],"required"}`.
+or `{"kind":"choice","label","choices":[{"id","label"}],"default"?,"required"}`. `ask` has the same
+shape; an answer that leaves it empty gets its `default`.
 
-`target.revision` is the change's revision **digest** (a string), the same value as `revision` in the
-change APIs, not a counter.
+`target.revision` is the revision the decision is bound to: for `approve` the change's revision
+**digest** (a string), the same value as `revision` in the change APIs, not a counter; for `adopt`,
+`finish` and `signoff` a digest of the content they bind (below). Evidence kind `spec` names a
+requirement or spec file by its repository path (`ref`).
 
 ### Routes
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?}` | Decision (201). The chat token works, for its own chat only (403 for another chat's); device tokens may raise one in any chat. `repo` defaults to the chat's repository. 400 for an unknown kind or a missing target, 404 for an unknown repo, round or bead, 409 when the action doesn't apply now (a change not awaiting approval, a round not ready to land, a bead not waiting for sign-off) |
-| GET | `/v1/decisions[?repo={repo}&state=open\|all]` | – | `{"decisions":[Decision]}`: stored decisions and Needs you items, questions and found work first, then approvals and checks, then landing, finishing and limits, newest first in each. `open` (the default) is pending, deferred, held and executing, plus failed and unknown not yet acknowledged |
+| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?,"draft"?,"note"?}` | Decision (201). The chat token works, for its own chat only (403 for another chat's); device tokens may raise one in any chat. `repo` defaults to the chat's repository. `draft` is an `intake` decision's New effort draft, `note` what `found` work is. 400 for an unknown kind, a missing target, draft or note, 404 for an unknown repo, round or bead, 409 when the action doesn't apply now (a change not awaiting approval, a round not ready to land, a bead not waiting for sign-off, found work outside any spec epic); an `intake` whose intake call fails answers 502, or 503 without OpenSpec |
+| GET | `/v1/decisions[?repo={repo}&state=open\|all]` | – | `{"decisions":[Decision]}`: stored decisions and Needs you items, questions and found work first, then approvals and checks, then landing, finishing and limits, newest first in each. `open` (the default) is pending, deferred, held and executing, plus failed and unknown not yet acknowledged. Listing revalidates unanswered decisions first (see Answering) |
 | GET | `/v1/decisions/{id}` | – | Decision; 404 for an unknown id |
-| POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
-| POST | `/v1/decisions/{id}/renew` | – | Decision (201): Ask again. A fresh decision built from the current state for the same kind and target, which supersedes the old one (`superseded_by`). 409 while it executes, and for Needs you kinds that nacred raises again itself |
+| POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?,"ask"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
+| POST | `/v1/decisions/{id}/renew` | – | Decision (201): Ask again. A fresh decision built from the current state for the same kind and target, which supersedes the old one (`superseded_by`). 409 while it executes, for Needs you kinds that nacred raises again itself, and for `intake` and `found`, which the chat raises again from what it sent |
 
 ### Building decisions (agent kinds)
 
@@ -901,21 +908,36 @@ change APIs, not a counter.
 |---|---|---|---|
 | `approve` | `bead` (the seed) or `change` | `run_hold` "Approve, run, I'll land" (recommended: approves, runs the epic's sections in a round that lands on the epic branch, and does not finish into the landing target), `run_land` "Approve, run and land to <target>" (approve with `run`: the round finishes the epic into the target), `approve_only` "Approve only". All protected | the frozen revision, sections and tasks; the default round budget; whether landing pushes (from `nacre.yaml`). Bound to the change's revision; the change must be `awaiting_approval`. Reject (note required) sends it back for revision with the note as feedback |
 | `land` | `round` | `land` "Merge into <target> and push" / "Merge, don't push" / "Merge into <target>" (when push is unknown), protected; `cancel` "Cancel round" | the commit and target branch, whether it pushes (the round's `land_push`, else `nacre.yaml`, else "depends on nacre.yaml"), beads that close and those left open with why, the version; the build artifacts in `body`; evidence links the round's changes and gates. Bound to the round's final commit; the round must be `ready_to_land`. Reject ("Don't land") holds it: state `held`, `reason` "Held by you: <note>", Land and Cancel round still offered |
-| `finish` | `bead` (the epic) or `change` | `finish` "Merge into <target> and push" (or "don't push"), protected | merging `epic/<id>` into the target with every gate and the build, archiving the change, pushing, closing the epic. The epic must be open. Reject holds it as for `land` |
-| `signoff` | `bead` | `signoff` "Sign off", protected | closes the bead; `body` is the check to try. The bead must carry the `signoff` label. Reject ("Not right", note required) sends it back with the note |
+| `finish` | `bead` (the epic) or `change` | `finish` "Merge into <target> and push" (or "don't push"), protected | merging `epic/<id>` into the target with every gate and the build, archiving the change, pushing, closing the epic, how many beads it covers and how many are still open. The epic must be open. Bound to the epic's status and the ids and statuses of every bead under it: one added, reopened or closed since makes it expire. Reject holds it as for `land` |
+| `signoff` | `bead` | `signoff` "Sign off", protected | closes the bead; `body` is the check to try. The bead must carry the `signoff` label. Bound to the bead's title, description and check text (metadata `signoff`). Reject ("Not right", note required) sends it back with the note |
 | `limit` | `round` | `raise` "Raise the limit" with an amount input (more than spent, at most max(4 × budget, $100)), protected | spent against budget; that raising resumes a round stopped at its limit. Bound to the current budget. Executes `POST /v1/rounds/{round}/limits` |
-| `adopt` | `bead`, `change` (an active change Nacre can adopt for that bead) | `adopt` "Adopt as written", and `adopt_recorded_review` when the change has a `review.md`. Protected | tasks already checked, that Nacre tracks it from here |
+| `adopt` | `bead`, `change` (an active change Nacre can adopt for that bead) | `adopt` "Adopt as written", and `adopt_recorded_review` when the change has a `review.md`. Protected | tasks already checked, that Nacre tracks it from here. Bound to a digest of every file under `openspec/changes/<change>/` (paths and contents; the subtitle shows "files <digest>"): an edit since makes it expire |
+| `intake` | `bead`? (an existing bead to use instead of creating one), with `draft: {title, description?, design?, acceptance?, type?, parent?}` | the verdict's route first (recommended): `new` "New change"; `amend:<change>` "Amends <change>", one per active change; `bead` "Just a bead" ("Keep it as a bead" for an existing bead); `covered` "Already covered". Any may be picked. `new` and `amend:<change>` say they spend up to $30 (the per-action limit). An `amend:<change>` whose change has active work is `disabled`, naming it; when that is the verdict's amendment, `later` "Create the bead, develop later" (recommended) creates the bead noting the amendment | raising it runs intake (the same call as `POST /v1/repos/{repo}/intake`, its cost in the consequences) and nothing else; `body` is the rationale, evidence the covering or amended change (`review`) and each citation (`spec`). `new` and `amend:<change>` create the bead (`POST …/issues` with the draft) and then develop it (`develop` with `feedback` the verdict, rationale and citations, and `intake: {verdict, change_name?}` for the route picked). If development is refused the bead stays and the decision is `failed`: "Created N-12, but development didn't start: <why>". `bead` creates the bead only; `covered` records the answer. Reject ("Drop it") records it. Not bound to a revision; expires after 24 hours |
+| `found` | where it was found: `bead` (the epic, a section bead or a bead under them), `round` (a spec round; `bead` then names the round bead on screen) or `change`, with `note` | `how_order` "Changes how or order" (only how or in what order) with an optional choice "Required before which section?" (open sections); `amend` "Changes what done means"; `out_of_scope` "Out of scope". From a round, `ask` is a required choice of the round's beads, "Found in which round bead?", defaulting to the `bead` given | none spends anything. `how_order` and `amend` run the found route (above) with `found_in`, giving "Filed N-20 under N-9; the approved plan stays as it is" or a pending amendment that Needs you offers to revise the change with. `out_of_scope` runs it with `create: true` (a bead related to the epic, not a child of it), then sends the chat a message that starts a new effort for it, prefilled with the note and the bead, asking the agent to draft it and raise intake for that bead; when the chat is busy or gone a new chat in the repository gets it. If the message can't be sent the bead stays and the decision says so. Reject ("Not worth recording") records it |
 
 Decisions an agent raised expire after 24 hours unanswered. A newer decision for the same kind and
-target supersedes an open older one (`superseded`, `superseded_by`).
+target supersedes an open older one (`superseded`, `superseded_by`). A chat's `intake` and `found`
+decisions, and what they create, link the created bead and the developed change to the chat, so later
+decisions about them show in that chat.
 
 ### Answering
 
 - **Paired device only**, as for chat permission requests.
 - **Revalidation**: before running an option (or a reject that runs an action), nacred rebuilds the
   decision from current state. A moved revision (a new change revision, a new final commit, a changed
-  budget) or an action that no longer applies makes it `expired`, with a `reason` naming the old and
-  the new revision; nothing runs. Ask again builds the fresh one.
+  budget, edited change files for an adoption, a changed set of beads under an epic, a changed check)
+  or an action that no longer applies makes it `expired`, with a `reason` naming the old and the new
+  revision where there is one; nothing runs. Ask again builds the fresh one. Pending, deferred and held
+  decisions of the protected kinds are also revalidated when the queue is listed and by the
+  once-a-minute sweep (each at most every 20 seconds), so a card for an obsolete revision expires
+  without being answered; the expiry is published like any change (below). A read that fails (bd
+  timing out) leaves the decision as it is until the next check.
+- **Ask**: an `ask` input is answered with `ask` beside the option; empty takes its `default`, and a
+  required one without either is refused (400).
+- **Chained actions**: an option that creates a bead and then develops it (intake) or starts a new
+  effort (found work out of scope) runs its second step only after the first succeeded, with the
+  created bead's id. When the second step fails, the decision is `failed` and says what was done and
+  what didn't start.
 - **Once**: the first answer claims the decision (`executing`), so concurrent or repeated answers never
   run the action twice. The same answer again returns the decision with its state and result; a
   different answer gets 409.
@@ -929,12 +951,17 @@ target supersedes an open older one (`superseded`, `superseded_by`).
 - **Defer** keeps it in the queue as `deferred`, outside the count, for a day (then `pending` again).
 - **Reject** acts by kind (above); `declined` when it ran an action or recorded the rejection.
 - **Acknowledge** takes a `failed`, `unknown` or `expired` decision out of the open queue.
-- Options with no action (none today for agent kinds) are recorded as `done`.
+- Options with no action (`covered` and an existing bead's "Keep it as a bead" on intake cards) are
+  recorded as `done`.
 
 ### Needs you items as decisions
 
 Every Needs you item is also a decision with `source: "attention"`, a stable id (`dc_` + the item's
-id, or for a round question a digest of the round and the question), `chat_id: null` and no expiry.
+id, or for a round question a digest of the round and the question) and no expiry. Its `chat_id` is
+the chat its work came from, from what nacred records when a chat starts a round or run, creates a
+bead, develops a change, or has a decision start or create one: the item's round, else its bead
+(linked directly, or carried by a linked round, as a bead, its epic or the epic it finishes), else its
+change; `null` when no chat did. The id doesn't depend on it.
 It is stored once it is answered or deferred, keeping its id. Proposals ready (`approve`), rounds
 ready to land (`land`), archivable changes and finishable epics (`finish`) and sign-offs (`signoff`)
 are built exactly like a chat's; an open decision a chat raised for the same target replaces the item
@@ -946,12 +973,12 @@ route is), each navigation becomes evidence.
 |---|---|---|
 | `round_question` | `question`, one per open question | each suggested answer (the recommended one first) and `own_words` "In my own words" with a required text input, sent as the answer |
 | `bead_decision` | `question` | `answer` with a required text input, added to the bead as a comment |
-| `found_work` (a `Found:` comment) | `found` | `how_order` "Changes how or order" with an optional choice "Required before which section?" (`before_section`), `amend` "Changes what done means", `out_of_scope` "Out of scope" (a new bead related to the epic that answers the comment), `dismiss` |
+| `found_work` (a `Found:` comment) | `found` | `how_order` "Changes how or order" with an optional choice "Required before which section?" (`before_section`, open sections), `amend` "Changes what done means", `out_of_scope` "Out of scope" (as for a chat's `found` card: the found route with `create: true`, a bead related to the epic that answers the comment, then a new effort for it in the item's chat, or in a new chat in the repository when it has none), `dismiss` |
 | `found_work` (a `found-amend` bead), `review_blocked` | `found`, `question` | the item's own actions |
 | `approval_stale`, `workflow_interrupted`, `bead_parked`, `bead_unclosed`, `bead_stuck` | `recovery` | the item's own actions |
 
-A stored Needs you decision whose item no longer waits expires ("This no longer waits on you."). The
-`intake` kind is reserved; nacred raises none yet.
+A stored Needs you decision whose item no longer waits expires ("This no longer waits on you.").
+`intake` decisions are raised by chats only (above).
 
 ### Events and notifications
 
@@ -1326,13 +1353,15 @@ developer instructions. It is fixed text in nacred, pinned by Go tests, and cove
 - `bd` (starting with `bd prime`) and OpenSpec changes with `openspec validate <change> --strict`
 - the "On screen" note, and that "this" means what it names
 - the `nacred` command and the API at `NACRED_URL` with `NACRE_CHAT_TOKEN`, pointing at this
-  document: Needs you first (`GET /v1/attention`) when asked what to work on; develop proposals only
-  for behaviour changes, not chores, small fixes or beads already linked to a change; rounds; found
-  work (ask which of the three answers applies before recording it); and sign-off as a decision
+  document: Needs you first (`GET /v1/attention`) when asked what to work on; new work goes through an
+  `intake` decision with the draft instead of creating beads or developing proposals directly, and
+  nothing develops before Ryder answers it; rounds; found work raises a `found` decision (never the
+  found route directly), and an Out of scope answer arrives as a message starting a new effort, which
+  the agent drafts and raises intake for; and sign-off as a decision
 - **decisions**: the protected actions answer 403 `needs_decision` to the chat token, so the agent
-  raises a decision with `POST $NACRED_URL/v1/chats/$NACRE_CHAT_ID/decisions` (`kind` and `target`),
-  tells Ryder, and reports nacred's own result once he answers; rounds it starts never land on their
-  own
+  raises a decision with `POST $NACRED_URL/v1/chats/$NACRE_CHAT_ID/decisions` (`kind` and `target`;
+  `draft` for `intake`, `note` for `found`), tells Ryder, and reports nacred's own result once he
+  answers; rounds it starts never land on their own
 - **working in a checkout**: repository checkouts are shared with nacred, which lands rounds, commits
   `nacre.yaml` and finishes epics there. The agent makes code changes on a branch or in a git
   worktree (`git worktree add`), never on the checkout's current branch, and before ending a turn
