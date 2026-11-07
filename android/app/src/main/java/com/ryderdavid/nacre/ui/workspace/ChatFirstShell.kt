@@ -287,7 +287,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
             // Wide, the board is the app: Specs and bead lanes with the chat drawer beside them.
             if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= BOARD_MIN_WIDTH) BoardWorkspace(
                 repoKey, name, thread, work, needsYou,
-                chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
+                chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m, header = false) },
                 onSwitchProject = { scope.launch { drawer.open() } },
                 onWork = inspect, onQueue = { queue = true }, askAbout = askAbout, onThread = pickThread,
                 modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
@@ -347,12 +347,12 @@ private fun ProjectsDrawerList(current: String, onPick: (String) -> Unit) {
 
 /** Chat for the project: the current thread, or a start when the checkout has none yet. */
 @Composable
-private fun ChatSlot(repoKey: String, thread: String?, onThread: (String) -> Unit, onProjects: () -> Unit, modifier: Modifier) {
+private fun ChatSlot(repoKey: String, thread: String?, onThread: (String) -> Unit, onProjects: () -> Unit, modifier: Modifier, header: Boolean = true) {
     val container = LocalContainerOrThrow()
     val scope = rememberCoroutineScope()
     Box(modifier) {
         if (thread != null) {
-            ChatPane(repoKey, thread, onThread = onThread, onProjects = onProjects)
+            ChatPane(repoKey, thread, onThread = onThread, onProjects = onProjects, showHeader = header)
         } else {
             val name = container.repository.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }?.name ?: Keys.id(repoKey)
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {

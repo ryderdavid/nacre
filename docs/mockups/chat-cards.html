@@ -1,0 +1,336 @@
+<title>Chats as cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700;8..144,800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f9f9ff;--surface:#ffffff;--c1:#f3f3fa;--c2:#ededf4;--c3:#e7e8ee;--c4:#e1e2e9;
+  --fg:#191c20;--muted:#44474e;--soft:#74777f;--line:#c4c6d0;
+  --primary:#435a92;--on-primary:#ffffff;--pc:#dae2ff;--on-pc:#2a4278;
+  --sc:#dce2f9;--on-sc:#141b2c;--tc:#f9d8ff;--on-tc:#5c2a6b;
+  --err:#ba1a1a;--ec:#ffdad6;--on-ec:#93000a;--ok:#2f6b3a;--okc:#c8f0c9;
+  --board:#eef0f7;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111318;--surface:#191c20;--c1:#1d2024;--c2:#212429;--c3:#282a2f;--c4:#33353a;
+  --fg:#e2e2e9;--muted:#c4c6d0;--soft:#8e9099;--line:#44474e;
+  --primary:#b0c6ff;--on-primary:#122f60;--pc:#2a4278;--on-pc:#dae2ff;
+  --sc:#404659;--on-sc:#dce2f9;--tc:#5c2a6b;--on-tc:#f9d8ff;
+  --err:#ffb4ab;--ec:#93000a;--on-ec:#ffdad6;--ok:#9ad59f;--okc:#1d4f28;
+  --board:#16181d;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111318;--surface:#191c20;--c1:#1d2024;--c2:#212429;--c3:#282a2f;--c4:#33353a;
+  --fg:#e2e2e9;--muted:#c4c6d0;--soft:#8e9099;--line:#44474e;
+  --primary:#b0c6ff;--on-primary:#122f60;--pc:#2a4278;--on-pc:#dae2ff;
+  --sc:#404659;--on-sc:#dce2f9;--tc:#5c2a6b;--on-tc:#f9d8ff;
+  --err:#ffb4ab;--ec:#93000a;--on-ec:#ffdad6;--ok:#9ad59f;--okc:#1d4f28;
+  --board:#16181d;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 "Roboto Flex",system-ui,sans-serif;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.page{max-width:1180px;margin:0 auto;display:grid;gap:28px}
+h1{font:700 30px/1.15 "Roboto Flex";font-variation-settings:"opsz" 40;margin:0;text-wrap:balance}
+.lede{color:var(--muted);margin:6px 0 0;max-width:68ch}
+h2{font:650 19px/1.3 "Roboto Flex";margin:0 0 8px}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit}
+
+/* the tablet: a hint of the board, then the drawer */
+.tablet{display:grid;grid-template-columns:1fr 400px;gap:12px;background:var(--board);border-radius:32px;padding:12px;height:760px;max-width:100%}
+.boardhint{border-radius:24px;background:var(--bg);padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start;min-width:0;overflow:hidden}
+.lanehead{font-weight:650;color:var(--muted);font-size:14px;grid-column:span 1}
+.bcard{background:var(--surface);border-radius:20px;padding:14px;display:grid;gap:6px;box-shadow:0 1px 0 var(--line)}
+.bcard .id{font:500 12px "JetBrains Mono",monospace;color:var(--soft)}
+.bcard b{font-weight:550}
+.bcard .tag{justify-self:start;font-size:12px;font-weight:600;border-radius:8px;padding:2px 8px;background:var(--pc);color:var(--on-pc)}
+.bcard.spec{background:var(--tc);color:var(--on-tc)}
+@media (max-width:920px){.tablet{grid-template-columns:1fr;height:auto}.boardhint{display:none}}
+
+/* drawer */
+.drawer{background:var(--c1);border-radius:28px;display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
+@media (max-width:920px){.drawer{height:740px;max-width:420px;width:100%;margin:0 auto}}
+.seg{display:flex;gap:2px;padding:12px 12px 8px}
+.seg button{flex:1;height:48px;border:0;background:var(--c3);color:var(--muted);font-weight:600;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:border-radius .25s cubic-bezier(.2,0,0,1),background .2s}
+.seg button:first-child{border-radius:24px 8px 8px 24px}
+.seg button:last-child{border-radius:8px 24px 24px 8px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--on-primary);border-radius:24px}
+.seg .n{font-size:12px;font-weight:700;min-width:22px;height:22px;border-radius:11px;display:grid;place-items:center;padding:0 6px;background:color-mix(in srgb,currentColor 18%,transparent)}
+.seg .live{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.seg .live,.morph{animation:none!important}}
+
+.list{flex:1;min-height:0;overflow:auto;padding:4px 12px 96px;display:flex;flex-direction:column;gap:8px}
+.label{font-size:13px;font-weight:650;color:var(--soft);letter-spacing:.02em;padding:10px 6px 2px}
+
+/* chat card */
+.card{background:var(--surface);border-radius:24px;transition:border-radius .3s cubic-bezier(.2,0,0,1),background .2s;flex:none}
+.card .top{display:flex;gap:12px;align-items:flex-start;padding:14px 12px 14px 14px;cursor:pointer;border:0;background:none;width:100%;text-align:left}
+.card .body{flex:1;min-width:0;display:grid;gap:6px}
+.card .t{font-weight:650;font-size:16px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .last{color:var(--muted);font-size:13.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--soft)}
+.chev{width:40px;height:40px;border-radius:20px;display:grid;place-items:center;background:var(--c2);color:var(--muted);flex:none;transition:transform .3s}
+.mark{width:44px;height:44px;flex:none;display:grid;place-items:center;color:var(--on-sc);font-weight:700;position:relative}
+.mark svg.shape{position:absolute;inset:0;width:44px;height:44px;stroke:none;fill:var(--sc)}
+.mark span{position:relative;font-size:15px}
+.card.working .mark svg.shape{fill:var(--pc)}
+.card.working .mark span{color:var(--on-pc)}
+.morph{animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.job{display:flex;flex-direction:column;gap:6px;background:var(--c1);border-radius:16px;padding:10px 12px}
+.job .w{display:flex;align-items:center;gap:8px;font-size:13px}
+.job .w b{font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job .id{font:500 11.5px "JetBrains Mono",monospace;color:var(--soft);flex:none}
+.job .st{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.wavy{width:100%;height:10px;display:block}
+.wavy path{fill:none;stroke-width:3.5;stroke-linecap:round}
+.wavy .track{stroke:var(--c4)}
+.wavy .ind{stroke:var(--primary)}
+.pill{border-radius:10px;padding:3px 9px;font-weight:650;font-size:12px}
+.pill.need{background:var(--ec);color:var(--on-ec)}
+.pill.run{background:var(--pc);color:var(--on-pc);display:inline-flex;gap:6px;align-items:center}
+.pill.run i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
+.pill.done{background:var(--okc);color:var(--ok)}
+.convo{font-size:12.5px;color:var(--soft)}
+
+/* expanded chat */
+.card.open{border-radius:28px;display:flex;flex-direction:column;flex:1;min-height:0;background:var(--surface)}
+.card.open .chev{transform:rotate(180deg);background:var(--sc);color:var(--on-sc)}
+.card.open .last{display:none}
+.msgs{flex:1;min-height:0;overflow:auto;padding:4px 14px 8px;display:flex;flex-direction:column;gap:12px}
+.me{align-self:flex-end;background:var(--pc);color:var(--on-pc);padding:10px 14px;border-radius:22px 22px 6px 22px;max-width:86%;font-size:14px}
+.ai{font-size:14px;max-width:96%}
+.ai p{margin:0 0 6px}
+.tool{font:12px "JetBrains Mono",monospace;color:var(--soft);background:var(--c1);border-radius:12px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dec{background:var(--tc);color:var(--on-tc);border-radius:20px;padding:12px 14px;display:grid;gap:8px;font-size:13.5px}
+.dec b{font-size:14px}
+.dec .acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:0;border-radius:20px;height:40px;padding:0 16px;font-weight:600;cursor:pointer}
+.btn.f{background:var(--primary);color:var(--on-primary)}
+.btn.t{background:var(--sc);color:var(--on-sc)}
+.btn.o{background:none;box-shadow:inset 0 0 0 1px var(--line);color:var(--primary)}
+.comp{display:flex;gap:8px;align-items:flex-end;padding:8px 10px 10px}
+.box{flex:1;background:var(--c2);border-radius:28px;min-height:52px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px}
+.box input{flex:1;border:0;background:none;outline:none;font:inherit;color:var(--fg);min-width:0}
+.box input::placeholder{color:var(--soft)}
+.send{width:52px;height:52px;border-radius:18px;border:0;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;cursor:pointer;transition:border-radius .2s}
+.send:hover{border-radius:26px}
+.attached{display:flex;gap:6px;padding:0 14px}
+.attached span{font-size:12px;font-weight:600;border-radius:8px;padding:4px 10px;background:var(--sc);color:var(--on-sc);display:inline-flex;gap:6px;align-items:center}
+
+/* folded peers while one chat is open */
+.peers{display:flex;flex-direction:column;gap:4px;flex:none}
+.peer{display:flex;align-items:center;gap:10px;height:52px;border-radius:18px;background:var(--surface);border:0;padding:0 12px;cursor:pointer;text-align:left;width:100%}
+.peer .mini{width:28px;height:28px;flex:none;position:relative;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--on-sc)}
+.peer .mini svg{position:absolute;inset:0;width:28px;height:28px;fill:var(--sc);stroke:none}
+.peer .mini span{position:relative}
+.peer .pt{flex:1;min-width:0;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peer .ps{font-size:12px;color:var(--soft);flex:none}
+
+/* new chat split button, floating */
+.fab{position:absolute;right:16px;bottom:16px;display:flex;gap:2px;box-shadow:0 6px 16px rgba(0,0,0,.18);border-radius:20px}
+.fab button{border:0;background:var(--pc);color:var(--on-pc);height:56px;font-weight:650;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.fab .main{border-radius:20px 6px 6px 20px;padding:0 18px 0 16px}
+.fab .drop{border-radius:6px 20px 20px 6px;width:48px;justify-content:center}
+.fab[hidden]{display:none}
+
+/* job cards */
+.jcard{background:var(--surface);border-radius:24px;padding:14px;display:grid;gap:10px;cursor:pointer;flex:none;transition:border-radius .3s}
+.jcard .h{display:flex;gap:12px;align-items:flex-start}
+.jcard .kind{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;flex:none;font-weight:700;font-size:13px}
+.kind.bead{background:var(--pc);color:var(--on-pc)}
+.kind.spec{background:var(--tc);color:var(--on-tc);border-radius:22px}
+.kind.bug{background:var(--ec);color:var(--on-ec);border-radius:22px 22px 22px 8px}
+.jcard .t{font-weight:650;font-size:16px;line-height:1.25}
+.jcard .s{font-size:12.5px;color:var(--soft);font-family:"JetBrains Mono",monospace}
+.jcard .who{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:0;border-radius:10px;height:32px;padding:0 12px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;background:var(--c2);color:var(--fg);cursor:pointer}
+.chip.go{background:var(--sc);color:var(--on-sc)}
+.jmore{display:none;gap:8px}
+.jcard.open{border-radius:28px;background:var(--surface);box-shadow:inset 0 0 0 2px var(--primary)}
+.jcard.open .jmore{display:grid}
+.steps{display:grid;gap:4px;font-size:13.5px}
+.steps div{display:flex;gap:8px;align-items:center}
+.steps i{width:18px;height:18px;border-radius:50%;flex:none;display:grid;place-items:center;font-style:normal;font-size:11px}
+.steps .d i{background:var(--okc);color:var(--ok)}
+.steps .r i{background:var(--pc);color:var(--on-pc)}
+.steps .o i{background:var(--c3)}
+.donehead{display:flex;justify-content:space-between;align-items:center}
+
+/* notes */
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.note{background:var(--c1);border-radius:24px;padding:18px 20px}
+.note ul{margin:6px 0 0;padding-left:18px;color:var(--muted)}
+.note li{margin-bottom:6px}
+.note h3{margin:0;font-size:16px}
+.cmp{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.old{display:flex;border-bottom:1px solid var(--line);width:260px}
+.old span{flex:1;text-align:center;padding:10px 0;color:var(--primary)}
+.old span:first-child{border-bottom:3px solid var(--primary);font-weight:600}
+.new{display:flex;gap:2px;width:260px}
+.new span{flex:1;height:40px;display:grid;place-items:center;background:var(--c3);font-weight:600;color:var(--muted)}
+.new span:first-child{background:var(--primary);color:var(--on-primary);border-radius:20px}
+.new span:last-child{border-radius:8px 20px 20px 8px}
+.hint{font-size:13px;color:var(--soft)}
+</style>
+
+<div class="page">
+  <header>
+    <h1>Chats as cards</h1>
+    <p class="lede">Each chat is a card in the drawer. The card shows what the chat is working on and how far along it is. Tap a card and it unfolds into the conversation. Fold it back and you see every chat again. New chat stays at the bottom of the column, so a second, third or fourth chat in the project is one tap away. Jobs works the same way, from the work's side. The legacy tab bar becomes an expressive connected button group.</p>
+  </header>
+
+  <section>
+    <h2>Board with the drawer (try it)</h2>
+    <p class="hint">Tap a chat to unfold it and tap its chevron to fold it. Switch to Jobs, and use New chat. Open chat on a job takes you to that chat, unfolded.</p>
+    <div class="tablet">
+      <div class="boardhint" aria-hidden="true">
+        <div class="lanehead">Specs</div><div class="lanehead">Ready</div>
+        <div class="bcard spec"><b>chat-first-harness</b><span>38 of 40 tasks</span></div>
+        <div class="bcard"><span class="id">NAC-yjz · feature</span><b>Board is the UI on the folded phone</b><span class="tag">In a job</span></div>
+        <div class="bcard spec"><b>pending-proposal-placeholders</b><span>0 of 13 tasks</span></div>
+        <div class="bcard"><span class="id">NAC-4fa · bug</span><b>Projects stays on Loading projects</b><span class="tag">In a job</span></div>
+        <div></div>
+        <div class="bcard"><span class="id">NAC-4qu.12 · task</span><b>Device checks (human)</b></div>
+      </div>
+
+      <div class="drawer" id="drawer">
+        <div class="seg" role="group" aria-label="Drawer">
+          <button id="segChats" aria-pressed="true">Chats <span class="n" id="nChats">4</span></button>
+          <button id="segJobs" aria-pressed="false">Jobs <span class="live" title="Work running"></span><span class="n">3</span></button>
+        </div>
+        <div class="list" id="list"></div>
+        <div class="fab" id="fab">
+          <button class="main" id="newChat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New chat · Claude</button>
+          <button class="drop" aria-label="Choose agent"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Old tabs vs. the connected button group</h2>
+    <div class="cmp">
+      <div class="old"><span>Chat</span><span>Jobs</span></div>
+      <span>→</span>
+      <div class="new"><span>Chats · 4</span><span>Jobs · 3</span></div>
+      <span>The selected segment rounds into a full pill and fills with the primary colour. A pulsing dot on Jobs means work is running.</span>
+    </div>
+  </section>
+
+  <section class="notes">
+    <div class="note">
+      <h3>Chats</h3>
+      <ul>
+        <li>Every chat in the project is a card. Chats that need you or are running come first, then the most recent.</li>
+        <li>A chat working toward something shows that job inside its card: the bead or spec, a wavy progress bar and where it stands. A chat with no work says "Conversation".</li>
+        <li>Tap a card to unfold it into the conversation. The other chats fold to slim rows above it, so you always see where each one is. The chevron folds it back.</li>
+        <li><b>New chat</b> floats at the bottom of the list (Claude, with Codex in the menu), and it is also the last slim row while a chat is open.</li>
+        <li>Delete chat moves into each card's long-press menu.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Jobs</h3>
+      <ul>
+        <li>One card per piece of work (a bead, an epic or a spec), with progress and the chats working on it.</li>
+        <li>Tap to unfold the steps: round sections, tasks or beads, each with its state.</li>
+        <li><b>Open chat</b> switches to Chats with that chat unfolded. Work with no chat offers <b>Start a chat about this</b>, which creates a chat with the item attached.</li>
+        <li>Finished jobs fold into a "Done" group at the bottom.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Expressive treatment</h3>
+      <ul>
+        <li>The connected button group replaces the tab row and its divider line.</li>
+        <li>Large-radius cards (24dp, 28dp when open) on tonal surface containers instead of flat list rows.</li>
+        <li>Shape-coded marks: a cookie shape for Claude, a rounded square for Codex. The shape turns slowly while the agent works.</li>
+        <li>Wavy progress indicators, emphasized titles, a split-button New chat, and a send button that morphs on press.</li>
+        <li>On the folded phone the same cards fill the screen: unfolded, a card is the full chat; folded back, it's the list.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const COOKIE='M22 2.5c2.2 0 3.3 2.6 5.3 3.2 2 .6 4.5-1 6.2.3 1.7 1.2 1.3 4 2.5 5.7 1.2 1.7 4 2.3 4.4 4.3.4 2-1.6 3.9-1.6 6s2 4 1.6 6c-.4 2-3.2 2.6-4.4 4.3-1.2 1.7-.8 4.5-2.5 5.7-1.7 1.3-4.2-.3-6.2.3-2 .6-3.1 3.2-5.3 3.2s-3.3-2.6-5.3-3.2c-2-.6-4.5 1-6.2-.3-1.7-1.2-1.3-4-2.5-5.7-1.2-1.7-4-2.3-4.4-4.3-.4-2 1.6-3.9 1.6-6s-2-4-1.6-6c.4-2 3.2-2.6 4.4-4.3 1.2-1.7.8-4.5 2.5-5.7 1.7-1.3 4.2.3 6.2-.3 2-.6 3.1-3.2 5.3-3.2z';
+const SQUARE='M12 2h20a10 10 0 0 1 10 10v20a10 10 0 0 1-10 10H12A10 10 0 0 1 2 32V12A10 10 0 0 1 12 2z';
+function mark(agent,size){const p=agent==='codex'?SQUARE:COOKIE;return `<svg class="shape" viewBox="0 0 44 44" ${size?`style="width:${size}px;height:${size}px"`:''}><path d="${p}"/></svg>`}
+function wavy(f){const w=300,amp=2.2,len=10;let d='M2 5';for(let x=2;x<=w;x+=2){d+=` L${x} ${5+Math.sin(x/len*Math.PI)*amp}`}const cut=Math.max(2,Math.round(f*w));return `<svg class="wavy" viewBox="0 0 300 10" preserveAspectRatio="none"><path class="track" d="M${cut+8} 5 L298 5"/><path class="ind" d="${d}" stroke-dasharray="${cut} 1000"/></svg>`}
+
+let chats=[
+ {id:'a',agent:'claude',title:'Folded-phone board',last:'Round r3 is drafting the folded layout: Specs first, one lane at a time.',state:'run',job:{id:'NAC-yjz',what:'Board is the UI on the folded phone',done:2,total:5,status:'Round r3 · 2 of 5 sections landed'},ago:'now'},
+ {id:'b',agent:'codex',title:'Stuck Projects loading',last:'Allow running ./gradlew connectedCheck on the emulator?',state:'need',need:1,job:{id:'NAC-4fa',what:'Projects stays on Loading projects',done:0,total:0,status:'In progress'},ago:'4m'},
+ {id:'c',agent:'claude',title:'What needs me?',last:'I added your nav ideas as a comment on NAC-yjz.',state:'idle',ago:'31m'},
+ {id:'d',agent:'claude',title:'Header colour and text boxes',last:'All three bugs are fixed and closed in 0.38.7.',state:'idle',job:{id:'NAC-pjq',what:'Screen titles render near-black in dark theme',done:3,total:3,status:'3 of 3 beads closed'},ago:'1d'}
+];
+let open=null, seg='chats', jopen=null, made=0;
+
+const jobs=[
+ {id:'NAC-yjz',kind:'bead',k:'F',title:'Board is the UI on the folded phone',status:'Round r3 running · 2 of 5 sections',done:2,total:5,chats:['a'],running:true,steps:[['d','Specs column first on the cover screen'],['d','One lane at a time with a lane switcher'],['r','Chat as a full-screen sheet'],['o','Send to chat on cards'],['o','Device check on the Fold']]},
+ {id:'NAC-4fa',kind:'bug',k:'B',title:'Projects stays on Loading projects after a cold start',status:'In progress · needs you',done:0,total:0,chats:['b'],steps:[['d','Reproduced on the emulator twice'],['r','Tracing the first refreshRepos call'],['o','Fix and test a cold start']]},
+ {id:'chat-first-harness',kind:'spec',k:'S',title:'chat-first-harness',status:'38 of 40 tasks · device checks left',done:38,total:40,chats:[],steps:[['d','Sections 1–11 done'],['o','12.1 Device checks on the Fold'],['o','12.2 Accessibility runs']]},
+];
+const done=[{id:'NAC-pjq',title:'Header colour and text boxes',status:'3 of 3 beads closed'}];
+
+const list=document.getElementById('list'),fab=document.getElementById('fab');
+function order(){const rank={need:0,run:1,idle:2};return [...chats].sort((x,y)=>rank[x.state]-rank[y.state])}
+function stateBits(c){return c.state==='need'?`<span class="pill need">${c.need} needs you</span>`:c.state==='run'?`<span class="pill run"><i></i>Working</span>`:`<span>${c.ago==='now'?'Just now':c.ago+' ago'}</span>`}
+function jobBox(c){if(!c.job)return `<span class="convo">Conversation · not working on anything yet</span>`;const j=c.job;return `<div class="job"><div class="w"><span class="id">${j.id}</span><b>${j.what}</b></div>${j.total?wavy(j.done/j.total):''}<div class="st"><span>${j.status}</span>${j.total?`<span>${j.done}/${j.total}</span>`:''}</div></div>`}
+function card(c){
+ return `<div class="card ${c.state==='run'?'working':''} ${open===c.id?'open':''}" data-id="${c.id}">
+  <button class="top" data-act="toggle" aria-expanded="${open===c.id}">
+   <div class="mark">${mark(c.agent).replace('class="shape"',`class="shape ${c.state==='run'?'morph':''}"`)}<span>${c.agent==='codex'?'X':'C'}</span></div>
+   <div class="body"><div class="t">${c.title}</div><div class="last">${c.last}</div>${jobBox(c)}<div class="meta">${c.agent==='codex'?'Codex':'Claude'} · ${stateBits(c)}</div></div>
+   <span class="chev"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+  </button>
+  ${open===c.id?convo(c):''}
+ </div>`}
+function convo(c){
+ const fresh=!c.job&&c.state==='idle'&&c.last==='';
+ const body=c.id==='a'?`<div class="me">Make the board the app on the cover screen too. Specs first.</div><div class="tool">Bash · bd show NAC-yjz</div><div class="ai"><p>Started round r3 for NAC-yjz with five sections. Two have landed: Specs come first and lanes switch one at a time.</p><p>Now drafting chat as a full-screen sheet.</p></div>`
+ :c.id==='b'?`<div class="me">Why does Projects hang after a cold start?</div><div class="ai"><p>The first <code>refreshRepos</code> never settles. I want to run the instrumented test on the emulator to confirm.</p></div><div class="dec"><b>Allow ./gradlew connectedCheck?</b><span>Runs the instrumented tests on emulator-5554.</span><div class="acts"><button class="btn f">Allow</button><button class="btn o">Deny</button></div></div>`
+ :c.id==='c'?`<div class="me">I just asked a question. Did you get it?</div><div class="ai"><p>Yes. The failure was on an old intake card for NAC-ym4, which is closed now.</p><p>I added your nav ideas as a comment on NAC-yjz.</p></div>`
+ :c.id==='d'?`<div class="ai"><p>All three bugs are fixed and closed in 0.38.7.</p></div>`
+ :`<div class="ai" style="color:var(--soft)"><p>New chat with ${c.agent==='codex'?'Codex':'Claude'} in Nacre. Attach a card from the board, or just ask.</p></div>`;
+ return `<div class="msgs">${body}</div>${c.attach?`<div class="attached"><span>${c.attach} ✕</span></div>`:''}<div class="comp"><div class="box"><svg viewBox="0 0 24 24" style="color:var(--soft)"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 15 5-4 4 3 3-2 6 5"/></svg><input placeholder="Message ${c.agent==='codex'?'Codex':'Claude'}"></div><button class="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button></div>`}
+function peer(c){return `<button class="peer" data-id="${c.id}" data-act="swap"><span class="mini"><svg viewBox="0 0 44 44"><path d="${c.agent==='codex'?SQUARE:COOKIE}"/></svg><span>${c.agent==='codex'?'X':'C'}</span></span><span class="pt">${c.title}</span><span class="ps">${c.state==='need'?`<span class="pill need">${c.need}</span>`:c.state==='run'?'<span class="pill run"><i></i>Working</span>':c.job?c.job.id:''}</span></button>`}
+function renderChats(){
+ const o=order();
+ if(open){const c=chats.find(x=>x.id===open);const others=o.filter(x=>x.id!==open);
+  list.innerHTML=`<div class="peers">${others.map(peer).join('')}<button class="peer" data-act="new"><span class="mini" style="color:var(--on-pc)"><svg viewBox="0 0 44 44" style="fill:var(--pc)"><path d="${COOKIE}"/></svg><span>+</span></span><span class="pt" style="color:var(--primary)">New chat</span></button></div>${card(c)}`;
+  list.style.paddingBottom='12px';fab.hidden=true;
+ }else{
+  list.innerHTML=`<div class="label">Running and waiting on you</div>${o.filter(c=>c.state!=='idle').map(card).join('')}<div class="label">Recent</div>${o.filter(c=>c.state==='idle').map(card).join('')}`;
+  list.style.paddingBottom='96px';fab.hidden=false;
+ }
+ document.getElementById('nChats').textContent=chats.length;
+}
+function renderJobs(){
+ const chatName=id=>chats.find(c=>c.id===id)?.title||'';
+ list.innerHTML=`<div class="label">Working now</div>`+jobs.map(j=>`<div class="jcard ${jopen===j.id?'open':''}" data-j="${j.id}">
+  <div class="h"><span class="kind ${j.kind}">${j.k}</span><div style="flex:1;min-width:0;display:grid;gap:2px"><span class="s">${j.id}</span><span class="t">${j.title}</span></div>${j.running?'<span class="pill run"><i></i>Running</span>':''}</div>
+  ${j.total?wavy(j.done/j.total):''}
+  <div class="st" style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)"><span>${j.status}</span>${j.total?`<span>${j.done}/${j.total}</span>`:''}</div>
+  <div class="who">${j.chats.length?j.chats.map(id=>`<button class="chip go" data-act="openchat" data-chat="${id}"><svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M4 5h16v11H9l-5 4z"/></svg>Open chat · ${chatName(id)}</button>`).join(''):`<button class="chip" data-act="startabout" data-about="${j.id}"><svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>Start a chat about this</button>`}</div>
+  <div class="jmore"><div class="steps">${j.steps.map(([s,t])=>`<div class="${s}"><i>${s==='d'?'✓':s==='r'?'•':''}</i>${t}</div>`).join('')}</div></div>
+ </div>`).join('')+`<div class="label donehead"><span>Done · ${done.length}</span></div>`+done.map(d=>`<div class="jcard" style="background:var(--c2)"><div class="h"><span class="kind bead" style="background:var(--okc);color:var(--ok)">✓</span><div style="flex:1;min-width:0"><span class="s">${d.id}</span><div class="t" style="font-size:15px">${d.title}</div></div><span class="pill done">${d.status}</span></div></div>`).join('');
+ list.style.paddingBottom='96px';fab.hidden=false;
+}
+function render(){document.getElementById('segChats').setAttribute('aria-pressed',seg==='chats');document.getElementById('segJobs').setAttribute('aria-pressed',seg==='jobs');seg==='chats'?renderChats():renderJobs()}
+function newChat(about){made++;const id='n'+made;chats.unshift({id,agent:'claude',title:about?`About ${about}`:`New chat ${made+4}`,last:'',state:'idle',ago:'now',attach:about||null});seg='chats';open=id;render()}
+list.addEventListener('click',e=>{
+ const b=e.target.closest('[data-act]');const jc=e.target.closest('.jcard');
+ if(b){const a=b.dataset.act;
+  if(a==='toggle'){const id=b.closest('.card').dataset.id;open=open===id?null:id;render();return}
+  if(a==='swap'){open=b.dataset.id;render();return}
+  if(a==='new'){newChat();return}
+  if(a==='openchat'){seg='chats';open=b.dataset.chat;render();return}
+  if(a==='startabout'){newChat(b.dataset.about);return}
+ }
+ if(jc&&jc.dataset.j){jopen=jopen===jc.dataset.j?null:jc.dataset.j;render()}
+});
+document.getElementById('segChats').onclick=()=>{seg='chats';render()};
+document.getElementById('segJobs').onclick=()=>{seg='jobs';render()};
+document.getElementById('newChat').onclick=()=>newChat();
+render();
+</script>

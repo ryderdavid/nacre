@@ -30,6 +30,10 @@ data class JobRow(
     /** The open round or run, for the work inspector. */
     val work: WorkSummary?,
     val updatedAt: String,
+    /** The id of what it works on: the bead, the change's name or the round. */
+    val label: String = "",
+    /** The chat's last line, for its card. */
+    val lastLine: String = "",
 )
 
 /** The Jobs list: chats with work, then the other conversations. */
@@ -66,7 +70,7 @@ object Jobs {
             jobs += JobRow(
                 chatKey = null, title = w.title.ifBlank { "Round ${w.id}" }, agent = "", subject = w.change.ifBlank { "Started from the board" },
                 status = ChatFirstData.statusText(w), done = w.landed, total = w.total, running = w.running, stopped = w.stopped,
-                waiting = 0, work = w, updatedAt = w.lastOutputAt.ifBlank { w.startedAt },
+                waiting = 0, work = w, updatedAt = w.lastOutputAt.ifBlank { w.startedAt }, label = w.change.ifBlank { w.id },
             )
         }
         val sorted = jobs.sortedWith(
@@ -109,9 +113,18 @@ object Jobs {
             change != null -> status = change.phase.replace('_', ' ')
             w != null -> status = ChatFirstData.statusText(w)
         }
+        val label = when {
+            w != null && w.change.isNotBlank() -> w.change
+            change != null -> change.name.ifBlank { change.id }
+            epic != null -> epic.id
+            linked.isNotEmpty() -> linked.first().id
+            w != null -> w.id
+            else -> beads.firstOrNull() ?: changes.firstOrNull().orEmpty()
+        }
         return JobRow(
             chatKey = t.key, title = t.title, agent = t.agent, subject = subject, status = status, done = done, total = total,
             running = w?.running == true, stopped = w?.stopped == true, waiting = t.waiting, work = w?.takeIf { it.open }, updatedAt = updatedAt,
+            label = label, lastLine = t.lastLine,
         )
     }
 }

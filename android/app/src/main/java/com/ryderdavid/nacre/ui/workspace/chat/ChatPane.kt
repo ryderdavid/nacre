@@ -103,7 +103,7 @@ private const val ACTIVE_WINDOW_MS = 20_000L
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
-fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onProjects: () -> Unit, onEvidence: (DecisionEvidence) -> Unit) {
+fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onProjects: () -> Unit, onEvidence: (DecisionEvidence) -> Unit, showHeader: Boolean = true) {
     val container = LocalContainer.current
     val hub = container.chats
     val repo = container.repository
@@ -169,7 +169,8 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = if (typing) 48.dp else 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // In the board's drawer the chat's card is its header.
+        if (showHeader) Row(Modifier.fillMaxWidth().heightIn(min = if (typing) 48.dp else 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (compact) IconButton(onClick = onProjects) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to projects") }
             Surface(
                 onClick = { switching = true }, shape = RoundedCornerShape(16.dp), color = Color.Transparent,

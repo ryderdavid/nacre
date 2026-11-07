@@ -18,8 +18,8 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 // Interim pane contents for the chat-first shell; sections 5 to 9 replace each of them.
 
 @Composable
-fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProjects: () -> Unit) {
-    com.ryderdavid.nacre.ui.workspace.chat.ChatPaneM3(repoKey, thread, onThread, onProjects, onEvidence = LocalOpenEvidence.current)
+fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProjects: () -> Unit, showHeader: Boolean = true) {
+    com.ryderdavid.nacre.ui.workspace.chat.ChatPaneM3(repoKey, thread, onThread, onProjects, onEvidence = LocalOpenEvidence.current, showHeader = showHeader)
 }
 
 /**
