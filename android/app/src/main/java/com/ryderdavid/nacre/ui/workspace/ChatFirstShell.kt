@@ -280,7 +280,15 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 }
             },
         ) {
-            Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
+            // Wide, the board is the app: Specs and bead lanes with the chat drawer beside them.
+            if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= BOARD_MIN_WIDTH) BoardWorkspace(
+                repoKey, name, thread, work, needsYou,
+                chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
+                onSwitchProject = { scope.launch { drawer.open() } },
+                onWork = inspect, onQueue = { queue = true }, askAbout = askAbout,
+                modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
+            )
+            else Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
         }
 
         inspecting?.let { t ->

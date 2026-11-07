@@ -85,6 +85,30 @@ fun BeadPeekSheet(
     /** Opens the work inspector for a round or a run, by id, with a label. */
     onInspect: (PeekRun.Kind, String, String) -> Unit,
 ) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
+    val dismiss: () -> Unit = { scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() } }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        BeadPeekBody(repoKey, issue, ui, dismiss, onMoveTo, onOpenBead, onInspect, Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * The bead's details and actions: the peek sheet's content, and the bead viewer's on the board. [dismiss]
+ * runs before an action that leaves the bead (a sheet hides itself; the viewer stays).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun BeadPeekBody(
+    repoKey: String,
+    issue: Issue,
+    ui: BoardUi,
+    dismiss: () -> Unit,
+    onMoveTo: (Issue, Lane) -> Unit,
+    onOpenBead: (String) -> Unit,
+    onInspect: (PeekRun.Kind, String, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val vm = nacreViewModel(key = "beadpeek:$repoKey:${issue.id}") { BeadPeekViewModel(it.repository, repoKey, issue.id) }
     val comments by vm.comments.collectAsState()
     val runs by vm.runs.collectAsState()
@@ -97,15 +121,12 @@ fun BeadPeekSheet(
     }
     val ask = LocalAskAbout.current
     val openChange = LocalOpenChange.current
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    val scope = rememberCoroutineScope()
-    val dismiss: () -> Unit = { scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() } }
     val repository = LocalContainer.current.repository
     // Starting work in a repository without gates sets them up first, then goes on.
     val start = { vm.startWork { r -> onInspect(PeekRun.Kind.ROUND, r.id, "Round ${r.id}") } }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth()) {
+    run {
+        Column(modifier) {
             var showAllComments by androidx.compose.runtime.saveable.rememberSaveable(peek.id) { androidx.compose.runtime.mutableStateOf(false) }
             LazyColumn(
                 Modifier.weight(1f, fill = false).fillMaxWidth(),

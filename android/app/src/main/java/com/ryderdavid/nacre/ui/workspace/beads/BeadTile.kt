@@ -1,5 +1,11 @@
 package com.ryderdavid.nacre.ui.workspace.beads
 
+import androidx.compose.ui.semantics.contentDescription
+
+import androidx.compose.material.icons.rounded.Comment
+
+import androidx.compose.material.icons.rounded.AddComment
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -141,7 +147,10 @@ fun BeadTile(
                 BeadId(issue.id)
                 PriorityTag(issue.priority)
                 Text(issue.type, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.weight(1f))
-                if (lifted) Box(Modifier.size(48.dp)) else TileMenu(issue.id, movable, onMoveTo, onAsk)
+                if (lifted) Box(Modifier.size(48.dp)) else {
+                    LocalCardAttach.current?.let { AttachButton(beadReference(issue.id), it) }
+                    TileMenu(issue.id, movable, onMoveTo, onAsk)
+                }
             }
             Column(Modifier.padding(end = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -210,5 +219,30 @@ private fun MoveRow(lane: Lane, onClick: () -> Unit, minHeight: Dp = 56.dp) {
             Text(lane.title, style = MaterialTheme.typography.titleSmall)
             if (lane == Lane.DONE) Text("Closes the bead. It doesn't mean verified or signed off.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+/** On the board every card carries a send-to-chat button; null elsewhere, where cards keep Ask about this in their menu. */
+class CardAttach(
+    /** The `kind:id` of each reference attached to the next message. */
+    val attached: Set<String>,
+    /** Attaches the reference to the next message, or takes it off again. */
+    val toggle: (com.ryderdavid.nacre.ui.workspace.ChatReference) -> Unit,
+)
+
+val LocalCardAttach = androidx.compose.runtime.compositionLocalOf<CardAttach?> { null }
+
+/** Send to chat: attaches the card to the next message; filled while it is attached. */
+@Composable
+fun AttachButton(ref: com.ryderdavid.nacre.ui.workspace.ChatReference, attach: CardAttach, modifier: Modifier = Modifier) {
+    val on = "${ref.kind}:${ref.id}" in attach.attached
+    androidx.compose.material3.FilledIconToggleButton(
+        checked = on, onCheckedChange = { attach.toggle(ref) },
+        colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+            containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        modifier = modifier.size(48.dp).semantics { contentDescription = if (on) "Take ${ref.label} off the next message" else "Send ${ref.label} to chat" },
+    ) {
+        Icon(if (on) Icons.Rounded.Comment else Icons.Rounded.AddComment, null)
     }
 }

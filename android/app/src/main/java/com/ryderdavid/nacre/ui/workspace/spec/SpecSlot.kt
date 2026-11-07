@@ -23,7 +23,12 @@ import kotlinx.coroutines.delay
  * chat or answered on a decision card.
  */
 @Composable
-fun SpecSlot(repoKey: String, modifier: Modifier) {
+fun SpecSlot(
+    repoKey: String,
+    modifier: Modifier,
+    /** On the board the Specs column is the list: Back past a change leaves the viewer instead of showing it. */
+    onList: (() -> Unit)? = null,
+) {
     val vm = nacreViewModel(key = "spec:$repoKey") { SpecPanelViewModel(it.repository, repoKey) }
     val container = LocalContainer.current
     val repo = container.repository
@@ -37,7 +42,7 @@ fun SpecSlot(repoKey: String, modifier: Modifier) {
     val board by repo.board(repoKey).collectAsState()
     val boardLoaded = board.data != null
     LaunchedEffect(target, boardLoaded) {
-        if (target == null || (!boardLoaded && board.loading)) return@LaunchedEffect
+        if (onList != null || target == null || (!boardLoaded && board.loading)) return@LaunchedEffect
         // A cited file: a change's document opens in the reader; a current spec opens at its row in the list.
         vm.show(com.ryderdavid.nacre.ui.workspace.spec.SpecList.opening(target.ref, target.requirement, board.data?.changes?.forSpec.orEmpty()))
         container.chats.references.specOpened(repoKey)
@@ -52,11 +57,11 @@ fun SpecSlot(repoKey: String, modifier: Modifier) {
         }
     }
     BackHandler(enabled = stack.size > 1) { vm.back() }
-    if (screen == SpecScreen.List) LaunchedEffect(Unit) { viewing(null) }
+    if (screen == SpecScreen.List) LaunchedEffect(Unit) { if (onList != null) onList() else viewing(null) }
 
     Box(modifier) {
         when (screen) {
-            SpecScreen.List -> SpecChangeList(vm, Modifier)
+            SpecScreen.List -> if (onList == null) SpecChangeList(vm, Modifier)
             is SpecScreen.Change -> ChangeOverviewPane(vm, screen, Modifier)
             is SpecScreen.Document -> DocumentReaderPane(vm, screen, Modifier)
         }

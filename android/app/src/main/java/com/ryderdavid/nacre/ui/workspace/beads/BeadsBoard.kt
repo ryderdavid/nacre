@@ -300,7 +300,7 @@ private fun DropToolbar(drag: DragController) {
  * beads is a drop target; the one under the finger fills with primary container.
  */
 @Composable
-fun ColumnBeads(ui: BoardUi, widthDp: Int, row: LazyListState, drag: DragController, h: CardHandlers, modifier: Modifier = Modifier) {
+fun ColumnBeads(ui: BoardUi, widthDp: Int, row: LazyListState, drag: DragController, h: CardHandlers, modifier: Modifier = Modifier, leading: (@Composable () -> Unit)? = null) {
     var viewport by remember { mutableStateOf(Rect.Zero) }
     // Edge auto-scroll while a card is dragged near the left or right edge.
     LaunchedEffect(drag.isDragging) {
@@ -326,6 +326,7 @@ fun ColumnBeads(ui: BoardUi, widthDp: Int, row: LazyListState, drag: DragControl
         horizontalArrangement = Arrangement.spacedBy(BeadsLayout.GAP.dp),
         modifier = modifier.fillMaxSize().onGloballyPositioned { viewport = it.boundsInWindow() }.semantics { contentDescription = "Lanes, scrolls sideways" },
     ) {
+        if (leading != null) item(key = "leading") { leading() }
         itemsIndexed(ui.columns, key = { _, c -> c.key }) { _, col ->
             val lane = BeadMoves.laneByKey(col.key) ?: Lane.READY
             val accepts = BeadMoves.accepts(lane)

@@ -81,7 +81,15 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BeadsSlot(repoKey: String, modifier: Modifier) {
+fun BeadsSlot(
+    repoKey: String,
+    modifier: Modifier,
+    /** On the board: a card opens its bead viewer instead of the peek sheet. */
+    onOpenBead: ((String) -> Unit)? = null,
+    /** On the board: the Specs column, scrolled with the lanes as the first of them. */
+    leading: (@Composable () -> Unit)? = null,
+) {
+    val lead = if (leading != null) 1 else 0
     val container = LocalContainer.current
     val repo = container.repository
     val vm = nacreViewModel(key = "board:$repoKey") { BoardViewModel(it.repository, repoKey) }
@@ -98,7 +106,8 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
     var moving by remember { mutableStateOf<Pair<Issue, Lane>?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
 
-    val ui = state.data
+    // The board shows changes in its Specs column, so it leaves out the Proposals lane.
+    val ui = state.data?.let { d -> if (onOpenBead != null) d.copy(columns = d.columns.filter { it.key != Lane.PROPOSED.key }) else d }
 
     fun perform(issue: Issue, from: Lane, to: Lane) {
         when (val o = BeadMoves.outcome(from, to)) {
@@ -115,18 +124,19 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
 
     // The peeked bead is what the pane is viewing, for the next message's context.
     DisposableEffect(peekId) {
-        peekId?.let { viewing(beadReference(it)) }
+        if (onOpenBead == null) peekId?.let { viewing(beadReference(it)) }
         onDispose { }
     }
 
     val beadTargets by container.chats.references.beadTarget.collectAsState()
     LaunchedEffect(beadTargets[repoKey]) {
-        beadTargets[repoKey]?.let { peekId = it; container.chats.references.beadOpened(repoKey) }
+        // On the board the shell opens the bead viewer for a target.
+        if (onOpenBead == null) beadTargets[repoKey]?.let { peekId = it; container.chats.references.beadOpened(repoKey) }
     }
 
     val handlers = CardHandlers(
         selectedId = peekId,
-        onOpen = { peekId = it.id },
+        onOpen = { if (onOpenBead != null) onOpenBead(it.id) else peekId = it.id },
         onMoveTo = { issue, from -> moving = issue to from },
         onAsk = { ask(beadReference(it.id)) },
         onCloseCovered = { repo.move(repoKey, it, MoveAction.Close) },
@@ -136,18 +146,19 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
 
     BoxWithConstraints(modifier.fillMaxSize().onGloballyPositioned { rootOffset = it.boundsInWindow().topLeft }) {
         val widthDp = maxWidth.value.toInt()
-        val columns = BeadsLayout.usesColumns(widthDp)
+        // The board always shows lanes side by side: its Specs column leads them.
+        val columns = onOpenBead != null || BeadsLayout.usesColumns(widthDp)
         val row = rememberLazyListState()
         // A filter that leaves the lanes in view empty scrolls to the nearest lane with matches.
         LaunchedEffect(filter, columns, ui?.columns?.map { it.total }) {
             val cols = ui?.columns ?: return@LaunchedEffect
             if (!columns || !filter.isActive) return@LaunchedEffect
             val inView = row.layoutInfo.visibleItemsInfo.map { it.index }
-            if (inView.any { cols.getOrNull(it)?.let { c -> c.total > 0 } == true }) return@LaunchedEffect
-            com.ryderdavid.nacre.ui.board.laneWithMatches(cols, row.firstVisibleItemIndex)?.let { row.animateScrollToItem(it) }
+            if (inView.any { cols.getOrNull(it - lead)?.let { c -> c.total > 0 } == true }) return@LaunchedEffect
+            com.ryderdavid.nacre.ui.board.laneWithMatches(cols, (row.firstVisibleItemIndex - lead).coerceAtLeast(0))?.let { row.animateScrollToItem(it + lead) }
         }
         Column(Modifier.fillMaxSize()) {
-            Header(ui, columns, widthDp, row, searching, onSearch = { searching = !searching; if (!searching) vm.setQuery("") })
+            Header(ui, columns, widthDp, row, searching, lead, title = if (onOpenBead != null) "" else "Beads", onSearch = { searching = !searching; if (!searching) vm.setQuery("") })
             if (searching) SearchField(filter.query, vm::setQuery)
             if (ui != null) {
                 FilterRow(ui, filter, vm)
@@ -157,7 +168,7 @@ fun BeadsSlot(repoKey: String, modifier: Modifier) {
                 when {
                     ui == null && state.error != null -> ErrorState(state.error!!, vm::refresh)
                     ui == null -> LoadingState("Loading beads…")
-                    columns -> ColumnBeads(ui, widthDp, row, drag, handlers)
+                    columns -> ColumnBeads(ui, widthDp, row, drag, handlers, leading = leading)
                     else -> CompactBeads(ui, laneKey, onLane = { laneKey = it }, drag = drag, query = filter.query, h = handlers)
                 }
             }
@@ -188,12 +199,15 @@ private fun Header(
     widthDp: Int,
     row: androidx.compose.foundation.lazy.LazyListState,
     searching: Boolean,
+    lead: Int,
+    title: String,
     onSearch: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Beads", style = MaterialTheme.typography.titleLargeEmphasized)
+            // On the board the top bar already names the screen.
+            if (title.isNotEmpty()) Text(title, style = MaterialTheme.typography.titleLargeEmphasized)
             if (ui != null) Text(
                 listOfNotNull(
                     ui.snapshot.repo.name,
@@ -204,7 +218,7 @@ private fun Header(
         }
         if (columns && ui != null) {
             val fit = BeadsLayout.columnsThatFit(widthDp)
-            val total = ui.columns.size
+            val total = ui.columns.size + lead
             // Lanes fully in view, not the partly scrolled one at the edge.
             val shownLanes by remember(row) { derivedStateOf {
                 val info = row.layoutInfo

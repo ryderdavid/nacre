@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nacre board mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f4f7f7; --surface:#ffffff; --surface-2:#eaf1f1; --surface-3:#dde8e8;
+  --fg:#152022; --muted:#55666a; --line:#d3dfe0;
+  --accent:#0e5e66; --on-accent:#ffffff; --accent-soft:#cdeaea;
+  --spec:#ece6f6; --spec-line:#cbbfe3; --spec-ink:#4a3a72;
+  --warn:#8a4b00; --warn-soft:#ffe3c2; --ok:#2f6b2f; --ok-soft:#d6efd2;
+  --pearl:linear-gradient(90deg,#9fd8d4,#b9b3ea,#f0c6d6,#f3e2b5);
+  --shadow:0 1px 2px rgba(10,40,44,.08),0 2px 8px rgba(10,40,44,.06);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1516; --surface:#182122; --surface-2:#1f2a2b; --surface-3:#283536;
+  --fg:#e3eced; --muted:#9db0b2; --line:#2e3d3f;
+  --accent:#7cc8cc; --on-accent:#062a2d; --accent-soft:#1d4144;
+  --spec:#262036; --spec-line:#43395e; --spec-ink:#cfc2f2;
+  --warn:#ffc27a; --warn-soft:#45300f; --ok:#9bd893; --ok-soft:#1e3a1c;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 "Roboto Flex",system-ui,sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.proj{display:flex;align-items:center;gap:8px;border:0;background:var(--surface-2);padding:6px 12px 6px 6px;border-radius:999px;font-weight:600}
+.proj .logo{width:28px;height:28px;border-radius:50%;background:var(--pearl)}
+.crumb{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.crumb button{border:0;background:none;padding:6px 10px;border-radius:999px;color:var(--accent);font-weight:600}
+.crumb button:hover{background:var(--accent-soft)}
+.spacer{flex:1}
+.icon-btn{border:0;background:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.icon-btn:hover{background:var(--surface-2)}
+.icon-btn[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* body */
+.body{display:grid;grid-template-columns:1fr 360px;min-height:0}
+.body.chat-closed{grid-template-columns:1fr 0}
+.body.chat-closed .chat{display:none}
+.stage{min-width:0;min-height:0;overflow:hidden;display:flex}
+
+/* board */
+.board{display:flex;gap:12px;padding:16px;overflow-x:auto;width:100%;align-items:flex-start}
+.col{flex:0 0 250px;display:flex;flex-direction:column;gap:8px;max-height:100%;}
+.col.specs{flex-basis:290px;background:var(--spec);border:1px solid var(--spec-line);border-radius:20px;padding:10px}
+.col-h{display:flex;align-items:baseline;gap:8px;padding:4px 6px 6px;font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.col.specs .col-h{color:var(--spec-ink)}
+.col-h .n{font-weight:500;letter-spacing:0}
+.cards{display:flex;flex-direction:column;gap:8px;overflow-y:auto;padding-bottom:8px}
+.card{position:relative;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 44px 12px 14px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px;width:100%}
+.card:hover{border-color:var(--accent)}
+.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card .t{font-weight:600;line-height:1.3}
+.card .meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--muted);font-size:12.5px}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:8px;padding:1px 7px;font-size:12px;background:var(--surface-2);color:var(--muted)}
+.chip.spec{background:var(--spec);color:var(--spec-ink)}
+.chip.warn{background:var(--warn-soft);color:var(--warn);font-weight:600}
+.chip.ok{background:var(--ok-soft);color:var(--ok);font-weight:600}
+.chip.run{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.bar{height:8px;border-radius:99px;background:var(--surface-3);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.bar.full i{background:var(--pearl)}
+.why{color:var(--muted);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.attach{position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:10px;border:0;background:none;color:var(--muted);display:grid;place-items:center}
+.attach:hover{background:var(--accent-soft);color:var(--accent)}
+.attach[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
+.attach svg{width:18px;height:18px}
+.col.done .card{opacity:.7}
+
+/* viewer */
+.viewer{display:grid;grid-template-columns:1fr 280px;width:100%;min-height:0}
+.v-main{overflow-y:auto;padding:24px 32px 48px;min-width:0}
+.v-side{border-left:1px solid var(--line);overflow-y:auto;padding:20px 16px;background:var(--surface)}
+.v-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
+.v-head h1{margin:0;font-size:28px;line-height:1.15;font-weight:650;text-wrap:balance;flex:1}
+.v-head .attach{position:static;width:auto;height:36px;padding:0 14px;display:flex;gap:6px;border:1px solid var(--line);border-radius:999px;font-weight:600;font-size:13.5px}
+.v-sub{display:flex;gap:8px;align-items:center;color:var(--muted);margin-bottom:16px;flex-wrap:wrap}
+.v-prog{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.v-prog .bar{flex:1;height:10px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tabs button{border:0;background:none;padding:10px 14px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent}
+.tabs button[aria-selected=true]{color:var(--accent);border-bottom-color:var(--accent)}
+.doc{max-width:68ch}
+.doc h2{font-size:18px;margin:22px 0 8px}
+.doc p,.doc li{color:var(--fg)}
+.task-sec{margin:0 0 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
+.task-sec summary{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;font-weight:600;list-style:none}
+.task-sec summary::-webkit-details-marker{display:none}
+.task-sec .cnt{margin-left:auto;color:var(--muted);font-weight:500;font-size:13px}
+.task-sec ul{margin:0;padding:4px 14px 12px 14px;list-style:none;display:flex;flex-direction:column;gap:6px}
+.task-sec li{display:flex;gap:8px}
+.box{flex:0 0 18px;height:18px;border-radius:5px;border:2px solid var(--muted);margin-top:2px}
+.box.on{background:var(--accent);border-color:var(--accent)}
+.side-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:4px 0 8px}
+.side-list{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.side-list .card{padding:8px 40px 8px 10px;box-shadow:none;font-size:13.5px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;margin:0 0 18px}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0}
+.log{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--surface-2);border-radius:12px;padding:12px;white-space:pre-wrap;color:var(--muted)}
+
+/* chat drawer */
+.chat{display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--surface);min-height:0}
+.chat-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.agent{display:flex;align-items:center;gap:6px;border:0;background:var(--surface-2);border-radius:999px;padding:5px 12px;font-weight:600}
+.agent .mark{width:16px;height:16px;border-radius:4px;background:#d97757}
+.thread{color:var(--muted);font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:92%;padding:9px 12px;border-radius:16px;font-size:14px}
+.m.me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-bottom-right-radius:6px}
+.m.ai{align-self:flex-start;background:var(--surface-2);border-bottom-left-radius:6px}
+.m .refs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.m.me .chip{background:rgba(255,255,255,.18);color:inherit}
+.decision{align-self:stretch;border:1px solid var(--warn);background:var(--warn-soft);border-radius:16px;padding:10px 12px;font-size:14px}
+.decision b{color:var(--warn)}
+.decision .row{display:flex;gap:8px;margin-top:8px}
+.btn{border:0;border-radius:999px;padding:7px 14px;font-weight:600;background:var(--accent);color:var(--on-accent)}
+.btn.ghost{background:none;color:var(--fg);border:1px solid var(--line)}
+.compose{border-top:1px solid var(--line);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.ctx{display:flex;flex-wrap:wrap;gap:6px}
+.ctx:empty{display:none}
+.ctx .chip{background:var(--accent-soft);color:var(--accent);font-weight:600;padding:3px 4px 3px 9px}
+.ctx .chip button{border:0;background:none;color:inherit;width:20px;height:20px;border-radius:50%;padding:0;line-height:1}
+.ctx .chip button:hover{background:rgba(0,0,0,.08)}
+.inrow{display:flex;gap:8px;align-items:flex-end}
+.inrow textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:20px;padding:10px 14px;font:inherit;min-height:44px;max-height:120px}
+.send{width:44px;height:44px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center}
+.hint{font-size:12px;color:var(--muted);padding:0 4px}
+
+.note{position:fixed;left:16px;bottom:16px;max-width:340px;background:var(--fg);color:var(--bg);border-radius:14px;padding:10px 14px;font-size:13px;box-shadow:var(--shadow)}
+.note button{border:0;background:none;color:inherit;text-decoration:underline;padding:0;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="proj" title="Switch project"><span class="logo"></span>Nacre <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+    <nav class="crumb" id="crumb"></nav>
+    <span class="spacer"></span>
+    <button class="icon-btn" title="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+    <button class="icon-btn" id="chatToggle" aria-pressed="true" title="Chat drawer"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></button>
+    <button class="icon-btn" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+  <div class="body" id="body">
+    <div class="stage" id="stage"></div>
+    <aside class="chat" aria-label="Chat">
+      <div class="chat-h">
+        <button class="agent"><span class="mark"></span>Claude <svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="m6 9 6 6 6-6"/></svg></button>
+        <span class="thread">Thread: tidy up after 0.38.7</span>
+        <button class="icon-btn" title="New thread"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+      <div class="msgs" id="msgs">
+        <div class="m me"><div class="refs"><span class="chip">NAC-pjq.27</span></div>Why did that draft stop?</div>
+        <div class="m ai">tasks.md had a section with no tasks, so preparing the round failed. Drafting now sends that back to the author instead of stopping. Fixed in 0.38.7.</div>
+        <div class="decision"><b>Needs you</b> · Land the BubbleKeyboard round? It's ready: 6 beads closed, tests green.
+          <div class="row"><button class="btn">Land it</button><button class="btn ghost">Not yet</button></div></div>
+      </div>
+      <div class="compose">
+        <div class="ctx" id="ctx"></div>
+        <div class="inrow">
+          <textarea id="input" rows="1" placeholder="Ask about the board, or attach a card"></textarea>
+          <button class="send" id="send" title="Send"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="hint" id="hint">Tap <b>⊕</b> on any card to make your next message about it.</div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="note" id="note">Mockup. Tap a card to open it; tap its <b>⊕</b> to attach it to chat. <button onclick="this.parentNode.remove()">Dismiss</button></div>
+
+<script>
+const ATTACH='<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M12 8v5M9.5 10.5h5"/></svg>';
+const specs=[
+ {id:'chat-first-harness',title:'Chat first harness',why:'Reorient the app around chat; most buttons are a second, worse way to ask nacred for something.',done:38,total:40,phase:'Building',epic:'NAC-4qu'},
+ {id:'pending-proposal-placeholders',title:'Pending proposal placeholders',why:'Show that a proposal is on its way, and say when drafting stopped.',done:0,total:13,phase:'Ready to build',epic:null},
+ {id:'set-up-gates',title:'Set up gates',why:'Draft nacre.yaml from the phone instead of hitting a dead end.',done:4,total:4,phase:'Ready to archive',epic:'NAC-6c5'},
+ {id:'drafting-settles-its-findings',title:'Drafting settles its findings',why:'The author fixes what it can; the owner only sees real decisions.',done:5,total:5,phase:'Ready to archive',epic:'NAC-cjh'},
+];
+const beads=[
+ {id:'NAC-ym4',title:'Bottom nav and chat-screen declutter',status:'ready',type:'feature',p:2,spec:null},
+ {id:'NAC-x1a',title:'Show drafting state on pending proposals',status:'ready',type:'task',p:2,spec:'pending-proposal-placeholders'},
+ {id:'NAC-x1b',title:'Record created_at on first strict validation',status:'ready',type:'task',p:2,spec:'pending-proposal-placeholders'},
+ {id:'NAC-4qu.12',title:'Device checks on the Fold',status:'progress',type:'task',p:1,spec:'chat-first-harness',needs:true},
+ {id:'NAC-bkb.3',title:'BubbleKeyboard: long-press emoji tray',status:'progress',type:'task',p:2,spec:null,running:'Codex'},
+ {id:'NAC-at5.2',title:'RunNotifier can notify twice for one item',status:'blocked',type:'bug',p:2,spec:null,by:'NAC-at5'},
+ {id:'NAC-pjq.27',title:'Drafts stop when tasks.md has a section without tasks',status:'done',type:'bug',p:1,spec:'chat-first-harness'},
+ {id:'NAC-pjq.26',title:'Reopened preflight question reuses a Done decision ID',status:'done',type:'bug',p:1,spec:'chat-first-harness'},
+ {id:'NAC-wtm',title:'Ask the chat again',status:'done',type:'feature',p:2,spec:'chat-first-harness'},
+];
+const cols=[['ready','Ready'],['progress','In progress'],['blocked','Blocked'],['done','Done']];
+const sections=[['nacred: protected actions and the chat-scoped token',4,4],['nacred: decisions',6,6],['nacred: summaries for the new screens',4,4],['App: the shell and Projects',5,5],['App: Chat',4,4],['App: decision cards',5,5],['App: work card and work inspector',3,3],['App: Spec panel',3,3],['App: Beads panel',3,3],['Device checks',0,2,['On the Fold, cover and unfolded: open a project, switch threads, answer each card kind, land a round through a decision…','Accessibility runs: TalkBack, Switch Access, hardware keyboard, 200% font, dark theme.']]];
+
+let attached=[]; let view={kind:'board'};
+const $=s=>document.querySelector(s);
+const isOn=id=>attached.includes(id);
+const label=id=>{const s=specs.find(x=>x.id==id);return s?s.title:id};
+
+function attachBtn(id,big){
+  return `<button class="attach" aria-pressed="${isOn(id)}" data-attach="${id}" title="${isOn(id)?'Remove from chat':'Send to chat'}">${ATTACH}${big?(isOn(id)?' In chat':' Send to chat'):''}</button>`;
+}
+function specCard(s){
+  const pct=Math.round(100*s.done/s.total);
+  const chip=s.done==s.total?'<span class="chip ok">Ready to archive</span>':`<span class="chip">${s.phase}</span>`;
+  return `<div class="card" role="button" tabindex="0" data-open="spec:${s.id}">
+    <div class="t">${s.title}</div><div class="why">${s.why}</div>
+    <div class="bar ${pct==100?'full':''}"><i style="width:${pct}%"></i></div>
+    <div class="meta"><span>${s.done} / ${s.total} tasks</span>${chip}</div>${attachBtn(s.id)}</div>`;
+}
+function beadCard(b){
+  let extra='';
+  if(b.needs) extra+='<span class="chip warn">Needs you</span>';
+  if(b.running) extra+=`<span class="chip run"><span class="dot"></span>${b.running} working</span>`;
+  if(b.by) extra+=`<span class="chip">blocked by ${b.by}</span>`;
+  return `<div class="card" role="button" tabindex="0" data-open="bead:${b.id}">
+    <div class="meta"><span class="mono">${b.id}</span><span>${b.type} · P${b.p}</span></div>
+    <div class="t">${b.title}</div>
+    <div class="meta">${b.spec?`<span class="chip spec">${label(b.spec)}</span>`:''}${extra}</div>${attachBtn(b.id)}</div>`;
+}
+function board(){
+  return `<div class="board">
+   <div class="col specs"><div class="col-h">Specs <span class="n">${specs.length}</span></div><div class="cards">${specs.map(specCard).join('')}</div></div>
+   ${cols.map(([k,n])=>{const list=beads.filter(b=>b.status==k);return `<div class="col ${k}"><div class="col-h">${n} <span class="n">${list.length}</span></div><div class="cards">${list.map(beadCard).join('')}</div></div>`}).join('')}
+  </div>`;
+}
+function specView(s,tab){
+  const pct=Math.round(100*s.done/s.total);
+  const linked=beads.filter(b=>b.spec==s.id);
+  let body='';
+  if(tab=='proposal') body=`<div class="doc"><h2>Why</h2><p>${s.id=='chat-first-harness'?'The app has grown to 9 screens plus a change overlay, about 140 actions and 25 sheets and dialogs. Yet the Chat tab can already do the owner\'s work end to end through nacred. Most of those buttons are a second, worse way to ask nacred for something chat can ask for.':s.why}</p><h2>What changes</h2><ul><li>Two levels replace the four tabs: Projects, and a workspace with Chat · Spec · Beads.</li><li>Chat becomes the way work is asked for: threads, reference chips, agent states.</li><li>Protected actions need an answer from a paired device; the agent raises a decision instead.</li></ul><h2>Impact</h2><p>Removes Boards, Inbox and Activity tabs; nacred gains decisions and a chat-scoped token.</p></div>`;
+  else if(tab=='tasks') body=sections.map(([n,d,t,open],i)=>`<details class="task-sec" ${d<t?'open':''}><summary><span class="box ${d==t?'on':''}"></span>${i+1}. ${n}<span class="cnt">${d} / ${t}</span></summary>${open?`<ul>${open.map(x=>`<li><span class="box"></span>${x}</li>`).join('')}</ul>`:''}</details>`).join('');
+  else if(tab=='design') body=`<div class="doc"><h2>Decisions</h2><p>nacred binds each decision to one exact action and revision, revalidates it, executes it, and records who answered from which device.</p><h2>Layout</h2><p>Cover screen: short navigation bar. Unfolded: a rail chooses Chat alone, or Chat beside Spec or Beads.</p></div>`;
+  else body=`<div class="doc"><h2>chat-app · ADDED</h2><p><b>Requirement: Owner decisions.</b> Protected actions SHALL need an answer from a paired device.</p><p><i>Scenario:</i> the chat asks to land a round → a decision card appears; landing runs only after the owner answers.</p></div>`;
+  const tabs=[['proposal','Proposal'],['design','Design'],['tasks','Tasks'],['deltas','Spec changes']];
+  return `<div class="viewer"><div class="v-main">
+    <div class="v-head"><h1>${s.title}</h1>${attachBtn(s.id,true)}</div>
+    <div class="v-sub"><span class="mono">${s.id}</span>${s.epic?`<span class="chip">epic ${s.epic}</span>`:''}<span class="chip ${pct==100?'ok':''}">${s.done==s.total?'Ready to archive':s.phase}</span></div>
+    <div class="v-prog"><div class="bar ${pct==100?'full':''}"><i style="width:${pct}%"></i></div><span>${s.done} / ${s.total} tasks</span></div>
+    <div class="tabs" role="tablist">${tabs.map(([k,n])=>`<button role="tab" aria-selected="${k==tab}" data-tab="${k}">${n}</button>`).join('')}</div>${body}</div>
+    <div class="v-side"><div class="side-h">Beads from this spec</div><div class="side-list">${linked.length?linked.map(beadCard).join(''):'<span class="hint">None yet. Ask chat to plan it.</span>'}</div>
+    <div class="side-h">Archive</div><p class="hint" style="padding:0">${s.done==s.total?'Every task is done. Ask chat to archive it.':`${s.total-s.done} tasks left before it can be archived.`}</p></div></div>`;
+}
+function beadView(b){
+  const s=specs.find(x=>x.id==b.spec);
+  return `<div class="viewer"><div class="v-main">
+    <div class="v-head"><h1>${b.title}</h1>${attachBtn(b.id,true)}</div>
+    <div class="v-sub"><span class="mono">${b.id}</span><span class="chip">${cols.find(c=>c[0]==b.status)[1]}</span>${b.needs?'<span class="chip warn">Needs you</span>':''}${b.running?`<span class="chip run"><span class="dot"></span>${b.running} working</span>`:''}</div>
+    <div class="doc"><h2>Description</h2><p>${b.id=='NAC-ym4'?'Inside a project the bottom bar gives no way back to Projects, and the chat screen spends vertical space on a status strip, a tall header and always-visible quick replies.':'What this bead is for, in the words it was filed with.'}</p><h2>Acceptance</h2><ul><li>Checked on the Fold, cover and unfolded.</li></ul></div>
+    ${b.running?`<h2 style="font-size:18px">Live</h2><div class="log">› editing EmojiTray.kt\n› ./gradlew testDebugUnitTest  ✓ 214 passed\n› writing the long-press handler…</div>`:''}</div>
+    <div class="v-side"><dl class="facts"><dt>Type</dt><dd>${b.type}</dd><dt>Priority</dt><dd>P${b.p}</dd><dt>Spec</dt><dd>${s?`<button class="chip spec" style="border:0" data-open="spec:${s.id}">${s.title}</button>`:'—'}</dd>${b.by?`<dt>Blocked by</dt><dd class="mono">${b.by}</dd>`:''}<dt>Updated</dt><dd>Nov 6</dd></dl>
+    <div class="side-h">Ask chat to</div><p class="hint" style="padding:0">start it, close it, change it, or explain it. Attach it first.</p></div></div>`;
+}
+function crumb(){
+  if(view.kind=='board') return '<span style="font-weight:600;color:var(--fg)">Board</span>';
+  const n=view.kind=='spec'?specs.find(s=>s.id==view.id).title:view.id;
+  return `<button data-go="board">Board</button>›<span style="color:var(--fg);font-weight:600">${n}</span>`;
+}
+function render(){
+  $('#crumb').innerHTML=crumb();
+  $('#stage').innerHTML=view.kind=='board'?board():view.kind=='spec'?specView(specs.find(s=>s.id==view.id),view.tab||'proposal'):beadView(beads.find(b=>b.id==view.id));
+  $('#ctx').innerHTML=attached.map(id=>`<span class="chip">${label(id)}<button data-detach="${id}" aria-label="Remove ${label(id)}">×</button></span>`).join('');
+  $('#hint').hidden=attached.length>0;
+}
+document.addEventListener('click',e=>{
+  const a=e.target.closest('[data-attach]');
+  if(a){e.stopPropagation();const id=a.dataset.attach;attached=isOn(id)?attached.filter(x=>x!=id):[...attached,id];render();if(isOn(id))$('#input').focus();return}
+  const d=e.target.closest('[data-detach]'); if(d){attached=attached.filter(x=>x!=d.dataset.detach);render();return}
+  const o=e.target.closest('[data-open]'); if(o){const[k,id]=o.dataset.open.split(':');view={kind:k,id};render();$('#stage').scrollTop=0;return}
+  const t=e.target.closest('[data-tab]'); if(t){view.tab=t.dataset.tab;render();return}
+  if(e.target.closest('[data-go]')){view={kind:'board'};render()}
+});
+document.addEventListener('keydown',e=>{if((e.key=='Enter'||e.key==' ')&&e.target.matches('.card[data-open]')){e.preventDefault();e.target.click()}});
+$('#chatToggle').onclick=e=>{const b=$('#body');b.classList.toggle('chat-closed');e.currentTarget.setAttribute('aria-pressed',!b.classList.contains('chat-closed'))};
+function send(){
+  const txt=$('#input').value.trim(); if(!txt&&!attached.length) return;
+  const refs=attached.map(id=>`<span class="chip">${label(id)}</span>`).join('');
+  const m=document.createElement('div');m.className='m me';m.innerHTML=(refs?`<div class="refs">${refs}</div>`:'')+(txt||'');$('#msgs').append(m);
+  const about=attached.map(label).join(', ');attached=[];$('#input').value='';render();
+  setTimeout(()=>{const r=document.createElement('div');r.className='m ai';r.textContent=about?`Looking at ${about}…`:'On it.';$('#msgs').append(r);$('#msgs').scrollTop=1e6},500);
+  $('#msgs').scrollTop=1e6;
+}
+$('#send').onclick=send;
+$('#input').addEventListener('keydown',e=>{if(e.key=='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+render();
+</script>
+</body>
+</html>
