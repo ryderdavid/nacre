@@ -50,6 +50,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.scrollBy
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -136,11 +140,33 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val agent = AgentStates.of(state, since, stalled = work?.stalled == true && state.turnRunning, pendingDecisions = mine.count { it.pending })
     val outputFlowing = state.turnRunning && lastOutput > 0 && since < ACTIVE_WINDOW_MS
 
-    // Follow the bottom only when Ryder is already there; a thread he scrolled up in keeps its place.
-    val total = state.items.size + mine.size + myWork.size
-    var following by remember(thread) { mutableStateOf(views[thread]?.firstVisibleIndex == null || views[thread]?.firstVisibleIndex == 0) }
-    LaunchedEffect(list.canScrollForward, list.isScrollInProgress) { if (!list.isScrollInProgress) following = !list.canScrollForward }
-    LaunchedEffect(total) { if (total > 0 && following) list.animateScrollToItem(total - 1) }
+    // Cards sit where they happened among the messages, not all after them.
+    val rows = remember(state.items, state.times, mine, myWork) { ChatTimeline.merge(state.items, state.times, mine, myWork) }
+    // Follow the bottom, including a reply growing as it streams. Only Ryder's own scrolling stops that
+    // (ending a scroll above the bottom) or starts it again (ending one at the bottom); content growing
+    // under the list never does. Sending a message always goes back to the bottom.
+    var following by remember(thread) { mutableStateOf(true) }
+    // Set while the list scrolls itself to the bottom, so a pause between its two steps isn't read as Ryder's.
+    val autoScrolling = remember(thread) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.distinctUntilChanged().drop(1).collect { scrolling ->
+            if (!scrolling && !autoScrolling.get()) following = !list.canScrollForward
+        }
+    }
+    val sent = state.items.count { it is ChatItem.User }
+    LaunchedEffect(sent) { following = true }
+    // Whatever leaves room below while following (a new row, a reply growing, a card laid out late) is scrolled away.
+    LaunchedEffect(list) {
+        snapshotFlow { following && list.canScrollForward && !list.isScrollInProgress }.collect { behind ->
+            if (behind) {
+                autoScrolling.set(true)
+                try {
+                    list.scrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                    list.scrollBy(CHAT_END_DISTANCE)
+                } finally { autoScrolling.set(false) }
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().heightIn(min = if (typing) 48.dp else 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -190,33 +216,36 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
         val listModifier = if (aboveFold != null && aboveFold > 120.dp) Modifier.height(aboveFold) else Modifier.weight(1f)
         LazyColumn(
             listModifier.fillMaxWidth().onGloballyPositioned { listTop = it.positionInWindow().y }, state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            items(state.items, key = { it.key }) { item ->
-                when (item) {
-                    is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
-                    // The bubble fits its text, up to 84% of the width.
-                    is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { Box(Modifier.fillMaxWidth(0.84f), contentAlignment = Alignment.CenterEnd) {
-                        Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                if (item.images.isNotEmpty()) com.ryderdavid.nacre.ui.common.ChatSentImages(thread, item.images, Modifier.padding(bottom = 4.dp))
-                                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            items(rows, key = { it.key }) { row ->
+                when (row) {
+                    is TimelineRow.Item -> when (val item = row.item) {
+                        is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
+                        // The bubble fits its text, up to 84% of the width.
+                        is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { Box(Modifier.fillMaxWidth(0.84f), contentAlignment = Alignment.CenterEnd) {
+                            Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                    if (item.images.isNotEmpty()) com.ryderdavid.nacre.ui.common.ChatSentImages(thread, item.images, Modifier.padding(bottom = 4.dp))
+                                    Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
                             }
-                        }
-                    } }
-                    else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
+                        } }
+                        else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
+                    }
+                    is TimelineRow.Card -> DecisionCard(row.decision, onEvidence)
+                    is TimelineRow.Work -> {
+                        val w = row.work
+                        com.ryderdavid.nacre.ui.workspace.work.WorkCard(
+                            w, replyRunning = state.turnRunning,
+                            onInspect = { onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = Keys.of(Keys.host(repoKey), w.id))) },
+                            onStopReply = conv::stop,
+                            onCancelWork = {
+                                val key = Keys.of(Keys.host(repoKey), w.id)
+                                if (w.kind == "run") container.scope.launch { runCatching { repo.cancelRun(key) }.onFailure { repo.notify("Couldn't cancel the run: ${it.message}") } }
+                                else repo.cancelRoundQuietly(key)
+                            },
+                        )
+                    }
                 }
-            }
-            items(mine, key = { "d:" + it.id }) { d -> DecisionCard(d, onEvidence) }
-            items(myWork, key = { "w:" + it.kind + it.id }) { w ->
-                com.ryderdavid.nacre.ui.workspace.work.WorkCard(
-                    w, replyRunning = state.turnRunning,
-                    onInspect = { onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = Keys.of(Keys.host(repoKey), w.id))) },
-                    onStopReply = conv::stop,
-                    onCancelWork = {
-                        val key = Keys.of(Keys.host(repoKey), w.id)
-                        if (w.kind == "run") container.scope.launch { runCatching { repo.cancelRun(key) }.onFailure { repo.notify("Couldn't cancel the run: ${it.message}") } }
-                        else repo.cancelRoundQuietly(key)
-                    },
-                )
             }
         }
 
@@ -381,3 +410,6 @@ private fun HeaderStatus(work: com.ryderdavid.nacre.data.model.WorkSummary?, nee
         }
     }
 }
+
+/** Scrolls from the last row's top to its end; the list stops at the bottom of its content. */
+private const val CHAT_END_DISTANCE = 1_000_000f

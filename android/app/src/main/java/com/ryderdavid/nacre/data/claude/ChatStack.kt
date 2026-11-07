@@ -42,6 +42,10 @@ class ChatStack(private val persist: (String?) -> Unit = {}) {
     /** Keys of deleted chats: a late update can't bring their draft back. */
     private val gone = mutableSetOf<String>()
 
+    private val deletedState = MutableStateFlow<Set<String>>(emptySet())
+    /** Chats deleted in this run of the app, so a workspace showing one can move to another. */
+    val deleted: StateFlow<Set<String>> = deletedState.asStateFlow()
+
     /** What the pane or sheet shows now, if anything. */
     fun shownChat(): String? = currentState.value?.takeIf { presentationState.value.shown }
 
@@ -117,6 +121,7 @@ class ChatStack(private val persist: (String?) -> Unit = {}) {
      */
     @Synchronized fun deleted(key: String) {
         gone += key
+        deletedState.value = deletedState.value + key
         viewState.value = viewState.value - key
         if (currentState.value == key) {
             currentState.value = null

@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -171,6 +173,7 @@ private fun JobRowView(j: JobRow, selected: Boolean, shape: androidx.compose.ui.
                 }
             }
             if (j.waiting > 0) StatusPill("${j.waiting}", c.errorContainer, c.onErrorContainer)
+            j.chatKey?.let { ChatRowMenu(it, j.title) }
         }
     }
 }
@@ -192,6 +195,45 @@ private fun ThreadRowView(t: ThreadRow, selected: Boolean, shape: androidx.compo
                 )
             }
             if (t.waiting > 0) StatusPill("${t.waiting}", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+            ChatRowMenu(t.key, t.title)
         }
     }
+}
+
+/**
+ * A chat row's menu: Delete chat, after a confirmation. Deleting removes the conversation from its
+ * computer; beads, specs and work it started stay.
+ */
+@Composable
+private fun ChatRowMenu(key: String, title: String) {
+    val container = LocalContainer.current
+    var open by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(false) }
+    val name = title.ifBlank { "this chat" }
+    Box {
+        androidx.compose.material3.IconButton(onClick = { open = true }, modifier = Modifier.size(48.dp)) {
+            Icon(androidx.compose.material.icons.Icons.Rounded.MoreVert, "More for $name")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Delete chat") },
+                leadingIcon = { Icon(androidx.compose.material.icons.Icons.Rounded.Delete, null) },
+                onClick = { open = false; confirming = true },
+            )
+        }
+    }
+    if (confirming) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirming = false },
+        title = { Text("Delete “$name”?") },
+        text = { Text("Its messages and images are removed from the computer, and it can't be brought back. Beads, specs and work it started stay.") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                confirming = false
+                container.scope.launch {
+                    runCatching { container.chats.delete(key) }.onFailure { container.repository.notify("Couldn't delete the chat: ${it.message}") }
+                }
+            }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirming = false }) { Text("Cancel") } },
+    )
 }

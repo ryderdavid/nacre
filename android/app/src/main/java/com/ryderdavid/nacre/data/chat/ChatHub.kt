@@ -38,6 +38,8 @@ data class ConversationState(
     val reconnecting: Boolean = false,
     /** The newest seq shown. */
     val lastSeq: Long = 0,
+    /** When each item's event was logged, by item key. */
+    val times: Map<String, String> = emptyMap(),
 ) {
     /** A turn is running: Send is disabled and Stop is offered. */
     val turnRunning get() = sending || chat?.active == true
@@ -80,7 +82,7 @@ class ChatConversation(
 
     private fun show(chat: ChatRecord? = stateFlow.value.chat, change: (ConversationState) -> ConversationState = { it }) {
         synchronized(transcript) {
-            stateFlow.update { change(it.copy(chat = chat, items = transcript.shown, lastSeq = transcript.lastSeq)) }
+            stateFlow.update { change(it.copy(chat = chat, items = transcript.shown, lastSeq = transcript.lastSeq, times = transcript.times)) }
         }
     }
 

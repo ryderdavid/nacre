@@ -158,7 +158,10 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     val project = repos.data?.firstOrNull { it.key == repoKey }
     var destination by rememberSaveable(repoKey) { mutableStateOf(startDestination) }
     var thread by rememberSaveable(repoKey) { mutableStateOf(startChat) }
-    if (thread == null) mostRecentThread(listing.chats, repoKey)?.let { thread = it }
+    // A deleted chat gives way to the project's most recent other chat, or the empty Chat.
+    val deletedChats by container.chatStack.deleted.collectAsState()
+    if (thread != null && thread in deletedChats) thread = mostRecentThread(listing.chats.filterNot { it.key in deletedChats }, repoKey)
+    if (thread == null) mostRecentThread(listing.chats.filterNot { it.key in deletedChats }, repoKey)?.let { thread = it }
     // Each thread keeps the panel shown beside it: switching back to a thread restores it. Opening the
     // project itself starts on the destination it was opened with (Chat unless a link said otherwise).
     var shownThread by rememberSaveable(repoKey) { mutableStateOf<String?>(null) }

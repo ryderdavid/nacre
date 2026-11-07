@@ -101,6 +101,10 @@ class ChatTranscript {
 
     val shown: List<ChatItem> get() = items.toList()
 
+    /** When each shown item's event was logged (its key to the event's ts), to place cards beside it. */
+    private val stamps = mutableMapOf<String, String>()
+    val times: Map<String, String> get() = stamps.toMap()
+
     /** The newest draft the agent wrote, for the Draft card. */
     val newestDraft: com.ryderdavid.nacre.data.model.ChatDraft? get() = draftAt?.let { (items[it] as ChatItem.Draft).draft }
 
@@ -121,6 +125,7 @@ class ChatTranscript {
             seqs += ev.seq
         }
         val key = "e${ev.seq}"
+        if (ev.ts.isNotBlank()) stamps.putIfAbsent(key, ev.ts)
         when (ev.kind) {
             ChatWire.USER -> items += ChatItem.User(key, ev.text, ev.context?.let { ctxLabel(it) }, ev.images)
             ChatWire.TEXT -> {
