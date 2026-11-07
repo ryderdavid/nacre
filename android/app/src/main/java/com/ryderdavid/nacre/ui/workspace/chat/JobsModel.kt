@@ -100,9 +100,11 @@ object Jobs {
                 done = kids.count { it.isClosed }; total = kids.size
                 status = if (total == 0) "Epic, no beads yet" else "$done of $total beads closed"
             }
+            // One bead has no bar: its status says it all.
+            linked.size == 1 -> status = linked.first().status.replace('_', ' ').replaceFirstChar { it.uppercase() }
             linked.isNotEmpty() -> {
                 done = linked.count { it.isClosed }; total = linked.size
-                status = if (total == 1) (if (done == 1) "Closed" else linked.first().status.replace('_', ' ')) else "$done of $total beads closed"
+                status = "$done of $total beads closed"
             }
             change != null -> status = change.phase.replace('_', ' ')
             w != null -> status = ChatFirstData.statusText(w)

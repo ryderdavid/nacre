@@ -71,7 +71,7 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun JobsPane(repoKey: String, current: String?, onPick: (String) -> Unit, onInspect: (WorkSummary) -> Unit, modifier: Modifier = Modifier) {
+fun JobsPane(repoKey: String, current: String?, onPick: (String) -> Unit, onInspect: (WorkSummary) -> Unit, modifier: Modifier = Modifier, showTitle: Boolean = true) {
     val container = LocalContainer.current
     val repo = container.repository
     val listing by repo.chats.collectAsState()
@@ -91,12 +91,12 @@ fun JobsPane(repoKey: String, current: String?, onPick: (String) -> Unit, onInsp
                 .onSuccess(onPick).onFailure { repo.notify("Couldn't start the chat: ${it.message}") }
         }
     }
-    Column(modifier.padding(horizontal = 12.dp)) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("$name jobs", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.weight(1f))
-            com.ryderdavid.nacre.ui.common.NewChatButton(onStart = start, height = 48.dp)
-        }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 16.dp)) {
+    // New chat floats at the bottom right, where it sits on Projects; the list scrolls clear of it.
+    Box(modifier) {
+      Column(Modifier.padding(horizontal = 12.dp)) {
+        // In the board's drawer the Jobs tab already names it.
+        if (showTitle) Text("$name jobs", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 88.dp)) {
             item { SectionLabel(if (jobs.jobs.isEmpty()) "Jobs" else "Jobs · ${jobs.jobs.size}") }
             if (jobs.jobs.isEmpty()) item {
                 Text(
@@ -119,6 +119,8 @@ fun JobsPane(repoKey: String, current: String?, onPick: (String) -> Unit, onInsp
                 }
             }
         }
+      }
+      com.ryderdavid.nacre.ui.common.NewChatButton(onStart = start, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
     }
 }
 

@@ -186,6 +186,7 @@ fun BoardWorkspace(
                                 onPick = { key -> onThread(key); jobsTab = false },
                                 onInspect = onWork,
                                 modifier = Modifier.fillMaxSize(),
+                                showTitle = false,
                             ) else chat(Modifier.fillMaxSize())
                         }
                     }

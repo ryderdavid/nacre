@@ -734,7 +734,12 @@ class NacreRepository(
 
     /** Puts a chat record nacred just answered with into the list. */
     fun noteChat(hostId: String, chat: com.ryderdavid.nacre.data.model.ChatRecord) {
-        chatLists.update { m -> m + (hostId to (listOf(chat) + m[hostId].orEmpty().filterNot { it.id == chat.id })) }
+        chatLists.update { m ->
+            // A single chat's record carries no work links: those come only with the list, so keep the listed ones.
+            val old = m[hostId].orEmpty().firstOrNull { it.id == chat.id }
+            val merged = if (chat.work.isEmpty() && old != null) chat.copy(work = old.work) else chat
+            m + (hostId to (listOf(merged) + m[hostId].orEmpty().filterNot { it.id == chat.id }))
+        }
     }
 
     private fun forgetChat(key: String) {

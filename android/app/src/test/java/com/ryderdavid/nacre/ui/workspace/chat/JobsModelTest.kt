@@ -64,7 +64,8 @@ class JobsModelTest {
         assertEquals("Board is the UI", byTitle.getValue("Chat b").subject)
         assertEquals(1 to 2, byTitle.getValue("Chat b").let { it.done to it.total })
         assertEquals("A bug", byTitle.getValue("Chat c").subject)
-        assertEquals(0 to 1, byTitle.getValue("Chat c").let { it.done to it.total })
+        assertEquals(0 to 0, byTitle.getValue("Chat c").let { it.done to it.total })
+        assertEquals("Open", byTitle.getValue("Chat c").status)
         assertNull(byTitle.getValue("Chat c").work)
     }
 
