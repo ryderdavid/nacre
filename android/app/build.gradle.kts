@@ -12,8 +12,8 @@ android {
         applicationId = "com.ryderdavid.nacre"
         minSdk = 31
         targetSdk = 36
-        versionCode = 76
-        versionName = "0.40.1"
+        versionCode = 77
+        versionName = "0.40.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

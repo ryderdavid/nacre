@@ -82,6 +82,8 @@ class WorkspaceSlots(
     val strip: @Composable (Modifier, Boolean) -> Unit,
     /** The project switcher on wide layouts. */
     val switcher: @Composable () -> Unit,
+    /** Opens the queue when a notification asks for it, where no strip is shown. */
+    val queueWatcher: @Composable () -> Unit = {},
 )
 
 private val Destination.selectedIcon: ImageVector
@@ -140,10 +142,10 @@ fun Workspace(slots: WorkspaceSlots, destination: Destination, onDestination: (D
         when (layout) {
             is WorkspaceLayout.Single -> if (!layout.rail) {
                 Column(Modifier.fillMaxSize()) {
-                    // While typing the strip steps aside so the conversation and composer keep the room.
-                    if (!tabletop && !WindowInsets.isImeVisible) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), false)
+                    // No strip on the phone: Chat's header carries Needs you and running work. Its watcher stays,
+                    // so a notification still opens the queue.
+                    slots.queueWatcher()
                     Box(Modifier.weight(1f).fillMaxWidth().focusRequester(chatFocus).focusGroup()) { content(slots, destination, Modifier.fillMaxSize()) }
-                    if (tabletop) slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), false)
                     if (!WindowInsets.isImeVisible) {
                         ShortNavigationBar {
                             Destination.entries.forEach { d ->

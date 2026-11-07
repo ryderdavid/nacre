@@ -200,6 +200,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         spec = { m -> SpecSlot(repoKey, m) },
         beads = { m -> BeadsSlot(repoKey, m) },
         strip = { m, compact -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m, repoKey = repoKey, compact = compact) },
+        queueWatcher = { QueueWatcher(repoKey) { queue = true } },
         switcher = {
             Surface(
                 onClick = { scope.launch { drawer.open() } }, shape = projectAvatarShape(name),

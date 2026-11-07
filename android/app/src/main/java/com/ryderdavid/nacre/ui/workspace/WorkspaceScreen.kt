@@ -57,14 +57,7 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
     val key = repoKey
     val decisions by repo.decisions.collectAsState()
     val inQueue = key?.let { DecisionModel.counts(decisions[it].orEmpty()).inQueue } ?: 0
-    val focus by repo.queueFocus.collectAsState()
-    LaunchedEffect(focus, key) {
-        val f = focus ?: return@LaunchedEffect
-        if (key != null && f.open && f.repoKey == key) {
-            repo.queueOpened()
-            if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onQueue()
-        }
-    }
+    QueueWatcher(key, onQueue)
     // Rounds and runs are the project's work; a chat that is replying is shown too, so "Nothing running" is true.
     val listing by repo.chats.collectAsState()
     val replying = key?.let { k -> listing.chats.count { c -> c.repo != null && Keys.of(c.hostId, c.repo) == k && c.state == com.ryderdavid.nacre.data.model.ChatWire.RUNNING } } ?: 0
@@ -153,6 +146,20 @@ private fun CompactStrip(projectName: String, work: WorkSummary?, needsYou: Int,
             ) {
                 Box(contentAlignment = Alignment.Center) { Text("$count", style = MaterialTheme.typography.titleMedium) }
             }
+        }
+    }
+}
+
+/** Opens the project's queue when a notification asked for it (recently, for this project). */
+@Composable
+fun QueueWatcher(repoKey: String?, onQueue: () -> Unit) {
+    val repo = LocalContainer.current.repository
+    val focus by repo.queueFocus.collectAsState()
+    LaunchedEffect(focus, repoKey) {
+        val f = focus ?: return@LaunchedEffect
+        if (repoKey != null && f.open && f.repoKey == repoKey) {
+            repo.queueOpened()
+            if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onQueue()
         }
     }
 }

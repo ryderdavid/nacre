@@ -136,6 +136,7 @@ fun BoardWorkspace(
     LaunchedEffect(beadTargets[repoKey]) {
         beadTargets[repoKey]?.let { view = BEAD + it; refs.beadOpened(repoKey) }
     }
+    QueueWatcher(repoKey, onQueue)
     // The board has no Viewing context: a pane's leftover one would ride along unasked.
     LaunchedEffect(repoKey) { refs.view(repoKey, null) }
 

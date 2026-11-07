@@ -1,5 +1,12 @@
 package com.ryderdavid.nacre.ui.workspace.chat
 
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.draw.rotate
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.layout.positionInWindow
@@ -156,6 +163,8 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                     )
                 }
             }
+            // On the phone the project's running work and Needs you sit here instead of a strip above.
+            if (compact) HeaderStatus(work, needsYou, onWork = { w -> onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = Keys.of(Keys.host(repoKey), w.id))) })
         }
         if (agent.phase != AgentPhase.IDLE) Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp).semantics { liveRegion = LiveRegionMode.Polite },
@@ -288,27 +297,53 @@ private fun Composer(
                 )
             }
         }
-        if (draft.isEmpty() && !state.turnRunning && !typing && pending.isEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(suggestions(needsYou, work, refs.viewing.takeUnless { refs.viewingDropped })) { s ->
-                SuggestionChip(onClick = { hub.stack.updateView(thread) { it.copy(draft = s) } }, label = { Text(s) }, modifier = Modifier.heightIn(min = 48.dp))
-            }
-        }
         PendingImageRow(pending, onRemove = { id -> hub.stack.removePending(thread, id) }, thumb = if (typing) 44.dp else 64.dp)
+        // The empty box suggests the likeliest message as its placeholder; the outlined arrow offers two more
+        // and makes them tappable. Typing (or an image) clears them.
+        val suggested = if (draft.isEmpty() && !state.turnRunning && pending.isEmpty()) suggestions(needsYou, work, refs.viewing.takeUnless { refs.viewingDropped }).take(3) else emptyList()
+        var choosing by remember(thread) { mutableStateOf(false) }
+        if (suggested.isEmpty()) choosing = false
+        val use: (String) -> Unit = { s -> choosing = false; hub.stack.updateView(thread) { it.copy(draft = s) } }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Column(
+              Modifier.weight(1f).background(if (choosing) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp)),
+          ) {
             TextField(
                 value = draft, onValueChange = { v -> hub.stack.updateView(thread) { it.copy(draft = v) } },
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp).onPreviewKeyEvent { e ->
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).onPreviewKeyEvent { e ->
                     // Ctrl+Enter sends from a hardware keyboard.
                     if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && e.isCtrlPressed) { send(); true } else false
                 },
-                placeholder = { Text("Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}") },
+                placeholder = {
+                    val top = suggested.firstOrNull()
+                    if (top != null && choosing) Text(top, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable(onClickLabel = "Use this message") { use(top) })
+                    else Text(top ?: "Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
                 leadingIcon = { AttachImageButton(gate, attach) },
+                trailingIcon = if (suggested.size > 1) ({
+                    OutlinedIconButton(
+                        onClick = { choosing = !choosing }, modifier = Modifier.size(40.dp).semantics { stateDescription = if (choosing) "Showing suggestions" else "" },
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.KeyboardArrowRight, if (choosing) "Hide suggestions" else "More suggestions",
+                            Modifier.size(20.dp).rotate(if (choosing) 90f else 0f),
+                        )
+                    }
+                }) else null,
                 shape = RoundedCornerShape(28.dp), minLines = 1, maxLines = if (typing) 4 else 6,
                 colors = TextFieldDefaults.colors(
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                 ),
             )
+            if (choosing) suggested.drop(1).forEach { s ->
+                Text(
+                    s, style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.fillMaxWidth().clickable(onClickLabel = "Use this message") { use(s) }.heightIn(min = 48.dp).padding(start = 56.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                )
+            }
+            if (choosing) Spacer(Modifier.height(6.dp))
+          }
             if (state.turnRunning) {
                 FilledIconButton(onClick = conv::stop, modifier = Modifier.size(56.dp), shape = RoundedCornerShape(18.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
@@ -321,5 +356,28 @@ private fun Composer(
             }
         }
         ComposerReason(gate, Modifier.padding(start = 8.dp))
+    }
+}
+
+/** The phone's header status: a pulsing indicator while the project's work runs, and the Needs you count. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun HeaderStatus(work: com.ryderdavid.nacre.data.model.WorkSummary?, needsYou: Int, onWork: (com.ryderdavid.nacre.data.model.WorkSummary) -> Unit) {
+    val openQueue = com.ryderdavid.nacre.ui.workspace.LocalOpenQueue.current
+    val c = MaterialTheme.colorScheme
+    if (work != null) IconButton(
+        onClick = { onWork(work) },
+        modifier = Modifier.semantics { contentDescription = "${com.ryderdavid.nacre.data.ChatFirstData.statusText(work)}. Open the work inspector" },
+    ) {
+        if (work.running && !work.stalled) LoadingIndicator(Modifier.size(24.dp))
+        else Icon(Icons.Rounded.WarningAmber, null, tint = if (work.stopped || work.stalled) c.error else c.onSurfaceVariant)
+    }
+    if (needsYou > 0) Surface(
+        onClick = openQueue, shape = RoundedCornerShape(16.dp), color = c.errorContainer, contentColor = c.onErrorContainer,
+        modifier = Modifier.padding(end = 4.dp).heightIn(min = 40.dp).semantics { contentDescription = "$needsYou need you: open the queue" },
+    ) {
+        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            Text("$needsYou need${if (needsYou == 1) "s" else ""} you", style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
