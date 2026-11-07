@@ -35,8 +35,10 @@ class ComposerAndWritesTest {
     @Test fun typingCompactsTheChrome() {
         val pane = src("ui/workspace/chat/ChatPane.kt")
         assertTrue(pane.contains("WindowInsets.isImeVisible"))
-        assertTrue(pane.contains("!typing && pending.isEmpty()"), "suggestions hide while typing or with images attached")
-        assertTrue(src("ui/workspace/Workspace.kt").contains("!tabletop && !WindowInsets.isImeVisible"), "the strip steps aside while typing")
+        assertTrue(pane.contains("draft.isEmpty() && !state.turnRunning && pending.isEmpty()"), "suggestions show only in an empty box: typing or an image clears them")
+        val workspace = src("ui/workspace/Workspace.kt")
+        assertTrue(workspace.contains("slots.queueWatcher()"), "the phone has no strip, but a notification still opens the queue")
+        assertTrue(!workspace.contains("slots.strip(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), false)"), "no strip above the phone's chat")
     }
 }
 
