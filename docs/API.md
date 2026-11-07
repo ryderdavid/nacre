@@ -1093,6 +1093,7 @@ Stored as `chats/<id>.json` (mode 0600) under nacred's state directory.
 | `last_seq` | the newest event's `seq` |
 | `phone` | the Tailscale device of the phone that created the chat (for Taildrop); empty when unknown |
 | `last_line` | the first line of the newest message, Ryder's or the agent's (up to 160 characters) |
+| `work` | in `GET /v1/chats` only, what the chat started or created: `{kind, repo, id}` with kind `bead` or `change` (with its repository), or `work` for a round or run by id. Absent when there is none. The app's Jobs list joins these with the project's work (`chat_id`) to show each chat's progress |
 
 States:
 

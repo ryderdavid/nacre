@@ -28,6 +28,17 @@ type Listing struct {
 	// Waiting counts its pending permission requests; nacred adds the
 	// chat's waiting decisions.
 	Waiting int `json:"waiting"`
+	// Work is what the chat started or created, which nacred adds: its
+	// rounds and runs (kind "work"), beads and changes.
+	Work []WorkLink `json:"work,omitempty"`
+}
+
+// WorkLink is one thing a chat started or created. Kind is bead, change or
+// work (a round or run, by id; Repo is empty).
+type WorkLink struct {
+	Kind string `json:"kind"`
+	Repo string `json:"repo,omitempty"`
+	ID   string `json:"id"`
 }
 
 // Listings returns the chats, most recently updated first, those in repo

@@ -285,7 +285,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 repoKey, name, thread, work, needsYou,
                 chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
                 onSwitchProject = { scope.launch { drawer.open() } },
-                onWork = inspect, onQueue = { queue = true }, askAbout = askAbout,
+                onWork = inspect, onQueue = { queue = true }, askAbout = askAbout, onThread = pickThread,
                 modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
             )
             else Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())

@@ -75,6 +75,9 @@ data class ScreenContext(
 
 /** One chat as nacred keeps it. */
 @Serializable
+data class ChatWorkLink(val kind: String, val repo: String = "", val id: String)
+
+@Serializable
 data class ChatRecord(
     val id: String,
     val agent: String = ChatWire.AGENT_CLAUDE,
@@ -96,6 +99,8 @@ data class ChatRecord(
     @SerialName("waiting") val waitingCount: Int = 0,
     /** The chat's last line, for the thread switcher (chat-first nacred). */
     @SerialName("last_line") val lastLine: String = "",
+    /** What the chat started or created: beads and changes (with their repository) and rounds or runs (kind "work"). */
+    val work: List<ChatWorkLink> = emptyList(),
     /** Set by the app: which paired computer this chat is on. */
     @Transient val hostId: String = "",
     @Transient val hostName: String = "",

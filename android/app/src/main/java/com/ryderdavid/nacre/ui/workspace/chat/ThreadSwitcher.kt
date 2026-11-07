@@ -38,6 +38,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ryderdavid.nacre.data.model.WorkSummary
+import androidx.compose.ui.semantics.heading
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import com.ryderdavid.nacre.data.model.ChatWire
 import com.ryderdavid.nacre.data.model.CreateChat
 import com.ryderdavid.nacre.data.model.Keys
@@ -46,18 +50,40 @@ import com.ryderdavid.nacre.ui.workspace.StatusPill
 import com.ryderdavid.nacre.ui.workspace.segmentShape
 import kotlinx.coroutines.launch
 
-/** The project's threads: this checkout's, then other computers'; New chat with the default agent, the other in its menu. */
+/** The project's jobs and chats in a sheet, for the one-pane layouts; the board's drawer shows the same list as its Jobs tab. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val openEvidence = com.ryderdavid.nacre.ui.workspace.LocalOpenEvidence.current
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        JobsPane(
+            repoKey, current, onPick = onPick,
+            onInspect = { w -> onDismiss(); openEvidence(com.ryderdavid.nacre.data.model.DecisionEvidence(label = w.title, kind = w.kind, ref = w.id)) },
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
+        )
+    }
+}
+
+/**
+ * Jobs: each chat that started or created work, with what it is working on and how far it has come, then
+ * work started from the board; below them the project's other conversations. New chat with the default
+ * agent, the other in its menu.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun JobsPane(repoKey: String, current: String?, onPick: (String) -> Unit, onInspect: (WorkSummary) -> Unit, modifier: Modifier = Modifier) {
     val container = LocalContainer.current
     val repo = container.repository
     val listing by repo.chats.collectAsState()
     val name = repo.repos.collectAsState().value.data?.firstOrNull { it.key == repoKey }?.name ?: Keys.id(repoKey)
     val decisions by repo.decisions.collectAsState()
+    val work by repo.work.collectAsState()
+    val board by repo.board(repoKey).collectAsState()
     val open = repo.siblingKeys(repoKey).plus(repoKey).flatMap { decisions[it].orEmpty() }.filter { it.pending && !it.chatId.isNullOrBlank() }
         .groupingBy { it.chatId.orEmpty() }.eachCount()
-    val rows = threadsFor(listing.chats, repoKey, repo.siblingKeys(repoKey), open)
+    val jobs = remember(listing.chats, work[repoKey], board.data, open) {
+        Jobs.build(listing.chats, repoKey, repo.siblingKeys(repoKey), work[repoKey].orEmpty(), board.data, open)
+    }
     val scope = container.scope
     val start: (String) -> Unit = { agent ->
         scope.launch {
@@ -65,45 +91,105 @@ fun ThreadSwitcher(repoKey: String, current: String, onPick: (String) -> Unit, o
                 .onSuccess(onPick).onFailure { repo.notify("Couldn't start the chat: ${it.message}") }
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("$name chats", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.weight(1f))
-                com.ryderdavid.nacre.ui.common.NewChatButton(onStart = start, height = 48.dp)
+    Column(modifier.padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("$name jobs", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.weight(1f))
+            com.ryderdavid.nacre.ui.common.NewChatButton(onStart = start, height = 48.dp)
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 16.dp)) {
+            item { SectionLabel(if (jobs.jobs.isEmpty()) "Jobs" else "Jobs · ${jobs.jobs.size}") }
+            if (jobs.jobs.isEmpty()) item {
+                Text(
+                    "A chat becomes a job once it starts work or files beads or a change. Attach a card and ask for it.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
-            val groups = rows.groupBy { it.hostId }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                groups.forEach { (host, list) ->
-                    item { Text(repo.hostName(host).ifBlank { "Computer" }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 6.dp)) }
-                    items(list.size) { i ->
-                        val t = list[i]
-                        val selected = t.key == current
-                        Surface(
-                            onClick = { onPick(t.key) }, shape = segmentShape(i, list.size),
-                            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
-                        ) {
-                            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Surface(
-                                    shape = (if (t.agent == ChatWire.AGENT_CODEX) MaterialShapes.Square else MaterialShapes.Cookie9Sided).toShape(),
-                                    color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    contentColor = if (selected) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(40.dp),
-                                ) { Box(contentAlignment = Alignment.Center) { Text(if (t.agent == ChatWire.AGENT_CODEX) "X" else "C", style = MaterialTheme.typography.titleMedium) } }
-                                Column(Modifier.weight(1f)) {
-                                    Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        listOf(t.agent.replaceFirstChar { it.uppercase() }, t.lastLine).filter { it.isNotBlank() }.joinToString(" · ") + if (!t.here) " · another checkout" else "",
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                if (t.waiting > 0) StatusPill("${t.waiting}", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-                            }
-                        }
-                    }
+            items(jobs.jobs.size) { i ->
+                val j = jobs.jobs[i]
+                JobRowView(j, selected = j.chatKey != null && j.chatKey == current, shape = segmentShape(i, jobs.jobs.size)) {
+                    val key = j.chatKey
+                    if (key != null) onPick(key) else j.work?.let(onInspect)
                 }
-                if (rows.isEmpty()) item { Text("No chats yet in this project.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
+            if (jobs.conversations.isNotEmpty()) {
+                item { SectionLabel("Conversations") }
+                items(jobs.conversations.size) { i ->
+                    val t = jobs.conversations[i]
+                    ThreadRowView(t, selected = t.key == current, shape = segmentShape(i, jobs.conversations.size), host = if (t.here) "" else repo.hostName(t.hostId)) { onPick(t.key) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 6.dp).semantics { heading() })
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AgentMark(agent: String, selected: Boolean) {
+    val c = MaterialTheme.colorScheme
+    Surface(
+        shape = (if (agent == ChatWire.AGENT_CODEX) MaterialShapes.Square else if (agent.isBlank()) MaterialShapes.Pill else MaterialShapes.Cookie9Sided).toShape(),
+        color = if (selected) c.secondary else c.surfaceContainerHighest,
+        contentColor = if (selected) c.onSecondary else c.onSurfaceVariant,
+        modifier = Modifier.size(40.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(when { agent == ChatWire.AGENT_CODEX -> "X"; agent.isBlank() -> "R"; else -> "C" }, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+/** A job: its chat, what it is working on, a bar of its progress and where it stands. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun JobRowView(j: JobRow, selected: Boolean, shape: androidx.compose.ui.graphics.Shape, onClick: () -> Unit) {
+    val c = MaterialTheme.colorScheme
+    val described = listOf(j.title, "working on ${j.subject}", j.status, if (j.total > 0) "${j.done} of ${j.total}" else "", if (j.waiting > 0) "${j.waiting} waiting on you" else "")
+        .filter { it.isNotBlank() }.joinToString(". ")
+    Surface(
+        onClick = onClick, shape = shape, color = if (selected) c.secondaryContainer else c.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics(mergeDescendants = true) { contentDescription = described },
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            AgentMark(j.agent, selected)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(j.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(j.subject, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (j.total > 0) LinearProgressIndicator(progress = { j.done.toFloat() / j.total }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (j.running) LoadingIndicator(Modifier.size(18.dp))
+                    Text(
+                        j.status.ifBlank { "Not started" }, style = MaterialTheme.typography.labelMedium,
+                        color = if (j.stopped) c.error else c.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (j.waiting > 0) StatusPill("${j.waiting}", c.errorContainer, c.onErrorContainer)
+        }
+    }
+}
+
+@Composable
+private fun ThreadRowView(t: ThreadRow, selected: Boolean, shape: androidx.compose.ui.graphics.Shape, host: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick, shape = shape,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            AgentMark(t.agent, selected)
+            Column(Modifier.weight(1f)) {
+                Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOf(t.agent.replaceFirstChar { it.uppercase() }, t.lastLine).filter { it.isNotBlank() }.joinToString(" · ") + if (host.isNotBlank()) " · on $host" else "",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (t.waiting > 0) StatusPill("${t.waiting}", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         }
     }
 }

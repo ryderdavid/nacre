@@ -60,8 +60,10 @@ func (s *Server) listChats(w http.ResponseWriter, r *http.Request) {
 				waiting[*d.ChatID]++
 			}
 		}
+		links := s.Decisions.LinksByChat()
 		for i := range list {
 			list[i].Waiting += waiting[list[i].ID]
+			list[i].Work = workLinks(links[list[i].ID])
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chats": list})
@@ -358,6 +360,21 @@ func (s *Server) localAddrs() []net.IP {
 		if ipn, ok := a.(*net.IPNet); ok {
 			out = append(out, ipn.IP)
 		}
+	}
+	return out
+}
+
+// workLinks turns a chat's link keys ("bead:<repo>:<id>", "change:<repo>:<id>",
+// or a round or run id) into the chat list's work links.
+func workLinks(keys []string) []chat.WorkLink {
+	var out []chat.WorkLink
+	for _, k := range keys {
+		parts := strings.SplitN(k, ":", 3)
+		if len(parts) == 3 && (parts[0] == "bead" || parts[0] == "change") {
+			out = append(out, chat.WorkLink{Kind: parts[0], Repo: parts[1], ID: parts[2]})
+			continue
+		}
+		out = append(out, chat.WorkLink{Kind: "work", ID: k})
 	}
 	return out
 }

@@ -109,12 +109,15 @@ fun BoardWorkspace(
     onWork: (WorkSummary) -> Unit,
     onQueue: () -> Unit,
     askAbout: (ChatReference) -> Unit,
+    /** Shows a chat in the drawer: picked from Jobs. */
+    onThread: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalContainer.current
     val refs = container.chats.references
     var view by rememberSaveable(repoKey) { mutableStateOf(BOARD) }
     var chatOpen by rememberSaveable { mutableStateOf(true) }
+    var jobsTab by rememberSaveable { mutableStateOf(false) }
     val specVm = nacreViewModel(key = "spec:$repoKey") { SpecPanelViewModel(it.repository, repoKey) }
     val board by container.repository.board(repoKey).collectAsState()
     val specStack by specVm.stack.collectAsState()
@@ -141,7 +144,7 @@ fun BoardWorkspace(
     val attach = CardAttach(attached.map { "${it.kind}:${it.id}" }.toSet()) { ref ->
         val t = thread
         val existing = attached.firstOrNull { it.kind == ref.kind && it.id == ref.id }
-        if (t != null && existing != null) refs.remove(t, existing) else { chatOpen = true; askAbout(ref) }
+        if (t != null && existing != null) refs.remove(t, existing) else { chatOpen = true; jobsTab = false; askAbout(ref) }
     }
 
     val here = when {
@@ -174,7 +177,19 @@ fun BoardWorkspace(
                 if (chatOpen) Surface(
                     shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
                     modifier = Modifier.width(chatWidth(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp).dp).fillMaxHeight().padding(end = 8.dp, bottom = 8.dp),
-                ) { chat(Modifier.fillMaxSize()) }
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        DrawerTabs(repoKey, jobs = jobsTab, onJobs = { jobsTab = it })
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            if (jobsTab) com.ryderdavid.nacre.ui.workspace.chat.JobsPane(
+                                repoKey, thread,
+                                onPick = { key -> onThread(key); jobsTab = false },
+                                onInspect = onWork,
+                                modifier = Modifier.fillMaxSize(),
+                            ) else chat(Modifier.fillMaxSize())
+                        }
+                    }
+                }
             }
         }
     }
@@ -365,5 +380,23 @@ private fun BeadViewer(repoKey: String, id: String, onClose: () -> Unit, onOpenB
                 is MoveOutcome.Moves -> repo.move(repoKey, issue, o.action)
             }
         }
+    }
+}
+
+/** The drawer's two tabs: the chat, and Jobs with how many are running. */
+@Composable
+private fun DrawerTabs(repoKey: String, jobs: Boolean, onJobs: (Boolean) -> Unit) {
+    val repo = LocalContainer.current.repository
+    val work by repo.work.collectAsState()
+    val running = work[repoKey].orEmpty().count { it.running }
+    androidx.compose.material3.PrimaryTabRow(
+        selectedTabIndex = if (jobs) 1 else 0, containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        modifier = Modifier.padding(horizontal = 12.dp),
+    ) {
+        androidx.compose.material3.Tab(selected = !jobs, onClick = { onJobs(false) }, text = { Text("Chat") })
+        androidx.compose.material3.Tab(
+            selected = jobs, onClick = { onJobs(true) },
+            text = { Text(if (running > 0) "Jobs · $running running" else "Jobs") },
+        )
     }
 }

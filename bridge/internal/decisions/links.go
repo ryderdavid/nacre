@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // maxLinks bounds the work-to-chat links kept.
@@ -57,4 +58,19 @@ func (s *Store) linksLocked() map[string]string {
 		}
 	}
 	return s.links
+}
+
+// LinksByChat inverts the links: for each chat, the keys of the rounds,
+// runs, beads and changes it started or created, sorted.
+func (s *Store) LinksByChat() map[string][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]string{}
+	for work, chat := range s.linksLocked() {
+		out[chat] = append(out[chat], work)
+	}
+	for _, keys := range out {
+		sort.Strings(keys)
+	}
+	return out
 }
