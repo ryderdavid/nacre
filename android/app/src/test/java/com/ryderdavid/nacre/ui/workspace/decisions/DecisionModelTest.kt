@@ -254,9 +254,21 @@ class DecisionModelTest {
         val c = com.ryderdavid.nacre.data.model.CardCheck(checking = 3)
         assertEquals("Checking 3 cards for anything already handled elsewhere…", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(running = true)))
         assertNull(com.ryderdavid.nacre.ui.workspace.checkLine(com.ryderdavid.nacre.data.model.CardCheck()))
+        assertEquals("Checking the cards for anything already handled elsewhere…", com.ryderdavid.nacre.ui.workspace.checkLine(com.ryderdavid.nacre.data.model.CardCheck(running = true)))
         assertEquals("Closed 2 already handled elsewhere; they're listed at the end",
             com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", handled = listOf("a", "b"))))
         assertEquals("Checked 3 cards: they all still need you", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t")))
         assertTrue(com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", error = "timed out"))!!.endsWith("timed out"))
+    }
+
+    @Test
+    fun `Projects says how many projects it is checking, then how many cards it closed`() {
+        val c = com.ryderdavid.nacre.data.model.CardCheck(checking = 2)
+        val line: (List<com.ryderdavid.nacre.data.model.CardCheck>) -> String? = { com.ryderdavid.nacre.ui.workspace.projectsCheckLine(it) }
+        assertNull(line(emptyList()))
+        assertEquals("Checking 2 projects for cards already handled elsewhere…", line(listOf(c.copy(running = true), c.copy(running = true), c.copy(finishedAt = "t", handled = listOf("a")))))
+        assertEquals("Closed 3 cards already handled elsewhere", line(listOf(c.copy(finishedAt = "t", handled = listOf("a")), c.copy(finishedAt = "t", handled = listOf("b", "c")))))
+        assertEquals("Checked 1 project: everything still needs you", line(listOf(c.copy(finishedAt = "t"))))
+        assertNull(line(listOf(c.copy(finishedAt = "t", checking = 0))))
     }
 }

@@ -53,7 +53,7 @@ func TestCardCheckClosesHandledCards(t *testing.T) {
 	rg.s.CardCheckRun = chk.run
 
 	code, body := rg.do(t, "POST", "/v1/repos/"+rg.repo+"/decisions/check", "")
-	if code != 202 || body["running"] != true || body["checking"] != float64(2) {
+	if code != 202 || body["running"] != true || body["checking"] != float64(2) || len(body["cards"].([]any)) != 2 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	rg.s.following.Wait()

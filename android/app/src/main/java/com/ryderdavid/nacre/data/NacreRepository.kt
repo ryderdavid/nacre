@@ -89,6 +89,9 @@ data class RepoGroup(val id: String, val home: Repo, val members: List<Repo>) {
     val isShared get() = members.size > 1
 }
 
+/** How often a running card check is asked how it's going. */
+private const val CARD_CHECK_POLL_MS = 3_000L
+
 /** A user-visible notice raised by the data layer (shown as a snackbar). */
 data class Notice(val text: String, val undo: (suspend () -> Unit)? = null)
 
@@ -520,6 +523,9 @@ class NacreRepository(
             launch {
                 val list = runCatching { h.client.projects() }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
                 projectLists.update { it + (h.host.id to list) }
+                // The computer answers but its projects were never read (the first read came while nacred
+                // was starting, or was lost): read them again rather than show "0 projects" for good.
+                if (repoLists.value[h.host.id] == null) refreshRepos()
             }
         }
     }
@@ -653,10 +659,39 @@ class NacreRepository(
         return out
     }
 
-    /** Starts the project's card check (see [com.ryderdavid.nacre.data.model.CardCheck]); null where nacred has none. */
-    suspend fun startCardCheck(key: String): com.ryderdavid.nacre.data.model.CardCheck? = clientFor(key).startCardCheck(Keys.id(key))
+    private val _cardChecks = MutableStateFlow<Map<String, com.ryderdavid.nacre.data.model.CardCheck>>(emptyMap())
 
-    suspend fun cardCheck(key: String): com.ryderdavid.nacre.data.model.CardCheck = clientFor(key).cardCheck(Keys.id(key))
+    /** Each project's running or last card check, by project key, as the queue and Projects show it. */
+    val cardChecks: StateFlow<Map<String, com.ryderdavid.nacre.data.model.CardCheck>> = _cardChecks
+    private val cardCheckJobs = ConcurrentHashMap<String, Job>()
+
+    /**
+     * Starts the project's card check (nacred looks at its open cards for work already handled
+     * elsewhere) and follows it to the end, then re-reads the project's decisions and the projects'
+     * counts. A check this app is already following isn't started twice; a nacred without card checks
+     * leaves nothing behind.
+     */
+    fun checkCards(key: String) {
+        if (cardCheckJobs[key]?.isActive == true) return
+        cardCheckJobs[key] = scope.launch {
+            val client = runCatching { clientFor(key) }.getOrNull() ?: return@launch
+            // Shown as checking at once: nacred lists the queue before it answers, which takes a few seconds.
+            val before = _cardChecks.value[key]
+            _cardChecks.update { it + (key to com.ryderdavid.nacre.data.model.CardCheck(repo = Keys.id(key), running = true)) }
+            var c = runCatching { client.startCardCheck(Keys.id(key)) }.getOrNull() ?: run {
+                _cardChecks.update { if (before == null) it - key else it + (key to before) }
+                return@launch
+            }
+            _cardChecks.update { it + (key to c) }
+            val ran = c.running
+            while (c.running) {
+                delay(CARD_CHECK_POLL_MS)
+                c = runCatching { client.cardCheck(Keys.id(key)) }.getOrNull() ?: break
+                _cardChecks.update { it + (key to c) }
+            }
+            if (ran) { refreshDecisions(key); refreshProjects() }
+        }
+    }
 
     fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {
         val before = issue

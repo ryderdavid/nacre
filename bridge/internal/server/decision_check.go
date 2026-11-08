@@ -32,8 +32,10 @@ import (
 type CardCheck struct {
 	Repo    string `json:"repo"`
 	Running bool   `json:"running"`
-	// Checking is how many cards the running or last check looked at.
-	Checking int `json:"checking"`
+	// Checking is how many cards the running or last check looked at, and
+	// Cards their ids.
+	Checking int      `json:"checking"`
+	Cards    []string `json:"cards"`
 	// Handled are the cards the last check closed.
 	Handled    []string `json:"handled"`
 	StartedAt  string   `json:"started_at,omitempty"`
@@ -133,7 +135,7 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 	if len(due) == 0 {
 		c := s.cardChecks[repo]
 		if c == nil {
-			c = &CardCheck{Repo: repo, Handled: []string{}}
+			c = &CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}}
 			s.cardChecks[repo] = c
 		}
 		writeJSON(w, http.StatusOK, *c)
@@ -142,7 +144,11 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range due {
 		s.cardSeen[rec.Decision.ID] = now
 	}
-	c := &CardCheck{Repo: repo, Running: true, Checking: len(due), Handled: []string{}, StartedAt: now.UTC().Format(time.RFC3339)}
+	ids := make([]string, 0, len(due))
+	for _, rec := range due {
+		ids = append(ids, rec.Decision.ID)
+	}
+	c := &CardCheck{Repo: repo, Running: true, Checking: len(due), Cards: ids, Handled: []string{}, StartedAt: now.UTC().Format(time.RFC3339)}
 	s.cardChecks[repo] = c
 	out := *c
 	s.following.Add(1)
@@ -179,7 +185,7 @@ func (s *Server) cardCheckStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	repo := r.PathValue("repo")
 	s.cardCheckMu.Lock()
-	out := CardCheck{Repo: repo, Handled: []string{}}
+	out := CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}}
 	if c := s.cardChecks[repo]; c != nil {
 		out = *c
 	}

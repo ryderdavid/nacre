@@ -122,6 +122,20 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
     val computers = hosts.map { ComputerInfo(it.host.id, it.host.name, it.online, lastSeen[it.host.id]) }
     val sections = ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, filter, query, now)
     val waiting = ProjectsModel.needsYouTotal(ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, ProjectFilter.ALL, "", now))
+    // Needs you checks each waiting project's cards for work already handled elsewhere, as opening a
+    // project's queue does; the counts drop as cards close.
+    val checks by repo.cardChecks.collectAsState()
+    var checked by remember { mutableStateOf(emptySet<String>()) }
+    // Keyed on the waiting projects too, so projects that load or start waiting after the filter is
+    // picked are checked as well; a project being checked isn't asked twice.
+    val waitingKeys = if (filter == ProjectFilter.NEEDS_YOU) sections.filter { it.online }.flatMap { it.rows }.filter { (it.needsYou ?: 0) > 0 }.map { it.key }.toSet() else emptySet()
+    LaunchedEffect(filter, waitingKeys) {
+        if (filter != ProjectFilter.NEEDS_YOU) { checked = emptySet(); return@LaunchedEffect }
+        val fresh = waitingKeys - checked
+        checked = checked + waitingKeys
+        fresh.forEach { repo.checkCards(it) }
+    }
+    val checkLine = if (filter == ProjectFilter.NEEDS_YOU) projectsCheckLine(checked.mapNotNull { checks[it] }) else null
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -186,6 +200,11 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                     }
                 }
             }
+            checkLine?.let { line ->
+                item(key = "checks") {
+                    Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 12.dp)) { CheckLine(checks.any { it.key in checked && it.value.running }, line) }
+                }
+            }
             if (computers.isNotEmpty() && sections.all { it.rows.isEmpty() } && filter != ProjectFilter.ALL) item(key = "nomatch") {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -216,7 +235,7 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                     } else Text(if (section.online && query.isNotBlank()) "No project here matches \u201c${query.trim()}\u201d." else if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(section.rows.size, key = { section.rows[it].key }) { i ->
-                    ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online) {
+                    ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online, checking = checks[section.rows[i].key]?.running == true) {
                         onOpen(section.rows[i].key, null)
                     }
                 }
@@ -272,7 +291,7 @@ internal fun StatusPill(text: String, container: androidx.compose.ui.graphics.Co
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, onClick: () -> Unit) {
+private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, checking: Boolean = false, onClick: () -> Unit) {
     val busy = row.work != null
     Surface(
         onClick = onClick, shape = shape,
@@ -298,6 +317,7 @@ private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, onCli
                     Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val n = row.needsYou ?: 0
+                if (checking) androidx.compose.material3.LoadingIndicator(Modifier.size(32.dp).semantics { contentDescription = "Checking its cards for work handled elsewhere" })
                 if (n > 0) StatusPill(if (busy) "$n need${if (n == 1) "s" else ""} you" else "$n", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
                 else if (row.needsYou == null && row.lastKnownNeedsYou > 0) StatusPill("${row.lastKnownNeedsYou} last known", MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant)
             }

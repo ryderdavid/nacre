@@ -144,6 +144,8 @@ data class CardCheck(
     val running: Boolean = false,
     /** How many cards the running or last check looked at. */
     val checking: Int = 0,
+    /** The ids of the cards under check. */
+    val cards: List<String> = emptyList(),
     val handled: List<String> = emptyList(),
     @SerialName("started_at") val startedAt: String = "",
     @SerialName("finished_at") val finishedAt: String = "",

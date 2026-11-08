@@ -45,7 +45,6 @@ import com.ryderdavid.nacre.data.model.CardCheck
 import com.ryderdavid.nacre.data.model.Decision
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Interim pane contents for the chat-first shell; sections 5 to 9 replace each of them.
@@ -75,24 +74,25 @@ fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     val list = DecisionModel.queue(all, focusId)
     val handled = DecisionModel.handled(all, System.currentTimeMillis()).filter { it.id != focusId }
     androidx.compose.runtime.DisposableEffect(repoKey) { onDispose { repo.clearQueueFocus(repoKey) } }
-    var check by remember(repoKey) { mutableStateOf<CardCheck?>(null) }
-    LaunchedEffect(repoKey) {
-        var c = runCatching { repo.startCardCheck(repoKey) }.getOrNull() ?: return@LaunchedEffect
-        check = c
-        val ran = c.running
-        while (c.running) {
-            delay(CHECK_POLL_MS)
-            c = runCatching { repo.cardCheck(repoKey) }.getOrNull() ?: break
-            check = c
-        }
-        if (ran) repo.refreshDecisions(repoKey)
-    }
+    val checks by repo.cardChecks.collectAsState()
+    val check = checks[repoKey]
+    LaunchedEffect(repoKey) { repo.checkCards(repoKey) }
+    val underCheck = check?.takeIf { it.running }?.cards.orEmpty().toSet()
     val open = LocalOpenEvidence.current
+    // The title and what the check is doing stay put while the cards scroll under them.
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized)
+            check?.let { c -> checkLine(c)?.let { line -> CheckLine(c.running, line) } }
+        }
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized, modifier = Modifier.padding(bottom = 4.dp)) }
-        check?.let { c -> checkLine(c)?.let { line -> item(key = "check") { CheckLine(c.running, line) } } }
         if (list.isEmpty()) item { Text("Nothing needs you in this project.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        items(list, key = { it.key }) { d -> com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard(d, onEvidence = { onClose(); open(it) }) }
+        items(list, key = { it.key }) { d ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (d.id in underCheck) CheckingChip()
+                com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard(d, onEvidence = { onClose(); open(it) })
+            }
+        }
         if (handled.isNotEmpty()) {
             item(key = "l:handled") {
                 Text(
@@ -103,12 +103,37 @@ fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
             items(handled, key = { "h:" + it.key }) { d -> HandledCard(d) }
         }
     }
+    }
 }
 
-private const val CHECK_POLL_MS = 3_000L
+/**
+ * What Projects says about the card checks its Needs you filter started over [checks], or null: how
+ * many projects are being checked, then how many cards were closed, or that nothing was.
+ */
+fun projectsCheckLine(checks: List<CardCheck>): String? {
+    val running = checks.count { it.running }
+    if (running > 0) return "Checking $running project${if (running == 1) "" else "s"} for cards already handled elsewhere…"
+    val closed = checks.sumOf { it.handled.size }
+    if (closed > 0) return "Closed $closed card${if (closed == 1) "" else "s"} already handled elsewhere"
+    val done = checks.count { it.finishedAt.isNotBlank() && it.error.isBlank() && it.checking > 0 }
+    return if (done > 0) "Checked $done project${if (done == 1) "" else "s"}: everything still needs you" else null
+}
+
+/** Marks a card the running check is looking at. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CheckingChip() {
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+        Row(Modifier.padding(start = 6.dp, end = 12.dp, top = 2.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            LoadingIndicator(Modifier.size(24.dp))
+            Text("Checking whether this still needs you", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
 
 /** What the queue says about its card check, or null when there is nothing worth saying. */
 fun checkLine(c: CardCheck): String? = when {
+    c.running && c.checking == 0 -> "Checking the cards for anything already handled elsewhere…"
     c.running -> "Checking ${c.checking} card${if (c.checking == 1) "" else "s"} for anything already handled elsewhere…"
     c.error.isNotBlank() -> "Couldn't check the cards for work handled elsewhere: ${c.error}"
     c.finishedAt.isBlank() -> null
@@ -118,7 +143,7 @@ fun checkLine(c: CardCheck): String? = when {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun CheckLine(running: Boolean, text: String) {
+internal fun CheckLine(running: Boolean, text: String) {
     Row(
         Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
