@@ -29,7 +29,7 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terminal
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -206,13 +206,24 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     }
                 }
             }
-            if (d.evidence.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                d.evidence.forEach { e -> AssistChip(onClick = { onEvidence(e) }, label = { Text(e.label) }, modifier = Modifier.heightIn(min = 48.dp)) }
+            // Evidence as tonal pills that square off when pressed, with room between rows.
+            if (d.evidence.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                d.evidence.forEach { e ->
+                    FilledTonalButton(
+                        onClick = { onEvidence(e) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 12.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(e.label, style = MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
+                        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(16.dp))
+                    }
+                }
             }
 
             // Asked whatever is chosen, e.g. which round bead found work came from.
             d.ask?.let { spec -> if (d.pending && !draft.rejecting) DecisionInputField(spec, draft.ask) { set(draft.copy(ask = it)) } }
-            if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 DecisionModel.ordered(d).forEach { o ->
                     val selected = draft.option == o.id
                     val radius by animateDpAsState(if (selected) 28.dp else 20.dp, if (reduced) snap() else MaterialTheme.motionScheme.fastSpatialSpec(), label = "option")
@@ -246,7 +257,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
                 )
                 val problem = DecisionModel.problem(d, draft)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     if (d.options.isNotEmpty() || draft.rejecting) {
                         if (draft.rejecting) {
                             Button(onClick = { submit(DecisionModel.answer(d, draft), true) }, enabled = problem == null && !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text(d.rejectLabel.ifBlank { "Reject" }) }
@@ -271,7 +282,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     if (d.state == "executing") LoadingIndicator(Modifier.size(28.dp))
                     Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (d.state == "held") {
                         // Held work keeps its next actions: land it after all (a fresh decision), or cancel the round.
                         Button(onClick = { scope.launch { runCatching { container.repository.renewDecision(d) }.onFailure { container.repository.notify("Couldn't ask again: ${it.message}") } } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Land now…") }
@@ -335,7 +346,7 @@ private fun DecisionInputField(spec: com.ryderdavid.nacre.data.model.DecisionInp
         "choice" -> Column(Modifier.padding(top = 4.dp)) {
             Text(spec.label.ifBlank { "Pick one" }, style = MaterialTheme.typography.labelLarge)
             val shown = value.ifEmpty { spec.default }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 spec.choices.forEach { c ->
                     androidx.compose.material3.FilterChip(
                         selected = shown == c.id, onClick = { onValue(if (value == c.id) "" else c.id) },
