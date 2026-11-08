@@ -367,6 +367,7 @@ class ChatHub(
 
     /** Sent images fetched for thumbnails. */
     val thumbs = ChatThumbs(link)
+    val mockups = MockupCache(link)
 
     /** Makes [key] the current chat (the Chat tab shows it), at the card for [requestId] when given. */
     fun openChat(key: String, requestId: String? = null) {

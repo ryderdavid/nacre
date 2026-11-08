@@ -173,6 +173,7 @@ func (s *Server) routes() []route {
 		{"GET", "/v1/chats/{chat}/stream", s.streamChat},
 		{"POST", "/v1/chats/{chat}/messages", s.sendChat},
 		{"GET", "/v1/chats/{chat}/images/{image}", s.chatImage},
+		{"GET", "/v1/chats/{chat}/mockups/{name}", s.chatMockup},
 		{"POST", "/v1/chats/{chat}/cancel", s.cancelChat},
 		{"POST", "/v1/chats/{chat}/permissions/{req}", s.answerChatPermission},
 		{"GET", "/v1/runs", s.listRuns},

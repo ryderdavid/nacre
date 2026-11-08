@@ -168,6 +168,40 @@ func (s *Server) sendChat(w http.ResponseWriter, r *http.Request) {
 }
 
 // chatImage serves one of a chat's stored images, for thumbnails.
+// chatMockup serves one of a chat's mockups to the app. An HTML page is
+// sandboxed should it ever be opened in a browser: scripts run, nothing else.
+func (s *Server) chatMockup(w http.ResponseWriter, r *http.Request) {
+	m := s.chatsOn(w)
+	if m == nil {
+		return
+	}
+	path, mediaType, err := m.Mockup(r.PathValue("chat"), r.PathValue("name"))
+	switch {
+	case errors.Is(err, chat.ErrNoMockup):
+		writeError(w, http.StatusNotFound, "unknown mockup", "")
+		return
+	case err != nil:
+		s.chatFail(w, err)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown mockup", "")
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown mockup", "")
+		return
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts")
+	http.ServeContent(w, r, "", st.ModTime(), f)
+}
+
 func (s *Server) chatImage(w http.ResponseWriter, r *http.Request) {
 	m := s.chatsOn(w)
 	if m == nil {

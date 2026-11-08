@@ -86,7 +86,19 @@ internal fun ChatItemView(
                 item.about?.let { Text(aboutChip(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer) }
             } else item.about?.let { Text(aboutChip(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        is ChatItem.Assistant -> MarkdownText(item.text, Modifier.fillMaxWidth())
+        is ChatItem.Assistant -> {
+            // A reply's MEDIA: lines are mockups, shown where they were.
+            val parts = androidx.compose.runtime.remember(item.text) { com.ryderdavid.nacre.data.chat.Mockups.split(item.text) }
+            if (parts.size == 1 && parts[0] is com.ryderdavid.nacre.data.chat.ReplyPart.Prose) MarkdownText(item.text, Modifier.fillMaxWidth())
+            else Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                parts.forEach { p ->
+                    when (p) {
+                        is com.ryderdavid.nacre.data.chat.ReplyPart.Prose -> MarkdownText(p.text, Modifier.fillMaxWidth())
+                        is com.ryderdavid.nacre.data.chat.ReplyPart.Mockup -> com.ryderdavid.nacre.ui.common.MockupCard(chatKey, p.ref)
+                    }
+                }
+            }
+        }
         is ChatItem.ToolStep -> ToolStepView(item)
         is ChatItem.Handoff -> Text(item.text, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
         is ChatItem.Permission -> PermissionCardView(item.card, onAnswer)

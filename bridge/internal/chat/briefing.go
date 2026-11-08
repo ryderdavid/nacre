@@ -70,6 +70,9 @@ func Briefing(in BriefingInput) string {
 		"## New effort drafts",
 		"When Ryder asks for a draft of a new effort, present it as one fenced code block whose language is `nacre-draft`, holding JSON: {\"title\", \"type\", \"description\", \"design\"?, \"acceptance\"?}. Change nothing while drafting. When he wants to go ahead with it, raise an `intake` decision with that draft.",
 		"",
+		"## Showing mockups",
+		"To show Ryder a screen, layout or diagram, make it a mockup he sees in the chat: write one self-contained HTML file (inline <style> and <script>; https CDNs such as Tailwind load) or a PNG, JPEG, WebP, GIF or SVG image into $" + EnvMockups + ", then put `MEDIA:$" + EnvMockups + "/<file>` with the expanded path alone on a line of your reply. The phone renders it inline, HTML in a sandboxed web view with no navigation, with a pinch-zoom full screen. Keep each file under 5 MB, give each version a new file name, and size the page to the phone (about 400 px wide folded, 900 px unfolded). Files elsewhere aren't shown; to hand over a file to keep, use Taildrop.",
+		"",
 		"## Sending files to the phone",
 		"Deliver an APK or another file to Ryder's phone by Taildrop. " + phone,
 	}, "\n")

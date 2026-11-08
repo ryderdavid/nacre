@@ -1,5 +1,7 @@
 package com.ryderdavid.nacre.data.chat
 
+import com.ryderdavid.nacre.data.bridge.BridgeException
+
 import com.ryderdavid.nacre.data.bridge.BridgeClient
 import com.ryderdavid.nacre.data.bridge.ChatStreamMessage
 import com.ryderdavid.nacre.data.model.ChatEvent
@@ -28,6 +30,8 @@ interface ChatLink {
     suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): PermissionOutcome
     /** The bytes of the stored image [image] a message of chat [key] sent, for its thumbnail. */
     suspend fun chatImage(key: String, image: String): ByteArray
+    /** One of a chat's mockups (`GET /v1/chats/{id}/mockups/{name}`). */
+    suspend fun chatMockup(key: String, name: String): ByteArray = throw BridgeException("Mockups aren't available")
 
     /**
      * A decision a chat's log carried (created or changed), tagged with its computer: kept with the

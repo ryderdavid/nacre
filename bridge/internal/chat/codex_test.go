@@ -95,8 +95,8 @@ func TestCodexStartAndResumeUseTheSameThread(t *testing.T) {
 	for _, r := range sw["writable_roots"].([]any) {
 		roots = append(roots, r.(string))
 	}
-	if !reflect.DeepEqual(roots, boards) {
-		t.Errorf("writable_roots = %v, want every board %v", roots, boards)
+	if want := append(append([]string{}, boards...), m.MockupsDir(rec.ID)); !reflect.DeepEqual(roots, want) {
+		t.Errorf("writable_roots = %v, want every board and the mockups %v", roots, want)
 	}
 	if di, _ := start["developerInstructions"].(string); di != Briefing(BriefingInput{Host: "Mac-Studio", NacredURL: "http://100.64.0.7:7420"}) {
 		t.Errorf("developer instructions are not the briefing: %.200q", di)
@@ -115,7 +115,7 @@ func TestCodexStartAndResumeUseTheSameThread(t *testing.T) {
 		t.Errorf("turn/start input: note %q, text %q", note, text)
 	}
 	policy := turn["sandboxPolicy"].(map[string]any)
-	if policy["type"] != "workspaceWrite" || policy["networkAccess"] != true || len(policy["writableRoots"].([]any)) != 3 {
+	if policy["type"] != "workspaceWrite" || policy["networkAccess"] != true || len(policy["writableRoots"].([]any)) != 4 {
 		t.Errorf("turn sandbox policy = %v", policy)
 	}
 

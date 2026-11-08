@@ -425,6 +425,15 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
         }
     }
 
+    /** One of a chat's mockups, an HTML page or an image the agent wrote (`GET /v1/chats/{id}/mockups/{name}`). */
+    suspend fun chatMockup(id: String, name: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(url("/v1/chats/${enc(id)}/mockups/${enc(name)}")).build()
+        http.newCall(req).await().use { resp ->
+            if (!resp.isSuccessful) resp.checked()
+            resp.body?.bytes() ?: throw BridgeException("Mockup unavailable")
+        }
+    }
+
     /** A chat's events after [after], then live while a turn runs; ends with its state. */
     fun chatStream(id: String, after: Long): Flow<ChatStreamMessage> = callbackFlow {
         val req = Request.Builder().url(url("/v1/chats/${enc(id)}/stream?after=$after")).header("Accept", "text/event-stream").build()

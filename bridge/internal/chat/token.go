@@ -14,7 +14,7 @@ const (
 
 // scrubbedEnv are variables a turn never inherits from nacred's own
 // environment: a stale chat's token or id, or a device token.
-var scrubbedEnv = map[string]bool{EnvChatToken: true, EnvChatID: true, "NACRED_TOKEN": true}
+var scrubbedEnv = map[string]bool{EnvChatToken: true, EnvChatID: true, EnvMockups: true, "NACRED_TOKEN": true}
 
 // withChatToken drops inherited token variables from env and adds the
 // chat's id and, when nacred can mint one, its chat-scoped token. The device

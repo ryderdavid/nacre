@@ -183,7 +183,7 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 
 	plan.spec = claude.Chat{
 		Briefing: Briefing(BriefingInput{Host: m.opts.HostName, NacredURL: m.opts.NacredURL, Phone: c.rec.Phone}),
-		AddDirs:  append([]string{}, c.rec.AddDirs...),
+		AddDirs:  append(append([]string{}, c.rec.AddDirs...), m.ensureMockupsDir(c.rec.ID)),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), TurnTimeout)
 	t := &turn{id: req.TurnID, cancel: cancel}
@@ -197,7 +197,7 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	if c.rec.Agent == AgentCodex {
 		env = CodexEnv(m.opts.NacredURL)
 	}
-	env = m.withChatToken(env, c.rec.ID)
+	env = append(m.withChatToken(env, c.rec.ID), EnvMockups+"="+m.MockupsDir(c.rec.ID))
 	m.mu.Unlock()
 
 	go m.run(ctx, c, t, cwd, env, plan)

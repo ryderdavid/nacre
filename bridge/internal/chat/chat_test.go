@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -149,7 +150,7 @@ func TestFirstResumedAndAcrossBoardsArgv(t *testing.T) {
 		"--append-system-prompt", brief,
 		"--session-id", rec.SessionID,
 		"--max-budget-usd", "50.00",
-		"--add-dir", boards[1], "--add-dir", boards[2],
+		"--add-dir", boards[1], "--add-dir", boards[2], "--add-dir", m.MockupsDir(rec.ID),
 	}
 	got0 := strings.Join(readLines(t, filepath.Join(fdir, "argv0")), "\n")
 	if got0 != strings.Join(want0, "\n") {
@@ -183,7 +184,7 @@ func TestFirstResumedAndAcrossBoardsArgv(t *testing.T) {
 	}
 	waitIdle(t, m2, across.ID)
 	want2 := append(append([]string{}, want0[:14]...), "--session-id", across.SessionID, "--max-budget-usd", "50.00",
-		"--add-dir", boards[0], "--add-dir", boards[1], "--add-dir", boards[2])
+		"--add-dir", boards[0], "--add-dir", boards[1], "--add-dir", boards[2], "--add-dir", m2.MockupsDir(across.ID))
 	got2 := strings.Join(readLines(t, filepath.Join(fdir2, "argv0")), "\n")
 	if got2 != strings.Join(want2, "\n") {
 		t.Errorf("across-boards argv:\n%s\nwant:\n%s", got2, strings.Join(want2, "\n"))
@@ -650,5 +651,44 @@ func TestExitWithoutResultEndsWithAnError(t *testing.T) {
 	}
 	if !foundErr {
 		t.Fatalf("events: %+v", evs)
+	}
+}
+
+// A turn gets its mockups directory, made and named in its environment; only
+// plain files in it with a mockup's extension are served, symlinks and paths
+// out of it never.
+func TestMockupsAreServedOnlyFromTheChatsDirectory(t *testing.T) {
+	bin, _ := fakeClaude(t, "0", "")
+	_, _, opt := repoSetup(t)
+	m := newManager(t, t.TempDir(), bin, opt)
+	rec, err := m.Create(CreateRequest{Agent: "claude", Repo: strp("r-a")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Send(rec.ID, SendRequest{TurnID: "c_mock0001", Text: "show me"}); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, m, rec.ID)
+	dir := m.MockupsDir(rec.ID)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
+		t.Fatalf("mockups dir: %v %v", st, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "board-v1.html"), []byte("<html></html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if path, media, err := m.Mockup(rec.ID, "board-v1.html"); err != nil || media != "text/html; charset=utf-8" || filepath.Base(path) != "board-v1.html" {
+		t.Fatalf("mockup: %q %q %v", path, media, err)
+	}
+	secret := filepath.Join(t.TempDir(), "secret.png")
+	_ = os.WriteFile(secret, []byte("x"), 0o600)
+	_ = os.Symlink(secret, filepath.Join(dir, "link.png"))
+	_ = os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600)
+	for _, name := range []string{"link.png", "notes.txt", "../" + rec.ID + ".json", "missing.png", ".hidden.png"} {
+		if _, _, err := m.Mockup(rec.ID, name); !errors.Is(err, ErrNoMockup) {
+			t.Errorf("%q served: %v", name, err)
+		}
+	}
+	if _, _, err := m.Mockup("ch_nope", "board-v1.html"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown chat: %v", err)
 	}
 }
