@@ -137,6 +137,10 @@ data class Decision(
 @Serializable
 data class DecisionHandled(val reason: String = "", val evidence: List<String> = emptyList(), val at: String = "")
 
+/** One card in the card check's order: its id, and a few words on why it comes there. */
+@Serializable
+data class CardStep(val id: String = "", val why: String = "")
+
 /** A project's check of its open cards for work already handled elsewhere (`/v1/repos/{repo}/decisions/check`). */
 @Serializable
 data class CardCheck(
@@ -147,6 +151,8 @@ data class CardCheck(
     /** The ids of the cards under check. */
     val cards: List<String> = emptyList(),
     val handled: List<String> = emptyList(),
+    /** The last check's order for the cards that wait on Ryder, with why each comes there. */
+    val order: List<CardStep> = emptyList(),
     @SerialName("started_at") val startedAt: String = "",
     @SerialName("finished_at") val finishedAt: String = "",
     val error: String = "",

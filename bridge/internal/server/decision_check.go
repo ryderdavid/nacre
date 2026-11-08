@@ -37,11 +37,20 @@ type CardCheck struct {
 	Checking int      `json:"checking"`
 	Cards    []string `json:"cards"`
 	// Handled are the cards the last check closed.
-	Handled    []string `json:"handled"`
-	StartedAt  string   `json:"started_at,omitempty"`
-	FinishedAt string   `json:"finished_at,omitempty"`
-	Error      string   `json:"error,omitempty"`
-	CostUSD    float64  `json:"cost_usd,omitempty"`
+	Handled []string `json:"handled"`
+	// Order is the last check's order for the project's cards that wait on
+	// Ryder: what to answer first, and why. The app's walkthrough follows it.
+	Order      []CardStep `json:"order"`
+	StartedAt  string     `json:"started_at,omitempty"`
+	FinishedAt string     `json:"finished_at,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	CostUSD    float64    `json:"cost_usd,omitempty"`
+}
+
+// CardStep is one card in the check's order, with why it comes there.
+type CardStep struct {
+	ID  string `json:"id"`
+	Why string `json:"why"`
 }
 
 // cardCheckEvery is how long a card stays checked: opening the feed again
@@ -57,6 +66,9 @@ const (
 	cardCheckTimeout   = 6 * time.Minute
 	cardCheckModel     = "sonnet"
 	cardBodyMax        = 1500
+	// cardOrderExtra bounds the cards beyond the checked ones the run is
+	// shown only to put in order (approvals, cards checked lately).
+	cardOrderExtra = 20
 )
 
 // checkable reports whether the check may close a card: open, waiting or
@@ -103,13 +115,18 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cardCheckMu.Unlock()
 
-	var cards []decisions.Record
+	var cards, waiting []decisions.Record
 	now := time.Now()
 	for _, rec := range s.queue(r.Context()) {
-		if rec.Decision.Repo != repo || !checkable(rec) {
+		if rec.Decision.Repo != repo {
 			continue
 		}
-		cards = append(cards, rec)
+		if st := rec.Decision.State; st == decisions.StatePending || st == decisions.StateHeld {
+			waiting = append(waiting, rec)
+		}
+		if checkable(rec) {
+			cards = append(cards, rec)
+		}
 	}
 	s.cardCheckMu.Lock()
 	defer s.cardCheckMu.Unlock()
@@ -135,7 +152,7 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 	if len(due) == 0 {
 		c := s.cardChecks[repo]
 		if c == nil {
-			c = &CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}}
+			c = &CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}, Order: []CardStep{}}
 			s.cardChecks[repo] = c
 		}
 		writeJSON(w, http.StatusOK, *c)
@@ -148,7 +165,11 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range due {
 		ids = append(ids, rec.Decision.ID)
 	}
-	c := &CardCheck{Repo: repo, Running: true, Checking: len(due), Cards: ids, Handled: []string{}, StartedAt: now.UTC().Format(time.RFC3339)}
+	prev := []CardStep{}
+	if old := s.cardChecks[repo]; old != nil && old.Order != nil {
+		prev = old.Order
+	}
+	c := &CardCheck{Repo: repo, Running: true, Checking: len(due), Cards: ids, Handled: []string{}, Order: prev, StartedAt: now.UTC().Format(time.RFC3339)}
 	s.cardChecks[repo] = c
 	out := *c
 	s.following.Add(1)
@@ -156,9 +177,12 @@ func (s *Server) startCardCheck(w http.ResponseWriter, r *http.Request) {
 		defer s.following.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), cardCheckTimeout+30*time.Second)
 		defer cancel()
-		handled, cost, err := s.checkCards(ctx, path, due)
+		handled, order, cost, err := s.checkCards(ctx, path, due, waiting)
 		s.cardCheckMu.Lock()
 		c.Running, c.Handled, c.CostUSD = false, handled, cost
+		if err == nil {
+			c.Order = order
+		}
 		c.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		if err != nil {
 			c.Error = err.Error()
@@ -185,7 +209,7 @@ func (s *Server) cardCheckStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	repo := r.PathValue("repo")
 	s.cardCheckMu.Lock()
-	out := CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}}
+	out := CardCheck{Repo: repo, Handled: []string{}, Cards: []string{}, Order: []CardStep{}}
 	if c := s.cardChecks[repo]; c != nil {
 		out = *c
 	}
@@ -203,7 +227,11 @@ type cardVerdict struct {
 
 const verdictHandled = "handled"
 
-var cardCheckSchema = json.RawMessage(`{"type":"object","additionalProperties":false,"required":["cards"],"properties":{"cards":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","verdict","reason","evidence"],"properties":{` +
+var cardCheckSchema = json.RawMessage(`{"type":"object","additionalProperties":false,"required":["cards","order"],"properties":{` +
+	`"order":{"type":"array","description":"Every card you were given that still waits on Ryder (not handled), once each, in the order he should answer them.","items":{"type":"object","additionalProperties":false,"required":["id","why"],"properties":{` +
+	`"id":{"type":"string","description":"The card's id, exactly as given."},` +
+	`"why":{"type":"string","description":"A few plain words on why it comes here, for example 'Blocks NAC-12 and NAC-14' or 'Decides how the next two cards go'."}}}},` +
+	`"cards":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","verdict","reason","evidence"],"properties":{` +
 	`"id":{"type":"string","description":"The card's id, exactly as given."},` +
 	`"verdict":{"type":"string","enum":["still_needed","handled","unsure"]},` +
 	`"reason":{"type":"string","description":"One plain sentence for Ryder. For handled, name what took care of it (a bead and its status, a commit, a comment, a change). Otherwise say what is still open."},` +
@@ -218,11 +246,14 @@ Verdicts:
 - still_needed: it still waits on Ryder.
 - unsure: you couldn't tell.
 
-Return every card exactly once, by its id. Keep reasons to one sentence and name the evidence.`
+Give a verdict only for cards marked "check": true, each exactly once, by its id. Keep reasons to one sentence and name the evidence.
 
-// checkCards runs the check over cards and closes the handled ones. It
-// returns their ids and what the run cost.
-func (s *Server) checkCards(ctx context.Context, path string, cards []decisions.Record) ([]string, float64, error) {
+Then put every card that still waits on him (all of them except the ones you found handled, whether marked "check" or not) in the order he should answer them: first what other work or other cards wait on (an answer that unblocks beads, a recovery for stuck work, an approval a round waits on), then answers that change what later cards ask, then the rest, oldest first. Say in a few words why each comes where it does.`
+
+// checkCards runs the check over cards and closes the handled ones; waiting
+// are all the project's cards that wait on Ryder, for the order. It returns
+// the closed cards' ids, the order of the rest and what the run cost.
+func (s *Server) checkCards(ctx context.Context, path string, cards, waiting []decisions.Record) ([]string, []CardStep, float64, error) {
 	type card struct {
 		ID        string           `json:"id"`
 		Kind      string           `json:"kind"`
@@ -233,12 +264,25 @@ func (s *Server) checkCards(ctx context.Context, path string, cards []decisions.
 		Options   []string         `json:"options,omitempty"`
 		CreatedAt string           `json:"created_at"`
 		State     string           `json:"state"`
+		Check     bool             `json:"check"`
 	}
-	in := make([]card, 0, len(cards))
 	byID := map[string]decisions.Record{}
 	for _, rec := range cards {
+		byID[rec.Decision.ID] = rec
+	}
+	all := append([]decisions.Record{}, cards...)
+	for _, rec := range waiting {
+		if _, dup := byID[rec.Decision.ID]; !dup && len(all) < cardCheckMax+cardOrderExtra {
+			all = append(all, rec)
+		}
+	}
+	in := make([]card, 0, len(all))
+	known := map[string]bool{}
+	for _, rec := range all {
 		d := rec.Decision
-		c := card{ID: d.ID, Kind: d.Kind, Title: d.Title, Body: clip(d.Body, cardBodyMax), Target: d.Target, CreatedAt: d.CreatedAt, State: d.State}
+		_, check := byID[d.ID]
+		known[d.ID] = true
+		c := card{ID: d.ID, Kind: d.Kind, Title: d.Title, Body: clip(d.Body, cardBodyMax), Target: d.Target, CreatedAt: d.CreatedAt, State: d.State, Check: check}
 		for _, e := range d.Evidence {
 			c.Evidence = append(c.Evidence, strings.TrimSpace(e.Kind+" "+e.Ref))
 		}
@@ -246,7 +290,6 @@ func (s *Server) checkCards(ctx context.Context, path string, cards []decisions.
 			c.Options = append(c.Options, o.Label)
 		}
 		in = append(in, c)
-		byID[d.ID] = rec
 	}
 	js, _ := json.MarshalIndent(in, "", "  ")
 	prompt := "Now: " + time.Now().UTC().Format(time.RFC3339) + "\n\nCheck these cards:\n" + string(js)
@@ -263,13 +306,14 @@ func (s *Server) checkCards(ctx context.Context, path string, cards []decisions.
 	}
 	out, err := run(ctx, path, h)
 	if err != nil {
-		return nil, out.CostUSD, err
+		return nil, nil, out.CostUSD, err
 	}
 	var ans struct {
 		Cards []cardVerdict `json:"cards"`
+		Order []CardStep    `json:"order"`
 	}
 	if err := json.Unmarshal(out.Output, &ans); err != nil {
-		return nil, out.CostUSD, errors.New("the check gave no answer")
+		return nil, nil, out.CostUSD, errors.New("the check gave no answer")
 	}
 	handled := []string{}
 	for _, v := range ans.Cards {
@@ -283,7 +327,13 @@ func (s *Server) checkCards(ctx context.Context, path string, cards []decisions.
 		}
 	}
 	slices.Sort(handled)
-	return handled, out.CostUSD, nil
+	order := []CardStep{}
+	for _, st := range ans.Order {
+		if known[st.ID] && !slices.Contains(handled, st.ID) && !slices.ContainsFunc(order, func(o CardStep) bool { return o.ID == st.ID }) {
+			order = append(order, CardStep{ID: st.ID, Why: strings.TrimSpace(st.Why)})
+		}
+	}
+	return handled, order, out.CostUSD, nil
 }
 
 // closeHandled closes a card the check found handled, unless it changed

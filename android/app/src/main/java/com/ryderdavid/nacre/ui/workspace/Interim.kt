@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -45,6 +47,8 @@ import com.ryderdavid.nacre.data.model.CardCheck
 import com.ryderdavid.nacre.data.model.Decision
 import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel
+import com.ryderdavid.nacre.ui.workspace.decisions.WalkStep
+import com.ryderdavid.nacre.ui.workspace.decisions.Walkthrough
 import kotlinx.coroutines.launch
 
 // Interim pane contents for the chat-first shell; sections 5 to 9 replace each of them.
@@ -61,7 +65,8 @@ fun ChatPane(repoKey: String, thread: String, onThread: (String) -> Unit, onProj
  *
  * Opening it starts nacred's card check: a read-only agent run that closes cards already handled
  * elsewhere (a desktop session fixed it, another chat filed it). Those are listed last, with what
- * handled them and Reopen.
+ * handled them and Reopen. Once it's done, Walk me through steps through the cards that still wait on
+ * Ryder one at a time, in the order the check gave.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -77,21 +82,34 @@ fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     val checks by repo.cardChecks.collectAsState()
     val check = checks[repoKey]
     LaunchedEffect(repoKey) { repo.checkCards(repoKey) }
-    val underCheck = check?.takeIf { it.running }?.cards.orEmpty().toSet()
     val open = LocalOpenEvidence.current
-    // The title and what the check is doing stay put while the cards scroll under them.
+    val steps = DecisionModel.walkSteps(all, check?.order.orEmpty())
+    var walk by remember(repoKey) { mutableStateOf<List<WalkStep>?>(null) }
+    androidx.activity.compose.BackHandler(enabled = walk != null) { walk = null }
+    walk?.let { start ->
+        Walkthrough(start, all, onEvidence = { onClose(); open(it) }, onDone = { walk = null })
+        return
+    }
+    // The title, what the check is doing and the walkthrough stay put while the cards scroll under them.
     Column(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Needs you", style = MaterialTheme.typography.headlineSmallEmphasized)
             check?.let { c -> checkLine(c)?.let { line -> CheckLine(c.running, line) } }
+            // Once the check has said which cards still need Ryder, he can go through them one at a time.
+            if (check?.running != true && steps.size >= 2) Button(
+                onClick = { walk = steps.map { (d, why) -> WalkStep(d.id, why) } },
+                shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 20.dp),
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(walkButton(steps.size))
+            }
         }
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
         if (list.isEmpty()) item { Text("Nothing needs you in this project.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(list, key = { it.key }) { d ->
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (d.id in underCheck) CheckingChip()
-                com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard(d, onEvidence = { onClose(); open(it) })
-            }
+            com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard(d, onEvidence = { onClose(); open(it) })
         }
         if (handled.isNotEmpty()) {
             item(key = "l:handled") {
@@ -106,6 +124,9 @@ fun DecisionQueue(repoKey: String, onClose: () -> Unit) {
     }
 }
 
+/** The label of the button that starts the walkthrough of [n] cards. */
+fun walkButton(n: Int) = "Walk me through the $n, in order"
+
 /**
  * What Projects says about the card checks its Needs you filter started over [checks], or null: how
  * many projects are being checked, then how many cards were closed, or that nothing was.
@@ -117,18 +138,6 @@ fun projectsCheckLine(checks: List<CardCheck>): String? {
     if (closed > 0) return "Closed $closed card${if (closed == 1) "" else "s"} already handled elsewhere"
     val done = checks.count { it.finishedAt.isNotBlank() && it.error.isBlank() && it.checking > 0 }
     return if (done > 0) "Checked $done project${if (done == 1) "" else "s"}: everything still needs you" else null
-}
-
-/** Marks a card the running check is looking at. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun CheckingChip() {
-    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-        Row(Modifier.padding(start = 6.dp, end = 12.dp, top = 2.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            LoadingIndicator(Modifier.size(24.dp))
-            Text("Checking whether this still needs you", style = MaterialTheme.typography.labelMedium)
-        }
-    }
 }
 
 /** What the queue says about its card check, or null when there is nothing worth saying. */

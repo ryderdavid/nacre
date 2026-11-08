@@ -48,7 +48,8 @@ func TestCardCheckClosesHandledCards(t *testing.T) {
 	_, open, _ := rg.raise(t, `{"kind":"intake","draft":{"title":"Palette picker","description":"Pick the app's palette."}}`)
 	chk := &checkRig{answer: func(string) string {
 		return `{"cards":[{"id":"` + done.ID + `","verdict":"handled","reason":"NAC-50 shipped markdown export and is closed.","evidence":["NAC-50"]},` +
-			`{"id":"` + open.ID + `","verdict":"still_needed","reason":"Nothing filed for a palette picker.","evidence":[]}]}`
+			`{"id":"` + open.ID + `","verdict":"still_needed","reason":"Nothing filed for a palette picker.","evidence":[]}],` +
+			`"order":[{"id":"` + done.ID + `","why":"handled, so dropped"},{"id":"nope","why":"unknown, so dropped"},{"id":"` + open.ID + `","why":"Decides the next card"}]}`
 	}}
 	rg.s.CardCheckRun = chk.run
 
@@ -67,6 +68,9 @@ func TestCardCheckClosesHandledCards(t *testing.T) {
 	rg.list(t, "/v1/repos/"+rg.repo+"/decisions/check", &st)
 	if st.Running || len(st.Handled) != 1 || st.Handled[0] != done.ID || st.FinishedAt == "" {
 		t.Fatalf("status %+v", st)
+	}
+	if len(st.Order) != 1 || st.Order[0].ID != open.ID || st.Order[0].Why != "Decides the next card" {
+		t.Fatalf("order %+v", st.Order)
 	}
 	got := rg.get(t, done.ID)
 	if got.State != decisions.StateExpired || got.Handled == nil || got.Handled.Reason != "NAC-50 shipped markdown export and is closed." ||
@@ -105,7 +109,19 @@ func TestCardCheckClosesHandledCards(t *testing.T) {
 	rg.do(t, "POST", "/v1/repos/"+rg.repo+"/decisions/check", "")
 	rg.s.following.Wait()
 	p := chk.calls()
-	if len(p) != 2 || strings.Contains(p[1], done.ID) || !strings.Contains(p[1], open.ID) {
+	var shown []struct {
+		ID    string `json:"id"`
+		Check bool   `json:"check"`
+	}
+	if len(p) == 2 {
+		json.Unmarshal([]byte(p[1][strings.Index(p[1], "["):]), &shown)
+	}
+	checked := map[string]bool{}
+	for _, c := range shown {
+		checked[c.ID] = c.Check
+	}
+	// The reopened card is still shown, to be put in order, but not checked.
+	if len(p) != 2 || len(shown) != 2 || checked[done.ID] || !checked[open.ID] {
 		t.Fatalf("after reopen the check looked at %v", p[len(p)-1])
 	}
 	if rg.get(t, done.ID).State != decisions.StatePending {

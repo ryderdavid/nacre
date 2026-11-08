@@ -213,6 +213,17 @@ object DecisionModel {
         .sortedByDescending { it.second }
         .map { it.first }
 
+    /**
+     * The walkthrough's steps: the cards that wait on Ryder, in the card check's [order] (what other work
+     * waits on first), then any it didn't rank in [queueOrder]; each with the check's why, or blank.
+     */
+    fun walkSteps(all: List<Decision>, order: List<com.ryderdavid.nacre.data.model.CardStep>): List<Pair<Decision, String>> {
+        val waiting = all.filter { it.open && it.waitsOnYou }.associateBy { it.id }
+        val ranked = order.mapNotNull { st -> waiting[st.id]?.let { it to st.why } }.distinctBy { it.first.id }
+        val seen = ranked.map { it.first.id }.toSet()
+        return ranked + queueOrder(waiting.values.filter { it.id !in seen }).map { it to "" }
+    }
+
     /** What a project's strip counts: decisions waiting on Ryder, and the rest of the open queue. */
     fun counts(all: List<Decision>): QueueCount {
         val open = all.filter { it.open }
