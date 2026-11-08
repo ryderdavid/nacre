@@ -28,10 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
@@ -94,9 +92,10 @@ import java.time.Instant
 
 /**
  * The chat drawer: Chats and Jobs as a connected button group. In Chats every chat of the project is a
- * card showing what it works on; tapping one unfolds it into the conversation, the others fold to slim
- * rows above it, and its chevron folds it back. New chat floats at the bottom of the list. Jobs shows
- * the same work from its side, one card per bead, epic, change or round, with the chats on it.
+ * card showing what it works on; tapping one unfolds it into the conversation, which takes the whole
+ * drawer (the switch and the other chats fold away) until its chevron folds it back. New chat floats at
+ * the bottom of the list. Jobs shows the same work from its side, one card per bead, epic, change or
+ * round, with the chats on it.
  *
  * With no [chat] (the phone's sheet) only the lists show, and picking a chat hands it to [onThread].
  */
@@ -146,13 +145,14 @@ fun ChatDrawer(
 
     val showOpen = !jobs && unfolded && thread != null && chat != null
     Column(modifier) {
-        DrawerSegments(cards.size, workJobs.now.size, workJobs.runningCount > 0, jobs, onJobs)
+        // An unfolded chat has the whole column: the switch folds away with the other chats.
+        AnimatedVisibility(!showOpen) { DrawerSegments(cards.size, workJobs.now.size, workJobs.runningCount > 0, jobs, onJobs) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 jobs -> JobsList(workJobs, onOpenChat = show, onStartAbout = { ref -> start(defaultAgent, ref) }, onInspect = onInspect)
                 showOpen -> OpenChat(
                     cards, thread!!, listing.chat(thread)?.let { c -> ChatCard(c.key, c.title.ifBlank { "New chat" }, c.agent, "", 0, c.active, c.updatedAt, null) },
-                    now, onFold = { onUnfold(false) }, onSwitch = show, onNew = { agent -> start(agent, null) }, chat = chat!!,
+                    now, onFold = { onUnfold(false) }, chat = chat!!,
                 )
                 else -> CardsList(cards, thread, now, onOpen = show)
             }
@@ -381,7 +381,10 @@ fun AgentMark(agent: String, running: Boolean, size: Dp = 44.dp) {
     }
 }
 
-/** One chat unfolded: the other chats fold to slim rows above it, then the card with the conversation. */
+/**
+ * One chat unfolded: its card takes the whole drawer, the conversation under the card's header. Folding
+ * it brings back the switch and the other chats.
+ */
 @Composable
 private fun OpenChat(
     cards: List<ChatCard>,
@@ -389,55 +392,16 @@ private fun OpenChat(
     fallback: ChatCard?,
     now: Long,
     onFold: () -> Unit,
-    onSwitch: (String) -> Unit,
-    onNew: (String) -> Unit,
     chat: @Composable (Modifier) -> Unit,
 ) {
     val card = cards.firstOrNull { it.key == thread } ?: fallback ?: ChatCard(thread, "Chat", ChatWire.AGENT_CLAUDE, "", 0, false, "", null)
-    val others = cards.filter { it.key != thread }
-    val default by DefaultAgent.state(LocalContext.current)
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        // At most about three rows tall, so the conversation keeps the room.
-        Column(Modifier.heightIn(max = 172.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            others.forEach { o -> PeerRow(o) { onSwitch(o.key) } }
-            Surface(
-                onClick = { onNew(default) }, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                modifier = Modifier.fillMaxWidth().height(52.dp).semantics { contentDescription = "New ${DefaultAgent.label(default)} chat" },
-            ) {
-                Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    Text("New chat", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Surface(
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp),
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                ChatCardHeader(card, expanded = true, now = now, onToggle = onFold)
-                chat(Modifier.weight(1f).fillMaxWidth())
-            }
-        }
-    }
-}
-
-/** Another chat while one is open: its mark, title and where it stands, one tap to switch. */
-@Composable
-private fun PeerRow(card: ChatCard, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Surface(onClick = onClick, shape = RoundedCornerShape(18.dp), color = c.surfaceContainerLowest, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            AgentMark(card.agent, card.running, size = 28.dp)
-            Text(card.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            when {
-                card.waiting > 0 -> Pill("${card.waiting}", c.errorContainer, c.onErrorContainer)
-                card.running -> Pill("Working", c.primaryContainer, c.onPrimaryContainer, live = true)
-                card.job != null -> Text(card.job.label, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = c.outline, maxLines = 1)
-            }
+    Surface(
+        shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        modifier = Modifier.fillMaxSize().padding(8.dp),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            ChatCardHeader(card, expanded = true, now = now, onToggle = onFold)
+            chat(Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
