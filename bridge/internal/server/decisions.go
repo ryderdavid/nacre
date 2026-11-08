@@ -136,6 +136,7 @@ func (s *Server) listDecisions(w http.ResponseWriter, r *http.Request) {
 // questions first, then approvals, then landing, newest first in each.
 func (s *Server) queue(ctx context.Context) []decisions.Record {
 	s.revalidateOpen(ctx)
+	s.coverOpenIntake(ctx)
 	stored := s.Decisions.List()
 	byID := map[string]bool{}
 	openKeys := map[string]bool{}
@@ -445,9 +446,19 @@ func (s *Server) chooseOption(ctx context.Context, rec decisions.Record, body an
 	if msg := checkInput(rec.Decision.Ask, ask); msg != "" {
 		return rec, refuse(http.StatusBadRequest, "%s", msg)
 	}
+	if rec.Decision.Kind == decisions.KindIntake {
+		if err := s.recheckCover(ctx, rec, opt.ID); err != nil {
+			return rec, err
+		}
+	}
 	act, ok := rec.Actions[opt.ID]
 	if !ok {
-		return s.record(rec, ans, opt.Label)
+		out, err := s.record(rec, ans, opt.Label)
+		if bead, covered := strings.CutPrefix(opt.ID, coveredByPrefix); covered && err == nil && out.Decision.ChatID != nil && *out.Decision.ChatID != "" {
+			// The chat follows the work that covers its draft.
+			s.Decisions.LinkWork(beadLink(out.Decision.Repo, bead), *out.Decision.ChatID)
+		}
+		return out, err
 	}
 	return s.run(ctx, rec, ans, act, input)
 }

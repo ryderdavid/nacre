@@ -23,6 +23,8 @@ type Facts interface {
 	Bead(ctx context.Context, repoPath, id string) (BeadFacts, error)
 	// Children are the beads under a bead, closed ones included.
 	Children(ctx context.Context, repoPath, id string) ([]BeadFacts, error)
+	// Beads are every bead of a repository, closed ones included.
+	Beads(ctx context.Context, repoPath string) ([]BeadFacts, error)
 	// RoundsOf are a repository's rounds, ended ones included.
 	RoundsOf(repoID string) []api.Round
 	// Intake is a New effort draft's intake verdict: one bounded, read-only
@@ -49,6 +51,8 @@ type BeadFacts struct {
 	Labels             []string       `json:"labels"`
 	Metadata           map[string]any `json:"metadata"`
 	UpdatedAt          string         `json:"updated_at"`
+	CreatedAt          string         `json:"created_at"`
+	ClosedAt           string         `json:"closed_at"`
 }
 
 // HasLabel reports whether the bead carries label.
@@ -109,6 +113,22 @@ func (f liveFacts) Bead(ctx context.Context, repoPath, id string) (BeadFacts, er
 
 func (f liveFacts) Children(ctx context.Context, repoPath, id string) ([]BeadFacts, error) {
 	raw, err := f.s.BD.Children(ctx, repoPath, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BeadFacts, 0, len(raw))
+	for _, r := range raw {
+		var b BeadFacts
+		if err := json.Unmarshal(r, &b); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+func (f liveFacts) Beads(ctx context.Context, repoPath string) ([]BeadFacts, error) {
+	raw, err := f.s.BD.List(ctx, repoPath)
 	if err != nil {
 		return nil, err
 	}

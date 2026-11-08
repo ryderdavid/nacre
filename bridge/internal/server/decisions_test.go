@@ -82,6 +82,15 @@ func (f *fakeFacts) Children(_ context.Context, _, id string) ([]BeadFacts, erro
 	}
 	return out, nil
 }
+func (f *fakeFacts) Beads(context.Context, string) ([]BeadFacts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]BeadFacts, 0, len(f.beads))
+	for _, b := range f.beads {
+		out = append(out, b)
+	}
+	return out, nil
+}
 func (f *fakeFacts) RoundsOf(repo string) []api.Round {
 	f.mu.Lock()
 	defer f.mu.Unlock()
