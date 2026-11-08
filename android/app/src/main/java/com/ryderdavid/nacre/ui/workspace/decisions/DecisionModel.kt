@@ -51,6 +51,23 @@ object DecisionModel {
         else -> "Send answer"
     }
 
+    /** One option and nothing to type for it: the card skips the choice list and its button says the option. */
+    fun singleOption(d: Decision): DecisionOption? = d.options.singleOrNull()?.takeIf { it.input == null }
+
+    /**
+     * The main button's label: the option itself when it's the only one, or when a recovery or limit option
+     * is selected and short enough for a button; otherwise what the kind's answer does.
+     */
+    fun primaryLabel(d: Decision, draft: DecisionDraft): String {
+        if (draft.rejecting) return d.rejectLabel.ifBlank { "Reject" }
+        singleOption(d)?.let { return it.label }
+        val chosen = d.options.firstOrNull { it.id == draft.option }
+        if (chosen != null && d.kind in setOf("recovery", "limit", "question", "found", "intake") && chosen.label.length <= MAX_BUTTON_LABEL) return chosen.label
+        return sendLabel(d)
+    }
+
+    private const val MAX_BUTTON_LABEL = 28
+
     /** The option preselected on a fresh card: the recommended one, else the only one. */
     fun initialOption(d: Decision): String? {
         val usable = d.options.filter { it.disabled.isBlank() }

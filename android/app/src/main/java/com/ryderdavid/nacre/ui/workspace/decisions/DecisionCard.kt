@@ -29,7 +29,15 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -211,7 +219,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 d.evidence.forEach { e ->
                     FilledTonalButton(
                         onClick = { onEvidence(e) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 12.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 12.dp),
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Text(e.label, style = MaterialTheme.typography.labelLarge)
@@ -223,7 +231,12 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
 
             // Asked whatever is chosen, e.g. which round bead found work came from.
             d.ask?.let { spec -> if (d.pending && !draft.rejecting) DecisionInputField(spec, draft.ask) { set(draft.copy(ask = it)) } }
-            if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val single = DecisionModel.singleOption(d)
+            if (d.pending && !draft.rejecting && single != null) {
+                // One way forward: no list to pick from; the main button says it, and anything it adds shows here.
+                if (single.detail.isNotBlank()) Text(single.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (single.disabled.isNotBlank()) Text(single.disabled, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            } else if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 DecisionModel.ordered(d).forEach { o ->
                     val selected = draft.option == o.id
                     val radius by animateDpAsState(if (selected) 28.dp else 20.dp, if (reduced) snap() else MaterialTheme.motionScheme.fastSpatialSpec(), label = "option")
@@ -231,10 +244,10 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                         shape = RoundedCornerShape(radius),
                         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
                         contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
                             .selectable(selected = selected, enabled = o.disabled.isBlank(), onClick = { set(draft.copy(option = o.id)) }, role = Role.RadioButton),
                     ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             RadioButton(selected = selected, onClick = null)
                             Column(Modifier.weight(1f)) {
                                 Text(o.label + if (o.recommended) " · Recommended" else "", style = MaterialTheme.typography.labelLarge)
@@ -257,24 +270,32 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
                 )
                 val problem = DecisionModel.problem(d, draft)
+                // The answer: one wide button that says what it does, then the other ways out, all one shape and height.
+                if (d.options.isNotEmpty() || draft.rejecting) {
+                    val danger = draft.rejecting
+                    Button(
+                        onClick = { submit(DecisionModel.answer(d, draft), true) }, enabled = problem == null && !sending,
+                        shapes = ButtonDefaults.shapes(),
+                        colors = if (danger) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    ) {
+                        if (sending) LoadingIndicator(Modifier.size(24.dp), color = LocalContentColor.current)
+                        else Text(DecisionModel.primaryLabel(d, draft), style = MaterialTheme.typography.titleMedium)
+                    }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                    if (d.options.isNotEmpty() || draft.rejecting) {
-                        if (draft.rejecting) {
-                            Button(onClick = { submit(DecisionModel.answer(d, draft), true) }, enabled = problem == null && !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text(d.rejectLabel.ifBlank { "Reject" }) }
-                            TextButton(onClick = { set(draft.copy(rejecting = false)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") }
-                        } else {
-                            Button(onClick = { submit(DecisionModel.answer(d, draft), true) }, enabled = problem == null && !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text(DecisionModel.sendLabel(d)) }
+                    if (draft.rejecting) {
+                        SecondaryAction("Back", Icons.AutoMirrored.Rounded.ArrowBack) { set(draft.copy(rejecting = false)) }
+                    } else {
+                        if (askable) SecondaryAction("Ask about this", Icons.AutoMirrored.Rounded.Chat, tonal = true) { ask(ChatReference("decision", d.id, d.title, d.body)) }
+                        if (d.allowDefer) SecondaryAction("Defer", Icons.Rounded.Schedule, enabled = !sending) { submit(DecisionAnswer(defer = true), false) }
+                        if (draft.note.isEmpty() && !draft.noting && d.options.isNotEmpty()) SecondaryAction("Note", Icons.Rounded.EditNote) { set(draft.copy(noting = true)) }
+                        if (d.allowReject) SecondaryAction(d.rejectLabel.ifBlank { "Reject" } + "…", Icons.Rounded.Close, enabled = !sending, danger = true) {
+                            set(draft.copy(rejecting = true, note = draft.note.trim()))
                         }
                     }
-                    if (!draft.rejecting) {
-                        if (d.allowDefer) TextButton(onClick = { submit(DecisionAnswer(defer = true), false) }, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text("Defer") }
-                        if (draft.note.isEmpty() && !draft.noting && d.options.isNotEmpty()) TextButton(onClick = { set(draft.copy(noting = true)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a note") }
-                        if (askable) FilledTonalButton(onClick = { ask(ChatReference("decision", d.id, d.title, d.body)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ask about this") }
-                        if (d.allowReject) TextButton(onClick = { set(draft.copy(rejecting = true, note = draft.note.trim())) }, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) {
-                            Text(d.rejectLabel.ifBlank { "Reject" } + "…", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    if (sending) LoadingIndicator(Modifier.size(32.dp))
+                    if (sending && d.options.isEmpty() && !draft.rejecting) LoadingIndicator(Modifier.size(32.dp))
                 }
                 if (problem != null && problem != "Pick an answer" && d.options.isNotEmpty()) Text(problem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (line != null) {
@@ -297,6 +318,24 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
             }
         }
     }
+}
+
+/** A card's other ways out: one pill shape and height, an icon and a label; tonal for Ask about this, outlined otherwise. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SecondaryAction(label: String, icon: ImageVector, enabled: Boolean = true, tonal: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
+    val padding = PaddingValues(start = 16.dp, end = 20.dp)
+    val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+        Icon(icon, null, Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge)
+    }
+    if (tonal) FilledTonalButton(onClick = onClick, enabled = enabled, shapes = ButtonDefaults.shapes(), contentPadding = padding, modifier = Modifier.heightIn(min = 48.dp), content = content)
+    else OutlinedButton(
+        onClick = onClick, enabled = enabled, shapes = ButtonDefaults.shapes(), contentPadding = padding, modifier = Modifier.heightIn(min = 48.dp),
+        colors = if (danger) ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error) else ButtonDefaults.outlinedButtonColors(),
+        content = content,
+    )
 }
 
 /** A tool step the agent asks to take: the full step, the reason, then Deny and Allow. A deny note is kept per request. */

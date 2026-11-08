@@ -218,4 +218,19 @@ class DecisionModelTest {
         assertTrue(DecisionModel.askChatText(intake.copy(consequences = emptyList())).endsWith("That runs intake again, which is a paid call."))
         assertEquals("This card expired before I answered it. Please raise it again so I can decide.", DecisionModel.askChatText(found))
     }
+
+    @Test
+    fun `the main button says the option it sends`() {
+        val one = Decision(id = "dc_9", kind = "recovery", options = listOf(DecisionOption("resume", "Resume")))
+        assertEquals("Resume", DecisionModel.singleOption(one)?.label)
+        assertEquals("Resume", DecisionModel.primaryLabel(one, DecisionDraft(option = "resume")))
+        assertEquals("Retry with the failure", DecisionModel.primaryLabel(recovery, DecisionDraft(option = "retry")))
+        // An option with an input still needs the list; a long label falls back to the kind's verb.
+        assertNull(DecisionModel.singleOption(recovery.copy(options = recovery.options.drop(1))))
+        val long = recovery.copy(options = listOf(DecisionOption("x", "Keep the current limit and stop here for now")))
+        assertEquals("Keep the current limit and stop here for now", DecisionModel.primaryLabel(long, DecisionDraft(option = "x")))
+        assertEquals("Choose", DecisionModel.primaryLabel(recovery.copy(options = recovery.options + long.options), DecisionDraft(option = "x")))
+        assertEquals("Approve", DecisionModel.primaryLabel(approve, DecisionDraft(option = "run_hold")))
+        assertEquals("Reject", DecisionModel.primaryLabel(approve, DecisionDraft(rejecting = true)))
+    }
 }
