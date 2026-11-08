@@ -646,6 +646,18 @@ class NacreRepository(
         return out
     }
 
+    /** Puts back a card the card check closed; it waits on Ryder again and checks leave it alone. */
+    suspend fun reopenDecision(d: com.ryderdavid.nacre.data.model.Decision): com.ryderdavid.nacre.data.model.Decision {
+        val out = clientFor(Keys.of(d.hostId, d.repo)).reopenDecision(d.id).copy(hostId = d.hostId)
+        learnDecision(out)
+        return out
+    }
+
+    /** Starts the project's card check (see [com.ryderdavid.nacre.data.model.CardCheck]); null where nacred has none. */
+    suspend fun startCardCheck(key: String): com.ryderdavid.nacre.data.model.CardCheck? = clientFor(key).startCardCheck(Keys.id(key))
+
+    suspend fun cardCheck(key: String): com.ryderdavid.nacre.data.model.CardCheck = clientFor(key).cardCheck(Keys.id(key))
+
     fun move(key: String, issue: Issue, action: MoveAction) = scope.launch {
         val before = issue
         val optimistic = when (action) {

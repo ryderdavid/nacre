@@ -378,6 +378,23 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun renewDecision(id: String): com.ryderdavid.nacre.data.model.Decision =
         send<Map<String, String>, com.ryderdavid.nacre.data.model.Decision>("POST", "/v1/decisions/${enc(id)}/renew", emptyMap())
 
+    /** Puts back a card nacred's card check closed as handled elsewhere. */
+    suspend fun reopenDecision(id: String): com.ryderdavid.nacre.data.model.Decision =
+        send<Map<String, String>, com.ryderdavid.nacre.data.model.Decision>("POST", "/v1/decisions/${enc(id)}/reopen", emptyMap())
+
+    /**
+     * Starts checking a project's open cards for work already handled elsewhere (or returns the check
+     * running now); null from a nacred without card checks or without Claude.
+     */
+    suspend fun startCardCheck(repo: String): com.ryderdavid.nacre.data.model.CardCheck? = try {
+        send<Map<String, String>, com.ryderdavid.nacre.data.model.CardCheck>("POST", "/v1/repos/${enc(repo)}/decisions/check", emptyMap())
+    } catch (e: BridgeException) {
+        if (e.code == 404 || e.code == 405 || e.code == 501 || e.code == 503) null else throw e
+    }
+
+    /** The running or last card check of a project. */
+    suspend fun cardCheck(repo: String): com.ryderdavid.nacre.data.model.CardCheck = get("/v1/repos/${enc(repo)}/decisions/check")
+
     /** One checkout's chats. */
     suspend fun chats(repo: String): List<com.ryderdavid.nacre.data.model.ChatRecord> = get<ChatList>("/v1/chats?repo=${enc(repo)}").chats
 

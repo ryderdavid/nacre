@@ -202,6 +202,17 @@ object DecisionModel {
         return listOf(focused) + ordered.filter { it.id != focused.id }
     }
 
+    /**
+     * Cards nacred's card check closed as handled elsewhere within [days] of [now] (epoch millis), newest
+     * first, for the queue's Handled elsewhere section where each can be reopened.
+     */
+    fun handled(all: List<Decision>, now: Long, days: Long = 7): List<Decision> = all
+        .filter { it.handled != null && it.state == "expired" }
+        .mapNotNull { d -> runCatching { java.time.Instant.parse(d.handled!!.at).toEpochMilli() }.getOrNull()?.let { d to it } }
+        .filter { (_, at) -> now - at <= days * 86_400_000L }
+        .sortedByDescending { it.second }
+        .map { it.first }
+
     /** What a project's strip counts: decisions waiting on Ryder, and the rest of the open queue. */
     fun counts(all: List<Decision>): QueueCount {
         val open = all.filter { it.open }

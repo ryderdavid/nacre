@@ -233,4 +233,30 @@ class DecisionModelTest {
         assertEquals("Approve", DecisionModel.primaryLabel(approve, DecisionDraft(option = "run_hold")))
         assertEquals("Reject", DecisionModel.primaryLabel(approve, DecisionDraft(rejecting = true)))
     }
+
+    @Test
+    fun `cards the check closed are listed newest first for a week, and leave the queue`() {
+        val now = java.time.Instant.parse("2026-11-08T12:00:00Z").toEpochMilli()
+        fun closed(id: String, at: String) = Decision(id = id, kind = "found", source = "attention", state = "expired", acknowledged = true,
+            handled = com.ryderdavid.nacre.data.model.DecisionHandled("NAC-1 fixed it", listOf("NAC-1"), at))
+        val old = closed("old", "2026-10-30T12:00:00Z")
+        val a = closed("a", "2026-11-08T10:00:00Z")
+        val b = closed("b", "2026-11-08T11:00:00Z")
+        val expired = Decision(id = "x", kind = "found", source = "attention", state = "expired")
+        val pending = Decision(id = "p", kind = "question", state = "pending")
+        val all = listOf(old, a, b, expired, pending)
+        assertEquals(listOf("b", "a"), DecisionModel.handled(all, now).map { it.id })
+        assertEquals(listOf("p"), DecisionModel.queue(all).map { it.id })
+    }
+
+    @Test
+    fun `the queue says what its card check is doing`() {
+        val c = com.ryderdavid.nacre.data.model.CardCheck(checking = 3)
+        assertEquals("Checking 3 cards for anything already handled elsewhere…", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(running = true)))
+        assertNull(com.ryderdavid.nacre.ui.workspace.checkLine(com.ryderdavid.nacre.data.model.CardCheck()))
+        assertEquals("Closed 2 already handled elsewhere; they're listed at the end",
+            com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", handled = listOf("a", "b"))))
+        assertEquals("Checked 3 cards: they all still need you", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t")))
+        assertTrue(com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", error = "timed out"))!!.endsWith("timed out"))
+    }
 }

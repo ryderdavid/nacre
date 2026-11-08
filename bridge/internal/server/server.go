@@ -101,6 +101,14 @@ type Server struct {
 	// sweep.
 	checkedMu sync.Mutex
 	checked   map[string]time.Time
+	// cardChecks are the "still needed?" checks by repository, and when each
+	// card was last looked at (decision_check.go).
+	cardCheckMu sync.Mutex
+	cardChecks  map[string]*CardCheck
+	cardSeen    map[string]time.Time
+	// CardCheckRun replaces the headless Claude call of a card check, in
+	// tests; nil runs it with Assist.
+	CardCheckRun func(ctx context.Context, cwd string, h claude.Headless) (assist.Outcome, error)
 
 	// signIn is the Claude sign-in the app is part way through.
 	signInMu sync.Mutex
@@ -203,6 +211,9 @@ func (s *Server) routes() []route {
 		{"GET", "/v1/decisions/{decision}", s.getDecision},
 		{"POST", "/v1/decisions/{decision}/answer", s.answerDecision},
 		{"POST", "/v1/decisions/{decision}/renew", s.renewDecision},
+		{"POST", "/v1/decisions/{decision}/reopen", s.reopenDecision},
+		{"POST", "/v1/repos/{repo}/decisions/check", s.startCardCheck},
+		{"GET", "/v1/repos/{repo}/decisions/check", s.cardCheckStatus},
 		{"POST", "/v1/chats/{chat}/decisions", s.raiseDecision},
 		{"GET", "/v1/projects", s.listProjects},
 		{"GET", "/v1/repos/{repo}/work", s.repoWork},

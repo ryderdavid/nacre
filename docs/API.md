@@ -882,7 +882,8 @@ approval nacred revalidates the revision, executes the action once and reports i
   "superseded_by": "dc_9b11…",
   "answer": {"option": "run_hold", "note": "…", "input": "…", "ask": "…"},   // or {"defer":true} / {"reject":true,"note":"…"}
   "created_at": "RFC3339", "expires_at": "RFC3339 | null", "answered_at": "RFC3339 | null",
-  "deferred_until": "RFC3339 (while deferred)", "acknowledged": false
+  "deferred_until": "RFC3339 (while deferred)", "acknowledged": false,
+  "handled": {"reason": "…", "evidence": ["NAC-1"], "at": "RFC3339"}   // set when a card check closed it
 }
 ```
 `input` is null, or `{"kind":"amount","label","min","max","unit":"usd","required"}` (an answer must be
@@ -904,6 +905,9 @@ requirement or spec file by its repository path (`ref`).
 | GET | `/v1/decisions/{id}` | – | Decision; 404 for an unknown id |
 | POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?,"ask"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
 | POST | `/v1/decisions/{id}/renew` | – | Decision (201): Ask again. A fresh decision built from the current state for the same kind and target, which supersedes the old one (`superseded_by`). 409 while it executes, for Needs you kinds that nacred raises again itself, and for `intake` and `found`, which the chat raises again from what it sent |
+| POST | `/v1/decisions/{id}/reopen` | – | Decision: a card a card check closed as handled elsewhere waits again (`pending`), and later checks leave it alone. 409 for any other card |
+| POST | `/v1/repos/{repo}/decisions/check` | – | CardCheck (202 when it starts, 200 otherwise): the app calls this when the Needs you feed opens. One read-only headless Claude run (bd, git and openspec reads; about $1 at most) looks at the project's open `question`, `found`, `recovery` and `intake` cards not looked at in the last 30 minutes (at most 20) and closes the ones it is sure were handled elsewhere: state `expired`, `acknowledged`, `reason` "Handled elsewhere: …" and `handled`. Approvals, landings, finishes, sign-offs and limits are never checked. A running check is returned as it is. 503 when Claude isn't available |
+| GET | `/v1/repos/{repo}/decisions/check` | – | CardCheck: `{"repo","running","checking","handled":[id],"started_at","finished_at","error","cost_usd"}` for the running or last check |
 
 ### Building decisions (agent kinds)
 

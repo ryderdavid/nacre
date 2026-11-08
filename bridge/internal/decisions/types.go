@@ -45,6 +45,16 @@ type Decision struct {
 	DeferredUntil *string `json:"deferred_until,omitempty"`
 	// Acknowledged is set once a failed or unknown outcome was seen.
 	Acknowledged bool `json:"acknowledged,omitempty"`
+	// Handled is set when nacred's check found the card already taken care
+	// of elsewhere and closed it (state expired); Reopen puts it back.
+	Handled *Handled `json:"handled,omitempty"`
+}
+
+// Handled says what took care of a card outside the app.
+type Handled struct {
+	Reason   string   `json:"reason"`
+	Evidence []string `json:"evidence,omitempty"`
+	At       string   `json:"at"`
 }
 
 // Target names what a decision acts on.
@@ -179,6 +189,9 @@ type Record struct {
 	Key string `json:"key,omitempty"`
 	// AttentionID is the Needs you item a decision was made from.
 	AttentionID string `json:"attention_id,omitempty"`
+	// CheckKept: Ryder reopened a card the check had closed, so the check
+	// leaves it alone from then on.
+	CheckKept bool `json:"check_kept,omitempty"`
 	// Follow says the action finishes later (a land, a finish, an
 	// approval): the decision stays executing until nacred sees the end.
 	Follow bool `json:"follow,omitempty"`

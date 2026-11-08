@@ -101,6 +101,8 @@ data class Decision(
     @SerialName("deferred_until") val deferredUntil: String? = null,
     /** Ryder took this failed, unknown or expired outcome out of the queue ("Got it"). */
     val acknowledged: Boolean = false,
+    /** Set when nacred's card check found it already taken care of elsewhere and closed it; Reopen undoes. */
+    val handled: DecisionHandled? = null,
     /** Set by the app: the computer the decision came from. */
     @kotlinx.serialization.Transient val hostId: String = "",
 ) {
@@ -130,6 +132,23 @@ data class Decision(
         const val SOURCE_ATTENTION = "attention"
     }
 }
+
+/** What took care of a Needs you card outside the app, as nacred's card check found it. */
+@Serializable
+data class DecisionHandled(val reason: String = "", val evidence: List<String> = emptyList(), val at: String = "")
+
+/** A project's check of its open cards for work already handled elsewhere (`/v1/repos/{repo}/decisions/check`). */
+@Serializable
+data class CardCheck(
+    val repo: String = "",
+    val running: Boolean = false,
+    /** How many cards the running or last check looked at. */
+    val checking: Int = 0,
+    val handled: List<String> = emptyList(),
+    @SerialName("started_at") val startedAt: String = "",
+    @SerialName("finished_at") val finishedAt: String = "",
+    val error: String = "",
+)
 
 @Serializable
 data class DecisionTarget(
