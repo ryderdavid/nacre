@@ -145,7 +145,7 @@ func TestIntakeFailureStillOffersAWayForward(t *testing.T) {
 	if strings.Join(ids, ",") != "new,bead" {
 		t.Errorf("options %v, want New change and Just a bead", ids)
 	}
-	if !strings.Contains(d.Body, "Intake couldn't decide where this goes") || !strings.Contains(d.Body, "longer than 2m0s") {
+	if d.Body != "Intake couldn't decide where this goes: it took too long. Pick one yourself." {
 		t.Errorf("body %q", d.Body)
 	}
 	for _, c := range d.Consequences {
@@ -268,5 +268,57 @@ func TestAFiledDraftIsNotFiledAgain(t *testing.T) {
 	code, again := rg.do(t, "POST", path, body)
 	if code != http.StatusOK || again["id"] != decID || again["state"] != "done" || rg.facts.intakes != 1 || len(rg.executed()) != 1 {
 		t.Fatalf("a filed draft raised again: %d %v (intakes %d, executed %d)", code, again, rg.facts.intakes, len(rg.executed()))
+	}
+}
+
+func TestAPartlyFiledDraftIsNotFiledAgain(t *testing.T) {
+	rg := newDecisionRigWith(t, draftTurn)
+	rg.facts.verdict = intakeVerdict(specflow.VerdictNew, "")
+	id, seq := draftedChat(t, rg)
+	path, body := "/v1/chats/"+id+"/decisions", `{"kind":"intake","draft_seq":`+seqText(seq)+`}`
+	_, raw := rg.do(t, "POST", path, body)
+	decID, _ := raw["id"].(string)
+	// The bead is created, then development is refused.
+	rg.replies(map[string]func(execCall) (int, string){
+		"/change": func(execCall) (int, string) { return http.StatusConflict, `{"error":"specflow is busy"}` },
+	})
+	rg.answer(t, decID, `{"option":"new"}`)
+	if st := rg.get(t, decID).State; st != "failed" {
+		t.Fatalf("state %s, want failed part way", st)
+	}
+	code, again := rg.do(t, "POST", path, body)
+	if code != http.StatusOK || again["id"] != decID || rg.facts.intakes != 1 {
+		t.Fatalf("a partly filed draft raised again: %d %v (intakes %d)", code, again, rg.facts.intakes)
+	}
+}
+
+func TestEffortBeadBindsIntakeToTheFiledBead(t *testing.T) {
+	rg := newDecisionRigWith(t, draftTurn)
+	rg.facts.verdict = intakeVerdict(specflow.VerdictNew, "")
+	rg.facts.beads["N-4"] = BeadFacts{ID: "N-4", Status: "open"}
+	id, seq := draftedChat(t, rg)
+	// Found work filed as N-4 started this effort in the chat.
+	code, _ := rg.s.startEffort(withID(effortAction(rg.repo, id, "chg", "E-1", "migrate the store"), "N-4"))
+	if code != http.StatusOK {
+		t.Fatalf("startEffort: %d", code)
+	}
+	if rec, _, _ := rg.s.Chats.Get(id, 0); rec.EffortBead != "N-4" {
+		t.Fatalf("effort bead %q", rec.EffortBead)
+	}
+	_, raw := rg.do(t, "POST", "/v1/chats/"+id+"/decisions", `{"kind":"intake","draft_seq":`+seqText(seq)+`}`)
+	decID, _ := raw["id"].(string)
+	if c, _ := rg.answer(t, decID, `{"option":"new"}`); c/100 != 2 {
+		t.Fatalf("answer: %d", c)
+	}
+	calls := rg.executed()
+	if len(calls) != 1 || !strings.Contains(calls[0].path, "/issues/N-4/change") {
+		t.Fatalf("a second bead was filed: %+v", calls)
+	}
+	// The turn startEffort began finishes before the test's files go.
+	for i := 0; i < 400; i++ {
+		if rec, _, _ := rg.s.Chats.Get(id, 0); rec.State != chat.StateRunning {
+			return
+		}
+		sleepBriefly()
 	}
 }

@@ -160,6 +160,10 @@ data class ChatDraft(
     val description: String = "",
     val design: String = "",
     val acceptance: String = "",
+    /** What the brainstorm settled, one point per line; it goes into the bead's notes. */
+    val digest: String = "",
+    /** The bead the effort already has, when it has one. */
+    val bead: String = "",
 )
 
 @Serializable

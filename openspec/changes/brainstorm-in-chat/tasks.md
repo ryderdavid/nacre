@@ -160,6 +160,21 @@
 - [x] 8.4 A draft may name its existing bead (`"bead"`), and intake from that draft targets it. Bound the
   digest on every intake path.
 
+## 9. Codex re-review fixes
+
+- [x] 9.1 Remove every Bash allow rule. nacred allows a light or drafting turn's shell command only when it is
+  a listed read-only command with listed flags and no shell syntax. `bd ready --claim` and bd's global
+  `--db` are refused.
+- [x] 9.2 A draft whose card failed part way or has an unknown outcome returns that card. Only dropped,
+  expired or superseded cards let it be raised again.
+- [x] 9.3 Found work's Out of scope records the filed bead on its chat (`effort_bead`), and intake from that
+  chat's drafts uses it.
+- [x] 9.4 Close gaps #3 and #4:
+  - the briefing asks every chat to restate the idea and ask numbered questions;
+  - the approve card drops the revision hash;
+  - a failed intake says why in plain words;
+  - the Draft card shows "What we settled".
+
 ## 7. Device check (label the bead `human`)
 
 - [ ] 7.1 On the Fold, folded and unfolded, in an OpenSpec project:

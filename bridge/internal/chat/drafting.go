@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ryderdavid/nacre/bridge/internal/claude"
@@ -18,11 +19,83 @@ import (
 // prefix rule approves any flag. A shell redirect is checked as a write
 // (testdata/default_allowlist_drafting.jsonl), so `ls > f` still reaches
 // nacred.
-var ReadOnlyTools = []string{
-	"Read", "Grep", "Glob", "WebFetch", "WebSearch",
-	"Bash(bd show:*)", "Bash(bd list:*)", "Bash(bd ready:*)", "Bash(bd search:*)", "Bash(bd dep tree:*)",
-	"Bash(openspec list:*)", "Bash(openspec show:*)", "Bash(openspec validate:*)", "Bash(openspec status:*)",
-	"Bash(git status:*)", "Bash(ls:*)",
+var ReadOnlyTools = []string{"Read", "Grep", "Glob", "WebFetch", "WebSearch"}
+
+// readOnlyCommands are the shell commands nacred itself allows in a light or
+// drafting turn, each with the only flags it may take. No Bash allow rule is
+// given to the CLI: a prefix rule such as `Bash(bd ready:*)` approves every
+// flag, and `bd ready --claim` or bd's global `--db` writes. So each Bash
+// request reaches nacred, which allows it only when it is one of these
+// commands, its flags are all listed, and it has no shell syntax at all.
+var readOnlyCommands = map[string]map[string]bool{
+	"bd show":           flagSet("--json", "--long", "--short", "--children", "--include-comments", "--refs", "--thread"),
+	"bd list":           flagSet("--json", "--long", "--all", "--status", "--type", "--label", "--priority", "--parent", "--assignee", "--limit", "--sort", "--reverse", "--flat", "--tree", "--pretty", "--ready", "--title-contains", "--desc-contains", "--no-pager"),
+	"bd ready":          flagSet("--json", "--limit", "--label", "--type", "--priority", "--parent", "--assignee", "--sort", "--explain", "--plain", "--pretty", "--unassigned"),
+	"bd search":         flagSet("--json", "--long", "--limit", "--status", "--type", "--label", "--query", "--sort", "--reverse"),
+	"bd dep tree":       flagSet("--json"),
+	"openspec list":     flagSet("--json", "--specs", "--changes", "--long", "--no-interactive"),
+	"openspec show":     flagSet("--json", "--type", "--no-interactive", "--deltas-only", "--no-scenarios"),
+	"openspec validate": flagSet("--json", "--strict", "--type", "--no-interactive", "--all", "--changes", "--specs"),
+	"openspec status":   flagSet("--json", "--change", "--no-interactive"),
+	"git status":        flagSet("--short", "-s", "--branch", "-b", "--porcelain"),
+	"ls":                flagSet("-l", "-a", "-la", "-al", "-1", "-R", "-lh"),
+}
+
+func flagSet(flags ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, f := range flags {
+		m[f] = true
+	}
+	return m
+}
+
+// safeWord is one argument of an allowed command: no quotes, variables,
+// globs, redirects, pipes, separators or substitutions.
+var safeWord = regexp.MustCompile(`^[A-Za-z0-9_.:,@/+=-]+$`)
+
+// readOnlyCommand reports whether a light or drafting turn's shell command is
+// one nacred allows: a listed command whose every flag is listed for it.
+func readOnlyCommand(command string) bool {
+	words := strings.Fields(command)
+	if len(words) == 0 || strings.ContainsAny(command, "\n\r") {
+		return false
+	}
+	for _, w := range words {
+		if !safeWord.MatchString(w) {
+			return false
+		}
+	}
+	for n := 3; n >= 1; n-- {
+		if len(words) < n {
+			continue
+		}
+		flags, ok := readOnlyCommands[strings.Join(words[:n], " ")]
+		if !ok {
+			continue
+		}
+		for _, w := range words[n:] {
+			if !strings.HasPrefix(w, "-") {
+				continue // an id, a path or a value
+			}
+			name, _, _ := strings.Cut(w, "=")
+			if !flags[name] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// readOnlyBash reports whether req is a Bash call [readOnlyCommand] allows.
+func readOnlyBash(req claude.ControlRequest) bool {
+	if req.ToolName != "Bash" {
+		return false
+	}
+	var in struct {
+		Command string `json:"command"`
+	}
+	return json.Unmarshal(req.Input, &in) == nil && readOnlyCommand(in.Command)
 }
 
 // RestrictedTools are the built-in tools a restricted light or drafting turn
@@ -166,4 +239,15 @@ func splitIntakeMarker(text string) (string, bool) {
 		return "", true
 	}
 	return strings.TrimRight(trimmed[:i], " \t\r\n"), true
+}
+
+// SetEffortBead records the bead a chat drafts for (found work filed out of
+// scope), so intake from its drafts uses that bead instead of filing another.
+func (m *Manager) SetEffortBead(id, bead string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c := m.chats[id]; c != nil && bead != "" {
+		c.rec.EffortBead = bead
+		m.touchLocked(c)
+	}
 }

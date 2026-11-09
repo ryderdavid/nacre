@@ -113,7 +113,7 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 		}
 		// Intake timed out, hit its cap or answered nonsense: the card still
 		// offers Just a bead and New change, with nothing recommended.
-		failed = "Intake couldn't decide where this goes (" + err.Error() + "). Pick one yourself."
+		failed = "Intake couldn't decide where this goes: " + intakeFailure(err) + ". Pick one yourself."
 		v = specflow.IntakeVerdict{CostUSD: v.CostUSD}
 	}
 	summaries, _ := s.facts().Changes(ref.Path)
@@ -506,7 +506,7 @@ func openSections(c api.ChangeSummary) []decisions.Choice {
 func effortAction(repo, chatID, change, epic, note string) decisions.Action {
 	text := "New effort, found out of scope of " + change + ": " + note +
 		"\n\nIt's filed as {id}, related to epic " + epic + " but not part of it. Talk it through with me and draft it, then raise intake for {id} with that draft."
-	return decisions.Action{Method: decisions.MethodEffort, Body: map[string]any{"repo": repo, "chat": chatID, "text": text},
+	return decisions.Action{Method: decisions.MethodEffort, Body: map[string]any{"repo": repo, "chat": chatID, "text": text, "bead": "{id}"},
 		Label: "the new effort", Done: "Filed {id}, related to " + epic + " and not under it"}
 }
 
@@ -524,7 +524,12 @@ func (s *Server) startEffort(act decisions.Action) (int, []byte) {
 	text, _ := act.Body["text"].(string)
 	chatID, _ := act.Body["chat"].(string)
 	repo, _ := act.Body["repo"].(string)
+	bead, _ := act.Body["bead"].(string)
 	ok := func(id, where string) (int, []byte) {
+		if validID(bead) {
+			// Intake from this chat's drafts is for the bead just filed.
+			s.Chats.SetEffortBead(id, bead)
+		}
 		b, _ := json.Marshal(map[string]string{"chat_id": id, "message": "a new effort for it started in " + where})
 		return http.StatusOK, b
 	}
@@ -701,4 +706,18 @@ func lowerFirst(s string) string {
 		return s
 	}
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// intakeFailure says in plain words why an intake call gave no verdict.
+func intakeFailure(err error) string {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "longer than") || strings.Contains(msg, "deadline") || strings.Contains(msg, "timed out"):
+		return "it took too long"
+	case strings.Contains(msg, "budget") || strings.Contains(msg, "cost") || strings.Contains(msg, "limit"):
+		return "it reached its spending limit"
+	case strings.Contains(msg, "malformed") || strings.Contains(msg, "verdict") || strings.Contains(msg, "json"):
+		return "its answer couldn't be read"
+	}
+	return "it stopped with an error"
 }

@@ -224,7 +224,7 @@ func (s *Server) buildApprove(ctx context.Context, ref repos.Ref, t decisions.Ta
 		}
 		return decisions.Action{Method: "POST", Path: path, Body: body}
 	}
-	plan := fmt.Sprintf("Locks in this version of the plan (%s): %s", short(c.Revision), plural(len(c.Sections), "section", "sections"))
+	plan := fmt.Sprintf("Locks in this version of the plan: %s", plural(len(c.Sections), "section", "sections"))
 	if tasks > 0 {
 		plan += ", " + plural(tasks, "task", "tasks")
 	}

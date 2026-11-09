@@ -480,7 +480,7 @@ func TestBriefing(t *testing.T) {
 		"$NACRE_CHAT_TOKEN", "403 `needs_decision`", "POST $NACRED_URL/v1/chats/$NACRE_CHAT_ID/decisions",
 		"\"approve\" | \"land\" | \"finish\" | \"signoff\" | \"limit\" | \"adopt\"", "never land on their own",
 		"GET /v1/attention", "Needs you", "Raise an `intake` decision with the draft only when he says to go ahead", "Nothing is developed until he answers",
-		"In a repository without an `openspec/` directory there is no intake", "\"digest\"?", "Where does this belong?",
+		"In a repository without an `openspec/` directory there is no intake", "at most three numbered questions", "\"digest\"?", "Where does this belong?",
 		"Draw what you explain", "pinned Mermaid build", "<pre class=\"mermaid\">",
 		"\"kind\": \"intake\", \"draft\"", "New change, Amends <change>, Just a bead and Already covered",
 		"nacred round start", "raise a `found` decision", "Don't call `/found` or create the bead yourself", "\"kind\": \"found\"",

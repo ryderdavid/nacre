@@ -541,7 +541,7 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					switch {
 					case req.Subtype != "can_use_tool":
 						write(claude.UnsupportedControl(req.RequestID, req.Subtype))
-					case !t.wasStopped() && mockupWrite(req, mockups):
+					case !t.wasStopped() && (mockupWrite(req, mockups) || readOnlyBash(req)):
 						write(claude.AllowControl(req.RequestID, req.Input))
 					default:
 						write(claude.DenyControl(req.RequestID, DraftingReminder))
@@ -552,8 +552,9 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					write(claude.UnsupportedControl(req.RequestID, req.Subtype))
 				case lt.stopped || t.wasStopped():
 					write(claude.DenyControl(req.RequestID, HandoffMessage))
-				case mockupWrite(req, mockups):
-					// A light turn may draw: a mockup is the one write it makes.
+				case mockupWrite(req, mockups) || readOnlyBash(req):
+					// A light turn may draw (a mockup is the one write it makes)
+					// and run the read-only commands nacred checks itself.
 					write(claude.AllowControl(req.RequestID, req.Input))
 				case req.ToolName == "ExitPlanMode":
 					reason := planText(req.Input)

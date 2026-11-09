@@ -83,6 +83,15 @@ class NewEffortTest {
         assertTrue(t.shown.any { it is ChatItem.Note && it.error && it.text.startsWith("The draft couldn't be read") })
     }
 
+    @Test fun theDraftCardShowsWhatWasSettled() {
+        val d = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<ChatDraft>(
+            """{"title":"x","digest":"- Decided: per chat\n- Ruled out: a new tab","bead":"NAC-9"}""")
+        assertEquals("- Decided: per chat\n- Ruled out: a new tab", d.digest)
+        assertEquals("NAC-9", d.bead)
+        assertEquals("What we settled", com.ryderdavid.nacre.ui.chat.DRAFT_SETTLED)
+        assertTrue(File("src/main/java/com/ryderdavid/nacre/ui/chat/Conversation.kt").readText().contains("draft.digest.isNotBlank()"))
+    }
+
     @Test fun aFiledDraftSaysWhatItFiled() {
         val done = com.ryderdavid.nacre.data.model.Decision(id = "dc_1", kind = "intake", state = "done",
             result = com.ryderdavid.nacre.data.model.DecisionResult(ok = true, message = "Created NAC-9"))

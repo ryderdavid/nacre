@@ -334,7 +334,7 @@ func TestApproveDecisionOffersTheThreeOptions(t *testing.T) {
 		strings.Join(labels, "|") != "Approve, run, I'll land|Approve, run and land to main|Approve only" {
 		t.Fatalf("options %+v", d.Options)
 	}
-	if !has(d.Consequences, "Locks in this version of the plan (4c0ffee): 2 sections, 3 tasks") || !has(d.Consequences, "Up to $25") ||
+	if !has(d.Consequences, "Locks in this version of the plan: 2 sections, 3 tasks") || !has(d.Consequences, "Up to $25") ||
 		!has(d.Consequences, "Pushes main to origin") {
 		t.Fatalf("consequences %q", d.Consequences)
 	}

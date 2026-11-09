@@ -240,6 +240,13 @@ The fixes:
   that draft targets it, so no second bead is created.
 - The digest bound is checked on every intake path, not only when a block is parsed.
 
+A second Codex review found that a prefix rule still approved `bd ready --claim` and bd's global `--db`. So
+Bash has no allow rule at all. nacred checks each command against `readOnlyCommands`: a listed command, listed
+flags, and one plain word per argument. The second review also found that a card that failed part way could
+be raised again from the same draft, and that the found-work bead depended on the agent filling in `"bead"`.
+So any card that may have filed something blocks a second intake, and found work records its bead on the chat
+as `effort_bead`.
+
 ## Risks / Trade-offs
 
 - **The mockup path check has a check-then-use race.** `insideDir` resolves the path when it allows the

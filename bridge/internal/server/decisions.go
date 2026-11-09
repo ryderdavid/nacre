@@ -1184,9 +1184,11 @@ func (s *Server) intakeFromDraft(ctx context.Context, chatID, repo string, seq i
 	for _, open := range store.List() {
 		d := open.Decision
 		mine := open.DraftSeq == seq && d.Kind == decisions.KindIntake && d.ChatID != nil && *d.ChatID == chatID
-		// Still answerable, or already filed: that card, never a second
-		// intake (and a second bead). A dropped or expired one may be raised again.
-		if mine && (d.Answerable() || d.State == decisions.StateExecuting || d.State == decisions.StateDone) {
+		// Any card that may have filed something (answerable, executing,
+		// done, failed part way or unknown) is returned, never a second intake
+		// and a second bead. Only a card that ran nothing (dropped, expired,
+		// superseded) lets the same draft be raised again.
+		if mine && !ranNothing(d) {
 			s.draftMu.Unlock()
 			return d, false, nil
 		}
@@ -1212,6 +1214,11 @@ func (s *Server) intakeFromDraft(ctx context.Context, chatID, repo string, seq i
 	}
 	if target.Bead == "" && draft.Bead != "" {
 		target.Bead = draft.Bead
+	}
+	if target.Bead == "" {
+		if rec, _, err := s.Chats.Get(chatID, 1); err == nil && rec.EffortBead != "" {
+			target.Bead = rec.EffortBead
+		}
 	}
 	in := &specflow.IntakeDraft{Title: draft.Title, Description: draft.Description, Design: draft.Design,
 		Acceptance: draft.Acceptance, Type: draft.Type, Digest: draft.Digest}
@@ -1248,4 +1255,14 @@ func (s *Server) raiseFromChat(chatID string, seq int64) error {
 		return errors.New(be.msg)
 	}
 	return err
+}
+
+// ranNothing reports whether a decision ended without executing anything:
+// dropped, expired or superseded.
+func ranNothing(d decisions.Decision) bool {
+	switch d.State {
+	case decisions.StateDeclined, decisions.StateExpired, decisions.StateSuperseded:
+		return true
+	}
+	return false
 }

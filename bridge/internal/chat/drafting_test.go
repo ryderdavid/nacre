@@ -68,7 +68,7 @@ func TestDraftingTurnIsNotRoutedAndOnlyWritesMockups(t *testing.T) {
 	if _, ok := flag(argv, "--model"); ok {
 		t.Errorf("a drafting turn runs on the owner's model, not --model: %v", argv)
 	}
-	if !containsAll(argv, "--restricted", "--allowed-tools", "Read", "Bash(openspec show:*)") {
+	if !containsAll(argv, "--restricted", "--allowed-tools", "Read") {
 		t.Errorf("drafting allowlist: %v", argv)
 	}
 	if v, _ := flag(argv, "--tools"); v != strings.Join(RestrictedTools, ",") {
@@ -332,5 +332,35 @@ func TestLaterDraftingMessagesRepeatTheReminder(t *testing.T) {
 	cs = calls(t, fdir)
 	if third := userTexts(t, cs[len(cs)-1].stdin[0]); strings.Contains(third[0], "Still drafting") {
 		t.Errorf("reminder after drafting ended: %q", third[0])
+	}
+}
+
+func TestReadOnlyCommandsAreCheckedByNacred(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		"bd show NAC-4qu --json":                  true,
+		"bd list --status=open --json":            true,
+		"bd ready --json --limit 5":               true,
+		"bd dep tree NAC-4qu":                     true,
+		"openspec show brainstorm-in-chat --json": true,
+		"openspec validate x --strict":            true,
+		"git status --short":                      true,
+		"ls -la openspec/changes":                 true,
+		"bd ready --claim":                        false, // claims a bead
+		"bd list --db /tmp/new.db":                false, // bd's global flags can write
+		"bd show NAC-1 --dolt-auto-commit=on":     false,
+		"bd create --title x":                     false,
+		"bd comments add NAC-1 hi":                false,
+		"git diff --output=out.txt":               false,
+		"git status; rm -rf x":                    false,
+		"ls > list.txt":                           false,
+		"ls $(touch x)":                           false,
+		"bd show 'NAC-1'":                         false,
+		"cat README.md":                           false,
+		"":                                        false,
+		"bd list --json\nrm x":                    false,
+	} {
+		if got := readOnlyCommand(cmd); got != want {
+			t.Errorf("readOnlyCommand(%q) = %v, want %v", cmd, got, want)
+		}
 	}
 }

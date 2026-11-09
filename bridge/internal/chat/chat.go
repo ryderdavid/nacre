@@ -119,9 +119,12 @@ type Record struct {
 	// intake card with an option that creates or develops: its turns are
 	// not routed, and can read and write mockups only. Records saved before
 	// it existed load as not drafting.
-	Drafting  bool   `json:"drafting,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	Drafting bool `json:"drafting,omitempty"`
+	// EffortBead is the bead found work was filed as when this chat was
+	// asked to draft it: intake raised from the chat's drafts is for it.
+	EffortBead string `json:"effort_bead,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 	// SessionID is the agent's session: the Claude session UUID, or the
 	// Codex thread id once thread/start has given one.
 	SessionID string `json:"session_id,omitempty"`

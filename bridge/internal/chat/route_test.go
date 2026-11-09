@@ -172,12 +172,12 @@ func TestRouterLightRunsTheLightArgv(t *testing.T) {
 	if v, _ := flag(la, "--permission-mode"); v != "default" {
 		t.Errorf("light permission mode: %v", la)
 	}
-	if !containsAll(la, "--restricted", "--tools", "--allowed-tools", "Read", "Bash(bd show:*)", "Bash(git status:*)") {
+	if !containsAll(la, "--restricted", "--tools", "--allowed-tools", "Read", "Grep") {
 		t.Errorf("light allowlist: %v", la)
 	}
-	for _, leaky := range []string{"Bash(git diff:*)", "Bash(git log:*)", "Bash(rg:*)", "Bash(cat:*)"} {
-		if containsAll(la, leaky) {
-			t.Errorf("light allowlist has %s, whose flags can write files", leaky)
+	for _, a := range la {
+		if strings.HasPrefix(a, "Bash(") {
+			t.Errorf("light allowlist has %s: a prefix rule approves any flag, so nacred checks commands itself", a)
 		}
 	}
 	if v, _ := flag(la, "--session-id"); v != rec.SessionID {

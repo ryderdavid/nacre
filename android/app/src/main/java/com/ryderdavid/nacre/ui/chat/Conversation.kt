@@ -128,6 +128,11 @@ internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -
                 Text("Acceptance", style = MaterialTheme.typography.labelMedium)
                 Text(draft.acceptance, style = MaterialTheme.typography.bodySmall, maxLines = 8, overflow = TextOverflow.Ellipsis)
             }
+            if (draft.digest.isNotBlank()) {
+                // What the author will be told was settled, so Ryder sees it before filing.
+                Text(DRAFT_SETTLED, style = MaterialTheme.typography.labelMedium)
+                Text(draft.digest, style = MaterialTheme.typography.bodySmall, maxLines = 10, overflow = TextOverflow.Ellipsis)
+            }
             if (draft.design.isNotBlank()) {
                 Text("Design", style = MaterialTheme.typography.labelMedium)
                 Text(draft.design, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
@@ -206,3 +211,6 @@ const val DRAFT_ACTION = "Where does this belong?"
 
 /** Under the Draft card's action: the other way forward. */
 const val DRAFT_HINT = "Or tell the chat what to change."
+
+/** The Draft card's heading for the brainstorm digest. */
+const val DRAFT_SETTLED = "What we settled"
