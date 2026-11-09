@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -119,8 +120,8 @@ internal fun ChatItemView(
 @Composable
 internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -> Unit)?, note: String? = null, busy: Boolean = false) {
     val draft = item.draft
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(28.dp)) {
+        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Draft" + draft.type.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), style = MaterialTheme.typography.labelLarge)
             Text(draft.title, style = MaterialTheme.typography.titleMedium)
             if (draft.description.isNotBlank()) Text(draft.description, style = MaterialTheme.typography.bodyMedium, maxLines = 8, overflow = TextOverflow.Ellipsis)
@@ -138,8 +139,8 @@ internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -
                 Text(draft.design, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
             }
             if (onContinue != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { onContinue(item) }, enabled = !busy) { Text(DRAFT_ACTION) }
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = { onContinue(item) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(DRAFT_ACTION) }
                 }
                 Text(DRAFT_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }

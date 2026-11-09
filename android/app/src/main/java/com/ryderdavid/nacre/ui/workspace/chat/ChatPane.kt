@@ -215,7 +215,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             if (compact) HeaderStatus(work, needsYou, onWork = { w -> onEvidence(DecisionEvidence(label = w.title, kind = w.kind, ref = Keys.of(Keys.host(repoKey), w.id))) })
         }
         if (agent.phase != AgentPhase.IDLE) Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (agent.phase == AgentPhase.WORKING && outputFlowing) LoadingIndicator(Modifier.size(24.dp))
@@ -237,7 +237,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
         val aboveFold = fold?.let { f -> listTop?.let { top -> with(density) { (f.bounds.top - top).coerceAtLeast(0f).toDp() } } }
         val listModifier = if (aboveFold != null && aboveFold > 120.dp) Modifier.height(aboveFold) else Modifier.weight(1f)
         LazyColumn(
-            listModifier.fillMaxWidth().onGloballyPositioned { listTop = it.positionInWindow().y }, state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            listModifier.fillMaxWidth().onGloballyPositioned { listTop = it.positionInWindow().y }, state = list, verticalArrangement = Arrangement.spacedBy(20.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is TimelineRow.Item -> when (val item = row.item) {
@@ -331,7 +331,7 @@ private fun Composer(
 
     // Chips are 48dp touch targets normally; while typing they shrink to the standard 32dp chip so the field keeps its lines.
     val chipHeight = if (typing) 32.dp else 48.dp
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (typing) 4.dp else 8.dp), verticalArrangement = Arrangement.spacedBy(if (typing) 4.dp else 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (typing) 4.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (typing) 4.dp else 8.dp)) {
         val viewing = refs.viewing
         if (viewing != null || refs.attached.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (viewing != null) item {
@@ -360,7 +360,7 @@ private fun Composer(
         var choosing by remember(thread) { mutableStateOf(false) }
         if (suggested.isEmpty()) choosing = false
         val use: (String) -> Unit = { s -> choosing = false; hub.stack.updateView(thread) { it.copy(draft = s) } }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
           Column(
               Modifier.weight(1f).background(if (choosing) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp)),
           ) {
@@ -378,7 +378,7 @@ private fun Composer(
                 leadingIcon = { AttachImageButton(gate, attach) },
                 trailingIcon = if (suggested.size > 1) ({
                     OutlinedIconButton(
-                        onClick = { choosing = !choosing }, modifier = Modifier.size(40.dp).semantics { stateDescription = if (choosing) "Showing suggestions" else "" },
+                        onClick = { choosing = !choosing }, modifier = Modifier.padding(end = 8.dp).size(40.dp).semantics { stateDescription = if (choosing) "Showing suggestions" else "" },
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.KeyboardArrowRight, if (choosing) "Hide suggestions" else "More suggestions",

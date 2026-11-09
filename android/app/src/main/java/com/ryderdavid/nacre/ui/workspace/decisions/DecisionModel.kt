@@ -245,4 +245,16 @@ object DecisionModel {
 
     /** The options as a card shows them: the recommended one first, the rest in nacred's order. */
     fun ordered(d: Decision) = d.options.sortedByDescending { it.recommended }
+
+    /**
+     * Options folded away behind "Show N more" on a long list: all but the first two and last two (on an intake
+     * card, the suggestion and New change, then Just a bead and Already covered). The [selected] one always shows.
+     */
+    fun foldedOptions(d: Decision, selected: String?): Set<String> {
+        val o = ordered(d)
+        if (o.size <= MAX_SHOWN_OPTIONS) return emptySet()
+        return o.subList(2, o.size - 2).map { it.id }.filter { it != selected }.toSet()
+    }
+
+    const val MAX_SHOWN_OPTIONS = 5
 }

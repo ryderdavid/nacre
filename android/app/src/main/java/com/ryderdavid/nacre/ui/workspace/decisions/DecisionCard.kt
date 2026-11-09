@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.ButtonDefaults
@@ -137,6 +138,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
     val set: (DecisionDraft) -> Unit = { DecisionDrafts.set(d.key, it) }
     val sending = d.key in inFlight
     var expanded by remember(d.key) { mutableStateOf(false) }
+    var showAllOptions by remember(d.key) { mutableStateOf(false) }
     // An answer outlives the card: it can be re-keyed or scrolled away while the request is in flight.
     val scope = container.scope
     val reduced = LocalReducedMotion.current
@@ -190,14 +192,14 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
             .then(if (reduced) Modifier else Modifier.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()))
             .semantics { stateDescription = stateText },
     ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.size(36.dp).background(MaterialTheme.colorScheme.tertiaryContainer, MaterialShapes.Cookie9Sided.toShape()), contentAlignment = Alignment.Center) {
                     Icon(kindIcon(d.kind), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
                 Text(DecisionModel.kindLabel(d.kind), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(d.title, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
                 val sub = (listOf(d.subtitle).filter { it.isNotBlank() } + facts.filterNot { f -> d.subtitle.contains(f) }).joinToString(" · ")
                 if (sub.isNotBlank()) SelectionContainer { Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -206,23 +208,25 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 // Prose for every kind; a recovery's log or command arrives as a fenced block and renders as code.
                 com.ryderdavid.nacre.ui.common.MarkdownText(d.body)
             }
-            if (d.consequences.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // What each answer leads to, as plain bullets: they are facts, not ticked steps.
+            if (d.consequences.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 d.consequences.forEach { c ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp).padding(top = 1.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(c, style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.padding(top = 8.dp).size(6.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape))
+                        Text(c, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     }
                 }
             }
             // Evidence as tonal pills that square off when pressed, with room between rows.
-            if (d.evidence.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (d.evidence.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 d.evidence.forEach { e ->
                     FilledTonalButton(
                         onClick = { onEvidence(e) }, shapes = androidx.compose.material3.ButtonDefaults.shapes(),
                         contentPadding = PaddingValues(start = 16.dp, end = 12.dp),
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
-                        Text(e.label, style = MaterialTheme.typography.labelLarge)
+                        // A long label ellipsizes so its arrow stays on the pill.
+                        Text(e.label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
                         Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(16.dp))
                     }
@@ -236,8 +240,22 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                 // One way forward: no list to pick from; the main button says it, and anything it adds shows here.
                 if (single.detail.isNotBlank()) Text(single.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (single.disabled.isNotBlank()) Text(single.disabled, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            } else if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            } else if (d.pending && !draft.rejecting && d.options.isNotEmpty()) Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val folded = if (showAllOptions) emptySet() else DecisionModel.foldedOptions(d, draft.option)
+                var foldShown = false
                 DecisionModel.ordered(d).forEach { o ->
+                    if (o.id in folded) {
+                        // One "Show N more" where the folded options would start.
+                        if (!foldShown) {
+                            foldShown = true
+                            TextButton(onClick = { showAllOptions = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Show ${folded.size} more")
+                            }
+                        }
+                        return@forEach
+                    }
                     val selected = draft.option == o.id
                     val radius by animateDpAsState(if (selected) 28.dp else 20.dp, if (reduced) snap() else MaterialTheme.motionScheme.fastSpatialSpec(), label = "option")
                     Surface(
@@ -247,9 +265,9 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
                             .selectable(selected = selected, enabled = o.disabled.isBlank(), onClick = { set(draft.copy(option = o.id)) }, role = Role.RadioButton),
                     ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             RadioButton(selected = selected, onClick = null)
-                            Column(Modifier.weight(1f)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(o.label + if (o.recommended) " · Recommended" else "", style = MaterialTheme.typography.labelLarge)
                                 if (o.detail.isNotBlank()) Text(o.detail, style = MaterialTheme.typography.bodySmall)
                                 if (o.disabled.isNotBlank()) Text(o.disabled, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -284,7 +302,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
                         else Text(DecisionModel.primaryLabel(d, draft), style = MaterialTheme.typography.titleMedium)
                     }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     if (draft.rejecting) {
                         SecondaryAction("Back", Icons.AutoMirrored.Rounded.ArrowBack) { set(draft.copy(rejecting = false)) }
                     } else {
@@ -350,7 +368,7 @@ fun PermissionCardM3(card: PermissionCard, agent: String, onAnswer: (String, Boo
     val draft = drafts[key] ?: DecisionDraft()
     val denying = draft.rejecting
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = modifier.fillMaxWidth().semantics { stateDescription = "Waiting for your answer" }) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.Terminal, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${agent.replaceFirstChar { it.uppercase() }} asks to use ${card.tool}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })

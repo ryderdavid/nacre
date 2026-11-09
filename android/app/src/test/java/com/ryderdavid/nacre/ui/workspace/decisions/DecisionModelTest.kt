@@ -304,4 +304,13 @@ class DecisionModelTest {
         assertEquals("Answered 3, skipped 1. The skipped ones are still in the list.", walkSummary(3, 1))
         assertEquals("Walk me through the 4, in order", com.ryderdavid.nacre.ui.workspace.walkButton(4))
     }
+
+    @Test
+    fun `a long intake list folds its middle options, never the chosen one or the ways out`() {
+        val ids = listOf("amend_a", "new_change", "amend_b", "amend_c", "amend_d", "bead", "covered")
+        val intake = Decision(id = "dc_9", kind = "intake", options = ids.mapIndexed { i, id -> DecisionOption(id, id, recommended = i == 0) })
+        assertEquals(setOf("amend_b", "amend_c", "amend_d"), DecisionModel.foldedOptions(intake, "amend_a"))
+        assertEquals(setOf("amend_b", "amend_d"), DecisionModel.foldedOptions(intake, "amend_c"))
+        assertEquals(emptySet<String>(), DecisionModel.foldedOptions(approve, "run_hold"))
+    }
 }
