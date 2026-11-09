@@ -60,5 +60,12 @@ sealed interface DraftIntakeResult {
 /** What the Draft card says while intake decides where its draft belongs. */
 const val DRAFT_ASKING = "Asking where it belongs…"
 
+/** How the Draft card's note starts when its draft was already filed. */
+const val DRAFT_FILED = "Already filed"
+
+/** The Draft card's note for an intake card already answered: what it filed. Null while it waits. */
+fun filedNote(d: Decision): String? =
+    if (d.state == "done" || d.state == "executing") "$DRAFT_FILED: ${d.result?.message?.ifBlank { null } ?: "this draft already has its answer."}" else null
+
 /** What the Draft card says when its draft is gone. */
 const val DRAFT_GONE = "That draft is gone. Ask the chat for a new one."

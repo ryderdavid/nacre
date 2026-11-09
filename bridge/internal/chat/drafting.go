@@ -93,7 +93,7 @@ func (m *Manager) EndDrafting(id string) {
 		return
 	}
 	c.rec.Drafting = false
-	m.appendLocked(c, Event{Kind: KindSystem, Text: "Drafting finished: messages here can change things again"})
+	m.appendLocked(c, Event{Kind: KindSystem, Text: "Filed. This chat is an ordinary chat again: what you ask here can change things"})
 	m.touchLocked(c)
 }
 

@@ -140,7 +140,8 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             raising = raising - d.seq
             draftNotes = draftNotes - d.seq
             when (r) {
-                is com.ryderdavid.nacre.data.chat.DraftIntakeResult.Raised -> Unit // the card arrives in the timeline
+                // A new card arrives in the timeline; a draft already filed says so.
+                is com.ryderdavid.nacre.data.chat.DraftIntakeResult.Raised -> com.ryderdavid.nacre.data.chat.filedNote(r.decision)?.let { draftNotes = draftNotes + (d.seq to it) }
                 com.ryderdavid.nacre.data.chat.DraftIntakeResult.Gone -> draftNotes = draftNotes + (d.seq to com.ryderdavid.nacre.data.chat.DRAFT_GONE)
                 is com.ryderdavid.nacre.data.chat.DraftIntakeResult.Failed -> draftNotes = draftNotes + (d.seq to "Couldn't ask where it belongs: ${r.message}")
             }
@@ -253,7 +254,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                         is ChatItem.Draft -> ChatItemView(
                             item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread,
                             onContinue = if (raisesDraftIntake) { d -> raiseIntake(d) } else null,
-                            draftNote = draftNotes[item.seq],
+                            draftNote = draftNotes[item.seq], draftBusy = item.seq in raising,
                         )
                         else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
                     }

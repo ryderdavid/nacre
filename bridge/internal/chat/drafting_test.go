@@ -104,7 +104,7 @@ func TestDraftingEndsAndThenRoutes(t *testing.T) {
 	if got.Drafting {
 		t.Fatal("still drafting after EndDrafting")
 	}
-	if len(evs) == 0 || evs[len(evs)-1].Kind != KindSystem || !strings.Contains(evs[len(evs)-1].Text, "Drafting finished") {
+	if len(evs) == 0 || evs[len(evs)-1].Kind != KindSystem || !strings.Contains(evs[len(evs)-1].Text, "Filed. This chat is an ordinary chat again") {
 		t.Errorf("no note that drafting finished: %+v", evs)
 	}
 	sendAndWait(t, m, rec.ID, "c_after001", "What's the difference between a merge and a rebase?")
@@ -116,7 +116,7 @@ func TestDraftingEndsAndThenRoutes(t *testing.T) {
 	_, evs2, _ := m.Get(rec.ID, 0)
 	n := 0
 	for _, e := range evs2 {
-		if strings.Contains(e.Text, "Drafting finished") {
+		if strings.Contains(e.Text, "Filed. This chat is an ordinary chat again") {
 			n++
 		}
 	}

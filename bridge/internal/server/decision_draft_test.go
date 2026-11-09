@@ -254,3 +254,19 @@ func TestDirectIntakeDraftDigestIsBounded(t *testing.T) {
 		t.Fatalf("oversize digest: %d %v", code, raw)
 	}
 }
+
+func TestAFiledDraftIsNotFiledAgain(t *testing.T) {
+	rg := newDecisionRigWith(t, draftTurn)
+	rg.facts.verdict = intakeVerdict(specflow.VerdictNew, "")
+	id, seq := draftedChat(t, rg)
+	path, body := "/v1/chats/"+id+"/decisions", `{"kind":"intake","draft_seq":`+seqText(seq)+`}`
+	_, raw := rg.do(t, "POST", path, body)
+	decID, _ := raw["id"].(string)
+	if c, _ := rg.answer(t, decID, `{"option":"bead"}`); c/100 != 2 {
+		t.Fatalf("answer: %d", c)
+	}
+	code, again := rg.do(t, "POST", path, body)
+	if code != http.StatusOK || again["id"] != decID || again["state"] != "done" || rg.facts.intakes != 1 || len(rg.executed()) != 1 {
+		t.Fatalf("a filed draft raised again: %d %v (intakes %d, executed %d)", code, again, rg.facts.intakes, len(rg.executed()))
+	}
+}

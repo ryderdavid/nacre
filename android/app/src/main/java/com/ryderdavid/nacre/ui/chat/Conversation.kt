@@ -74,6 +74,7 @@ internal fun ChatItemView(
     onContinue: ((ChatItem.Draft) -> Unit)? = null,
     chatKey: String = "",
     draftNote: String? = null,
+    draftBusy: Boolean = false,
 ) {
     when (item) {
         is ChatItem.User -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
@@ -107,7 +108,7 @@ internal fun ChatItemView(
             item.text, style = MaterialTheme.typography.bodySmall,
             color = if (item.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        is ChatItem.Draft -> if (item.latest) DraftCardView(item, onContinue, draftNote)
+        is ChatItem.Draft -> if (item.latest) DraftCardView(item, onContinue, draftNote, draftBusy)
     }
 }
 
@@ -116,7 +117,7 @@ internal fun ChatItemView(
  * from a recorded draft. [note] is what the last tap came to when it didn't raise a card.
  */
 @Composable
-internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -> Unit)?, note: String? = null) {
+internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -> Unit)?, note: String? = null, busy: Boolean = false) {
     val draft = item.draft
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -133,13 +134,13 @@ internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -
             }
             if (onContinue != null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { onContinue(item) }) { Text(DRAFT_ACTION) }
+                    Button(onClick = { onContinue(item) }, enabled = !busy) { Text(DRAFT_ACTION) }
                 }
                 Text(DRAFT_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
             if (!note.isNullOrBlank()) Text(
                 note, style = MaterialTheme.typography.bodySmall,
-                color = if (note == com.ryderdavid.nacre.data.chat.DRAFT_ASKING) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.error,
+                color = if (note == com.ryderdavid.nacre.data.chat.DRAFT_ASKING || note.startsWith(com.ryderdavid.nacre.data.chat.DRAFT_FILED)) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.error,
             )
         }
     }

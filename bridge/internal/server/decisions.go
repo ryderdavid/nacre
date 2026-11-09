@@ -1183,7 +1183,10 @@ func (s *Server) intakeFromDraft(ctx context.Context, chatID, repo string, seq i
 	s.draftMu.Lock()
 	for _, open := range store.List() {
 		d := open.Decision
-		if open.DraftSeq == seq && d.Kind == decisions.KindIntake && d.ChatID != nil && *d.ChatID == chatID && d.Answerable() {
+		mine := open.DraftSeq == seq && d.Kind == decisions.KindIntake && d.ChatID != nil && *d.ChatID == chatID
+		// Still answerable, or already filed: that card, never a second
+		// intake (and a second bead). A dropped or expired one may be raised again.
+		if mine && (d.Answerable() || d.State == decisions.StateExecuting || d.State == decisions.StateDone) {
 			s.draftMu.Unlock()
 			return d, false, nil
 		}

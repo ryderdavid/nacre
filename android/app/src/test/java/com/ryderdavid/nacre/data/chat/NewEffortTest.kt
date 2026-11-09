@@ -83,6 +83,13 @@ class NewEffortTest {
         assertTrue(t.shown.any { it is ChatItem.Note && it.error && it.text.startsWith("The draft couldn't be read") })
     }
 
+    @Test fun aFiledDraftSaysWhatItFiled() {
+        val done = com.ryderdavid.nacre.data.model.Decision(id = "dc_1", kind = "intake", state = "done",
+            result = com.ryderdavid.nacre.data.model.DecisionResult(ok = true, message = "Created NAC-9"))
+        assertEquals("Already filed: Created NAC-9", filedNote(done))
+        assertNull(filedNote(done.copy(state = "pending")))
+    }
+
     @Test fun newEffortIsOfferedOnlyWithOpenSpecAndADraftingComputer() {
         val drafting = Health(hostName = "Studio", features = listOf(Features.CLAUDE, Features.AGENT_CHAT, Features.DRAFT_INTAKE))
         val older = Health(hostName = "Studio", features = listOf(Features.CLAUDE, Features.AGENT_CHAT))
