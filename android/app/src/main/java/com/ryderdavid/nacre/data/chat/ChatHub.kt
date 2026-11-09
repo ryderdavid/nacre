@@ -178,12 +178,12 @@ class ChatConversation(
      * with the same `turn_id`, which nacred recognises, so no second turn starts. Returns the turn
      * id, or null on failure, when the reason is shown.
      */
-    suspend fun sendNow(text: String, context: ScreenContext?, images: List<ImagePayload> = emptyList()): String? {
+    suspend fun sendNow(text: String, context: ScreenContext?, images: List<ImagePayload> = emptyList(), answered: String? = null): String? {
         if (!stateFlow.value.canSend && stateFlow.value.chat != null) return null
         val turnId = newTurnId()
         show { it.copy(sending = true, error = null) }
         return try {
-            val body = SendChatMessage(turnId, text, context, images.map { it.toAssist() })
+            val body = SendChatMessage(turnId, text, context, images.map { it.toAssist() }, answered = answered)
             val res = sendWithResend(backoff()) { link.sendChat(key, body) }
             val before = stateFlow.value.chat
             val after = (res.chat?.withHost() ?: before?.copy(state = ChatWire.RUNNING))?.let { c ->

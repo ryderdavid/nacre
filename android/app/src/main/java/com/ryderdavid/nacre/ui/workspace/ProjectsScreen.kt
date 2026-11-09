@@ -109,6 +109,7 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
     val work by repo.work.collectAsState()
     val lastSeen by repo.lastSeen.collectAsState()
     var filter by rememberSaveable { mutableStateOf(ProjectFilter.ALL) }
+    if (filter == ProjectFilter.NEEDS_YOU) filter = ProjectFilter.ALL
     var query by rememberSaveable { mutableStateOf("") }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     var newChatAgent by remember { mutableStateOf<String?>(null) }
@@ -122,20 +123,10 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
     val computers = hosts.map { ComputerInfo(it.host.id, it.host.name, it.online, lastSeen[it.host.id]) }
     val sections = ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, filter, query, now)
     val waiting = ProjectsModel.needsYouTotal(ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, ProjectFilter.ALL, "", now))
-    // Needs you checks each waiting project's cards for work already handled elsewhere, as opening a
-    // project's queue does; the counts drop as cards close.
-    val checks by repo.cardChecks.collectAsState()
-    var checked by remember { mutableStateOf(emptySet<String>()) }
-    // Keyed on the waiting projects too, so projects that load or start waiting after the filter is
-    // picked are checked as well; a project being checked isn't asked twice.
-    val waitingKeys = if (filter == ProjectFilter.NEEDS_YOU) sections.filter { it.online }.flatMap { it.rows }.filter { (it.needsYou ?: 0) > 0 }.map { it.key }.toSet() else emptySet()
-    LaunchedEffect(filter, waitingKeys) {
-        if (filter != ProjectFilter.NEEDS_YOU) { checked = emptySet(); return@LaunchedEffect }
-        val fresh = waitingKeys - checked
-        checked = checked + waitingKeys
-        fresh.forEach { repo.checkCards(it) }
-    }
-    val checkLine = if (filter == ProjectFilter.NEEDS_YOU) projectsCheckLine(checked.mapNotNull { checks[it] }) else null
+    // The badge opens the project with the most waiting and starts the walk-through there.
+    val busiest = ProjectsModel.sections(computers, repos.data.orEmpty(), reported, attention, work, ProjectFilter.ALL, "", now)
+        .filter { it.online }.flatMap { it.rows }.filter { (it.needsYou ?: 0) > 0 }.maxByOrNull { it.needsYou ?: 0 }
+    val openNeedsYou: () -> Unit = { busiest?.let { row -> repo.focusQueue(row.key, null, open = true); onOpen(row.key, null) } }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -174,7 +165,10 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
             }
             item {
                 Column(Modifier.padding(start = 8.dp, top = 24.dp, bottom = 12.dp)) {
-                    Text("Projects", style = MaterialTheme.typography.displaySmallEmphasized)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Projects", style = MaterialTheme.typography.displaySmallEmphasized, modifier = Modifier.weight(1f))
+                        NeedsYouBadge(waiting, openNeedsYou)
+                    }
                     Text(
                         "${computers.size} computer${if (computers.size == 1) "" else "s"} · ${repos.data.orEmpty().size} projects",
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -183,7 +177,8 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
             }
             item {
                 Row(Modifier.padding(start = 4.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                    val all = ProjectFilter.entries
+                    // What waits on Ryder is the badge above, a way into Chat, not a filter.
+                    val all = ProjectFilter.entries.filter { it != ProjectFilter.NEEDS_YOU }
                     all.forEachIndexed { i, f ->
                         ToggleButton(
                             checked = filter == f, onCheckedChange = { filter = f },
@@ -195,14 +190,8 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                             modifier = Modifier.semantics { stateDescription = if (filter == f) "Selected" else "" },
                         ) {
                             Text(f.label)
-                            if (f == ProjectFilter.NEEDS_YOU && waiting > 0) { Spacer(Modifier.width(6.dp)); Badge { Text("$waiting") } }
                         }
                     }
-                }
-            }
-            checkLine?.let { line ->
-                item(key = "checks") {
-                    Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 12.dp)) { CheckLine(checks.any { it.key in checked && it.value.running }, line) }
                 }
             }
             if (computers.isNotEmpty() && sections.all { it.rows.isEmpty() } && filter != ProjectFilter.ALL) item(key = "nomatch") {
@@ -235,7 +224,7 @@ fun ProjectsScreen(onOpen: (repoKey: String, chatKey: String?) -> Unit, onSettin
                     } else Text(if (section.online && query.isNotBlank()) "No project here matches \u201c${query.trim()}\u201d." else if (section.online) "No projects found on this computer." else "Its projects show when it's back.", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(section.rows.size, key = { section.rows[it].key }) { i ->
-                    ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online, checking = checks[section.rows[i].key]?.running == true) {
+                    ProjectRowView(section.rows[i], segmentShape(i, section.rows.size), online = section.online) {
                         onOpen(section.rows[i].key, null)
                     }
                 }
@@ -291,7 +280,7 @@ internal fun StatusPill(text: String, container: androidx.compose.ui.graphics.Co
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, checking: Boolean = false, onClick: () -> Unit) {
+private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, onClick: () -> Unit) {
     val busy = row.work != null
     Surface(
         onClick = onClick, shape = shape,
@@ -317,8 +306,8 @@ private fun ProjectRowView(row: ProjectRow, shape: Shape, online: Boolean, check
                     Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val n = row.needsYou ?: 0
-                if (checking) androidx.compose.material3.LoadingIndicator(Modifier.size(32.dp).semantics { contentDescription = "Checking its cards for work handled elsewhere" })
-                if (n > 0) StatusPill(if (busy) "$n need${if (n == 1) "s" else ""} you" else "$n", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                // A plain count: the way in is the badge above, which starts the walk-through.
+                if (n > 0) StatusPill("$n", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
                 else if (row.needsYou == null && row.lastKnownNeedsYou > 0) StatusPill("${row.lastKnownNeedsYou} last known", MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val w = row.work

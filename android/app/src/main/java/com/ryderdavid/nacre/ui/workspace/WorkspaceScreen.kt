@@ -42,28 +42,21 @@ fun mostRecentThread(chats: List<ChatRecord>, repoKey: String): String? =
     chats.filter { it.repo != null && Keys.of(it.hostId, it.repo) == repoKey }.maxByOrNull { it.updatedAt.ifBlank { it.createdAt } }?.key
 
 /**
- * The project-wide status strip: the work summary (opens the work inspector) and the queue entry (always
- * opens the queue) as two separate targets. The entry is "N need you" while something waits on Ryder, and a
- * quieter "N in queue" while only deferred, running or unresolved outcomes are left, so those stay
- * reachable without counting as needing him.
- *
- * [repoKey] names the project; without it the strip uses the project whose workspace is on screen (the one
- * [projectStrip] was last read for). It also opens the queue when a notification asked for it.
+ * The project-wide status strip: the project's running work, which opens the work inspector. What waits on
+ * Ryder is not here: it is the "N need you" badge ([NeedsYouBadge]), which starts the walk-through in Chat.
+ * In a medium window the strip is the top bar, so the badge sits at its end.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null, compact: Boolean = false) {
+fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onNeedsYou: () -> Unit, modifier: Modifier = Modifier, repoKey: String? = null, compact: Boolean = false) {
     val repo = LocalContainer.current.repository
     val key = repoKey
-    val decisions by repo.decisions.collectAsState()
-    val inQueue = key?.let { DecisionModel.counts(decisions[it].orEmpty()).inQueue } ?: 0
-    QueueWatcher(key, onQueue)
     // Rounds and runs are the project's work; a chat that is replying is shown too, so "Nothing running" is true.
     val listing by repo.chats.collectAsState()
     val replying = key?.let { k -> listing.chats.count { c -> c.repo != null && Keys.of(c.hostId, c.repo) == k && c.state == com.ryderdavid.nacre.data.model.ChatWire.RUNNING } } ?: 0
-    if (work == null && needsYou == 0 && inQueue == 0 && replying == 0) return
+    if (work == null && needsYou == 0 && replying == 0) return
     if (compact) {
-        CompactStrip(projectName, work, needsYou, inQueue, onWork, onQueue, modifier)
+        CompactStrip(projectName, work, needsYou, onWork, onNeedsYou, modifier)
         return
     }
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
@@ -90,38 +83,37 @@ fun StatusStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: 
                     Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (needsYou > 0) {
-                Surface(
-                    onClick = onQueue, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$needsYou need you: open the queue" },
-                ) {
-                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                        Text("$needsYou need${if (needsYou == 1) "s" else ""} you", style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            } else if (inQueue > 0) {
-                Surface(
-                    onClick = onQueue, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$inQueue in the queue, none waiting on you: open the queue" },
-                ) {
-                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                        Text("$inQueue in queue", style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
+            NeedsYouBadge(needsYou, onNeedsYou)
+        }
+    }
+}
+
+/**
+ * What waits on Ryder, as one badge: "N need you" (skipped decisions don't count), hidden at zero.
+ * Tapping it opens the project's Needs you chat and starts the walk-through there.
+ */
+@Composable
+fun NeedsYouBadge(needsYou: Int, onClick: () -> Unit, modifier: Modifier = Modifier, short: Boolean = false) {
+    if (needsYou <= 0) return
+    val label = if (short) "$needsYou" else "$needsYou need${if (needsYou == 1) "s" else ""} you"
+    Surface(
+        onClick = onClick, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = modifier.heightIn(min = 48.dp).semantics { contentDescription = "$needsYou need you: go through them in Chat" },
+    ) {
+        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(label, style = if (short) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge)
         }
     }
 }
 
 /**
  * The strip folded into the rail on short windows: the work's state as an icon button and the Needs you
- * count as a badge, stacked under the chat switcher, each a 48dp target with the strip's own labels.
+ * badge as a number, stacked under the chat switcher, each a 48dp target with the strip's own labels.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun CompactStrip(projectName: String, work: WorkSummary?, needsYou: Int, inQueue: Int, onWork: (WorkSummary) -> Unit, onQueue: () -> Unit, modifier: Modifier) {
+private fun CompactStrip(projectName: String, work: WorkSummary?, needsYou: Int, onWork: (WorkSummary) -> Unit, onNeedsYou: () -> Unit, modifier: Modifier) {
     androidx.compose.foundation.layout.Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (work != null) {
             androidx.compose.material3.IconButton(
@@ -134,32 +126,23 @@ private fun CompactStrip(projectName: String, work: WorkSummary?, needsYou: Int,
                 }
             }
         }
-        val count = if (needsYou > 0) needsYou else inQueue
-        if (count > 0) {
-            Surface(
-                onClick = onQueue, shape = RoundedCornerShape(16.dp),
-                color = if (needsYou > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = if (needsYou > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(width = 56.dp, height = 48.dp).semantics {
-                    contentDescription = if (needsYou > 0) "$needsYou need you: open the queue" else "$inQueue in the queue, none waiting on you: open the queue"
-                },
-            ) {
-                Box(contentAlignment = Alignment.Center) { Text("$count", style = MaterialTheme.typography.titleMedium) }
-            }
-        }
+        NeedsYouBadge(needsYou, onNeedsYou, short = true)
     }
 }
 
-/** Opens the project's queue when a notification asked for it (recently, for this project). */
+/**
+ * Starts the walk-through when a notification asked for it (recently, for this project), at the
+ * decision it named.
+ */
 @Composable
-fun QueueWatcher(repoKey: String?, onQueue: () -> Unit) {
+fun QueueWatcher(repoKey: String?, onNeedsYou: (String?) -> Unit) {
     val repo = LocalContainer.current.repository
     val focus by repo.queueFocus.collectAsState()
     LaunchedEffect(focus, repoKey) {
         val f = focus ?: return@LaunchedEffect
         if (repoKey != null && f.open && f.repoKey == repoKey) {
             repo.queueOpened()
-            if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onQueue()
+            if (System.currentTimeMillis() - f.at < QUEUE_REQUEST_MS) onNeedsYou(f.decisionId)
         }
     }
 }
@@ -224,7 +207,7 @@ val LocalViewing = androidx.compose.runtime.staticCompositionLocalOf<(ChatRefere
 val LocalOpenEvidence = androidx.compose.runtime.staticCompositionLocalOf<(com.ryderdavid.nacre.data.model.DecisionEvidence) -> Unit> { {} }
 
 /**
- * Opens the project's Needs-you queue (from a card that points at a newer request or held work). To open it
- * at one decision, point it there first with `repository.focusQueue(repoKey, decisionId)`.
+ * Opens the project's Needs you chat and starts the walk-through there, at a decision when one is given
+ * ("Talk it through" on a banner, a notification).
  */
-val LocalOpenQueue = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+val LocalOpenNeedsYou = androidx.compose.runtime.staticCompositionLocalOf<(String?) -> Unit> { {} }

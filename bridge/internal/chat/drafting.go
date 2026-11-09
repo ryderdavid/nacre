@@ -39,6 +39,8 @@ var readOnlyCommands = map[string]map[string]bool{
 	"openspec status":   flagSet("--json", "--change", "--no-interactive"),
 	"git status":        flagSet("--short", "-s", "--branch", "-b", "--porcelain"),
 	"ls":                flagSet("-l", "-a", "-la", "-al", "-1", "-R", "-lh"),
+	"nacred decisions":  flagSet(),
+	"nacred decision":   flagSet(),
 }
 
 func flagSet(flags ...string) map[string]bool {

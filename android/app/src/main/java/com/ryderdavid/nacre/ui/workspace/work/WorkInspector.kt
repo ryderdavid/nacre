@@ -89,7 +89,7 @@ fun roundFacts(r: Round): List<String> = buildList {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
-fun WorkInspector(repoKey: String, target: InspectTarget, onClose: () -> Unit, onQueue: () -> Unit) {
+fun WorkInspector(repoKey: String, target: InspectTarget, onClose: () -> Unit, onTalkItThrough: (String?) -> Unit) {
     val container = LocalContainer.current
     val all by container.repository.work.collectAsState()
     val work = latestWork(all, target) ?: WorkSummary(kind = target.kind, id = target.id, title = target.label)
@@ -140,14 +140,15 @@ fun WorkInspector(repoKey: String, target: InspectTarget, onClose: () -> Unit, o
         }
         if (work.gates.isNotEmpty()) item { GateChips(work) }
         if (r != null) item {
-            StatusCard(r, busy, onBudget = vm::setBudget, onChoose = { c, usd -> vm.choose(c, usd) }, onCancel = { cancelling = true })
+            // A stop that is the round's decision is answered in Chat, not with a second set of buttons here.
+            StatusCard(r, busy, onBudget = vm::setBudget, onChoose = { c, usd -> vm.choose(c, usd) }, onCancel = { cancelling = true }, stopChoices = work.decisionId == null)
         }
         if (r != null && roundFacts(r).isNotEmpty()) item {
             SelectionContainer { Text(roundFacts(r).joinToString(" · "), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
         }
         if (work.state == "ready_to_land" || work.decisionId != null || r?.state == com.ryderdavid.nacre.data.model.ROUND_READY) item {
-            Surface(onClick = onQueue, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                Text("Landing is a decision for you: open the queue to review and land", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
+            Surface(onClick = { onTalkItThrough(work.decisionId) }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Text("This waits on you · Talk it through", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
         if (r != null && r.artifacts.isNotEmpty()) item {

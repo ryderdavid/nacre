@@ -182,7 +182,11 @@ func ExtractDrafts(text string) (rest string, found []DraftResult) {
 }
 
 // openFence reports whether line opens a nacre-draft block, and its fence.
-func openFence(line string) (string, bool) {
+func openFence(line string) (string, bool) { return openFenceFor(line, draftFence) }
+
+// openFenceFor reports whether line opens a fenced block whose language is
+// lang, and its fence.
+func openFenceFor(line, lang string) (string, bool) {
 	s := strings.TrimSpace(line)
 	for _, ch := range []string{"`", "~"} {
 		n := 0
@@ -193,7 +197,7 @@ func openFence(line string) (string, bool) {
 			continue
 		}
 		info := strings.TrimSpace(s[n:])
-		if f := strings.Fields(info); len(f) > 0 && strings.EqualFold(f[0], draftFence) {
+		if f := strings.Fields(info); len(f) > 0 && strings.EqualFold(f[0], lang) {
 			return s[:n], true
 		}
 	}

@@ -181,7 +181,6 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         thread?.let { t -> container.chatStack.updateView(t) { it.copy(panel = destination.name) } }
     }
     var inspecting by remember { mutableStateOf<InspectTarget?>(null) }
-    var queue by remember { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     KeepFresh(repoKey)
@@ -198,12 +197,32 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     }
     val inspect: (WorkSummary) -> Unit = { w -> inspecting = InspectTarget(host, w.kind, w.id, w.title) }
 
+    // Needs you is a conversation: the project's Needs you chat (made on first use), where /needs-you
+    // starts the walk-through, at [start] when a banner or notification named a decision.
+    val openNeedsYou: (String?) -> Unit = { start ->
+        inspecting = null
+        if (oneWide) destination = Destination.CHAT
+        // The app's scope: the chat must be made and the walk-through sent even if the workspace goes away.
+        container.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            val existing = needsYouThread(repo.chats.value.chats, repoKey)
+            val key = existing ?: runCatching { container.chats.link.createChat(host, CreateChat(ChatWire.AGENT_CLAUDE, Keys.id(repoKey), null)).copy(hostId = host).key }
+                .getOrElse { repo.notify("Couldn't start the Needs you chat: ${it.message}"); return@launch }
+            pickThread(key)
+            val conv = container.chats.conversation(key)
+            conv.open()
+            // A walk-through already under way is only opened.
+            if (conv.state.value.turnRunning || listing.chat(key)?.active == true) return@launch
+            val command = ChatWire.NEEDS_YOU_COMMAND + (start?.let { " $it" } ?: "")
+            conv.sendNow(command, com.ryderdavid.nacre.data.model.ScreenContext(com.ryderdavid.nacre.data.model.ScreenContext.BOARD, repo = Keys.id(repoKey)))
+        }
+    }
+
     val slots = WorkspaceSlots(
         chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m) },
         spec = { m -> SpecSlot(repoKey, m) },
         beads = { m -> BeadsSlot(repoKey, m) },
-        strip = { m, compact -> StatusStrip(name, work, needsYou, onWork = inspect, onQueue = { queue = true }, modifier = m, repoKey = repoKey, compact = compact) },
-        queueWatcher = { QueueWatcher(repoKey) { queue = true } },
+        strip = { m, compact -> StatusStrip(name, work, needsYou, onWork = inspect, onNeedsYou = { openNeedsYou(null) }, modifier = m, repoKey = repoKey, compact = compact) },
+        queueWatcher = { QueueWatcher(repoKey, openNeedsYou) },
         switcher = {
             Surface(
                 onClick = { scope.launch { drawer.open() } }, shape = projectAvatarShape(name),
@@ -217,7 +236,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     val askAbout: (ChatReference) -> Unit = { ref ->
         // One pane: go to Chat. Side by side, Chat is already showing beside the pane, so the split stays.
         if (oneWide) destination = Destination.CHAT
-        queue = false; inspecting = null
+        inspecting = null
         val t = thread
         val viewing = container.chats.references.viewingAll.value[repoKey]?.first
         // Asking about what the pane already shows sends it as Viewing rather than a second chip.
@@ -234,7 +253,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
         val chatId = d.chatId?.ifBlank { null } ?: return@askAgain
         val key = Keys.of(d.hostId.ifBlank { host }, chatId)
         if (oneWide) destination = Destination.CHAT
-        queue = false; inspecting = null
+        inspecting = null
         pickThread(key)
         container.chats.references.add(key, ChatReference("decision", d.id, d.title, d.body))
         // What Ryder is already writing there is kept; the reference still goes with it.
@@ -244,7 +263,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
     CompositionLocalProvider(
         LocalAskAbout provides askAbout,
         LocalAskChatAgain provides askChatAgain,
-        LocalOpenQueue provides { inspecting = null; queue = true },
+        LocalOpenNeedsYou provides openNeedsYou,
         LocalViewing provides { ref -> container.chats.references.view(repoKey, ref) },
         com.ryderdavid.nacre.ui.workspace.beads.LocalOpenChange provides { changeId -> container.chats.references.openSpec(repoKey, changeId); destination = Destination.SPEC },
         LocalOpenEvidence provides { e ->
@@ -253,15 +272,15 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 "changes" -> {
                     val h = if (e.ref.contains('~')) Keys.host(e.ref) else host
                     val id = Keys.id(e.ref).ifBlank { work?.id.orEmpty() }
-                    if (id.isNotBlank()) { queue = false; inspecting = InspectTarget(h, "round", id, e.label, review = true) }
+                    if (id.isNotBlank()) { inspecting = InspectTarget(h, "round", id, e.label, review = true) }
                 }
-                "review" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; queue = false; inspecting = null }
+                "review" -> { if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref); destination = Destination.SPEC; inspecting = null }
                 // A requirement or spec file by path: the change's document in the reader, or a current spec's row in the list, at the requirement.
                 "spec" -> {
                     if (e.ref.isNotBlank()) container.chats.references.openSpec(repoKey, e.ref, com.ryderdavid.nacre.ui.workspace.spec.SpecList.citedRequirement(e.label, e.ref))
-                    destination = Destination.SPEC; queue = false; inspecting = null
+                    destination = Destination.SPEC; inspecting = null
                 }
-                "bead" -> { if (e.ref.isNotBlank()) container.chats.references.openBead(repoKey, Keys.id(e.ref)); destination = Destination.BEADS; queue = false; inspecting = null }
+                "bead" -> { if (e.ref.isNotBlank()) container.chats.references.openBead(repoKey, Keys.id(e.ref)); destination = Destination.BEADS; inspecting = null }
                 else -> {
                     val h = if (e.ref.contains('~')) Keys.host(e.ref) else host
                     val id = Keys.id(e.ref).ifBlank { work?.id.orEmpty() }
@@ -289,7 +308,7 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
                 repoKey, name, thread, work, needsYou,
                 chat = { m -> ChatSlot(repoKey, thread, onThread = pickThread, onProjects = onProjects, modifier = m, header = false) },
                 onSwitchProject = { scope.launch { drawer.open() } },
-                onWork = inspect, onQueue = { queue = true }, askAbout = askAbout, onThread = pickThread,
+                onWork = inspect, onNeedsYou = openNeedsYou, askAbout = askAbout, onThread = pickThread,
                 modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
             )
             else Workspace(slots, destination, onDestination = { destination = it }, modifier = Modifier.statusBarsPadding())
@@ -297,15 +316,19 @@ fun ProjectWorkspace(repoKey: String, startChat: String?, startDestination: Dest
 
         inspecting?.let { t ->
             ModalBottomSheet(onDismissRequest = { inspecting = null }) {
-                com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, t, onClose = { inspecting = null }, onQueue = { inspecting = null; queue = true })
+                com.ryderdavid.nacre.ui.workspace.work.WorkInspector(repoKey, t, onClose = { inspecting = null }, onTalkItThrough = { id -> openNeedsYou(id) })
             }
-        }
-        // One Back closes the queue: no half-open step in between.
-        if (queue) ModalBottomSheet(onDismissRequest = { queue = false }, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-            DecisionQueue(repoKey, onClose = { queue = false })
         }
     }
 }
+
+/** The project's Needs you chat: the newest Claude chat in the checkout titled "Needs you", or null. */
+fun needsYouThread(chats: List<com.ryderdavid.nacre.data.model.ChatRecord>, repoKey: String): String? =
+    chats.filter { it.repo != null && Keys.of(it.hostId, it.repo) == repoKey && it.title == NEEDS_YOU_TITLE && it.agent == ChatWire.AGENT_CLAUDE }
+        .maxByOrNull { it.updatedAt.ifBlank { it.createdAt } }?.key
+
+/** nacred titles a chat whose first message was /needs-you this way. */
+const val NEEDS_YOU_TITLE = "Needs you"
 
 @Composable
 private fun LocalContainerOrThrow() = com.ryderdavid.nacre.ui.common.LocalContainer.current

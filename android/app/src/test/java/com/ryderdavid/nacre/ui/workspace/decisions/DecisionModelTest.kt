@@ -113,16 +113,17 @@ class DecisionModelTest {
     }
 
     @Test
-    fun `needs you counts what waits on Ryder, the rest keeps the queue reachable`() {
+    fun `needs you counts what waits on Ryder as nacred does, a failure not yet seen included`() {
         val list = listOf(
             approve.copy(id = "p"), approve.copy(id = "h", state = "held"),
             approve.copy(id = "d", state = "deferred"), approve.copy(id = "f", state = "failed"),
             approve.copy(id = "x", state = "expired", reason = "revision 5 was written"),
             approve.copy(id = "u", state = "unknown", acknowledged = true), approve.copy(id = "fin", state = "done"),
         )
-        assertEquals(QueueCount(needsYou = 2, inQueue = 3), DecisionModel.counts(list))
-        // Only deferred and unresolved outcomes left: nothing needs him, yet the queue stays reachable.
-        val quiet = DecisionModel.counts(list.filter { it.id in setOf("d", "f") })
+        // Pending, held and the failure he hasn't seen; nacred's Projects count is the same.
+        assertEquals(QueueCount(needsYou = 3, inQueue = 2), DecisionModel.counts(list))
+        // Only skipped and seen outcomes left: nothing needs him.
+        val quiet = DecisionModel.counts(list.filter { it.id in setOf("d", "u") })
         assertEquals(0, quiet.needsYou)
         assertTrue(quiet.any)
         assertFalse(DecisionModel.counts(listOf(approve.copy(state = "done"))).any)
@@ -234,75 +235,6 @@ class DecisionModelTest {
         assertEquals("Choose", DecisionModel.primaryLabel(recovery.copy(options = recovery.options + long.options), DecisionDraft(option = "x")))
         assertEquals("Approve", DecisionModel.primaryLabel(approve, DecisionDraft(option = "run_hold")))
         assertEquals("Reject", DecisionModel.primaryLabel(approve, DecisionDraft(rejecting = true)))
-    }
-
-    @Test
-    fun `cards the check closed are listed newest first for a week, and leave the queue`() {
-        val now = java.time.Instant.parse("2026-11-08T12:00:00Z").toEpochMilli()
-        fun closed(id: String, at: String) = Decision(id = id, kind = "found", source = "attention", state = "expired", acknowledged = true,
-            handled = com.ryderdavid.nacre.data.model.DecisionHandled("NAC-1 fixed it", listOf("NAC-1"), at))
-        val old = closed("old", "2026-10-30T12:00:00Z")
-        val a = closed("a", "2026-11-08T10:00:00Z")
-        val b = closed("b", "2026-11-08T11:00:00Z")
-        val expired = Decision(id = "x", kind = "found", source = "attention", state = "expired")
-        val pending = Decision(id = "p", kind = "question", state = "pending")
-        val all = listOf(old, a, b, expired, pending)
-        assertEquals(listOf("b", "a"), DecisionModel.handled(all, now).map { it.id })
-        assertEquals(listOf("p"), DecisionModel.queue(all).map { it.id })
-    }
-
-    @Test
-    fun `the queue says what its card check is doing`() {
-        val c = com.ryderdavid.nacre.data.model.CardCheck(checking = 3)
-        assertEquals("Checking 3 cards for anything already handled elsewhere…", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(running = true)))
-        assertNull(com.ryderdavid.nacre.ui.workspace.checkLine(com.ryderdavid.nacre.data.model.CardCheck()))
-        assertEquals("Checking the cards for anything already handled elsewhere…", com.ryderdavid.nacre.ui.workspace.checkLine(com.ryderdavid.nacre.data.model.CardCheck(running = true)))
-        assertEquals("Closed 2 already handled elsewhere; they're listed at the end",
-            com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", handled = listOf("a", "b"))))
-        assertEquals("Checked 3 cards: they all still need you", com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t")))
-        assertTrue(com.ryderdavid.nacre.ui.workspace.checkLine(c.copy(finishedAt = "t", error = "timed out"))!!.endsWith("timed out"))
-    }
-
-    @Test
-    fun `Projects says how many projects it is checking, then how many cards it closed`() {
-        val c = com.ryderdavid.nacre.data.model.CardCheck(checking = 2)
-        val line: (List<com.ryderdavid.nacre.data.model.CardCheck>) -> String? = { com.ryderdavid.nacre.ui.workspace.projectsCheckLine(it) }
-        assertNull(line(emptyList()))
-        assertEquals("Checking 2 projects for cards already handled elsewhere…", line(listOf(c.copy(running = true), c.copy(running = true), c.copy(finishedAt = "t", handled = listOf("a")))))
-        assertEquals("Closed 3 cards already handled elsewhere", line(listOf(c.copy(finishedAt = "t", handled = listOf("a")), c.copy(finishedAt = "t", handled = listOf("b", "c")))))
-        assertEquals("Checked 1 project: everything still needs you", line(listOf(c.copy(finishedAt = "t"))))
-        assertNull(line(listOf(c.copy(finishedAt = "t", checking = 0))))
-    }
-
-    @Test
-    fun `the walkthrough follows the check's order, then the rest, and only cards that wait on Ryder`() {
-        val q = Decision(id = "q", kind = "question", state = "pending", createdAt = "2026-11-08T10:00:00Z")
-        val f = Decision(id = "f", kind = "found", state = "pending", createdAt = "2026-11-08T11:00:00Z")
-        val a = Decision(id = "a", kind = "approve", state = "held", createdAt = "2026-11-08T09:00:00Z")
-        val ap = Decision(id = "ap", kind = "approve", state = "pending", createdAt = "2026-11-08T08:00:00Z")
-        val run = Decision(id = "r", kind = "found", state = "executing")
-        val later = Decision(id = "d", kind = "question", state = "deferred")
-        val order = listOf(
-            com.ryderdavid.nacre.data.model.CardStep("a", "Round 3 waits on it"),
-            com.ryderdavid.nacre.data.model.CardStep("r", "running, so dropped"),
-            com.ryderdavid.nacre.data.model.CardStep("gone", "unknown, so dropped"),
-            com.ryderdavid.nacre.data.model.CardStep("q", "Decides how f goes"),
-            com.ryderdavid.nacre.data.model.CardStep("a", "twice"),
-        )
-        val steps = DecisionModel.walkSteps(listOf(q, f, a, ap, run, later), order)
-        assertEquals(listOf("a", "q", "f", "ap"), steps.map { it.first.id })
-        assertEquals(listOf("Round 3 waits on it", "Decides how f goes", "", ""), steps.map { it.second })
-        // With no order yet, it's the queue's order.
-        assertEquals(listOf("f", "q", "ap", "a"), DecisionModel.walkSteps(listOf(q, f, a, ap), emptyList()).map { it.first.id })
-    }
-
-    @Test
-    fun `the walkthrough says where it is and how it went`() {
-        assertEquals("Card 2 of 5", walkHeading(1, 5))
-        assertEquals("You answered all 4.", walkSummary(4, 0))
-        assertEquals("You skipped all 2; they're still in the list.", walkSummary(0, 2))
-        assertEquals("Answered 3, skipped 1. The skipped ones are still in the list.", walkSummary(3, 1))
-        assertEquals("Walk me through the 4, in order", com.ryderdavid.nacre.ui.workspace.walkButton(4))
     }
 
     @Test

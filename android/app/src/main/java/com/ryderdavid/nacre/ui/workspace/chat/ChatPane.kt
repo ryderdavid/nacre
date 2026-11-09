@@ -88,8 +88,6 @@ import com.ryderdavid.nacre.ui.common.LocalContainer
 import com.ryderdavid.nacre.ui.common.PendingImageRow
 import com.ryderdavid.nacre.ui.common.rememberImageAttacher
 import com.ryderdavid.nacre.ui.workspace.ChatReference
-import com.ryderdavid.nacre.ui.workspace.decisions.DecisionCard
-import com.ryderdavid.nacre.ui.workspace.decisions.PermissionCardM3
 import com.ryderdavid.nacre.ui.workspace.projectStrip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -119,7 +117,19 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val viewing = viewingAll[repoKey]
     val refs = com.ryderdavid.nacre.data.chat.ChatReferences.State(attachedAll[thread].orEmpty(), viewing?.first, viewing?.second ?: false)
     val decisionsAll by repo.decisions.collectAsState()
-    val mine = decisionsAll[repoKey].orEmpty().filter { it.chatId == Keys.id(thread) }.sortedBy { it.createdAt }
+    val projectDecisions = decisionsAll[repoKey].orEmpty()
+    val mine = projectDecisions.filter { it.chatId == Keys.id(thread) }.sortedBy { it.createdAt }
+    // The walk-through: what the slot above the composer asks, in nacred's queue order.
+    val queue = remember(projectDecisions) { com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel.queueOrder(projectDecisions.filter { it.open }) }
+    val asking = record?.asking?.ifBlank { null } ?: state.items.filterIsInstance<ChatItem.Ask>().lastOrNull()?.decisionId
+    val walkThrough = AskSlotModel.walkThrough(state.items)
+    val askTarget = AskSlotModel.target(state.pendingCards, asking, queue, walkThrough, state.turnRunning)
+    val askLeft = AskSlotModel.left(queue)
+    val byId = remember(projectDecisions) { projectDecisions.associateBy { it.id } }
+    val startWalk: () -> Unit = {
+        val ctx = ChatSend.context(record?.repo ?: Keys.id(repoKey), null, true)
+        container.scope.launch { conv.sendNow(com.ryderdavid.nacre.data.model.ChatWire.NEEDS_YOU_COMMAND, ctx) }
+    }
     val workAll by repo.work.collectAsState()
     val myWork = workAll[repoKey].orEmpty().filter { it.chatId == Keys.id(thread) }
     val (work, needsYou) = projectStrip(repoKey)
@@ -162,7 +172,8 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val outputFlowing = state.turnRunning && lastOutput > 0 && since < ACTIVE_WINDOW_MS
 
     // Cards sit where they happened among the messages, not all after them.
-    val rows = remember(state.items, state.times, mine, myWork) { ChatTimeline.merge(state.items, state.times, mine, myWork) }
+    val rows = remember(state.items, state.times, mine, myWork) { ChatTimeline.merge(ChatTimeline.receipts(state.items, mine.map { it.id }.toSet()), state.times, mine, myWork) }
+    val conversationStarted = state.items.any { it is ChatItem.User }
     // Follow the bottom, including a reply growing as it streams. Only Ryder's own scrolling stops that
     // (ending a scroll above the bottom) or starts it again (ending one at the bottom); content growing
     // under the list never does. Sending a message always goes back to the bottom.
@@ -241,7 +252,9 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is TimelineRow.Item -> when (val item = row.item) {
-                        is ChatItem.Permission -> PermissionCardM3(item.card, record?.agent ?: "claude", onAnswer = { r, allow, note -> conv.answer(r, allow, note) })
+                        is ChatItem.Permission -> PermissionReceipt(item.card)
+                        is ChatItem.Ask -> byId[item.decisionId]?.let { DecisionReceipt(it) }
+                        is ChatItem.HeadsUp -> HeadsUp(item, answerable = !conversationStarted && state.canSend, onYes = startWalk)
                         // The bubble fits its text, up to 84% of the width.
                         is ChatItem.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { Box(Modifier.fillMaxWidth(0.84f), contentAlignment = Alignment.CenterEnd) {
                             Surface(shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp), color = MaterialTheme.colorScheme.primaryContainer) {
@@ -258,7 +271,7 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                         )
                         else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
                     }
-                    is TimelineRow.Card -> DecisionCard(row.decision, onEvidence)
+                    is TimelineRow.Card -> DecisionReceipt(row.decision)
                     is TimelineRow.Work -> {
                         val w = row.work
                         com.ryderdavid.nacre.ui.workspace.work.WorkCard(
@@ -278,9 +291,9 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
 
         if (aboveFold != null && aboveFold > 120.dp) {
             Spacer(Modifier.height(with(density) { fold.bounds.height.toDp() }))
-            Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing)
+            Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing, askTarget, askLeft, projectDecisions)
             Spacer(Modifier.weight(1f))
-        } else Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing)
+        } else Composer(repoKey, thread, record, state, refs, draft, work, needsYou, typing, askTarget, askLeft, projectDecisions)
     }
 
     if (switching) ThreadSwitcher(repoKey, current = thread, onPick = { switching = false; onThread(it) }, onDismiss = { switching = false })
@@ -298,6 +311,9 @@ private fun Composer(
     work: com.ryderdavid.nacre.data.model.WorkSummary?,
     needsYou: Int,
     typing: Boolean,
+    askTarget: AskTarget?,
+    askLeft: Int,
+    decisions: List<com.ryderdavid.nacre.data.model.Decision>,
 ) {
     val container = LocalContainer.current
     val hub = container.chats
@@ -312,8 +328,17 @@ private fun Composer(
     // The agent may later need an OK while the app is closed, so notifications are asked for on the first send.
     val askNotifications = com.ryderdavid.nacre.ui.common.rememberNotificationPermission()
 
+    // While a decision or permission is being answered in words, the composer is its answer box.
+    val modes by AnswerModes.all.collectAsState()
+    val answering = modes[thread]
+    val repoIdForCtx = record?.repo ?: Keys.id(repoKey)
+    val answerContext = { ChatSend.context(repoIdForCtx, refs.viewing, refs.viewingDropped) }
     // References are spent only once nacred accepts the message; a failed send keeps the draft as written.
     val send: () -> Unit = send@{
+        if (answering != null) {
+            sendAnswer(container, thread, answering, draft, decisions, answerContext()) { hub.stack.updateView(thread) { it.copy(draft = "") } }
+            return@send
+        }
         if (!gate.canSend || sending) return@send
         askNotifications()
         val original = draft
@@ -354,9 +379,17 @@ private fun Composer(
             }
         }
         PendingImageRow(pending, onRemove = { id -> hub.stack.removePending(thread, id) }, thumb = if (typing) 44.dp else 64.dp)
+        // The decision or permission being asked: its own options, right above where Ryder types.
+        if (askTarget != null && answering == null) AskSlot(askTarget, thread, askLeft, record?.agent ?: "claude", answerContext)
+        if (answering != null) InputChip(
+            selected = true, onClick = { AnswerModes.clear(thread) },
+            label = { Text("Answering: " + answering.prompt, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) },
+            modifier = Modifier.heightIn(min = chipHeight).semantics { contentDescription = "Answering. ${answering.prompt}. Tap to type a message instead" },
+        )
         // The empty box suggests the likeliest message as its placeholder; the outlined arrow offers two more
         // and makes them tappable. Typing (or an image) clears them.
-        val suggested = if (draft.isEmpty() && !state.turnRunning && pending.isEmpty()) suggestions(needsYou, work, refs.viewing.takeUnless { refs.viewingDropped }).take(3) else emptyList()
+        val suggested = if (draft.isEmpty() && !state.turnRunning && pending.isEmpty() && askTarget == null && answering == null) suggestions(needsYou, work, refs.viewing.takeUnless { refs.viewingDropped }).take(3) else emptyList()
         var choosing by remember(thread) { mutableStateOf(false) }
         if (suggested.isEmpty()) choosing = false
         val use: (String) -> Unit = { s -> choosing = false; hub.stack.updateView(thread) { it.copy(draft = s) } }
@@ -373,7 +406,10 @@ private fun Composer(
                 placeholder = {
                     val top = suggested.firstOrNull()
                     if (top != null && choosing) Text(top, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable(onClickLabel = "Use this message") { use(top) })
-                    else Text(top ?: "Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else Text(
+                        answering?.prompt ?: top ?: if (askTarget != null) "Ask about this" else "Message ${(record?.agent ?: "claude").replaceFirstChar { it.uppercase() }}",
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 leadingIcon = { AttachImageButton(gate, attach) },
                 trailingIcon = if (suggested.size > 1) ({
@@ -406,7 +442,7 @@ private fun Composer(
                     Icon(Icons.Rounded.Stop, "Stop this reply")
                 }
             } else {
-                FilledIconButton(onClick = send, enabled = gate.canSend && !sending, modifier = Modifier.size(56.dp), shape = RoundedCornerShape(18.dp)) {
+                FilledIconButton(onClick = send, enabled = (answering != null && draft.isNotBlank()) || (answering?.permission != null) || (gate.canSend && !sending), modifier = Modifier.size(56.dp), shape = RoundedCornerShape(18.dp)) {
                     if (sending) LoadingIndicator(Modifier.size(28.dp)) else Icon(Icons.AutoMirrored.Rounded.Send, "Send")
                 }
             }
@@ -419,7 +455,7 @@ private fun Composer(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HeaderStatus(work: com.ryderdavid.nacre.data.model.WorkSummary?, needsYou: Int, onWork: (com.ryderdavid.nacre.data.model.WorkSummary) -> Unit) {
-    val openQueue = com.ryderdavid.nacre.ui.workspace.LocalOpenQueue.current
+    val openNeedsYou = com.ryderdavid.nacre.ui.workspace.LocalOpenNeedsYou.current
     val c = MaterialTheme.colorScheme
     if (work != null) IconButton(
         onClick = { onWork(work) },
@@ -428,14 +464,7 @@ private fun HeaderStatus(work: com.ryderdavid.nacre.data.model.WorkSummary?, nee
         if (work.running && !work.stalled) LoadingIndicator(Modifier.size(24.dp))
         else Icon(Icons.Rounded.WarningAmber, null, tint = if (work.stopped || work.stalled) c.error else c.onSurfaceVariant)
     }
-    if (needsYou > 0) Surface(
-        onClick = openQueue, shape = RoundedCornerShape(16.dp), color = c.errorContainer, contentColor = c.onErrorContainer,
-        modifier = Modifier.padding(end = 4.dp).heightIn(min = 40.dp).semantics { contentDescription = "$needsYou need you: open the queue" },
-    ) {
-        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            Text("$needsYou need${if (needsYou == 1) "s" else ""} you", style = MaterialTheme.typography.labelLarge)
-        }
-    }
+    com.ryderdavid.nacre.ui.workspace.NeedsYouBadge(needsYou, onClick = { openNeedsYou(null) }, modifier = Modifier.padding(end = 4.dp))
 }
 
 /** Scrolls from the last row's top to its end; the list stops at the bottom of its content. */

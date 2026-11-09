@@ -906,8 +906,8 @@ requirement or spec file by its repository path (`ref`).
 | POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?,"ask"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
 | POST | `/v1/decisions/{id}/renew` | – | Decision (201): Ask again. A fresh decision built from the current state for the same kind and target, which supersedes the old one (`superseded_by`). 409 while it executes, for Needs you kinds that nacred raises again itself, and for `intake` and `found`, which the chat raises again from what it sent |
 | POST | `/v1/decisions/{id}/reopen` | – | Decision: a card a card check closed as handled elsewhere waits again (`pending`), and later checks leave it alone. 409 for any other card |
-| POST | `/v1/repos/{repo}/decisions/check` | – | CardCheck (202 when it starts, 200 otherwise): the app calls this when the Needs you feed opens. One read-only headless Claude run (bd, git and openspec reads; about $1 at most) looks at the project's open `question`, `found`, `recovery` and `intake` cards not looked at in the last 30 minutes (at most 20) and closes the ones it is sure were handled elsewhere: state `expired`, `acknowledged`, `reason` "Handled elsewhere: …" and `handled`. Approvals, landings, finishes, sign-offs and limits are never checked. A running check is returned as it is. 503 when Claude isn't available |
-| GET | `/v1/repos/{repo}/decisions/check` | – | CardCheck: `{"repo","running","checking","cards":[id],"handled":[id],"order":[{"id","why"}],"started_at","finished_at","error","cost_usd"}` for the running or last check. `order` is the last check's order for the project's cards that wait on Ryder (pending or held), what to answer first with why; the app's walkthrough follows it |
+| POST | `/v1/repos/{repo}/decisions/check` | – | **Deprecated**: the app no longer calls it since Needs you became a chat walk-through, and it will be removed. CardCheck (202 when it starts, 200 otherwise). One read-only headless Claude run (bd, git and openspec reads; about $1 at most) looks at the project's open `question`, `found`, `recovery` and `intake` cards not looked at in the last 30 minutes (at most 20) and closes the ones it is sure were handled elsewhere: state `expired`, `acknowledged`, `reason` "Handled elsewhere: …" and `handled`. Approvals, landings, finishes, sign-offs and limits are never checked. A running check is returned as it is. 503 when Claude isn't available |
+| GET | `/v1/repos/{repo}/decisions/check` | – | CardCheck: `{"repo","running","checking","cards":[id],"handled":[id],"order":[{"id","why"}],"started_at","finished_at","error","cost_usd"}` for the running or last check. `order` is the last check's order for the project's cards that wait on Ryder (pending or held), what to answer first with why. **Deprecated** with the POST |
 
 ### Building decisions (agent kinds)
 
@@ -1099,6 +1099,7 @@ Stored as `chats/<id>.json` (mode 0600) under nacred's state directory.
 | `last_seq` | the newest event's `seq` |
 | `phone` | the Tailscale device of the phone that created the chat (for Taildrop); empty when unknown |
 | `last_line` | the first line of the newest message, Ryder's or the agent's (up to 160 characters) |
+| `asking` | the decision the chat last asked Ryder about: named by a `nacre-ask` block in the agent's reply (only a decision still answerable in the chat's repository is kept), or the last decision the chat raised. The app shows its options above the composer while it is pending. Absent until there is one |
 | `work` | in `GET /v1/chats` only, what the chat started or created: `{kind, repo, id}` with kind `bead` or `change` (with its repository), or `work` for a round or run by id. Absent when there is none. The app's Jobs list joins these with the project's work (`chat_id`) to show each chat's progress |
 
 States:
@@ -1115,6 +1116,20 @@ returns to `idle`. nacred keeps the 200 most recently updated chats; trimming a 
 record, log and images. Delete does the same. Claude Code's and Codex's own transcripts of the
 session stay on the Mac, as for any session there.
 
+### Needs you in Chat
+
+A message whose text is exactly `/needs-you`, or `/needs-you <decision id>`, starts the Needs you
+walk-through. The transcript keeps the short message, the chat is titled "Needs you" when it is the
+first, and the agent receives nacred's walk-through prompt instead: run `nacred decisions` (a
+read-only command a light turn may run, as is `nacred decision <id>`), say how many wait and of what
+kinds, then explain one decision at a time and end each explanation with a `nacre-ask` block. The
+agent never answers a decision.
+
+A ChatMessage may carry `"answered": "<decision id>"` after the phone answered that decision (its text
+is "Answered: <option label>"). The turn's note then starts with nacred's current state of the
+decision. Walk-through messages and answered messages run as light turns without a routing call when
+`chat.light_model` is set. 400 for an `answered` id that can't name a decision.
+
 ### ChatEvent
 
 The log is `chats/<id>.events.jsonl`. Every event has `seq` (increasing), `ts`, `kind` and the
@@ -1123,13 +1138,15 @@ newest 5,000 events; older ones are dropped behind one `truncated` marker.
 
 | `kind` | Fields |
 |---|---|
-| `user` | `text`, `context` (the screen it was sent from), `images` (`[{"id","name","media_type","bytes"}]`, in order) |
+| `user` | `text`, `context` (the screen it was sent from), `images` (`[{"id","name","media_type","bytes"}]`, in order), `answered` (the decision id an "Answered: …" message reports) |
 | `text`, `thinking`, `tool_use`, `tool_result` | the transcript, as in RunEvent (`text`, `tool`, `tool_id`, `input`, `is_error`), plus **`route`**: `light` or `full`, the part of the turn that produced it |
 | `handoff` | a light turn handed the message to the full harness: `text` "Switching to the full agent: <reason>", `reason` |
 | `draft` | a New effort draft: `draft` `{"title","type"?,"description"?,"design"?,"acceptance"?}`, `text` its title, `route` |
 | `permission` | a request waiting for the phone: `request_id`, `tool`, `text` (one line: the command, the file path, or "MCP tool <name> on <server>"), `reason` (the classifier's reason, when given), `input` |
 | `permission_answer` | how it was decided: `request_id`, `allowed`, `by` (`phone`, `timeout`, `stop`, `restart` or `turn_end`), `text`/`reason` (the deny message the agent saw) |
 | `decision` | a [decision](#decisions-v1decisions) raised in this chat, each time it is created or changes state: `decision` holds the Decision as `GET /v1/decisions/{id}` returns it |
+| `ask` | the agent asked about a decision: `text` is its id, `route`. Written when a reply's fenced `nacre-ask` block (`{"decision": "<id>"}`) names a decision still answerable in the chat's repository; the block itself is removed from the reply's `text`, and a block naming anything else is dropped |
+| `needs_you` | a new chat's heads-up, written by nacred (not a model) shortly after the chat is created when decisions wait on Ryder in its repository: `text` ("5 things need you here: 3 approvals and 2 questions. Go through them one by one?"), `total`. At most one per chat, never after the first message |
 | `system` | a note from nacred, for example the interruption by a restart |
 | `error` | a failure, including "The draft couldn't be read: <reason>" |
 | `turn_end` | the turn finished: `text` "Turn finished", "Stopped" or "Turn ended with an error" (with `is_error`), `cost_usd` (what this turn spent, Claude only) |

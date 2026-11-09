@@ -107,7 +107,7 @@ fun BoardWorkspace(
     chat: @Composable (Modifier) -> Unit,
     onSwitchProject: () -> Unit,
     onWork: (WorkSummary) -> Unit,
-    onQueue: () -> Unit,
+    onNeedsYou: (String?) -> Unit,
     askAbout: (ChatReference) -> Unit,
     /** Shows a chat in the drawer: picked from Jobs. */
     onThread: (String) -> Unit,
@@ -138,7 +138,9 @@ fun BoardWorkspace(
     LaunchedEffect(beadTargets[repoKey]) {
         beadTargets[repoKey]?.let { view = BEAD + it; refs.beadOpened(repoKey) }
     }
-    QueueWatcher(repoKey, onQueue)
+    // The walk-through runs in the chat drawer, so starting it opens the drawer on the conversation.
+    val needsYouHere: (String?) -> Unit = { id -> chatOpen = true; jobsTab = false; unfolded = true; onNeedsYou(id) }
+    QueueWatcher(repoKey, needsYouHere)
     // The board has no Viewing context: a pane's leftover one would ride along unasked.
     LaunchedEffect(repoKey) { refs.view(repoKey, null) }
 
@@ -160,11 +162,11 @@ fun BoardWorkspace(
 
     androidx.activity.compose.BackHandler(enabled = chatOpen && unfolded && !jobsTab && view == BOARD) { unfolded = false }
 
-    CompositionLocalProvider(LocalCardAttach provides attach, LocalViewing provides {}) {
+    CompositionLocalProvider(LocalCardAttach provides attach, LocalViewing provides {}, LocalOpenNeedsYou provides needsYouHere) {
         Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             BoardTopBar(
                 projectName, here, work, needsYou, chatOpen,
-                onSwitchProject = onSwitchProject, onBoard = { view = BOARD }, onWork = onWork, onQueue = onQueue,
+                onSwitchProject = onSwitchProject, onBoard = { view = BOARD }, onWork = onWork, onNeedsYou = { needsYouHere(null) },
                 onChat = { chatOpen = !chatOpen },
             )
             Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -205,7 +207,7 @@ private fun BoardTopBar(
     onSwitchProject: () -> Unit,
     onBoard: () -> Unit,
     onWork: (WorkSummary) -> Unit,
-    onQueue: () -> Unit,
+    onNeedsYou: () -> Unit,
     onChat: () -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
@@ -244,14 +246,7 @@ private fun BoardTopBar(
                 Text(ChatFirstData.statusText(work), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (needsYou > 0) Surface(
-            onClick = onQueue, shape = RoundedCornerShape(20.dp), color = c.errorContainer, contentColor = c.onErrorContainer,
-            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$needsYou need you: open the queue" },
-        ) {
-            Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                Text("$needsYou need${if (needsYou == 1) "s" else ""} you", style = MaterialTheme.typography.labelLarge)
-            }
-        }
+        NeedsYouBadge(needsYou, onNeedsYou)
         IconToggleButton(checked = chatOpen, onCheckedChange = { onChat() }, modifier = Modifier.semantics { contentDescription = if (chatOpen) "Hide chat" else "Show chat" }) {
             Icon(if (chatOpen) Icons.AutoMirrored.Rounded.Chat else Icons.AutoMirrored.Outlined.Chat, null)
         }

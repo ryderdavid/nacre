@@ -241,7 +241,7 @@ private fun CardsList(cards: List<ChatCard>, current: String?, now: Long, onOpen
             )
         }
         if (active.isNotEmpty()) {
-            item(key = "l:active") { SectionLabel("Working and waiting on you") }
+            item(key = "l:active") { SectionLabel("Working") }
             items(active, key = { it.key }) { c -> ChatCardView(c, selected = c.key == current, now = now, onClick = { onOpen(c.key) }) }
         }
         if (recent.isNotEmpty()) {
@@ -347,7 +347,8 @@ private fun JobBox(job: ChatJob) {
 private fun StatePill(card: ChatCard, now: Long) {
     val c = MaterialTheme.colorScheme
     when {
-        card.waiting > 0 -> Pill(if (card.waiting == 1) "1 needs you" else "${card.waiting} need you", c.errorContainer, c.onErrorContainer)
+        // The chat is asking something: its options are above its composer. Counts are the badge's job.
+        card.waiting > 0 -> Pill("Asking you", c.tertiaryContainer, c.onTertiaryContainer)
         card.running -> Pill("Working", c.primaryContainer, c.onPrimaryContainer, live = true)
         else -> agoText(card.updatedAt, now)?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = c.outline) }
     }
@@ -471,7 +472,7 @@ private fun WorkJobCard(
                     Text(job.title, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 when {
-                    job.waiting > 0 -> Pill(if (job.waiting == 1) "1 needs you" else "${job.waiting} need you", c.errorContainer, c.onErrorContainer)
+                    job.waiting > 0 -> Pill("Asking you", c.tertiaryContainer, c.onTertiaryContainer)
                     job.running -> Pill("Running", c.primaryContainer, c.onPrimaryContainer, live = true)
                 }
             }

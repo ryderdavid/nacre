@@ -137,6 +137,8 @@ type chatMessage struct {
 	TurnID  string        `json:"turn_id"`
 	Text    string        `json:"text"`
 	Context *chat.Context `json:"context"`
+	// Answered is the decision an "Answered: …" message reports.
+	Answered string `json:"answered,omitempty"`
 	// Images is the message's ordered images, at most maxChatImages.
 	Images []chatImage `json:"images,omitempty"`
 }
@@ -158,7 +160,7 @@ func (s *Server) sendChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, bad, "")
 		return
 	}
-	req := chat.SendRequest{TurnID: body.TurnID, Text: body.Text, Context: body.Context, Images: images}
+	req := chat.SendRequest{TurnID: body.TurnID, Text: body.Text, Context: body.Context, Answered: body.Answered, Images: images}
 	res, err := m.Send(r.PathValue("chat"), req)
 	if err != nil {
 		s.chatFail(w, err)

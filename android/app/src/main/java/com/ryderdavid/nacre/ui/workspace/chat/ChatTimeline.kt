@@ -47,5 +47,14 @@ object ChatTimeline {
         return rows
     }
 
+    /**
+     * The conversation's items as receipts go: one Ask row per decision (the first time it was asked), none
+     * for a decision the chat raised ([raised] ids), whose own receipt sits where it was raised.
+     */
+    fun receipts(items: List<ChatItem>, raised: Set<String>): List<ChatItem> {
+        val seen = HashSet<String>()
+        return items.filter { it !is ChatItem.Ask || (it.decisionId !in raised && seen.add(it.decisionId)) }
+    }
+
     private fun instant(s: String): Instant? = if (s.isBlank()) null else runCatching { Instant.parse(s) }.getOrNull()
 }

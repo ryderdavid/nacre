@@ -29,6 +29,9 @@ type SendRequest struct {
 	TurnID  string   `json:"turn_id"`
 	Text    string   `json:"text"`
 	Context *Context `json:"context"`
+	// Answered is the decision the phone just answered, for a message such
+	// as "Answered: Approve only" that continues the walk-through.
+	Answered string `json:"answered,omitempty"`
 	// Images are the message's images, validated and decoded by the
 	// server; they arrive as the body's images array.
 	Images []claude.Image `json:"-"`
@@ -81,6 +84,14 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	}
 	if len(req.Text) > maxText {
 		return SendResult{}, errors.New("text too long")
+	}
+	// nacred's state of an answered decision is read before the chat is
+	// locked: the lookup can be slow.
+	answeredState := ""
+	if req.Answered != "" && decisionIDRe.MatchString(req.Answered) {
+		if h := m.hooks(); h.State != nil {
+			answeredState = h.State(req.Answered)
+		}
 	}
 	if req.TurnID == "" {
 		req.TurnID = newID("t_")
@@ -138,7 +149,9 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 			break
 		}
 	}
-	if firstMessage && !c.rec.NewEffort {
+	if _, isWalk := ParseNeedsYou(req.Text); firstMessage && !c.rec.NewEffort && isWalk {
+		c.rec.Title = "Needs you"
+	} else if firstMessage && !c.rec.NewEffort {
 		if t := trimTitle(req.Text); t != "" {
 			c.rec.Title = t
 		}
@@ -153,18 +166,36 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		// go-ahead marker works whatever the session remembers.
 		turnNote = DraftingTurnNote + "\n\n" + note
 	}
+	// The walk-through: /needs-you is expanded into its prompt, and an
+	// answered message carries nacred's state of the decision. Both run
+	// as light turns.
+	agentText := req.Text
+	walk := false
+	if start, ok := ParseNeedsYou(req.Text); ok {
+		agentText, walk = NeedsYouPrompt(start), true
+	}
+	if req.Answered != "" {
+		if !decisionIDRe.MatchString(req.Answered) {
+			m.mu.Unlock()
+			return SendResult{}, errors.New("invalid answered decision id")
+		}
+		turnNote = AnsweredNote(req.Answered, answeredState) + "\n\n" + turnNote
+		walk = true
+	}
 	var ctxCopy *Context
 	if req.Context != nil {
 		cc := *req.Context
 		ctxCopy = &cc
 	}
-	plan := turnPlan{note: turnNote, text: req.Text, reminder: Reminder(req.Context, m.opts.RepoPath)}
+	plan := turnPlan{note: turnNote, text: agentText, reminder: Reminder(req.Context, m.opts.RepoPath)}
 	// Only this message's images are sent: the resumed session holds the
 	// earlier ones.
 	plan.images = m.stagedImages(id, refs)
 	plan.codex = c.rec.Agent == AgentCodex
 	plan.drafting = c.rec.Drafting && c.rec.Agent == AgentClaude
-	if c.rec.Agent == AgentClaude && !plan.drafting && m.routingOnLocked() {
+	if walk && c.rec.Agent == AgentClaude && !plan.drafting && m.opts.LightModel != "" && !m.rejected[m.opts.LightModel] {
+		plan.forceLight, plan.lightModel = true, m.opts.LightModel
+	} else if c.rec.Agent == AgentClaude && !plan.drafting && m.routingOnLocked() {
 		// The router sees the history before this message, never files.
 		plan.routed = true
 		plan.router = RouterInput{
@@ -173,7 +204,7 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 		}
 		plan.lightModel = m.opts.LightModel
 	}
-	m.appendLocked(c, Event{Kind: KindUser, TurnID: req.TurnID, Text: req.Text, Context: ctxCopy, Images: refs})
+	m.appendLocked(c, Event{Kind: KindUser, TurnID: req.TurnID, Text: req.Text, Context: ctxCopy, Images: refs, Answered: req.Answered})
 	for _, r := range refs {
 		c.rec.ImageCount++
 		c.rec.ImageBytes += int64(r.Bytes)
@@ -228,6 +259,9 @@ type turnPlan struct {
 	// routed asks the router first.
 	routed     bool
 	router     RouterInput
+	// forceLight runs the light turn without asking the router: the
+	// Needs you walk-through only reads.
+	forceLight bool
 	lightModel string
 }
 
@@ -337,7 +371,9 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 		return res, err
 	}
 	route := RouteFull
-	if p.routed {
+	if p.forceLight {
+		route = RouteLight
+	} else if p.routed {
 		d := m.route(ctx, p.router, m.remaining(c))
 		m.addCost(c, t, d.Cost)
 		if d.Rejected {
@@ -599,11 +635,16 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					}
 				}
 				var drafts []Event
+				var asks []string
 				if ev.Kind == api.KindText {
 					rest, found := ExtractDrafts(out.Text)
 					if len(found) > 0 {
 						out.Text, ev.Text = rest, rest
 						drafts = draftEvents(found, t.id, route)
+					}
+					if rest, ids := ExtractAsks(out.Text); len(ids) > 0 || rest != out.Text {
+						out.Text, ev.Text = rest, rest
+						asks = ids
 					}
 				}
 				if lt != nil {
@@ -627,6 +668,9 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 				}
 				for _, d := range drafts {
 					m.emit(c, d)
+				}
+				for _, id := range asks {
+					m.recordAsk(c, id, t.id, route)
 				}
 			}
 		})

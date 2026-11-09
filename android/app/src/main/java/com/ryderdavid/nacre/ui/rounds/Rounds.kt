@@ -196,10 +196,12 @@ internal fun StatusCard(
     onBudget: (Double) -> Unit,
     onChoose: (String, Double) -> Unit,
     onCancel: () -> Unit,
+    /** False where the stop is answered as the round's decision instead (the walk-through in Chat). */
+    stopChoices: Boolean = true,
 ) {
     var raising by remember { mutableStateOf(false) }
     var retrying by remember { mutableStateOf(false) }
-    val stop = r.stop?.takeIf { r.state == ROUND_PAUSED }
+    val stop = r.stop?.takeIf { r.state == ROUND_PAUSED && stopChoices }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

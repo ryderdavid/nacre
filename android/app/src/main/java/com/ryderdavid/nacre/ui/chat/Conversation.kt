@@ -105,6 +105,8 @@ internal fun ChatItemView(
         is ChatItem.ToolStep -> ToolStepView(item)
         is ChatItem.Handoff -> Text(item.text, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
         is ChatItem.Permission -> PermissionCardView(item.card, onAnswer)
+        // The workspace's Chat shows these as receipts and the heads-up; nothing else draws them.
+        is ChatItem.Ask, is ChatItem.HeadsUp -> Unit
         is ChatItem.Note -> Text(
             item.text, style = MaterialTheme.typography.bodySmall,
             color = if (item.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,

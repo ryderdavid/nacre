@@ -111,6 +111,8 @@ data class Decision(
 
     /** Waits on Ryder and counts in Needs you: pending, or held by him (land or cancel). Deferred doesn't. */
     val waitsOnYou get() = state == "pending" || state == "held"
+    /** What counts toward Needs you, as nacred counts it: waiting, or a failed or unknown outcome not yet seen. */
+    val needsYou get() = waitsOnYou || ((state == "failed" || state == "unknown") && !acknowledged)
 
     /**
      * Listed in the queue: everything that waits, is deferred or still running, and an outcome Ryder

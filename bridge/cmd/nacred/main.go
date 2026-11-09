@@ -112,10 +112,12 @@ func main() {
 		err = launchd.Install(launchd.DefaultPaths(config.Home()), cp, os.Stdout)
 	case "round":
 		err = runRound(cfg, fs.Args(), os.Stdout)
+	case "decisions", "decision":
+		err = runDecisions(cfg, cmd, fs.Args(), os.Stdout)
 	case "uninstall":
 		err = launchd.Uninstall(launchd.DefaultPaths(config.Home()), os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates|round|hook] [--config path] [--listen host:port]\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: nacred [serve|pair|token|version|install|uninstall|gates|round|decisions|hook] [--config path] [--listen host:port]\n", cmd)
 		os.Exit(2)
 	}
 	if err != nil {

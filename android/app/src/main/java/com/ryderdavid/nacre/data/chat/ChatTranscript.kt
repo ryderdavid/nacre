@@ -61,7 +61,14 @@ sealed interface ChatItem {
      * whose "Where does this belong?" raises intake from that event.
      */
     data class Draft(override val key: String, val draft: com.ryderdavid.nacre.data.model.ChatDraft, val latest: Boolean = true, val seq: Long = 0) : ChatItem
+    /** Where the agent asked about decision [decisionId]: the conversation shows its receipt here. */
+    data class Ask(override val key: String, val decisionId: String) : ChatItem
+    /** A new chat's heads-up from nacred: [text] says what waits, [total] how many. */
+    data class HeadsUp(override val key: String, val text: String, val total: Int) : ChatItem
 }
+
+/** How Ryder's /needs-you message reads in the conversation. */
+const val NEEDS_YOU_SHOWN = "Go through what needs me"
 
 /** The handoff line, as the conversation shows it. */
 fun handoffLine(event: ChatEvent): String {
@@ -133,7 +140,9 @@ class ChatTranscript {
         val key = "e${ev.seq}"
         if (ev.ts.isNotBlank()) stamps.putIfAbsent(key, ev.ts)
         when (ev.kind) {
-            ChatWire.USER -> items += ChatItem.User(key, ev.text, ev.context?.let { ctxLabel(it) }, ev.images)
+            ChatWire.USER -> items += ChatItem.User(key, if (ev.text.trim().startsWith(ChatWire.NEEDS_YOU_COMMAND)) NEEDS_YOU_SHOWN else ev.text, ev.context?.let { ctxLabel(it) }, ev.images)
+            ChatWire.ASK -> if (ev.text.isNotBlank()) items += ChatItem.Ask(key, ev.text)
+            ChatWire.NEEDS_YOU -> if (ev.text.isNotBlank()) items += ChatItem.HeadsUp(key, ev.text, ev.total)
             ChatWire.TEXT -> {
                 val last = items.lastOrNull()
                 if (last is ChatItem.Assistant && last.route == ev.route) {

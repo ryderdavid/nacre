@@ -54,14 +54,13 @@ internal fun newlyStalled(runs: List<Run>, announced: Set<String>): List<Run> =
 data class RoundNotice(val title: String, val body: String)
 
 /**
- * What, if anything, a round change should announce: a decision needed, a bead parked, a pause,
- * ready to land. Each fires once, on the change into it.
+ * What, if anything, a round change should announce: a bead parked, a pause, a landing. Each fires once,
+ * on the change into it. A question and a round ready to land are decisions, announced under the one
+ * "N things need you" summary, so they aren't announced here too.
  */
 internal fun roundNotice(before: Round?, after: Round): RoundNotice? {
     val beads = after.beads.joinToString(", ") { it.id }
     if (before?.state != after.state) when (after.state) {
-        ROUND_NEEDS_DECISION -> return RoundNotice("A round needs your decision", after.openQuestions.firstOrNull()?.text ?: "Beads $beads")
-        ROUND_READY -> return RoundNotice("Ready to merge", "One commit with $beads passes every gate and the build. Merge it into ${after.target}.")
         ROUND_PAUSED -> return RoundNotice("A round paused", after.pauseReason.ifBlank { "Beads $beads" })
         ROUND_LANDED -> return RoundNotice("Round merged", "${after.target} is at ${after.landedCommit.take(7)}${if (after.pushed) " and pushed" else ""}.")
     }
@@ -73,11 +72,11 @@ internal fun roundNotice(before: Round?, after: Round): RoundNotice? {
 }
 
 /**
- * The Needs you items worth a notification: a proposal ready for review and a
- * change ready to archive, each once, when it first appears.
+ * The Needs you items worth a notification of their own: none. A proposal ready for review and a change
+ * ready to archive are decisions (approve, finish), announced under the "N things need you" summary.
  */
-internal fun changeNotices(items: List<AttentionItem>, announced: Set<String>): List<AttentionItem> =
-    items.filter { (it.kind == AttentionItem.PROPOSAL_READY || it.kind == AttentionItem.CHANGE_ARCHIVABLE) && it.id !in announced }
+@Suppress("UNUSED_PARAMETER")
+internal fun changeNotices(items: List<AttentionItem>, announced: Set<String>): List<AttentionItem> = emptyList()
 
 internal fun shouldAnnounceFinish(run: Run, notifyRuns: Boolean, appInForeground: Boolean): Boolean =
     notifyRuns && !appInForeground && !run.isAdopted

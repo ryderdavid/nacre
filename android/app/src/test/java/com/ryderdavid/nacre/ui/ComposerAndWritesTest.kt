@@ -22,7 +22,7 @@ class ComposerAndWritesTest {
                 f.name !in setOf("ProjectsScreen.kt", "ChatFirstShell.kt")
         }.map { it.name }.toList()
         assertTrue(offenders.isEmpty(), "writes launched from a composition-bound scope in $offenders")
-        assertTrue(src("ui/workspace/decisions/DecisionCard.kt").contains("val scope = container.scope"))
+        assertTrue(src("ui/workspace/chat/AskSlot.kt").contains("container.scope.launch"))
         assertTrue(src("ui/workspace/chat/ChatPane.kt").contains("val scope = container.scope"))
     }
 

@@ -73,7 +73,7 @@ import com.ryderdavid.nacre.ui.workspace.ChatReference
 import com.ryderdavid.nacre.ui.workspace.LocalAskAbout
 import com.ryderdavid.nacre.ui.workspace.LocalViewing
 import com.ryderdavid.nacre.ui.workspace.LocalOpenEvidence
-import com.ryderdavid.nacre.ui.workspace.LocalOpenQueue
+import com.ryderdavid.nacre.ui.workspace.LocalOpenNeedsYou
 import com.ryderdavid.nacre.ui.workspace.decisions.DecisionModel
 import com.ryderdavid.nacre.ui.workspace.segmentShape
 
@@ -98,12 +98,12 @@ internal fun ChangeOverviewPane(vm: SpecPanelViewModel, screen: SpecScreen.Chang
     // Beads open read-only here; rounds and runs open in the workspace's work inspector.
     var bead by remember { mutableStateOf<String?>(null) }
     val openEvidence = LocalOpenEvidence.current
-    // Waiting for you links to the change's decision card: the queue opens at it.
+    // Waiting for you starts the Needs you walk-through in Chat at the change's decision.
     val decisions by repo.decisions.collectAsState()
-    val openQueue = LocalOpenQueue.current
+    val openNeedsYou = LocalOpenNeedsYou.current
     val seeds = listOfNotNull(change?.seedId).plus(summary?.seedIds.orEmpty()).filter { it.isNotBlank() }.toSet()
     val decision = DecisionModel.forChange(decisions[vm.repoKey].orEmpty(), screen.changeId, change?.changeName ?: summary?.changeName.orEmpty(), seeds)
-    val onWaiting: () -> Unit = { repo.focusQueue(vm.repoKey, decision?.id); openQueue() }
+    val onWaiting: () -> Unit = { openNeedsYou(decision?.id) }
     val onEvidence: (EvidenceLink) -> Unit = { link ->
         when (link.kind) {
             EvidenceKind.BEAD -> bead = link.id
@@ -157,8 +157,8 @@ private fun OverviewContent(
         if (o.waiting) item(key = "waiting") {
             Banner(
                 Icons.Rounded.HourglassTop,
-                if (waitingOn != null) "Waiting for you · open its decision" else "Waiting for you · open the queue",
-                (waitingOn?.let { "$it. " } ?: "") + "Approve, revise or answer it on its decision card. This panel only reads.",
+                "Waiting for you · Talk it through",
+                (waitingOn?.let { "$it. " } ?: "") + "Chat explains it and asks you there. This panel only reads.",
                 c.tertiaryContainer, c.onTertiaryContainer,
                 onClick = onWaiting,
             )

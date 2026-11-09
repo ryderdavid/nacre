@@ -30,6 +30,12 @@ object ChatWire {
     const val DRAFT = "draft"
     /** A decision raised in the chat, each time it is created or changes state. */
     const val DECISION = "decision"
+    /** The agent asked about a decision; its text is the decision id. */
+    const val ASK = "ask"
+    /** A new chat's heads-up: what waits on Ryder in its repository. */
+    const val NEEDS_YOU = "needs_you"
+    /** The message that starts the Needs you walk-through. */
+    const val NEEDS_YOU_COMMAND = "/needs-you"
     const val ERROR = "error"
     const val TURN_END = "turn_end"
     const val TRUNCATED = "truncated"
@@ -101,6 +107,8 @@ data class ChatRecord(
     @SerialName("waiting") val waitingCount: Int = 0,
     /** The chat's last line, for the thread switcher (chat-first nacred). */
     @SerialName("last_line") val lastLine: String = "",
+    /** The decision the chat last asked about, whose options sit above the composer while it is pending. */
+    val asking: String = "",
     /** What the chat started or created: beads and changes (with their repository) and rounds or runs (kind "work"). */
     val work: List<ChatWorkLink> = emptyList(),
     /** Set by the app: which paired computer this chat is on. */
@@ -138,6 +146,10 @@ data class ChatEvent(
     val images: List<ChatImageRef> = emptyList(),
     /** The decision a `decision` event carries, as `GET /v1/decisions/{id}` returns it. */
     val decision: Decision? = null,
+    /** The decision an "Answered: …" message reports. */
+    val answered: String = "",
+    /** A heads-up's count of what waits. */
+    val total: Int = 0,
 )
 
 /**
@@ -182,6 +194,8 @@ data class SendChatMessage(
     val context: ScreenContext?,
     /** The message's images, in order; left out of the body when there are none. */
     val images: List<AssistImage> = emptyList(),
+    /** The decision this message reports answering; left out when it is none. */
+    val answered: String? = null,
 )
 
 @Serializable

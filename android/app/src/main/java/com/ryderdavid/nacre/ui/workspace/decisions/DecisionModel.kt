@@ -202,32 +202,10 @@ object DecisionModel {
         return listOf(focused) + ordered.filter { it.id != focused.id }
     }
 
-    /**
-     * Cards nacred's card check closed as handled elsewhere within [days] of [now] (epoch millis), newest
-     * first, for the queue's Handled elsewhere section where each can be reopened.
-     */
-    fun handled(all: List<Decision>, now: Long, days: Long = 7): List<Decision> = all
-        .filter { it.handled != null && it.state == "expired" }
-        .mapNotNull { d -> runCatching { java.time.Instant.parse(d.handled!!.at).toEpochMilli() }.getOrNull()?.let { d to it } }
-        .filter { (_, at) -> now - at <= days * 86_400_000L }
-        .sortedByDescending { it.second }
-        .map { it.first }
-
-    /**
-     * The walkthrough's steps: the cards that wait on Ryder, in the card check's [order] (what other work
-     * waits on first), then any it didn't rank in [queueOrder]; each with the check's why, or blank.
-     */
-    fun walkSteps(all: List<Decision>, order: List<com.ryderdavid.nacre.data.model.CardStep>): List<Pair<Decision, String>> {
-        val waiting = all.filter { it.open && it.waitsOnYou }.associateBy { it.id }
-        val ranked = order.mapNotNull { st -> waiting[st.id]?.let { it to st.why } }.distinctBy { it.first.id }
-        val seen = ranked.map { it.first.id }.toSet()
-        return ranked + queueOrder(waiting.values.filter { it.id !in seen }).map { it to "" }
-    }
-
     /** What a project's strip counts: decisions waiting on Ryder, and the rest of the open queue. */
     fun counts(all: List<Decision>): QueueCount {
         val open = all.filter { it.open }
-        val waiting = open.count { it.waitsOnYou }
+        val waiting = open.count { it.needsYou }
         return QueueCount(needsYou = waiting, inQueue = open.size - waiting)
     }
 

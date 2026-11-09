@@ -13,21 +13,20 @@ import com.ryderdavid.nacre.data.model.RoundBead
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /** A round tells Ryder once about each thing that needs him, and stays quiet otherwise. */
 class RoundNoticeTest {
     private val base = Round(id = "rd1", state = ROUND_PLANNING, target = "main", beads = listOf(RoundBead("NAC-1", state = BEAD_RUNNING), RoundBead("NAC-2", state = BEAD_RUNNING)))
 
-    @Test fun decisionNeeded() {
+    @Test fun decisionsAreLeftToTheNeedsYouSummary() {
+        // A question and a round ready to land are decisions: the "N things need you" summary announces them.
         val after = base.copy(state = ROUND_NEEDS_DECISION, questions = listOf(Question("q1", text = "Hide the bar on scroll?")))
-        assertEquals("Hide the bar on scroll?", roundNotice(base, after)?.body)
-        assertNull(roundNotice(after, after), "a state is announced once, on the way in")
+        assertNull(roundNotice(base, after))
+        assertNull(roundNotice(base, base.copy(state = ROUND_READY)))
     }
 
-    @Test fun readyAndLanded() {
+    @Test fun landed() {
         val ready = base.copy(state = ROUND_READY)
-        assertTrue(roundNotice(base, ready)!!.body.contains("Merge it into main"))
         val landed = ready.copy(state = ROUND_LANDED, landedCommit = "abcdef123", pushed = true)
         assertEquals("main is at abcdef1 and pushed.", roundNotice(ready, landed)?.body)
     }

@@ -152,6 +152,10 @@ type Record struct {
 	// LastLine is the first line of the newest message, Ryder's or the
 	// agent's, for chat lists.
 	LastLine string `json:"last_line"`
+	// Asking is the decision the chat last asked Ryder about: named in a
+	// nacre-ask block, or raised by the chat. The app shows its options
+	// above the composer while it is pending.
+	Asking string `json:"asking,omitempty"`
 }
 
 // Event is one entry in a chat's log.
@@ -184,6 +188,10 @@ type Event struct {
 	// Decision is an owner decision raised in this chat, as it was created
 	// or changed (kind decision).
 	Decision json.RawMessage `json:"decision,omitempty"`
+	// Answered is the decision a user message reports answering.
+	Answered string `json:"answered,omitempty"`
+	// Total is a heads-up's count of what waits.
+	Total int `json:"total,omitempty"`
 }
 
 // chatState is a loaded chat.
@@ -203,6 +211,8 @@ type Manager struct {
 	opts Options
 	// intakeRaiser raises intake on a draft for a drafting turn's go-ahead.
 	intakeRaiser func(chatID string, seq int64) error
+	// decisionHooks look up decisions for the walk-through and heads-up.
+	decisionHooks DecisionHooks
 
 	mu    sync.Mutex
 	chats map[string]*chatState
@@ -417,6 +427,10 @@ func (m *Manager) Create(req CreateRequest) (Record, error) {
 		return Record{}, err
 	}
 	m.trimLocked()
+	// A New effort chat starts drafting at once; the heads-up would only be in the way.
+	if repo != nil && !req.NewEffort {
+		go m.headsUp(rec.ID, *repo)
+	}
 	return rec, nil
 }
 
