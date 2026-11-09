@@ -71,8 +71,9 @@ import kotlinx.coroutines.launch
 internal fun ChatItemView(
     item: ChatItem,
     onAnswer: (String, Boolean, String?) -> Unit,
-    onContinue: ((com.ryderdavid.nacre.data.model.ChatDraft) -> Unit)? = null,
+    onContinue: ((ChatItem.Draft) -> Unit)? = null,
     chatKey: String = "",
+    draftNote: String? = null,
 ) {
     when (item) {
         is ChatItem.User -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
@@ -106,13 +107,17 @@ internal fun ChatItemView(
             item.text, style = MaterialTheme.typography.bodySmall,
             color = if (item.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        is ChatItem.Draft -> if (item.latest) DraftCardView(item.draft, onContinue)
+        is ChatItem.Draft -> if (item.latest) DraftCardView(item, onContinue, draftNote)
     }
 }
 
-/** The newest New effort draft: its fields, and Continue when a screen can take it further. */
+/**
+ * The newest New effort draft: its fields, and "Where does this belong?" when its computer raises intake
+ * from a recorded draft. [note] is what the last tap came to when it didn't raise a card.
+ */
 @Composable
-internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onContinue: ((com.ryderdavid.nacre.data.model.ChatDraft) -> Unit)?) {
+internal fun DraftCardView(item: ChatItem.Draft, onContinue: ((ChatItem.Draft) -> Unit)?, note: String? = null) {
+    val draft = item.draft
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Draft" + draft.type.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), style = MaterialTheme.typography.labelLarge)
@@ -126,9 +131,16 @@ internal fun DraftCardView(draft: com.ryderdavid.nacre.data.model.ChatDraft, onC
                 Text("Design", style = MaterialTheme.typography.labelMedium)
                 Text(draft.design, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
             }
-            if (onContinue != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = { onContinue(draft) }) { Text("Continue") }
+            if (onContinue != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = { onContinue(item) }) { Text(DRAFT_ACTION) }
+                }
+                Text(DRAFT_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
+            if (!note.isNullOrBlank()) Text(
+                note, style = MaterialTheme.typography.bodySmall,
+                color = if (note == com.ryderdavid.nacre.data.chat.DRAFT_ASKING) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
@@ -187,3 +199,9 @@ fun beadMentions(text: String, known: Set<String>, max: Int = 3): List<String> {
 }
 
 private val BEAD_ID = Regex("""\b[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*""")
+
+/** The Draft card's one action: raise intake on this draft. */
+const val DRAFT_ACTION = "Where does this belong?"
+
+/** Under the Draft card's action: the other way forward. */
+const val DRAFT_HINT = "Or tell the chat what to change."

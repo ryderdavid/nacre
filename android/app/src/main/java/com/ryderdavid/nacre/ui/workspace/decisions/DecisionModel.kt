@@ -149,19 +149,19 @@ object DecisionModel {
 
     /**
      * The message "Ask the chat again" puts in the chat's composer (the card itself goes with it as a
-     * reference). Raising intake again runs intake again, so that message says so, with what it cost last time.
+     * reference). Raising intake again runs intake again, so that message says so, without a price.
      */
     fun askChatText(d: Decision): String {
-        val cost = d.consequences.firstNotNullOfOrNull { INTAKE_COST.find(it)?.groupValues?.get(1) }
-        val spend = when {
-            d.kind != "intake" -> ""
-            cost != null -> " That runs intake again, which cost $cost last time."
-            else -> " That runs intake again, which is a paid call."
-        }
-        return "This card expired before I answered it. Please raise it again so I can decide.$spend"
+        val again = if (d.kind == "intake") " That runs intake again." else ""
+        return "This card expired before I answered it. Please raise it again so I can decide.$again"
     }
 
-    private val INTAKE_COST = Regex("""Intake cost (\$[0-9.,]+)""")
+    /**
+     * The note field's label while sending a card back: a change sent back is revised and asked again,
+     * so it asks what should change; other rejections ask why.
+     */
+    fun rejectNoteLabel(d: Decision): String =
+        if (d.rejectLabel == "Send back for changes") "What should change? It's revised and sent back to you" else "Why? (sent with the rejection)"
 
     /** Whether "Got it" is offered: a failed, unknown or expired outcome not yet acknowledged. */
     fun canAcknowledge(d: Decision) = d.acknowledgeable

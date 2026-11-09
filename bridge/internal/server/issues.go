@@ -78,6 +78,9 @@ type createIssueRequest struct {
 	// FoundComment is a `Found:` comment this effort answers; its marker is
 	// posted once the new bead exists.
 	FoundComment *specflow.FoundComment `json:"found_comment"`
+	// OwnerNote is a note Ryder wrote on the card that creates the bead; it
+	// is added to the description.
+	OwnerNote string `json:"owner_note"`
 }
 
 func validPriority(p *int) bool { return p == nil || (*p >= 0 && *p <= 4) }
@@ -93,6 +96,9 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Title = strings.TrimSpace(req.Title)
+	if note := strings.TrimSpace(req.OwnerNote); note != "" {
+		req.Description = strings.TrimSpace(req.Description + "\n\nRyder's note: " + note)
+	}
 	switch {
 	case req.Title == "":
 		writeError(w, http.StatusBadRequest, "title is required", "")

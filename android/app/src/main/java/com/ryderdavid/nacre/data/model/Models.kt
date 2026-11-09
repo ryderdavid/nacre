@@ -388,6 +388,8 @@ object Features {
 
     /** Chat (`/v1/chats`) can run here, with host permission prompts answered from the phone. */
     const val AGENT_CHAT = "agent_chat"
+    /** New effort chats draft, and a Draft card raises intake from its recorded draft (`draft_seq`). */
+    const val DRAFT_INTAKE = "draft_intake"
 
     /** Chats can run on Codex through `codex app-server`. */
     const val AGENT_CHAT_CODEX = "agent_chat_codex"

@@ -65,6 +65,13 @@ internal class FakeChatLink(
     var refuse: Exception? = null
 
     override suspend fun refreshChats() = listing
+    /** The draft events "Where does this belong?" raised intake from, and what each came to. */
+    val draftRaises = mutableListOf<Pair<String, Long>>()
+    var draftRaise: (String, Long) -> DraftIntakeResult = { _, _ -> DraftIntakeResult.Raised(com.ryderdavid.nacre.data.model.Decision(id = "dc_1", kind = "intake")) }
+    override suspend fun raiseDraftIntake(key: String, seq: Long): DraftIntakeResult {
+        draftRaises += key to seq
+        return draftRaise(key, seq)
+    }
     /** Decisions the chats' logs carried, in the order they were handed on. */
     val learned = mutableListOf<com.ryderdavid.nacre.data.model.Decision>()
     override fun learnDecision(d: com.ryderdavid.nacre.data.model.Decision) { synchronized(learned) { learned += d } }

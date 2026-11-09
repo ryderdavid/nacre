@@ -79,15 +79,17 @@ class ChatConversationTest {
         assertEquals(LIMIT_REASON, ConversationState(chat = ChatRecord("c1", state = ChatWire.LIMIT_REACHED)).limitReason)
     }
 
-    @Test fun `the handoff shows as the handed-to-the-full-harness line`() {
+    @Test fun `the handoff shows as the switching-to-the-full-agent line`() {
         val t = ChatTranscript()
         t.add(ev(1, ChatWire.USER, "now do it"))
         t.add(ev(2, ChatWire.TEXT, "Let me look.").copy(route = ChatWire.ROUTE_LIGHT))
-        t.add(ev(3, ChatWire.HANDOFF, "Handed to the full harness: needs to edit files"))
+        t.add(ev(3, ChatWire.HANDOFF, "Switching to the full agent: needs to edit files"))
         t.add(ev(4, ChatWire.HANDOFF, reason = "wants to leave plan mode"))
-        t.add(ev(5, ChatWire.TEXT, "Editing now.").copy(route = ChatWire.ROUTE_FULL))
+        // An older bridge's line is shown as it came.
+        t.add(ev(5, ChatWire.HANDOFF, "Handed to the full harness: needs to push"))
+        t.add(ev(6, ChatWire.TEXT, "Editing now.").copy(route = ChatWire.ROUTE_FULL))
         val lines = t.shown.filterIsInstance<ChatItem.Handoff>().map { it.text }
-        assertEquals(listOf("Handed to the full harness: needs to edit files", "Handed to the full harness: wants to leave plan mode"), lines)
+        assertEquals(listOf("Switching to the full agent: needs to edit files", "Switching to the full agent: wants to leave plan mode", "Handed to the full harness: needs to push"), lines)
         // Light and full text stay separate items.
         assertEquals(listOf("light", "full"), t.shown.filterIsInstance<ChatItem.Assistant>().map { it.route })
     }

@@ -80,6 +80,13 @@ func TestCreatesUnderASpecEpicAreFoundWork(t *testing.T) {
 	if code := post(`{"title":"x","related":["bad id"]}`); code != http.StatusBadRequest {
 		t.Fatalf("invalid related id accepted: %d", code)
 	}
+	// A note from the intake card is added to the description.
+	if code := post(`{"title":"Keep drafts","description":"Per thread.","owner_note":"keep it to the folded screen"}`); code != http.StatusCreated {
+		t.Fatalf("create with a note: %d", code)
+	}
+	if got := calls(); !strings.Contains(got, "Per thread.\n\nRyder's note: keep it to the folded screen") {
+		t.Fatalf("note not in the description:\n%s", got)
+	}
 }
 
 func TestPendingAmendmentsNeverRunAlone(t *testing.T) {

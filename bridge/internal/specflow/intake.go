@@ -33,6 +33,9 @@ type IntakeDraft struct {
 	Acceptance  string `json:"acceptance,omitempty"`
 	Type        string `json:"type,omitempty"`
 	Parent      string `json:"parent,omitempty"`
+	// Digest is the brainstorm the draft came from. Intake ignores it; the
+	// bead intake creates keeps it in its notes.
+	Digest string `json:"digest,omitempty"`
 }
 
 // IntakeReference cites a requirement (or an active change's file).

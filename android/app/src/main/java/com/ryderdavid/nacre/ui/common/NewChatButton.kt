@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
@@ -79,3 +82,23 @@ fun NewChatButton(onStart: (agent: String) -> Unit, modifier: Modifier = Modifie
 @Composable
 fun agentIcon(agent: String): Painter =
     painterResource(if (agent == ChatWire.AGENT_CODEX) R.drawable.ic_agent_codex else R.drawable.ic_agent_claude)
+
+/**
+ * New effort: a Claude chat that drafts an idea, reading and drawing but changing nothing, until its
+ * Draft card's "Where does this belong?" raises intake.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun NewEffortButton(onClick: () -> Unit, modifier: Modifier = Modifier, height: Dp = 56.dp) {
+    FilledTonalButton(
+        onClick = onClick, shapes = ButtonDefaults.shapes(),
+        modifier = modifier.heightIn(min = height).semantics { contentDescription = "New effort: talk an idea through to a bead or a change" },
+    ) {
+        Icon(Icons.Rounded.Lightbulb, null, Modifier.size(ButtonDefaults.IconSize))
+        Spacer(Modifier.width(8.dp))
+        Text("New effort")
+    }
+}
+
+/** What New effort is for, where there is room to say it. */
+const val NEW_EFFORT_HINT = "New effort talks an idea through to a bead or a change. Nothing changes until you say where it belongs."

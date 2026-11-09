@@ -156,7 +156,14 @@ type decisionRig struct {
 
 func newDecisionRig(t *testing.T) *decisionRig {
 	t.Helper()
-	bin, _ := chatClaude(t, "")
+	return newDecisionRigWith(t, "")
+}
+
+// newDecisionRigWith is a decision rig whose chat turns print body (shell)
+// before their usual answer.
+func newDecisionRigWith(t *testing.T, body string) *decisionRig {
+	t.Helper()
+	bin, _ := chatClaude(t, body)
 	s, repo := chatServer(t, bin)
 	s.Config = &config.Config{Token: "tok", HostName: "Mac-Studio", HostID: "h_1"}
 	store, err := decisions.Open(filepath.Join(t.TempDir(), "decisions"), nil, log.New(io.Discard, "", 0))
@@ -327,11 +334,11 @@ func TestApproveDecisionOffersTheThreeOptions(t *testing.T) {
 		strings.Join(labels, "|") != "Approve, run, I'll land|Approve, run and land to main|Approve only" {
 		t.Fatalf("options %+v", d.Options)
 	}
-	if !has(d.Consequences, "Freezes the plan at revision 4c0ffee: 2 sections, 3 tasks") || !has(d.Consequences, "Up to $25") ||
+	if !has(d.Consequences, "Locks in this version of the plan (4c0ffee): 2 sections, 3 tasks") || !has(d.Consequences, "Up to $25") ||
 		!has(d.Consequences, "Pushes main to origin") {
 		t.Fatalf("consequences %q", d.Consequences)
 	}
-	if !d.AllowReject || !d.RejectNeedsNote || d.RejectLabel != "Not right" || len(d.Evidence) == 0 || d.Evidence[0].Kind != "review" {
+	if !d.AllowReject || !d.RejectNeedsNote || d.RejectLabel != "Send back for changes" || len(d.Evidence) == 0 || d.Evidence[0].Kind != "review" {
 		t.Fatalf("reject/evidence %+v", d)
 	}
 	if strings.Contains(fmt.Sprint(raw), "/v1/repos") {

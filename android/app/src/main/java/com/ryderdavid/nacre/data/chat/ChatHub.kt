@@ -5,7 +5,6 @@ import com.ryderdavid.nacre.data.claude.ImagePayload
 import com.ryderdavid.nacre.data.claude.byteCount
 import com.ryderdavid.nacre.data.claude.toAssist
 import com.ryderdavid.nacre.data.friendly
-import com.ryderdavid.nacre.data.model.ChatDraft
 import com.ryderdavid.nacre.data.model.ChatRecord
 import com.ryderdavid.nacre.data.model.CreateChat
 import com.ryderdavid.nacre.data.model.Keys
@@ -401,9 +400,8 @@ class ChatHub(
         return key
     }
 
-    /** Continue on [key]'s Draft card: the New effort sheet to open, or null when the chat has no board. */
-    fun continueDraft(key: String, chat: ChatRecord?, draft: ChatDraft): DraftContinuation? =
-        draftContinuation(chat, key, draft, effortOrigin(key))
+    /** "Where does this belong?" on [key]'s Draft card, for the draft recorded as event [seq]. */
+    suspend fun raiseDraftIntake(key: String, seq: Long): DraftIntakeResult = link.raiseDraftIntake(key, seq)
 
     /**
      * Deletes the chat on its computer. Its pane or sheet closes, its draft and pending images

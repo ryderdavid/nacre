@@ -156,7 +156,21 @@ fun ChatDrawer(
                 )
                 else -> CardsList(cards, thread, now, onOpen = show)
             }
-            if (!showOpen) NewChatButton(onStart = { agent -> start(agent, null) }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
+            if (!showOpen) Column(
+                Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // New effort first, where the project has OpenSpec and its computer drafts.
+                if (com.ryderdavid.nacre.data.chat.offersNewEffort(board.data?.changes?.openspec == true, repo.health(host))) {
+                    com.ryderdavid.nacre.ui.common.NewEffortButton(onClick = {
+                        scope.launch {
+                            runCatching { container.chats.startNewEffort(repoKey, null, null) }
+                                .onSuccess(show).onFailure { repo.notify("Couldn't start New effort: ${it.message}") }
+                        }
+                    })
+                }
+                NewChatButton(onStart = { agent -> start(agent, null) })
+            }
         }
     }
 }

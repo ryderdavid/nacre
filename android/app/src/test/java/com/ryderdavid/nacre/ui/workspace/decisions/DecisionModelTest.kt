@@ -210,12 +210,14 @@ class DecisionModelTest {
         assertFalse(DecisionModel.canAskChat(Decision(id = "a", kind = "approve", source = "agent", state = "expired", chatId = "ch_1")))
         assertFalse(DecisionModel.canAskChat(found.copy(chatId = null)))
         assertFalse(DecisionModel.canAskChat(found.copy(chatId = "")))
-        // Raising intake again is a paid call, so the message Ryder sends says what it cost last time.
+        // Raising intake again runs intake again; the message says so, without a price.
         assertEquals(
-            "This card expired before I answered it. Please raise it again so I can decide. That runs intake again, which cost $0.04 last time.",
+            "This card expired before I answered it. Please raise it again so I can decide. That runs intake again.",
             DecisionModel.askChatText(intake),
         )
-        assertTrue(DecisionModel.askChatText(intake.copy(consequences = emptyList())).endsWith("That runs intake again, which is a paid call."))
+        assertFalse(DecisionModel.askChatText(intake).contains("$"))
+        assertEquals("What should change? It's revised and sent back to you", DecisionModel.rejectNoteLabel(intake.copy(rejectLabel = "Send back for changes")))
+        assertEquals("Why? (sent with the rejection)", DecisionModel.rejectNoteLabel(intake.copy(rejectLabel = "Drop it")))
         assertEquals("This card expired before I answered it. Please raise it again so I can decide.", DecisionModel.askChatText(found))
     }
 

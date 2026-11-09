@@ -16,9 +16,14 @@ import (
 )
 
 // KindHandoff records that a light turn handed the message to the full
-// harness. Its text is "Handed to the full harness: <reason>" and its reason
-// the reason alone.
+// harness. Its text is [HandoffText] of the reason, and its reason the
+// reason alone.
 const KindHandoff = "handoff"
+
+// HandoffText is the chat line for a handoff, in words Ryder uses.
+func HandoffText(reason string) string {
+	return "Switching to the full agent: " + claude.OneLine(reason, 300)
+}
 
 const (
 	// RouterBudgetUSD caps one routing call.
@@ -42,8 +47,9 @@ const HandoffMessage = "Handing this to the full harness"
 const handoffPrefix = "NACRE_HANDOFF:"
 
 // LightAddendum is added to a light turn's "On screen" note.
-const LightAddendum = "You are answering in read-only plan mode with a lighter model. If reading is enough, answer. " +
-	"If the message needs anything more (editing files, changing beads, changes or rounds, running builds or tests, sending things, or leaving plan mode), " +
+const LightAddendum = "You are answering with a lighter model, and you can only read, except that you may write mockups into $" + EnvMockups + ": " +
+	"when a picture explains it better (a flow, layout or architecture of three or more parts), draw one there and show it with its MEDIA: line. If reading is enough, answer. " +
+	"If the message needs anything more (editing other files, changing beads, changes or rounds, running builds or tests, or sending things), " +
 	"don't attempt it: end your reply with exactly one last line `" + handoffPrefix + " <one-line reason>` and the full harness carries on in this same session."
 
 // ContinuationNote is the whole input of the full turn a handoff starts,

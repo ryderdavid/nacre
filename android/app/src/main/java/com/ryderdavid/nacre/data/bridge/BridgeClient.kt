@@ -405,6 +405,16 @@ class BridgeClient(val baseUrl: String, private val token: String, base: OkHttpC
     suspend fun chat(id: String): ChatDetail = get("/v1/chats/${enc(id)}")
     suspend fun sendChat(id: String, body: com.ryderdavid.nacre.data.model.SendChatMessage): com.ryderdavid.nacre.data.model.ChatSendResult =
         send("POST", "/v1/chats/${enc(id)}/messages", body)
+    /**
+     * Raises an intake card in chat [id] from its recorded draft event [seq] (`draft_seq`): the
+     * decision, new (201) or the one already raised from that draft (200). A 410 means the chat no
+     * longer holds that draft.
+     */
+    suspend fun raiseDraftIntake(id: String, seq: Long): com.ryderdavid.nacre.data.model.Decision {
+        // Intake is a model call that may take up to 90 s: the slow client, not the 45 s one.
+        val body = json.encodeToString(com.ryderdavid.nacre.data.model.DraftIntake(kind = "intake", draftSeq = seq)).toRequestBody(JSON)
+        return call(Request.Builder().url(url("/v1/chats/${enc(id)}/decisions")).post(body).build(), slowHttp)
+    }
     suspend fun cancelChat(id: String) {
         withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(url("/v1/chats/${enc(id)}/cancel")).post("{}".toRequestBody(JSON)).build()).await().use { it.checked() }

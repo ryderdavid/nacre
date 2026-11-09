@@ -63,6 +63,10 @@ type Server struct {
 	Assist        *assist.Runner
 	// Chats are the app's Chat conversations; nil when Chat isn't set up.
 	Chats *chat.Manager
+	// draftRaising holds the chat drafts intake is running on, so a second
+	// tap waits for the first card rather than running intake twice.
+	draftMu      sync.Mutex
+	draftRaising map[string]bool
 	// Rounds is nil until nacred has started rounds.
 	Rounds  *rounds.Manager
 	Changes *specflow.Manager
@@ -553,6 +557,8 @@ func (s *Server) features(cx codex.Status, cs claude.ChatSupport, codexChat stri
 		// Chat runs here, and steps the classifier won't allow alone are
 		// asked on the phone (host permission prompts).
 		f = append(f, api.FeatureAgentChat)
+		// New effort chats draft read-only, and their Draft card raises intake.
+		f = append(f, api.FeatureDraftIntake)
 	}
 	if s.Chats != nil && codexChat == "" {
 		// Chat can run on Codex here: it is signed in and its app-server

@@ -80,6 +80,55 @@ type record struct {
 	Version int `json:"version,omitempty"`
 	// DraftDismissed hides a failed draft until a new develop is accepted.
 	DraftDismissed bool `json:"draft_dismissed,omitempty"`
+	// FeedbackLog is every piece of feedback the owner gave this change
+	// through develop and revise, oldest first. Feedback stays the newest.
+	FeedbackLog []FeedbackEntry `json:"feedback_log,omitempty"`
+}
+
+// FeedbackEntry is one piece of owner feedback on a change.
+type FeedbackEntry struct {
+	At     string `json:"at"`
+	Action string `json:"action"`
+	Text   string `json:"text"`
+}
+
+// feedbackKeep is how many of the newest feedback entries the author sees
+// besides the first.
+const feedbackKeep = 7
+
+// ownerFeedback is the feedback log as the author and reviewer read it: the
+// first entry, which holds the original intent, and the newest ones, with
+// how many in between were left out.
+func ownerFeedback(log []FeedbackEntry) []string {
+	line := func(e FeedbackEntry) string { return e.At + " (" + e.Action + "): " + e.Text }
+	var out []string
+	if len(log) <= feedbackKeep+1 {
+		for _, e := range log {
+			out = append(out, line(e))
+		}
+		return out
+	}
+	out = append(out, line(log[0]))
+	if cut := len(log) - 1 - feedbackKeep; cut > 0 {
+		out = append(out, fmt.Sprintf("(%d earlier entries left out)", cut))
+	}
+	for _, e := range log[len(log)-feedbackKeep:] {
+		out = append(out, line(e))
+	}
+	return out
+}
+
+// backfillFeedback gives a record saved before the log existed a log of its
+// one feedback, dated from its last history entry.
+func backfillFeedback(r *record) {
+	if len(r.FeedbackLog) > 0 || strings.TrimSpace(r.Feedback) == "" {
+		return
+	}
+	at := ""
+	if n := len(r.Change.History); n > 0 {
+		at = r.Change.History[n-1].At
+	}
+	r.FeedbackLog = []FeedbackEntry{{At: at, Action: "develop", Text: r.Feedback}}
 }
 
 // recordVersion is the current record format. Version 1 added created_at.
@@ -167,6 +216,7 @@ func New(opts Options) (*Manager, error) {
 		if backfill(&r, stamp()) {
 			_ = atomicJSON(filepath.Join(opts.Dir, r.Change.ID+".json"), &r)
 		}
+		backfillFeedback(&r)
 		if r.Change.Phase == "drafting" || r.Change.Phase == "reviewing" || r.Change.Phase == "promoting" {
 			r.Change.Phase = "interrupted"
 			r.Change.Error = stoppedDuring
@@ -471,6 +521,9 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 	if a.Action == "refresh" {
 		return m.Get(ctx, repo, id)
 	}
+	if note := strings.TrimSpace(a.OwnerNote); note != "" {
+		a.Feedback = strings.TrimSpace(a.Feedback + "\n\nRyder's note: " + note)
+	}
 	if len(a.Feedback) > 12000 {
 		return Envelope{}, fmt.Errorf("feedback exceeds 12000 characters")
 	}
@@ -630,6 +683,9 @@ func (m *Manager) Act(ctx context.Context, repo, id string, a Action) (Envelope,
 		r.PendingPrepared = false
 		r.LastCall = nil
 		r.Feedback = a.Feedback
+		if strings.TrimSpace(a.Feedback) != "" {
+			r.FeedbackLog = append(r.FeedbackLog, FeedbackEntry{At: stamp(), Action: a.Action, Text: a.Feedback})
+		}
 		if a.Action == "develop" {
 			r.DraftDismissed = false
 		}

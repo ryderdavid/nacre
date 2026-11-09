@@ -169,8 +169,16 @@ func TestRouterLightRunsTheLightArgv(t *testing.T) {
 	if v, _ := flag(la, "--model"); v != "sonnet" {
 		t.Errorf("light model: %v", la)
 	}
-	if v, _ := flag(la, "--permission-mode"); v != "plan" {
+	if v, _ := flag(la, "--permission-mode"); v != "default" {
 		t.Errorf("light permission mode: %v", la)
+	}
+	if !containsAll(la, "--restricted", "--tools", "--allowed-tools", "Read", "Bash(bd show:*)", "Bash(git status:*)") {
+		t.Errorf("light allowlist: %v", la)
+	}
+	for _, leaky := range []string{"Bash(git diff:*)", "Bash(git log:*)", "Bash(rg:*)", "Bash(cat:*)"} {
+		if containsAll(la, leaky) {
+			t.Errorf("light allowlist has %s, whose flags can write files", leaky)
+		}
 	}
 	if v, _ := flag(la, "--session-id"); v != rec.SessionID {
 		t.Errorf("light session: %v", la)
@@ -348,6 +356,8 @@ func TestRouterInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Once drafting has ended, a New effort chat is routed like any other.
+	m.EndDrafting(rec.ID)
 	sendAndWait(t, m, rec.ID, "c_in000001", strings.Repeat("long first message ", 200))
 	sendAndWait(t, m, rec.ID, "c_in000002", "and a follow-up")
 	cs := calls(t, fdir)
@@ -483,7 +493,7 @@ func TestHandoffLineStartsAFullTurn(t *testing.T) {
 	got := sendAndWait(t, m, rec.ID, "c_line0001", "Add a line to the README")
 	h, _ := checkHandoff(t, m, rec, fdir, "c_line0001")
 	reason := "Appending 'Built by Nacre.' to README.md needs a file edit, which this read-only chat can't do."
-	if h.Reason != reason || h.Text != "Handed to the full harness: "+reason {
+	if h.Reason != reason || h.Text != "Switching to the full agent: "+reason {
 		t.Errorf("handoff %+v", h)
 	}
 	if want := 0.01 + 0.0957821 + 0.0969761; !near(got.CostUSD, want) {
@@ -613,4 +623,18 @@ func TestSplitHandoff(t *testing.T) {
 			t.Errorf("splitHandoff(%q) = %q, %q, %v", tc.in, rest, reason, found)
 		}
 	}
+}
+
+// containsAll reports whether argv holds every one of want.
+func containsAll(argv []string, want ...string) bool {
+	have := map[string]bool{}
+	for _, a := range argv {
+		have[a] = true
+	}
+	for _, w := range want {
+		if !have[w] {
+			return false
+		}
+	}
+	return true
 }

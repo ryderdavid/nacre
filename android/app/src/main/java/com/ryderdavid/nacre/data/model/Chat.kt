@@ -86,6 +86,8 @@ data class ChatRecord(
     @SerialName("host_name") val reportedHostName: String = "",
     val title: String = "",
     @SerialName("new_effort") val newEffort: Boolean = false,
+    /** A New effort chat that is still drafting: it can read and draw, and changes nothing until intake. */
+    val drafting: Boolean = false,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     val state: String = ChatWire.IDLE,
@@ -190,3 +192,11 @@ data class PermissionAnswer(val allow: Boolean, val note: String? = null)
 
 /** What answering a permission request came back with; [conflict] when it was already decided (409). */
 data class PermissionOutcome(val answer: ChatEvent?, val conflict: Boolean, val chat: ChatRecord? = null)
+
+/** `POST /v1/chats/{id}/decisions` raising intake from a chat's recorded draft event. */
+@Serializable
+data class DraftIntake(
+    /** Always "intake"; no default, since the client leaves defaults out of what it sends. */
+    val kind: String,
+    @SerialName("draft_seq") val draftSeq: Long,
+)

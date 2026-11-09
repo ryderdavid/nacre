@@ -195,6 +195,9 @@ type Record struct {
 	// Follow says the action finishes later (a land, a finish, an
 	// approval): the decision stays executing until nacred sees the end.
 	Follow bool `json:"follow,omitempty"`
+	// DraftSeq is the chat draft an intake card was raised from with
+	// draft_seq; a second raise of the same draft returns this card.
+	DraftSeq int64 `json:"draft_seq,omitempty"`
 }
 
 // Open reports whether a decision still belongs in the queue: pending,

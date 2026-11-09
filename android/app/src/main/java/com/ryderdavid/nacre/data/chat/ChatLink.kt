@@ -30,6 +30,9 @@ interface ChatLink {
     suspend fun answerPermission(key: String, request: String, allow: Boolean, note: String?): PermissionOutcome
     /** The bytes of the stored image [image] a message of chat [key] sent, for its thumbnail. */
     suspend fun chatImage(key: String, image: String): ByteArray
+    /** Raises an intake card in chat [key] from its draft event [seq]; see [DraftIntakeResult]. */
+    suspend fun raiseDraftIntake(key: String, seq: Long): DraftIntakeResult = DraftIntakeResult.Failed("Raising intake isn't available")
+
     /** One of a chat's mockups (`GET /v1/chats/{id}/mockups/{name}`). */
     suspend fun chatMockup(key: String, name: String): ByteArray = throw BridgeException("Mockups aren't available")
 
@@ -44,3 +47,18 @@ interface ChatLink {
 fun latestDecisions(events: List<ChatEvent>, hostId: String): List<Decision> =
     events.filter { it.kind == ChatWire.DECISION }.mapNotNull { it.decision }
         .associateBy { it.id }.values.map { it.copy(hostId = hostId) }
+
+/** What "Where does this belong?" on a Draft card came to. */
+sealed interface DraftIntakeResult {
+    /** The intake card, new or already raised from that draft. */
+    data class Raised(val decision: Decision) : DraftIntakeResult
+    /** The chat no longer holds that draft. */
+    data object Gone : DraftIntakeResult
+    data class Failed(val message: String) : DraftIntakeResult
+}
+
+/** What the Draft card says while intake decides where its draft belongs. */
+const val DRAFT_ASKING = "Asking where it belongs…"
+
+/** What the Draft card says when its draft is gone. */
+const val DRAFT_GONE = "That draft is gone. Ask the chat for a new one."

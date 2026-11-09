@@ -13,20 +13,24 @@
 // message), pid, answer (the control_response line), ran (only when the step
 // was allowed) and exit (once it finishes normally).
 //
-// Chat routing adds two more kinds of call, told apart by their argv:
+// Chat routing adds three more kinds of call, told apart by their argv:
 //
 //   - A routing call (--json-schema) answers with the route named in the file
 //     "router" (light, full, error, malformed, slow or rejected; default full),
 //     costing "router_cost" (default 0.01).
-//   - A light turn (--permission-mode plan) replays testdata/<name>.jsonl, the
-//     name read from the file "light" (default light_plain). Each stdin line
-//     of the recording after the first is a point where the fake reads one
-//     line from its stdin, as the CLI waited for the host there.
+//   - A light turn (--permission-mode default with --model) replays
+//     testdata/<name>.jsonl, the name read from the file "light" (default
+//     light_plain). Each stdin line of the recording after the first is a
+//     point where the fake reads one line from its stdin, as the CLI waited
+//     for the host there. A recording's /tmp/probe/mock is replaced with the
+//     call's NACRE_MOCKUPS_DIR.
+//   - A drafting turn (--permission-mode default, no --model) replays the
+//     recording named in "drafting" (default default_allowlist_drafting).
 //
 // A full turn replays testdata/<name>.jsonl the same way when the file "full"
 // names a recording, and otherwise the host prompt as above.
 //
-// Every call also writes call<N>.kind (router, light or full), call<N>.argv
+// Every call also writes call<N>.kind (router, light, drafting or full), call<N>.argv
 // (a JSON array) and call<N>.stdin (every line it read), N counting from 0.
 package fakeclaude
 
@@ -175,8 +179,10 @@ func run(dir, fixtures string, args []string, stdin io.Reader, stdout io.Writer)
 	switch {
 	case has(args, "--json-schema", ""):
 		kind = "router"
-	case has(args, "--permission-mode", "plan"):
+	case has(args, "--permission-mode", "default") && has(args, "--model", ""):
 		kind = "light"
+	case has(args, "--permission-mode", "default"):
+		kind = "drafting"
 	}
 	argvJSON, _ := json.Marshal(args)
 	write(call("argv"), string(argvJSON))
@@ -193,6 +199,8 @@ func run(dir, fixtures string, args []string, stdin io.Reader, stdout io.Writer)
 		return router(dir, stdout)
 	case "light":
 		return replay(dir, filepath.Join(fixtures, setting(dir, "light", "light_plain")+".jsonl"), sid, call("stdin"), stdin, stdout)
+	case "drafting":
+		return replay(dir, filepath.Join(fixtures, setting(dir, "drafting", "default_allowlist_drafting")+".jsonl"), sid, call("stdin"), stdin, stdout)
 	}
 	if name := setting(dir, "full", ""); name != "" {
 		return replay(dir, filepath.Join(fixtures, name+".jsonl"), sid, call("stdin"), stdin, stdout)
@@ -359,6 +367,10 @@ func replay(dir, path, sid, stdinFile string, stdin io.Reader, stdout io.Writer)
 			continue
 		}
 		line := []byte(r.Line)
+		if mock := os.Getenv("NACRE_MOCKUPS_DIR"); mock != "" {
+			// Recordings name their mockups directory /tmp/probe/mock.
+			line = []byte(strings.ReplaceAll(string(line), "/tmp/probe/mock", mock))
+		}
 		if lineType(r.Line) == "control_response" && lastHostReq != "" {
 			var m map[string]any
 			_ = json.Unmarshal(r.Line, &m)

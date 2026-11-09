@@ -10,6 +10,11 @@ import (
 func (s *Server) UseDecisions(store *decisions.Store) {
 	s.Decisions = store
 	store.OnChange = s.decisionChanged
+	if s.Chats != nil {
+		// A drafting chat's go-ahead raises intake through the same path as
+		// the Draft card's button.
+		s.Chats.SetIntakeRaiser(s.raiseFromChat)
+	}
 }
 
 // decisionChanged tells clients about a created or changed decision: a

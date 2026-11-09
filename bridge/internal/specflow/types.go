@@ -35,6 +35,9 @@ type Action struct {
 	// into the landing target: the work stops before main for Ryder.
 	Hold     bool   `json:"hold,omitempty"`
 	Feedback string `json:"feedback,omitempty"`
+	// OwnerNote is a note Ryder wrote on the card that asked for this
+	// action; it is added to Feedback, never in place of it.
+	OwnerNote string `json:"owner_note,omitempty"`
 	// Intake is the New effort verdict a develop was confirmed with.
 	Intake *IntakeHint `json:"intake,omitempty"`
 	// ChangeName is the active change an adopt takes over.

@@ -126,6 +126,26 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
     val views by hub.stack.views.collectAsState()
     val draft = views[thread]?.draft.orEmpty()
     var switching by remember { mutableStateOf(false) }
+    // "Where does this belong?" on the Draft card: raises intake on that exact draft.
+    val raisesDraftIntake = com.ryderdavid.nacre.data.chat.draftsIntake(repo.health(Keys.host(thread)))
+    var draftNotes by remember(thread) { mutableStateOf(mapOf<Long, String>()) }
+    var raising by remember(thread) { mutableStateOf(setOf<Long>()) }
+    val raiseIntake: (ChatItem.Draft) -> Unit = raise@{ d ->
+        if (d.seq in raising) return@raise
+        raising = raising + d.seq
+        draftNotes = draftNotes + (d.seq to com.ryderdavid.nacre.data.chat.DRAFT_ASKING)
+        // The app's scope: the raise must finish even if the pane goes away mid-call.
+        container.scope.launch {
+            val r = hub.raiseDraftIntake(thread, d.seq)
+            raising = raising - d.seq
+            draftNotes = draftNotes - d.seq
+            when (r) {
+                is com.ryderdavid.nacre.data.chat.DraftIntakeResult.Raised -> Unit // the card arrives in the timeline
+                com.ryderdavid.nacre.data.chat.DraftIntakeResult.Gone -> draftNotes = draftNotes + (d.seq to com.ryderdavid.nacre.data.chat.DRAFT_GONE)
+                is com.ryderdavid.nacre.data.chat.DraftIntakeResult.Failed -> draftNotes = draftNotes + (d.seq to "Couldn't ask where it belongs: ${r.message}")
+            }
+        }
+    }
     val list = com.ryderdavid.nacre.ui.chat.rememberChatList(thread)
     val compact = LocalConfiguration.current.screenWidthDp < 600
     // With the keyboard up the conversation gets the room: a one-line header, small chips, no suggestions.
@@ -230,6 +250,11 @@ fun ChatPaneM3(repoKey: String, thread: String, onThread: (String) -> Unit, onPr
                                 }
                             }
                         } }
+                        is ChatItem.Draft -> ChatItemView(
+                            item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread,
+                            onContinue = if (raisesDraftIntake) { d -> raiseIntake(d) } else null,
+                            draftNote = draftNotes[item.seq],
+                        )
                         else -> ChatItemView(item, onAnswer = { r, allow, note -> conv.answer(r, allow, note) }, chatKey = thread)
                     }
                     is TimelineRow.Card -> DecisionCard(row.decision, onEvidence)

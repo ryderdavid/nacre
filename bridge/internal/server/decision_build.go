@@ -224,7 +224,7 @@ func (s *Server) buildApprove(ctx context.Context, ref repos.Ref, t decisions.Ta
 		}
 		return decisions.Action{Method: "POST", Path: path, Body: body}
 	}
-	plan := fmt.Sprintf("Freezes the plan at revision %s: %s", short(c.Revision), plural(len(c.Sections), "section", "sections"))
+	plan := fmt.Sprintf("Locks in this version of the plan (%s): %s", short(c.Revision), plural(len(c.Sections), "section", "sections"))
 	if tasks > 0 {
 		plan += ", " + plural(tasks, "task", "tasks")
 	}
@@ -255,7 +255,7 @@ func (s *Server) buildApprove(ctx context.Context, ref repos.Ref, t decisions.Ta
 				s.pushLine(target, push) + " when it lands"},
 			Evidence: []decisions.Evidence{
 				{Label: review, Kind: "review", Ref: c.ID, Repo: ref.ID},
-				{Label: "Seed " + seed, Kind: "bead", Ref: seed, Repo: ref.ID},
+				{Label: "Original bead " + seed, Kind: "bead", Ref: seed, Repo: ref.ID},
 			},
 			Body: strings.TrimSpace(c.Summary),
 			Options: []decisions.Option{
@@ -264,7 +264,7 @@ func (s *Server) buildApprove(ctx context.Context, ref repos.Ref, t decisions.Ta
 				{ID: "run_land", Label: "Approve, run and land to " + target, Detail: landDetail, Protected: true},
 				{ID: "approve_only", Label: "Approve only", Detail: "Creates the epic and section beads; nothing runs", Protected: true},
 			},
-			AllowDefer: true, AllowReject: true, RejectLabel: "Not right", RejectNeedsNote: true,
+			AllowDefer: true, AllowReject: true, RejectLabel: "Send back for changes", RejectNeedsNote: true,
 		},
 		Actions: map[string]decisions.Action{
 			"run_hold": approve(true, true), "run_land": approve(true, false), "approve_only": approve(false, false),
@@ -330,7 +330,7 @@ func (s *Server) buildAdopt(ctx context.Context, ref repos.Ref, t decisions.Targ
 				fmt.Sprintf("Takes %s over as written: %d of %d tasks already checked", t.Change, a.TasksDone, a.TasksTotal),
 				"Nacre tracks it from here; its sections become beads once you approve it",
 			},
-			Evidence:   []decisions.Evidence{{Label: "Seed " + t.Bead, Kind: "bead", Ref: t.Bead, Repo: ref.ID}},
+			Evidence:   []decisions.Evidence{{Label: "Original bead " + t.Bead, Kind: "bead", Ref: t.Bead, Repo: ref.ID}},
 			Body:       a.Why,
 			Options:    opts,
 			AllowDefer: true, AllowReject: true, RejectLabel: "Not now",

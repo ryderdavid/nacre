@@ -104,6 +104,16 @@ internal fun PriorityTag(priority: Int) {
 }
 
 /**
+ * The line above a child bead's title naming its parent: the parent's title when the board has it,
+ * otherwise its id. Null for a bead without a parent.
+ */
+fun parentLine(issue: Issue, index: BoardIndex): String? {
+    if (issue.parent.isBlank()) return null
+    val title = index.byId[issue.parent]?.title?.trim().orEmpty()
+    return if (title.isNotEmpty()) "In $title" else "In ${issue.parent}"
+}
+
+/**
  * A bead card: tonal, 24dp corners, no outline. Tapping opens the peek; long-press drags (wired by the
  * caller); the ⋮ menu and the TalkBack actions offer Move to… and Ask about this.
  */
@@ -153,6 +163,10 @@ fun BeadTile(
                 }
             }
             Column(Modifier.padding(end = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The parent says what a child like "12. Device checks (human)" is part of.
+                parentLine(issue, index)?.let { line ->
+                    Text(line, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 Text(
                     issue.title,
                     style = if (inColumn) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,

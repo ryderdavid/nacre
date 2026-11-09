@@ -148,6 +148,10 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	turnNote := note
 	if firstMessage && c.rec.NewEffort {
 		turnNote = DraftingPrompt(strings.TrimPrefix(c.rec.Title, "New effort · ")) + "\n\n" + note
+	} else if c.rec.Drafting && c.rec.Agent == AgentClaude {
+		// Every later drafting message says again what drafting allows, so the
+		// go-ahead marker works whatever the session remembers.
+		turnNote = DraftingTurnNote + "\n\n" + note
 	}
 	var ctxCopy *Context
 	if req.Context != nil {
@@ -159,7 +163,8 @@ func (m *Manager) Send(id string, req SendRequest) (SendResult, error) {
 	// earlier ones.
 	plan.images = m.stagedImages(id, refs)
 	plan.codex = c.rec.Agent == AgentCodex
-	if c.rec.Agent == AgentClaude && m.routingOnLocked() {
+	plan.drafting = c.rec.Drafting && c.rec.Agent == AgentClaude
+	if c.rec.Agent == AgentClaude && !plan.drafting && m.routingOnLocked() {
 		// The router sees the history before this message, never files.
 		plan.routed = true
 		plan.router = RouterInput{
@@ -217,6 +222,9 @@ type turnPlan struct {
 	reminder string
 	// codex runs the message through codex app-server.
 	codex bool
+	// drafting runs a New effort chat's drafting turn: not routed, the
+	// owner's model, read-only with mockup writes.
+	drafting bool
 	// routed asks the router first.
 	routed     bool
 	router     RouterInput
@@ -311,6 +319,23 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 		// Codex chats are never routed, and report no cost.
 		return m.codexTurn(ctx, c, t, cwd, env, p)
 	}
+	if p.drafting {
+		spec := m.sessionSpec(c, p.spec)
+		if spec.MaxBudgetUSD < 0.005 {
+			return nil, errLimitMidTurn
+		}
+		spec.PermissionMode, spec.AllowedTools = "default", ReadOnlyTools
+		spec.Restricted, spec.Tools = true, RestrictedTools
+		dt := &drafted{}
+		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note, p.images, p.text, RouteFull, turnMode{drafting: true, drafted: dt})
+		if res != nil {
+			m.addCost(c, t, res.CostUSD)
+		}
+		if dt.goAhead && !t.wasStopped() && (res == nil || !res.IsError) {
+			m.raiseOnGoAhead(c, t.id)
+		}
+		return res, err
+	}
 	route := RouteFull
 	if p.routed {
 		d := m.route(ctx, p.router, m.remaining(c))
@@ -330,9 +355,10 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 		if spec.MaxBudgetUSD < 0.005 {
 			return nil, errLimitMidTurn
 		}
-		spec.Model, spec.PermissionMode = p.lightModel, "plan"
+		spec.Model, spec.PermissionMode, spec.AllowedTools = p.lightModel, "default", ReadOnlyTools
+		spec.Restricted, spec.Tools = true, RestrictedTools
 		lt := &light{}
-		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note+"\n\n"+LightAddendum, p.images, p.text, RouteLight, lt)
+		res, err := m.exec(ctx, c, t, cwd, env, spec, p.note+"\n\n"+LightAddendum, p.images, p.text, RouteLight, turnMode{light: lt})
 		if res != nil {
 			m.addCost(c, t, res.CostUSD)
 		}
@@ -349,7 +375,7 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 		if lt.reason != "" {
 			m.emit(c, Event{
 				Kind: KindHandoff, TurnID: t.id, Reason: lt.reason,
-				Text: "Handed to the full harness: " + claude.OneLine(lt.reason, 300),
+				Text: HandoffText(lt.reason),
 			})
 		}
 		// The full turn carries on in the same session: the light turn
@@ -359,7 +385,7 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 			if full.MaxBudgetUSD < 0.005 {
 				return nil, errLimitMidTurn
 			}
-			res, err := m.exec(ctx, c, t, cwd, env, full, ContinuationNote, nil, p.reminder, RouteFull, nil)
+			res, err := m.exec(ctx, c, t, cwd, env, full, ContinuationNote, nil, p.reminder, RouteFull, turnMode{})
 			if res != nil {
 				m.addCost(c, t, res.CostUSD)
 			}
@@ -370,11 +396,27 @@ func (m *Manager) parts(ctx context.Context, c *chatState, t *turn, cwd string, 
 	if full.MaxBudgetUSD < 0.005 {
 		return nil, errLimitMidTurn
 	}
-	res, err := m.exec(ctx, c, t, cwd, env, full, p.note, p.images, p.text, RouteFull, nil)
+	res, err := m.exec(ctx, c, t, cwd, env, full, p.note, p.images, p.text, RouteFull, turnMode{})
 	if res != nil {
 		m.addCost(c, t, res.CostUSD)
 	}
 	return res, err
+}
+
+// turnMode says how one claude process of a turn answers host requests:
+// a full turn (zero value) asks the phone; a light turn (light set) allows
+// mockup writes and hands off anything else; a drafting turn allows mockup
+// writes and refuses anything else.
+type turnMode struct {
+	light    *light
+	drafting bool
+	// drafted records what a drafting turn said: its go-ahead marker.
+	drafted *drafted
+}
+
+// drafted is what a drafting turn's text asked of nacred.
+type drafted struct {
+	goAhead bool
 }
 
 // sessionSpec is spec for the next part of the chat's turn: the session
@@ -420,7 +462,9 @@ func (m *Manager) addCost(c *chatState, t *turn, usd float64) {
 // an error when it ended without one. A light turn (lt set) hands off, by
 // setting lt.reason, on a final handoff line, a host permission request or
 // an ExitPlanMode call; the last two are refused and the process stopped.
-func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note string, images []claude.StagedImage, text, route string, lt *light) (*claude.Result, error) {
+func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, env []string, spec claude.Chat, note string, images []claude.StagedImage, text, route string, mode turnMode) (*claude.Result, error) {
+	lt := mode.light
+	mockups := m.MockupsDir(c.rec.ID)
 	msg, err := claude.ChatUserMessage(note, images, text)
 	if err != nil {
 		return nil, err
@@ -493,12 +537,24 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 		scan(stdout, func(line []byte) {
 			if req, ok := claude.ParseControlRequest(line); ok {
 				switch {
+				case mode.drafting:
+					switch {
+					case req.Subtype != "can_use_tool":
+						write(claude.UnsupportedControl(req.RequestID, req.Subtype))
+					case !t.wasStopped() && mockupWrite(req, mockups):
+						write(claude.AllowControl(req.RequestID, req.Input))
+					default:
+						write(claude.DenyControl(req.RequestID, DraftingReminder))
+					}
 				case lt == nil:
 					m.control(c, t, req, write)
 				case req.Subtype != "can_use_tool":
 					write(claude.UnsupportedControl(req.RequestID, req.Subtype))
 				case lt.stopped || t.wasStopped():
 					write(claude.DenyControl(req.RequestID, HandoffMessage))
+				case mockupWrite(req, mockups):
+					// A light turn may draw: a mockup is the one write it makes.
+					write(claude.AllowControl(req.RequestID, req.Input))
 				case req.ToolName == "ExitPlanMode":
 					reason := planText(req.Input)
 					if reason == "" {
@@ -507,7 +563,7 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					handOff(req, reason)
 				default:
 					// No card: the full harness asks again if it needs to.
-					handOff(req, "the quick answer needs a step it can't take alone: "+PermissionSummary(req))
+					handOff(req, "it needs a step the quick answer can't take ("+PermissionSummary(req)+")")
 				}
 				return
 			}
@@ -535,6 +591,12 @@ func (m *Manager) exec(ctx context.Context, c *chatState, t *turn, cwd string, e
 					continue // the turn_end event closes the turn
 				}
 				out := fromRunEvent(ev, t.id, route)
+				if mode.drafted != nil && ev.Kind == api.KindText {
+					if rest, ok := splitIntakeMarker(out.Text); ok {
+						out.Text, ev.Text = rest, rest
+						mode.drafted.goAhead = true
+					}
+				}
 				var drafts []Event
 				if ev.Kind == api.KindText {
 					rest, found := ExtractDrafts(out.Text)

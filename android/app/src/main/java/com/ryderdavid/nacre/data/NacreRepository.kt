@@ -829,6 +829,19 @@ class NacreRepository(
     override suspend fun chatImage(key: String, image: String): ByteArray = clientFor(key).chatImage(Keys.id(key), image)
     override suspend fun chatMockup(key: String, name: String): ByteArray = clientFor(key).chatMockup(Keys.id(key), name)
 
+    override suspend fun raiseDraftIntake(key: String, seq: Long): com.ryderdavid.nacre.data.chat.DraftIntakeResult = try {
+        val d = clientFor(key).raiseDraftIntake(Keys.id(key), seq).copy(hostId = Keys.host(key))
+        learnDecision(d)
+        com.ryderdavid.nacre.data.chat.DraftIntakeResult.Raised(d)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: com.ryderdavid.nacre.data.bridge.BridgeException) {
+        if (e.code == 410) com.ryderdavid.nacre.data.chat.DraftIntakeResult.Gone
+        else com.ryderdavid.nacre.data.chat.DraftIntakeResult.Failed(e.friendly())
+    } catch (e: Exception) {
+        com.ryderdavid.nacre.data.chat.DraftIntakeResult.Failed(e.friendly())
+    }
+
     override suspend fun deleteChat(key: String) {
         clientFor(key).deleteChat(Keys.id(key))
         forgetChat(key)

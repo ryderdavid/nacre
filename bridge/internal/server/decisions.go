@@ -46,6 +46,9 @@ type raiseRequest struct {
 	Repo string `json:"repo"`
 	// Draft is an intake decision's New effort draft.
 	Draft *specflow.IntakeDraft `json:"draft"`
+	// DraftSeq raises intake from the draft the chat recorded as that
+	// event, the one its Draft card showed, instead of Draft.
+	DraftSeq int64 `json:"draft_seq"`
 	// Note is what found work is.
 	Note string `json:"note"`
 }
@@ -79,6 +82,22 @@ func (s *Server) raiseDecision(w http.ResponseWriter, r *http.Request) {
 	var built decisions.Record
 	switch req.Kind {
 	case decisions.KindIntake:
+		if req.DraftSeq > 0 {
+			d, created, derr := s.intakeFromDraft(r.Context(), chatID, repo, req.DraftSeq, req.Target)
+			switch {
+			case errors.Is(derr, chat.ErrDraftGone):
+				writeError(w, http.StatusGone, "That draft is gone. Ask the chat for a new one.", "draft_gone")
+			case errors.Is(derr, errIntakeRunning):
+				writeError(w, http.StatusConflict, "Intake is already running on that draft.", "intake_running")
+			case derr != nil:
+				s.decisionFail(w, derr)
+			case created:
+				writeJSON(w, http.StatusCreated, d)
+			default:
+				writeJSON(w, http.StatusOK, d)
+			}
+			return
+		}
 		built, err = s.buildIntake(r.Context(), repo, chatID, req.Target, req.Draft)
 	case decisions.KindFound:
 		built, err = s.buildFound(r.Context(), repo, chatID, req.Target, req.Note)
@@ -608,6 +627,12 @@ func (s *Server) run(ctx context.Context, rec decisions.Record, ans decisions.An
 		}
 		return true
 	})
+	if err == nil && rec.Decision.Kind == decisions.KindIntake && !ans.Reject && (status/100 == 2 || said != "") &&
+		out.Decision.ChatID != nil && s.Chats != nil {
+		// The intake card created or developed something: the New effort
+		// chat that raised it stops drafting.
+		s.Chats.EndDrafting(*out.Decision.ChatID)
+	}
 	if err == nil && follow {
 		if out.Decision.ChatID != nil && out.Decision.Kind == decisions.KindFinish && out.Decision.Target.Round != "" {
 			s.Decisions.LinkWork(out.Decision.Target.Round, *out.Decision.ChatID)
@@ -642,6 +667,12 @@ func fill(act decisions.Action, input, note, ask string) decisions.Action {
 		body[act.AskField] = ask
 	}
 	act.Body = body
+	if act.Then != nil {
+		// A note reaches every step of a chain that takes one (intake's
+		// create, then develop); input and ask are the first step's.
+		then := fill(*act.Then, "", note, "")
+		act.Then = &then
+	}
 	return act
 }
 
@@ -1132,4 +1163,86 @@ func (s *Server) announce(virtual []decisions.Record) {
 		}
 		s.decisionChanged(d)
 	}
+}
+
+// errIntakeRunning: intake is already running on that draft.
+var errIntakeRunning = errors.New("intake is already running on that draft")
+
+// intakeFromDraft raises an intake card in chat chatID from the draft it
+// recorded as event seq: the draft its Draft card showed. While a card raised
+// from that draft is still answerable it is returned instead (created
+// false); while intake runs on it, a second raise gets errIntakeRunning. A
+// draft that names its bead (found work filed out of scope) raises intake
+// for that bead rather than creating another.
+func (s *Server) intakeFromDraft(ctx context.Context, chatID, repo string, seq int64, target decisions.Target) (decisions.Decision, bool, error) {
+	store := s.Decisions
+	if store == nil || s.Chats == nil {
+		return decisions.Decision{}, false, &buildError{http.StatusServiceUnavailable, "Decisions aren't available here."}
+	}
+	key := chatID + ":" + strconv.FormatInt(seq, 10)
+	s.draftMu.Lock()
+	for _, open := range store.List() {
+		d := open.Decision
+		if open.DraftSeq == seq && d.Kind == decisions.KindIntake && d.ChatID != nil && *d.ChatID == chatID && d.Answerable() {
+			s.draftMu.Unlock()
+			return d, false, nil
+		}
+	}
+	if s.draftRaising == nil {
+		s.draftRaising = map[string]bool{}
+	}
+	if s.draftRaising[key] {
+		s.draftMu.Unlock()
+		return decisions.Decision{}, false, errIntakeRunning
+	}
+	s.draftRaising[key] = true
+	s.draftMu.Unlock()
+	defer func() {
+		s.draftMu.Lock()
+		delete(s.draftRaising, key)
+		s.draftMu.Unlock()
+	}()
+
+	draft, err := s.Chats.DraftAt(chatID, seq)
+	if err != nil {
+		return decisions.Decision{}, false, err
+	}
+	if target.Bead == "" && draft.Bead != "" {
+		target.Bead = draft.Bead
+	}
+	in := &specflow.IntakeDraft{Title: draft.Title, Description: draft.Description, Design: draft.Design,
+		Acceptance: draft.Acceptance, Type: draft.Type, Digest: draft.Digest}
+	built, err := s.buildIntake(ctx, repo, chatID, target, in)
+	if err != nil {
+		return decisions.Decision{}, false, err
+	}
+	built.DraftSeq = seq
+	built.Decision.Source = decisions.SourceAgent
+	built.Decision.ChatID = &chatID
+	created, err := store.Create(built)
+	if err != nil {
+		return decisions.Decision{}, false, err
+	}
+	return created.Decision, true, nil
+}
+
+// raiseFromChat is the chat manager's intake raiser: a drafting turn that
+// ends with the go-ahead marker raises intake on its newest draft.
+func (s *Server) raiseFromChat(chatID string, seq int64) error {
+	rec, _, err := s.Chats.Get(chatID, 0)
+	if err != nil {
+		return err
+	}
+	repo := ""
+	if rec.Repo != nil {
+		repo = *rec.Repo
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	defer cancel()
+	_, _, err = s.intakeFromDraft(ctx, chatID, repo, seq, decisions.Target{})
+	var be *buildError
+	if errors.As(err, &be) {
+		return errors.New(be.msg)
+	}
+	return err
 }

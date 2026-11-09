@@ -266,7 +266,8 @@ func TestIntakeDecisionOffersEveryRoute(t *testing.T) {
 		t.Fatalf("raise: %d %v", code, raw)
 	}
 	if d.Kind != "intake" || d.ChatID == nil || *d.ChatID != rg.chatID || d.Body != "Drafts are part of resuming chats offline." ||
-		!has(d.Consequences, "Intake says: Amends offline-chat-resume") || !has(d.Consequences, "Intake cost $0.04") {
+		!has(d.Consequences, "Suggested: Amends offline-chat-resume, because drafts are part of resuming chats offline") ||
+		!has(d.Consequences, "Nothing happens until you pick one") || !has(d.Consequences, "Intake cost $0.04") {
 		t.Fatalf("decision %+v", d)
 	}
 	if rg.facts.intakes != 1 || len(rg.executed()) != 0 {
@@ -283,9 +284,18 @@ func TestIntakeDecisionOffersEveryRoute(t *testing.T) {
 	}
 	other := optionByID(d, "amend:palette-picker")
 	newOpt := optionByID(d, "new")
-	if other == nil || other.Disabled != "" || !strings.Contains(other.Detail, "Spends up to $30 (the per-action limit)") ||
-		newOpt == nil || !strings.Contains(newOpt.Detail, "$30") || optionByID(d, "bead") == nil || optionByID(d, "covered") == nil {
+	if other == nil || other.Disabled != "" || other.Detail != "Files it, then adds it to the palette-picker proposal for you to approve again." ||
+		newOpt == nil || optionByID(d, "bead") == nil || optionByID(d, "covered") == nil {
 		t.Fatalf("options %+v", d.Options)
+	}
+	// Spending shows only in the cost line, never on an option.
+	for _, o := range d.Options {
+		if strings.Contains(o.Label+o.Detail, "$") {
+			t.Errorf("option %q shows a dollar amount: %q", o.Label, o.Detail)
+		}
+	}
+	if !has(d.Consequences, "Intake cost $0.04. Writing a proposal is capped at $30") {
+		t.Errorf("cost line %v", d.Consequences)
 	}
 	if code, _ := rg.answer(t, d.ID, `{"option":"amend:offline-chat-resume"}`); code != http.StatusConflict {
 		t.Fatalf("disabled amendment chosen: %d", code)

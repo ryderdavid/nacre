@@ -23,6 +23,9 @@ fun updateForChat(computer: String) = "Update nacred on $computer to use Chat"
 /** Whether [health]'s computer serves Chat. */
 fun servesChat(health: Health?): Boolean = health != null && Features.AGENT_CHAT in health.features
 
+/** Whether the computer reporting [health] drafts New effort chats and raises intake from a Draft card. */
+fun draftsIntake(health: Health?): Boolean = health != null && Features.DRAFT_INTAKE in health.features
+
 /**
  * Why a connected computer can't chat, or null when it can. A nacred that knows Chat but can't run it
  * (for example, Claude Code too old for host prompts) gives its own reason.

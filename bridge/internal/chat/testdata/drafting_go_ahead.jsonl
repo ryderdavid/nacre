@@ -1,0 +1,4 @@
+{"dir": "stdin", "line": {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "go ahead"}]}}}
+{"dir": "stdout", "line": {"type": "system", "subtype": "init", "cwd": "/tmp/scratch", "session_id": "c3d4e5f6-0000-4000-8000-00000000a0a0", "model": "claude-opus-5-5", "permissionMode": "default"}}
+{"dir": "stdout", "line": {"type": "assistant", "session_id": "c3d4e5f6-0000-4000-8000-00000000a0a0", "message": {"role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "Changed: nothing; this is the draft I'll raise.\n\n```nacre-draft\n{\"title\":\"Jobs show elapsed time\",\"type\":\"feature\",\"digest\":[\"Decided: rounds and runs only\"]}\n```\n\nNACRE_INTAKE"}]}}}
+{"dir": "stdout", "line": {"type": "result", "subtype": "success", "is_error": false, "result": "draft", "session_id": "c3d4e5f6-0000-4000-8000-00000000a0a0", "total_cost_usd": 0.02, "num_turns": 1}}

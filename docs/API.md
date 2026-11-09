@@ -281,7 +281,7 @@ still a 409).
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/v1/ping` (no auth) | – | `{"name":"nacred","version":"0.6.0","commit":"<sha>","host_id":"h_…","host_name":"Mac-Studio"}` |
-| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), `assist_turn_ids` when the streamed turn endpoints take the app's own `turn_id` (see [SSE](#sse)), `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence, `agent_chat` when [Chat](#chat-v1chats) can run here (otherwise `agent_chat_unavailable` says why, naming the Claude Code version it needs), and `agent_chat_codex` when Chat can run on Codex here (otherwise `agent_chat_codex_unavailable` says why) |
+| GET | `/v1/health` | – | `{"name","version","commit","hostname","host_id","host_name","bd_version","claude_version","codex_version","codex_unavailable","repos":n,"active_runs":n,"features":["claude","codex"]}` — `version` comes from git when nacred is built: the release tag (`0.6.0`), how far past it the build is (`0.6.0-3-gabc1234`), `-dirty` for uncommitted changes, or `dev` when it wasn't built through `make`; `commit` is the full commit it was built from; `active_runs` excludes adopted runs; `features` has `claude` when Claude Code can run here, `chat_images` when the turn endpoints accept `images` (see [Images](#images)), `assist_turn_ids` when the streamed turn endpoints take the app's own `turn_id` (see [SSE](#sse)), `codex` when the Codex CLI is installed and signed in, and otherwise `codex_unavailable` says why in a sentence, `agent_chat` when [Chat](#chat-v1chats) can run here (otherwise `agent_chat_unavailable` says why, naming the Claude Code version it needs), `agent_chat_codex` when Chat can run on Codex here (otherwise `agent_chat_codex_unavailable` says why), and `draft_intake` wherever `agent_chat` is: New effort chats draft (see [New effort](#new-effort-and-the-nacre-draft-block)) and `POST /v1/chats/{id}/decisions` takes `draft_seq` |
 | GET | `/v1/repos[?refresh=1]` | – | `{"repos":[Repo]}` (refresh=1 rescans disk) |
 | GET | `/v1/repos/{repo}/issues` | – | `{"repo":Repo,"issues":[Issue]}` — all issues incl. closed |
 | GET | `/v1/repos/{repo}/issues/{id}` | – | `{"issue":Issue,"comments":[Comment]}` |
@@ -318,7 +318,7 @@ still a 409).
 
 ### CreateIssue
 `{"title" (required), "description", "issue_type", "priority", "parent", "labels": [], "design",
-"acceptance_criteria", "notes", "assignee", "related": [], "follow_on_of", "found_comment": {bead,
+"acceptance_criteria", "notes", "assignee", "owner_note", "related": [], "follow_on_of", "found_comment": {bead,
 comment_id}}` → `bd create --silent …`, then the created issue is returned from a fresh list.
 
 A child of a spec epic (a parent labelled `specflow:<change-id>`) is created with
@@ -465,7 +465,7 @@ gated: a client that was handed an adopted run's id can always follow it.
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | GET | `/v1/repos/{repo}/issues/{id}/change` | – | `{available, reason?, change}`; the change is nullable. Epic, seed aliases and section beads resolve the same workflow. |
-| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, run?, feedback?, change_name?, recorded_review?}` | The same envelope; long operations run independently of the HTTP connection. |
+| POST | `/v1/repos/{repo}/issues/{id}/change` | `{action, revision?, run?, feedback?, owner_note?, change_name?, recorded_review?}` | The same envelope; long operations run independently of the HTTP connection. `owner_note` is appended to `feedback` as "Ryder's note: …". Each develop or revise with feedback is added to the change's owner-feedback log, and every author and review call sees that log: the first entry and the 7 newest, oldest first, with how many were left out. |
 | POST | `/v1/repos/{repo}/intake` | `{title, description?, design?, acceptance?, type?, parent?}` | IntakeVerdict (below). One bounded, read-only call; writes nothing. |
 | POST | `/v1/repos/{repo}/changes/{change}/found` | FoundRequest | `{bead_id?, prefill?, change?}`: answers discovered work on a promoted change (below). |
 | GET | `/v1/repos/{repo}/changes` | – | `{changes:[ChangeSummary], total, openspec, untracked:[ChangeSummary]}`: `openspec` says the repository's OpenSpec setup is valid (New effort, intake and the Proposals lane apply); the repository's changes for the board, at most 50, changes still being planned (no epic yet) first, then newest. `total` counts all of them. A change proven given up is left out: `missing` (its proposal was written, it isn't archived, and its folder is gone from `openspec/changes`) with every seed and epic bead closed; a missing change with an open bead stays, with `missing: true`. `untracked` lists the checkout's other active changes, folders under `openspec/changes` (not `archive`) that no workflow record tracks (an archived record no longer does): `untracked: true`, `id` and `change_name` are the folder name, no seeds or epic, `tasks_done`/`tasks_total`, `has_review`, `archived_as` (an archived folder of the same change, so this one may be a leftover copy), and a phase from its files: `drafting` (no proposal.md or no task checkboxes), `awaiting_approval` (no task checked), else `ready`, where a section (a `##` heading of tasks.md with checkboxes) whose every task is checked reads `landed`. They are the Spec panel's, never board or Needs you items. A bridge without specification workflows answers an empty list. |
@@ -900,7 +900,7 @@ requirement or spec file by its repository path (`ref`).
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?,"draft"?,"note"?}` | Decision (201). The chat token works, for its own chat only (403 for another chat's); device tokens may raise one in any chat. `repo` defaults to the chat's repository. `draft` is an `intake` decision's New effort draft, `note` what `found` work is. 400 for an unknown kind, a missing target, draft or note, 404 for an unknown repo, round or bead, 409 when the action doesn't apply now (a change not awaiting approval, a round not ready to land, a bead not waiting for sign-off, found work outside any spec epic); an `intake` whose intake call fails answers 502, or 503 without OpenSpec |
+| POST | `/v1/chats/{id}/decisions` | `{"kind","target","repo"?,"draft"?,"draft_seq"?,"note"?}` | Decision (201). The chat token works, for its own chat only (403 for another chat's); device tokens may raise one in any chat. `repo` defaults to the chat's repository. `draft` is an `intake` decision's New effort draft (`title`, `description`, `design`, `acceptance`, `type`, `parent`, `digest`, all optional but `title`), `note` what `found` work is. `draft_seq` (intake only, needs the `draft_intake` feature) raises intake from the `draft` event with that `seq` in this chat, the draft its Draft card showed, instead of `draft`: **410** with `detail` `draft_gone` when the chat holds no such draft event, **200** with the existing card while a card raised from the same draft is still answerable, and **409** with `detail` `intake_running` while intake is still running on that draft. A draft that names a `bead` raises intake for that bead. 400 for an unknown kind, a missing target, draft or note, 404 for an unknown repo, round or bead, 409 when the action doesn't apply now (a change not awaiting approval, a round not ready to land, a bead not waiting for sign-off, found work outside any spec epic); 503 for `intake` without OpenSpec. An intake call that fails (timeout, cost cap, malformed verdict) still builds the card: its body says why, it suggests nothing, and it offers New change and Just a bead only |
 | GET | `/v1/decisions[?repo={repo}&state=open\|all]` | – | `{"decisions":[Decision]}`: stored decisions and Needs you items, questions and found work first, then approvals and checks, then landing, finishing and limits, newest first in each. `open` (the default) is pending, deferred, held and executing, plus failed and unknown not yet acknowledged. Listing revalidates unanswered decisions first (see Answering) |
 | GET | `/v1/decisions/{id}` | – | Decision; 404 for an unknown id |
 | POST | `/v1/decisions/{id}/answer` | one of `{"option","note"?,"input"?,"ask"?}`, `{"defer":true}`, `{"reject":true,"note"?}`, `{"acknowledge":true}` | Decision with its new state. **403** "Answer from a paired device" from this computer's own addresses or with a chat token. 400 for an unknown option, a bad input, a missing required note, or a defer or reject the decision doesn't allow. 409 `{"error","decision"}` when it was already answered differently or is no longer answerable |
@@ -1086,6 +1086,7 @@ Stored as `chats/<id>.json` (mode 0600) under nacred's state directory.
 | `add_dirs` | every other board's checkout on this computer, given to Claude as `--add-dir` and to Codex as writable roots |
 | `title` | the first message trimmed to 80 characters; before that "New chat · <board>" or "New chat · all boards"; a New effort chat keeps "New effort · <board>" |
 | `new_effort` | `true` for a New effort chat (below) |
+| `drafting` | `true` while a Claude New effort chat drafts: until Ryder answers an intake card it raised with an option that creates a bead or develops a change. Records saved before this field load as not drafting |
 | `created_at`, `updated_at` | RFC 3339 |
 | `session_id` | the agent's own session: the Claude session UUID, or the Codex thread id once `thread/start` has given one |
 | `session_started` | the agent has the session, so the next turn resumes it |
@@ -1124,7 +1125,7 @@ newest 5,000 events; older ones are dropped behind one `truncated` marker.
 |---|---|
 | `user` | `text`, `context` (the screen it was sent from), `images` (`[{"id","name","media_type","bytes"}]`, in order) |
 | `text`, `thinking`, `tool_use`, `tool_result` | the transcript, as in RunEvent (`text`, `tool`, `tool_id`, `input`, `is_error`), plus **`route`**: `light` or `full`, the part of the turn that produced it |
-| `handoff` | a light turn handed the message to the full harness: `text` "Handed to the full harness: <reason>", `reason` |
+| `handoff` | a light turn handed the message to the full harness: `text` "Switching to the full agent: <reason>", `reason` |
 | `draft` | a New effort draft: `draft` `{"title","type"?,"description"?,"design"?,"acceptance"?}`, `text` its title, `route` |
 | `permission` | a request waiting for the phone: `request_id`, `tool`, `text` (one line: the command, the file path, or "MCP tool <name> on <server>"), `reason` (the classifier's reason, when given), `input` |
 | `permission_answer` | how it was decided: `request_id`, `allowed`, `by` (`phone`, `timeout`, `stop`, `restart` or `turn_end`), `text`/`reason` (the deny message the agent saw) |
@@ -1311,25 +1312,47 @@ Everything else (developing proposals, starting rounds that don't land, beads wo
 ### New effort and the `nacre-draft` block
 
 - `POST /v1/chats` with `"new_effort": true` (and a `repo`) creates a chat titled
-  "New effort · <board>". nacred puts a drafting prompt before its first message only: talk the effort
-  through with Ryder, change nothing, and present the draft as a fenced `nacre-draft` block.
+  "New effort · <board>". nacred puts a drafting prompt before its first message only. The prompt says:
+  - restate the idea, name assumptions and ask at most three numbered questions before the first draft;
+  - present the draft as a fenced `nacre-draft` block, and start each later draft's reply with "Changed: …";
+  - raise intake only when Ryder says to go ahead.
+- **Drafting.** A Claude New effort chat starts with `drafting: true`.
+  - Its turns skip the router and run on the owner's model with `--permission-mode default`, `--restricted`
+    (the owner's settings files and their allow rules are ignored) and a read-only `--allowed-tools` list:
+    Read, Grep, Glob, web reads, read-only `bd` and `openspec` subcommands, `git status` and `ls`. Light turns
+    in any chat run the same way on the light model, and hand off anything but a mockup write.
+  - nacred allows a `Write`, `Edit` or `MultiEdit` whose `file_path` lies inside the chat's mockups
+    directory. It refuses every other step, ExitPlanMode included, with "Still drafting: …".
+  - On "go ahead", the agent ends its reply with the line `NACRE_INTAKE`. nacred strips it and raises intake
+    on the chat's newest draft, the same way as `draft_seq`. If that can't happen, it records an `error`
+    event "Couldn't ask where it belongs: …".
+  - Drafting ends, with a `system` event "Drafting finished: …", when Ryder answers an intake card the chat
+    raised with an option that creates a bead or develops a change. Drop, Defer, expiry and Already covered
+    leave it on. Codex New effort chats don't draft.
 - A draft block is a fenced code block whose info string is `nacre-draft`, holding JSON:
 
   ````
   ```nacre-draft
-  {"title": "…", "type": "feature", "description": "…", "design": "…", "acceptance": "…"}
+  {"title": "…", "type": "feature", "description": "…", "design": "…", "acceptance": "…",
+   "digest": ["Decided: …", "Ruled out: …", "Open: …", "Mockup: flow.html"]}
   ```
   ````
 
-  `title` is required; `type` is task, bug, feature, chore or epic; `design` and `acceptance` are
-  optional.
-- nacred parses every `nacre-draft` block in any chat's assistant text into a `draft` event and
-  strips the block from the shown text. A block that doesn't parse or has no title records an
+  `title` is required, and `type` is task, bug, feature, chore or epic. `design`, `acceptance`, `digest`
+  and `bead` are optional. `bead` names the bead the effort already has (found work filed out of scope), and
+  intake raised from the draft is for that bead. A text field may be a string or a list of strings, one per line. `digest` is the brainstorm
+  so far and is at most 2 KB. A longer one makes the block unreadable.
+- nacred parses every `nacre-draft` block in any chat's assistant text into a `draft` event and strips the
+  block from the shown text. A block that doesn't parse, has no title or has an oversize digest records an
   `error` event "The draft couldn't be read: <reason>", and the conversation continues.
-- The app shows the newest draft as a Draft card. Continue opens the New effort sheet at its intake
-  step with that draft (and any relation the prefill carried), and intake runs as usual. In a
-  repository without OpenSpec, the create action is New bead and opens the bead form directly; a
-  draft continues into that form.
+- The app shows the newest draft as a Draft card. Where the computer lists `draft_intake`, its "Where does
+  this belong?" raises intake with `draft_seq` set to that draft's event. The card that creates a bead puts
+  `digest` in the bead's `notes`. On an existing bead, the digest leads the develop feedback instead.
+- A note Ryder writes on the intake card is sent as `owner_note`:
+  - `POST …/issues` appends "Ryder's note: <note>" to the description;
+  - `POST …/issues/{id}/change` appends it to `feedback`.
+- In a repository without OpenSpec there is no intake: the chat creates the bead once Ryder says yes to the
+  draft.
 
 ### Budget: the $50 ceiling
 

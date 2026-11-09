@@ -363,7 +363,20 @@ private fun ChatSlot(repoKey: String, thread: String?, onThread: (String) -> Uni
             }
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("No chats in this project yet", style = MaterialTheme.typography.titleLargeEmphasized)
-                Text("Start one with Claude Code or Codex on this computer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val board by container.repository.board(repoKey).collectAsState()
+                val effort = com.ryderdavid.nacre.data.chat.offersNewEffort(board.data?.changes?.openspec == true, container.repository.health(Keys.host(repoKey)))
+                if (effort) {
+                    Text(com.ryderdavid.nacre.ui.common.NEW_EFFORT_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    com.ryderdavid.nacre.ui.common.NewEffortButton(onClick = {
+                        scope.launch {
+                            runCatching { container.chats.startNewEffort(repoKey, null, null) }
+                                .onSuccess(onThread).onFailure { container.repository.notify("Couldn't start New effort: ${it.message}") }
+                        }
+                    })
+                    Text("Or start an ordinary chat:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("Start one with Claude Code or Codex on this computer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (agent in listOf(ChatWire.AGENT_CLAUDE, ChatWire.AGENT_CODEX)) {
                         val start = {

@@ -266,7 +266,7 @@ fun DecisionCard(d: Decision, onEvidence: (DecisionEvidence) -> Unit, modifier: 
             if (d.pending) {
                 if (draft.rejecting || draft.noting || draft.note.isNotEmpty()) OutlinedTextField(
                     value = draft.note, onValueChange = { set(draft.copy(note = it)) },
-                    label = { Text(if (draft.rejecting) "Why? (sent with the rejection)" else "Note (optional)") },
+                    label = { Text(if (draft.rejecting) DecisionModel.rejectNoteLabel(d) else "Note (optional)") },
                     modifier = Modifier.fillMaxWidth(), minLines = 2,
                 )
                 val problem = DecisionModel.problem(d, draft)

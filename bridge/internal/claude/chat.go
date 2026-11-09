@@ -40,9 +40,19 @@ type Chat struct {
 	// Model is set only for a light turn (the chat's light model); a full
 	// turn uses the owner's own default model.
 	Model string
-	// PermissionMode is "plan" for a light turn; empty is "auto", the full
-	// harness.
+	// PermissionMode is "default" for a light or drafting turn, where
+	// nacred decides every step AllowedTools don't cover; empty is "auto",
+	// the full harness.
 	PermissionMode string
+	// AllowedTools are permission rules the CLI applies without asking
+	// (a light or drafting turn's read-only allowlist).
+	AllowedTools []string
+	// Restricted runs the CLI with --restricted and Tools as its --tools:
+	// the owner's settings files (and the allow rules and hooks in them)
+	// are ignored, so every step AllowedTools don't cover reaches nacred
+	// (recorded in internal/chat/testdata/restricted_drafting.jsonl).
+	Restricted bool
+	Tools      []string
 }
 
 // Args returns the argv (without the binary) for the turn.
@@ -70,6 +80,14 @@ func (c Chat) Args() []string {
 	}
 	for _, d := range c.AddDirs {
 		args = append(args, "--add-dir", d)
+	}
+	if c.Restricted {
+		args = append(args, "--restricted", "--tools", strings.Join(c.Tools, ","))
+	}
+	if len(c.AllowedTools) > 0 {
+		// Last, since the flag takes every value up to the next flag.
+		args = append(args, "--allowed-tools")
+		args = append(args, c.AllowedTools...)
 	}
 	return args
 }

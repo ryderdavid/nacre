@@ -53,6 +53,11 @@ const FeatureAgentChat = "agent_chat"
 // agent_chat_codex_unavailable says why.
 const FeatureAgentChatCodex = "agent_chat_codex"
 
+// FeatureDraftIntake is reported in /v1/health when Chat drafts New effort
+// chats (drafting turns) and raises intake from a recorded draft
+// (draft_seq on POST /v1/chats/{id}/decisions).
+const FeatureDraftIntake = "draft_intake"
+
 // FeatureCodex is reported in /v1/health when beads can be run with the
 // OpenAI Codex CLI here: it is installed and signed in. When it is missing,
 // health's codex_unavailable says why.

@@ -142,13 +142,18 @@ func TestNewEffortDraftingPromptOnTheFirstMessageOnly(t *testing.T) {
 	if len(first) != 2 || !strings.HasPrefix(first[0], prompt+"\n\nOn screen:") || first[1] != "pdfs in chat" {
 		t.Errorf("first message = %q", first)
 	}
-	if len(second) != 2 || strings.Contains(second[0], "New effort on") || !strings.HasPrefix(second[0], "On screen: same as before") {
+	// Later drafting messages carry the short drafting reminder, not the whole prompt.
+	if len(second) != 2 || strings.Contains(second[0], "New effort on") || !strings.HasPrefix(second[0], DraftingTurnNote+"\n\nOn screen: same as before") {
 		t.Errorf("second message = %q", second)
 	}
-	for _, want := range []string{"Change nothing", "`nacre-draft`", "\"title\"", "\"type\"", "\"description\"", "\"design\"", "\"acceptance\""} {
+	for _, want := range []string{"nacred refuses anything else", "`nacre-draft`", "\"title\"", "\"type\"", "\"description\"", "\"design\"", "\"acceptance\"",
+		"\"digest\"", "Ruled out:", "at most three numbered questions", "name the assumptions", "\"Changed: …\"", "Where does this belong?", "When Ryder says to go ahead", "`NACRE_INTAKE`", "\"bead\" field"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("drafting prompt lacks %q", want)
 		}
+	}
+	if strings.Contains(prompt, "sheet") {
+		t.Error("drafting prompt still mentions the removed New effort sheet")
 	}
 	got, _, _ := m.Get(rec.ID, 0)
 	if got.Title != "New effort · "+filepath.Base(repoA) {

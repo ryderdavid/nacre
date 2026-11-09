@@ -115,8 +115,13 @@ type Record struct {
 	AddDirs   []string `json:"add_dirs"`
 	Title     string   `json:"title"`
 	NewEffort bool     `json:"new_effort,omitempty"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	// Drafting is set on a Claude New effort chat until Ryder answers its
+	// intake card with an option that creates or develops: its turns are
+	// not routed, and can read and write mockups only. Records saved before
+	// it existed load as not drafting.
+	Drafting  bool   `json:"drafting,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 	// SessionID is the agent's session: the Claude session UUID, or the
 	// Codex thread id once thread/start has given one.
 	SessionID string `json:"session_id,omitempty"`
@@ -193,6 +198,8 @@ type chatState struct {
 // Manager holds every chat on this computer.
 type Manager struct {
 	opts Options
+	// intakeRaiser raises intake on a draft for a drafting turn's go-ahead.
+	intakeRaiser func(chatID string, seq int64) error
 
 	mu    sync.Mutex
 	chats map[string]*chatState
@@ -388,6 +395,7 @@ func (m *Manager) Create(req CreateRequest) (Record, error) {
 	rec := Record{
 		ID: newID("ch_"), Agent: req.Agent, Repo: repo, HostID: m.opts.HostID, HostName: m.opts.HostName,
 		Cwd: cwd, AddDirs: dirs, Title: title, NewEffort: req.NewEffort,
+		Drafting:  req.NewEffort && req.Agent == AgentClaude,
 		CreatedAt: now, UpdatedAt: now, SessionID: newUUID(), State: StateIdle, Phone: phone,
 	}
 	if rec.Agent == AgentCodex {

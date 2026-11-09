@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/ryderdavid/nacre/bridge/internal/api"
 	"github.com/ryderdavid/nacre/bridge/internal/chat"
@@ -83,7 +84,9 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 	d := *draft
 	d.Title = strings.TrimSpace(d.Title)
 	switch {
-	case len(d.Title)+len(d.Description)+len(d.Design)+len(d.Acceptance) > maxIntakeDraft:
+	case len(d.Digest) > chat.MaxDigest:
+		return decisions.Record{}, badDecision("draft.digest is longer than %d bytes; keep it to the main points", chat.MaxDigest)
+	case len(d.Title)+len(d.Description)+len(d.Design)+len(d.Acceptance)+len(d.Digest) > maxIntakeDraft:
 		return decisions.Record{}, badDecision("The draft is too long for intake; shorten it.")
 	case !draftTypes[d.Type]:
 		return decisions.Record{}, badDecision("draft.type is task, bug, feature, chore or epic")
@@ -100,6 +103,7 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 		}
 	}
 	v, err := s.facts().Intake(ctx, ref.Path, d)
+	failed := ""
 	if err != nil {
 		switch {
 		case errors.Is(err, specflow.ErrConflict):
@@ -107,7 +111,10 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 		case errors.Is(err, specflow.ErrUnavailable):
 			return decisions.Record{}, &buildError{http.StatusServiceUnavailable, specMessage(err)}
 		}
-		return decisions.Record{}, &buildError{http.StatusBadGateway, "Intake failed: " + err.Error()}
+		// Intake timed out, hit its cap or answered nonsense: the card still
+		// offers Just a bead and New change, with nothing recommended.
+		failed = "Intake couldn't decide where this goes (" + err.Error() + "). Pick one yourself."
+		v = specflow.IntakeVerdict{CostUSD: v.CostUSD}
 	}
 	summaries, _ := s.facts().Changes(ref.Path)
 	byName := map[string]api.ChangeSummary{}
@@ -126,21 +133,29 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 	}
 
 	limit := usd(specflow.MaxActionCostUSD)
-	spends := "Spends up to " + limit + " (the per-action limit) developing the proposal"
 	issues := "/v1/repos/" + ref.ID + "/issues"
 	feedback := intakeFeedback(v)
+	if failed != "" {
+		feedback = "Intake couldn't run; Ryder chose the route himself."
+	}
+	if existing != "" && strings.TrimSpace(d.Digest) != "" {
+		// The bead already exists, so its notes aren't ours to fill: the
+		// brainstorm travels with the develop request instead.
+		feedback = "From the brainstorm:\n" + strings.TrimSpace(d.Digest) + "\n\n" + feedback
+	}
 	create := func(extra string) decisions.Action {
 		body := map[string]any{"title": d.Title}
 		desc := d.Description
 		if extra != "" {
 			desc = strings.TrimSpace(desc + "\n\n" + extra)
 		}
-		for k, val := range map[string]string{"description": desc, "design": d.Design, "acceptance_criteria": d.Acceptance, "issue_type": d.Type, "parent": d.Parent} {
+		for k, val := range map[string]string{"description": desc, "design": d.Design, "acceptance_criteria": d.Acceptance, "issue_type": d.Type, "parent": d.Parent, "notes": strings.TrimSpace(d.Digest)} {
 			if val != "" {
 				body[k] = val
 			}
 		}
-		return decisions.Action{Method: "POST", Path: issues, Body: body, Done: "Created {id}"}
+		// Ryder's note on the card is added to the description.
+		return decisions.Action{Method: "POST", Path: issues, Body: body, Done: "Created {id}", NoteField: "owner_note"}
 	}
 	develop := func(route, change, done string) decisions.Action {
 		hint := map[string]any{"verdict": route}
@@ -153,7 +168,9 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 		}
 		return decisions.Action{Method: "POST", Path: issues + "/" + bead + "/change",
 			Body:  map[string]any{"action": "develop", "feedback": feedback, "intake": hint},
-			Label: "development", Done: done}
+			Label: "development", Done: done,
+			// Ryder's note on the card is added to the feedback.
+			NoteField: "owner_note"}
 	}
 	// developing either creates the bead and then develops it as what, or
 	// develops the existing one.
@@ -169,17 +186,17 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 
 	var opts []decisions.Option
 	actions := map[string]decisions.Action{}
-	newDetail := "Creates the bead, then develops a new change from it with intake's verdict as feedback. " + spends
+	newDetail := "Files it, then writes and reviews a proposal for you to approve."
 	if existing != "" {
-		newDetail = "Develops " + existing + " as a new change with intake's verdict as feedback. " + spends
+		newDetail = "Writes and reviews a proposal from " + existing + " for you to approve."
 	}
 	opts = append(opts, decisions.Option{ID: "new", Label: "New change", Detail: newDetail, Recommended: v.Verdict == specflow.VerdictNew})
 	actions["new"] = developing(specflow.VerdictNew, "", "a new change")
 	for _, name := range v.ActiveChanges {
 		id := "amend:" + name
-		detail := "Creates the bead, then develops it as an amendment to " + name + " with intake's verdict as feedback. " + spends
+		detail := "Files it, then adds it to the " + name + " proposal for you to approve again."
 		if existing != "" {
-			detail = "Develops " + existing + " as an amendment to " + name + " with intake's verdict as feedback. " + spends
+			detail = "Adds " + existing + " to the " + name + " proposal for you to approve again."
 		}
 		opt := decisions.Option{ID: id, Label: "Amends " + name, Detail: detail,
 			Recommended: v.Verdict == specflow.VerdictAmend && name == v.ChangeName}
@@ -189,7 +206,7 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 			if opt.Recommended && existing == "" {
 				opt.Recommended = false
 				opts = append(opts, decisions.Option{ID: "later", Label: "Create the bead, develop later",
-					Detail:      "Creates the bead now, noting it amends " + name + "; develop it once " + work + " ends. Spends nothing now",
+					Detail:      "Files it now, noting it amends " + name + ". Add it to the proposal once " + work + " ends.",
 					Recommended: true})
 				later := create("Intake: this amends " + name + ". Develop it once its active work (" + work + ") ends.")
 				later.Done = "Created {id}; develop it as an amendment to " + name + " once " + work + " ends"
@@ -198,24 +215,29 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 		}
 		opts = append(opts, opt)
 	}
-	beadOpt := decisions.Option{ID: "bead", Label: "Just a bead", Detail: "Creates the bead only; nothing else is spent",
+	beadOpt := decisions.Option{ID: "bead", Label: "Just a bead", Detail: "Files it as a bead. Nothing else happens.",
 		Recommended: v.Verdict == specflow.VerdictBead}
 	if v.Verdict == specflow.VerdictCovered {
-		beadOpt.Detail = "Creates the bead anyway; nothing else is spent"
+		beadOpt.Detail = "Files it as a bead anyway. Nothing else happens."
 	}
 	if existing != "" {
-		beadOpt.Label, beadOpt.Detail = "Keep it as a bead", "Leaves "+existing+" as ordinary work; nothing is spent"
+		beadOpt.Label, beadOpt.Detail = "Keep it as a bead", "Leaves "+existing+" as ordinary work. Nothing else happens."
 	} else {
 		actions["bead"] = create("")
 	}
-	opts = append(opts, beadOpt,
-		decisions.Option{ID: "covered", Label: "Already covered", Detail: "Records that it's already specified; nothing is created. Its evidence opens what covers it",
+	opts = append(opts, beadOpt)
+	if failed == "" {
+		opts = append(opts, decisions.Option{ID: "covered", Label: "Already covered", Detail: "Nothing is filed. Its links show what already covers it.",
 			Recommended: v.Verdict == specflow.VerdictCovered})
+	}
 	sort.SliceStable(opts, func(i, j int) bool { return opts[i].Recommended && !opts[j].Recommended })
 
-	says := "Intake says: " + verdictLabel(v.Verdict, v.ChangeName)
-	cons := []string{says, "Intake cost " + usd(v.CostUSD) + "; nothing develops until you choose",
-		"New change and Amends spend up to " + limit + " (the per-action limit); the others spend nothing"}
+	var cons []string
+	if failed == "" {
+		cons = append(cons, "Suggested: "+verdictLabel(v.Verdict, v.ChangeName)+", because "+lowerFirst(firstSentence(v.Rationale)))
+	}
+	cons = append(cons, "Nothing happens until you pick one",
+		"Intake cost "+usd(v.CostUSD)+". Writing a proposal is capped at "+limit)
 	if v.Fallback != "" {
 		cons = append(cons, v.Fallback)
 	}
@@ -246,7 +268,7 @@ func (s *Server) buildIntake(ctx context.Context, repoID, chatID string, t decis
 			Subtitle:     s.subtitle(ref.Name, "intake"),
 			Target:       decisions.Target{Bead: existing, Change: v.ChangeName},
 			Consequences: cons, Evidence: ev,
-			Body:       strings.TrimSpace(v.Rationale),
+			Body:       strings.TrimSpace(or(failed, v.Rationale)),
 			Options:    opts,
 			AllowDefer: true, AllowReject: true, RejectLabel: "Drop it",
 		},
@@ -659,4 +681,24 @@ func (s *Server) itemChats() func(api.AttentionItem) *string {
 		}
 		return nil
 	}
+}
+
+// firstSentence is text up to the end of its first sentence.
+func firstSentence(text string) string {
+	t := strings.TrimSpace(text)
+	for i, r := range t {
+		if (r == '.' || r == '!' || r == '?') && (i+1 == len(t) || t[i+1] == ' ' || t[i+1] == '\n') {
+			return t[:i]
+		}
+	}
+	return strings.TrimRight(t, ".")
+}
+
+// lowerFirst lowers a sentence's first letter, unless it starts a name such
+// as an acronym or an identifier.
+func lowerFirst(s string) string {
+	if len(s) < 2 || !unicode.IsUpper(rune(s[0])) || unicode.IsUpper(rune(s[1])) {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }

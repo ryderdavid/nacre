@@ -52,26 +52,32 @@ sealed interface ChatItem {
         val result: String? = null,
         val failed: Boolean = false,
     ) : ChatItem
-    /** "Handed to the full harness: <reason>". */
+    /** "Switching to the full agent: <reason>". */
     data class Handoff(override val key: String, val text: String) : ChatItem
     data class Permission(override val key: String, val card: PermissionCard) : ChatItem
     data class Note(override val key: String, val text: String, val error: Boolean) : ChatItem
-    /** A New effort draft; only the newest ([latest]) is shown, as a Draft card with Continue. */
-    data class Draft(override val key: String, val draft: com.ryderdavid.nacre.data.model.ChatDraft, val latest: Boolean = true) : ChatItem
+    /**
+     * A New effort draft, recorded as event [seq]; only the newest ([latest]) is shown, as a Draft card
+     * whose "Where does this belong?" raises intake from that event.
+     */
+    data class Draft(override val key: String, val draft: com.ryderdavid.nacre.data.model.ChatDraft, val latest: Boolean = true, val seq: Long = 0) : ChatItem
 }
 
 /** The handoff line, as the conversation shows it. */
 fun handoffLine(event: ChatEvent): String {
     val t = event.text.trim()
     return when {
-        t.startsWith(HANDED_OFF) -> t
+        t.startsWith(HANDED_OFF) || t.startsWith(OLD_HANDED_OFF) -> t
         t.isNotEmpty() -> "$HANDED_OFF: $t"
         event.reason.isNotBlank() -> "$HANDED_OFF: ${event.reason.trim()}"
         else -> HANDED_OFF
     }
 }
 
-const val HANDED_OFF = "Handed to the full harness"
+const val HANDED_OFF = "Switching to the full agent"
+
+/** What older bridges wrote for a handoff; their lines are shown as they came. */
+private const val OLD_HANDED_OFF = "Handed to the full harness"
 
 /** A one-line summary of a tool call's input: the command, the file, or the pattern. */
 fun toolSummary(tool: String, input: kotlinx.serialization.json.JsonElement?): String {
@@ -157,7 +163,7 @@ class ChatTranscript {
             ChatWire.DRAFT -> ev.draft?.takeIf { it.title.isNotBlank() }?.let { d ->
                 draftAt?.let { i -> items[i] = (items[i] as ChatItem.Draft).copy(latest = false) }
                 draftAt = items.size
-                items += ChatItem.Draft(key, d)
+                items += ChatItem.Draft(key, d, seq = ev.seq)
             }
             else -> Unit // thinking, result and turn_end aren't shown here
         }

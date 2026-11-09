@@ -105,3 +105,50 @@ The routing call itself was checked by hand the same day: `--model haiku`,
 
 `internal/chat/fakeclaude` replays the light recordings for light turns (see its
 package comment), and `route_test.go` checks each case.
+
+## Default mode with a read-only allowlist (`default_allowlist_drafting.jsonl`)
+
+This file was recorded on 2026-11-09 with Claude Code 2.1.319. It shows how light and drafting turns run
+(brainstorm-in-chat): `--permission-mode default`, with `--allowed-tools Read Grep Glob "Bash(cat:*)"
+"Bash(ls:*)" "Bash(git log:*)"` and an `--add-dir` for the chat's mockups directory. The host allowed each
+Write inside the mockups directory and denied every other request with "Still drafting".
+
+What the recording settles:
+
+- **The CLI checks a shell redirect as a write, not against the command's prefix rule.** `cat README.md >
+  copy.txt` and `ls > list.txt` each reached the host as `can_use_tool`, even though `Bash(cat:*)` and
+  `Bash(ls:*)` were allowed. Neither file was created. `git log --oneline` ran without asking.
+- **In default mode, a Write sends `can_use_tool` with its `file_path`.** Allowing one inside the mockups
+  directory created the file. Denying one in the repository left nothing behind.
+- **Plan mode, probed the same day, never sends a Write to the host.** The model writes only its plan file,
+  so a light turn there can't show a mockup.
+
+## `light_mockup.jsonl` (synthetic)
+
+This file was written by hand in the shape of the recordings. It is a light turn that writes a Mermaid mockup
+into `/tmp/probe/mock` (the fake CLI replaces that path with the call's `NACRE_MOCKUPS_DIR`), waits for the
+host's answer, and shows the mockup with a `MEDIA:` line.
+
+## `restricted_drafting.jsonl`
+
+This file was recorded on 2026-11-09 with Claude Code 2.1.319, and shows the shape light and drafting turns
+take after the Codex review. The run used:
+
+- `--restricted --tools Bash,Read,Grep,Glob,Write,Edit,MultiEdit,WebSearch,WebFetch`
+- `--permission-mode default`
+- `--allowed-tools Read Grep Glob "Bash(git status:*)" "Bash(ls:*)"`
+
+The repository's own `.claude/settings.json` allowed `Edit`, `Write`, `Bash(git:*)` and `Bash(touch:*)`.
+`--restricted` ignored that file:
+
+- an Edit of README.md and `touch made.txt` each reached the host and were denied, and nothing changed;
+- a Write into the mockups directory was allowed.
+
+An earlier run of the same kind shows that `git diff --output=out.txt` also reached the host. A prefix
+allow rule such as `Bash(git diff:*)` would have approved that write, so the allowlist keeps only
+commands with no option that writes.
+
+## `drafting_go_ahead.jsonl` (synthetic)
+
+This file was written by hand. It is a drafting turn that answers "go ahead" with an updated draft and a
+final `NACRE_INTAKE` line, which nacred strips before raising intake on that draft.
